@@ -3,8 +3,18 @@
 // ones that answer as a host would, so each screen shows without a host, a stream or a network.
 // The picture is a canvas drawn in the page. Nothing here ships: only the screenshot script loads it.
 //
-// SHOT_STREAM for /play/: pair (the PIN waits), pair-failed, library, error, stream (a game plays;
-// SHOT_KEYS/SHOT_CLICK then open the dock). For /guest/#<token>: name, waiting, expired, stream.
+// SHOT_STREAM for /play/: pair (the PIN waits), pair-failed, library, error, stream.
+// For /guest/#<token>: name, waiting, expired, stream.
+//
+// Both pages stop where a person acts, so a shot past that point needs the act:
+//   /play/   library and stream both open on the games. SHOT_KEYS=Enter,Enter plays the game in focus
+//            (the first press puts the keyboard on its tile, the second starts it); only then does
+//            `stream` show the picture. SHOT_SETTLE=3000 lets the stats capsule take its second look.
+//            For the dock, start a game by its tile instead, SHOT_CLICK="Hades II" SHOT_HOLD=Escape:
+//            the script clicks, then holds, then presses SHOT_KEYS, and a name with a comma in it
+//            ("Portal 2, running") cannot be clicked that way.
+//   /guest/  waiting and stream open on the name card with "Sam" filled in. SHOT_CLICK=Join sends
+//            the name; only then does the page wait for the host or show the stream.
 
 /** Runs in the page. `state` is SHOT_STREAM, `pad` SHOT_PAD. */
 function install({ state, pad }) {

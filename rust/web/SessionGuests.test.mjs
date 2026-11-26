@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import { createTestServer } from './test-server.mjs';
 
 // Guests from paired devices on Home (docs/multiclient.md): the card and its helpers.
@@ -133,4 +134,19 @@ test('the invite card lists links waiting with Take back and invited devices wit
     props: { invites: { links: [], friends: [], max_links: 8, default_seconds: 86_400 } },
   }).body;
   assert.doesNotMatch(empty, /Links not used yet|Invited devices/);
+});
+
+test('an invites reply without its lists draws the card, not a crash', () => {
+  // What a host that does not know the route, or the screenshot fixture's default reply, answers.
+  for (const invites of [{ status: true, available: false, enabled: false }, {}, { links: null, friends: undefined }]) {
+    const html = render(InviteCard, { props: { invites } }).body;
+    assert.match(html, /Invite a friend/);
+    assert.doesNotMatch(html, /Links not used yet|Invited devices/);
+  }
+  // The screenshot fixture answers the route, so Home's card shows its lists.
+  const fixture = readFileSync(new URL('./scripts/screenshots.cjs', import.meta.url), 'utf8');
+  assert.match(fixture, /replies\['\/api\/session-guests\/invites'\] = \{\s*links: \[/);
+  const fake = readFileSync(new URL('./scripts/fake-stream.cjs', import.meta.url), 'utf8');
+  assert.match(fake, /SHOT_KEYS=Enter,Enter plays the game in focus/);
+  assert.match(fake, /SHOT_CLICK=Join sends/);
 });

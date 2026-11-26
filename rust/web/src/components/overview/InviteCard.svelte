@@ -17,6 +17,10 @@
     onchange?: (invites: GuestInvites) => void;
   } = $props();
 
+  // A reply without its lists (an older host, a proxy's own answer) is an empty list, not a crash.
+  const links = $derived(invites.links ?? []);
+  const friends = $derived(invites.friends ?? []);
+
   let open = $state(false);
   let permission = $state<GuestPermission>('controller');
   let lifetime = $state('24h');
@@ -123,11 +127,11 @@
         <p class="muted">Send it to one person only: it works once. It is shown only now.</p>
       {/if}
     {/if}
-    {#if invites.links.length}
+    {#if links.length}
       <section aria-labelledby="invites-waiting">
         <h3 id="invites-waiting">Links not used yet</h3>
         <ul class="rows">
-          {#each invites.links as link (link.id)}
+          {#each links as link (link.id)}
             <li>
               <span class="who">
                 <strong>{permissionLabel(link.permission)}</strong>
@@ -147,11 +151,11 @@
         </ul>
       </section>
     {/if}
-    {#if invites.friends.length}
+    {#if friends.length}
       <section aria-labelledby="invites-friends">
         <h3 id="invites-friends">Invited devices</h3>
         <ul class="rows">
-          {#each invites.friends as friend (friend.uuid)}
+          {#each friends as friend (friend.uuid)}
             <li>
               <span class="who">
                 <strong>{friend.name}</strong>

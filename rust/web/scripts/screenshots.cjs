@@ -215,6 +215,13 @@ if (pair) {
 if (pair === 'pin') {
   replies['/api/clients/pending'] = { requests: [{ uniqueid: 'deck', name: 'Steam Deck', address: '192.168.4.31', age_seconds: 12 }] };
 }
+// Home's invites: one link not used yet and one friend's device paired from a link (Unix seconds).
+replies['/api/session-guests/invites'] = {
+  links: [{ id: 1, permission: 'controller', created: Math.floor(Date.now() / 1000) - 3600, expires: Math.floor(Date.now() / 1000) + 23 * 3600 }],
+  friends: [{ uuid: 'friend-1', name: 'Sam’s Pixel', permission: 'controller', until: Math.floor(Date.now() / 1000) + 3 * 86400 }],
+  max_links: 8,
+  default_seconds: 86400,
+};
 /** Answers that change while a page is open. */
 // Home polls the co-op sessions alone.
 replies['/api/coop/sessions'] = { sessions: replies['/api/coop'].sessions };

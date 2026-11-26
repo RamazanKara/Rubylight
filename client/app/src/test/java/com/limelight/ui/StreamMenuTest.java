@@ -452,6 +452,7 @@ public class StreamMenuTest {
             options.microphoneOffered = options.micButtonAvailable = options.mouseConnected = options.onscreenControls = options.gameControls = true;
             options.controllerMouseAvailable = options.menuButtonAvailable = true;
             options.scalingAvailable = options.zoomEnabled = options.pictureInPicture = options.externalDisplays = true;
+            options.picturePositionAvailable = options.flipAvailable = true;
             reachable.addAll(items(StreamMenu.mainPage(options)));
             reachable.addAll(items(StreamMenu.overlayPage(options)));
             options.rateChange = true;

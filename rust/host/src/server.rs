@@ -160,6 +160,7 @@ pub(crate) async fn run(args: crate::cli::Args, assets: PathBuf) -> Result<()> {
         None => butterpollo_session::paths::portable_profile()?,
     };
     let h = state::Host::load(directory, assets, args.port)?;
+    butterpollo_stream::dvr_store::recover_at_start(&h);
     // Crash reporting must not keep the host from starting, e.g. when the
     // reporter process is blocked.
     let crash_reporting = butterpollo_win_io::crash::initialize(&h.directory).err();

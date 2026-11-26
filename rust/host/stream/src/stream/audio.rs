@@ -26,6 +26,12 @@ pub(crate) fn open_audio_encoder(
 ) -> Result<(Opus, butterpollo_media_policy::audio::OpusLayout)> {
     let layout = audio_layout(s, negotiated)?;
     let opus = Opus::new_layout_duration(directory, &layout, s.config.audio_packet_ms)?;
+    s.dvr.opus_layout(
+        layout.channels,
+        layout.streams,
+        layout.coupled,
+        &layout.mapping,
+    );
     Ok((opus, layout))
 }
 
@@ -587,7 +593,7 @@ impl Media {
                     if index >= pre_processed {
                         couch.process(&s.audio, &s.launch.warnings, samples);
                     }
-                    for _ in 0..encoder.send(output.as_mut(), samples, now, at)? {
+                    for _ in 0..encoder.send(output.as_mut(), samples, now, at, &s.dvr)? {
                         loss.unsent();
                     }
                     if let Some(cadence) = &mut cadence {

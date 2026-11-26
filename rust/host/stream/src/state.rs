@@ -192,6 +192,8 @@ pub struct Host {
     pub file_transfers: crate::file_transfers::Transfers,
     /// The USB devices clients forward to this host.
     pub usb: crate::usb_forward::UsbForwarding,
+    /// Stream DVR's running replay buffer and the clips folder's disk lock.
+    pub dvr: crate::dvr_store::DvrStore,
     /// The session state machine and its journal.
     pub session: Mutex<crate::session_control::Control>,
     /// Ended streams for the console's Sessions page, saved in the profile directory.

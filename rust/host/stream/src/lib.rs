@@ -7,6 +7,7 @@ pub mod controller_sessions;
 pub mod couch_menu;
 pub mod display_session;
 pub mod dsu;
+pub mod dvr_store;
 pub mod extensions;
 pub mod file_transfers;
 pub mod game_files;

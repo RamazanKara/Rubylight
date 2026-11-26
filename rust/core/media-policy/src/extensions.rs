@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use anyhow::{Result, bail};
 use rubylight_protocol::{
     audio_ext, clipboard_sync, controller_identity, cursor_shape, fec_report, frame_warp,
-    frame_warp_v2, hdr, keyboard_layout, pen, pipeline_rates, rate_change, text_input,
+    frame_warp_v2, hdr, keyboard_layout, pen, pipeline_rates, rate_change, stream_dvr, text_input,
     transport_feedback, usb, video_packet,
 };
 
@@ -111,6 +111,9 @@ pub struct Offered {
     /// Per-packet arrival feedback (0x5547) for congestion control, while
     /// `congestion_control` is on; a DESCRIBE id only, no serverinfo element.
     pub transport_feedback: bool,
+    /// `StreamDvrVersion` and stream DVR requests (0x554A): instant replay and clips. A host
+    /// with Stream DVR always offers it; whether it is turned on travels in its answers.
+    pub stream_dvr: bool,
     /// `NvidiaEnhancements`: the NVIDIA image enhancements the GPU and
     /// driver offer with the NVIDIA component (`nvidia_enhance` bits), which a
     /// launch may ask for with `rlRtxHdr` and `rlRtxVideo`. 0 without it.
@@ -145,6 +148,7 @@ impl Offered {
         rate_change: false,
         clipboard_sync: false,
         transport_feedback: false,
+        stream_dvr: false,
         nvidia_enhancements: 0,
         max_video_packet: 0,
     };
@@ -214,6 +218,12 @@ impl Offered {
         }
         if self.controller_identity {
             fields.push((controller_identity::SERVERINFO_FIELD, version()));
+        }
+        if self.stream_dvr {
+            fields.push((
+                stream_dvr::SERVERINFO_FIELD,
+                stream_dvr::SERVERINFO_VERSION.to_string(),
+            ));
         }
         let nvidia = self.nvidia_enhancements & crate::nvidia_enhance::ALL;
         if nvidia != 0 {
@@ -296,6 +306,7 @@ impl Offered {
                 self.transport_feedback,
                 transport_feedback::TRANSPORT_FEEDBACK_MESSAGE_TYPE,
             ),
+            (self.stream_dvr, stream_dvr::DVR_STATE_MESSAGE_TYPE),
         ]
         .into_iter()
         .filter_map(|(offered, id)| offered.then_some(id))

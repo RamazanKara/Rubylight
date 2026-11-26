@@ -9,6 +9,7 @@
 //! next request.
 mod audio;
 pub mod coop;
+pub mod dvr;
 pub mod files;
 mod folders;
 mod guests;
@@ -168,6 +169,14 @@ pub fn router() -> Router<Shared> {
                 .fallback(unknown),
         )
         .route(&path("/wake"), get(wake::read).fallback(unknown))
+        .route(&path("/dvr"), get(dvr::status).fallback(unknown))
+        .route(&path("/dvr/clip"), post(dvr::clip).fallback(unknown))
+        .route(&path("/dvr/record"), post(dvr::record).fallback(unknown))
+        .route(&path("/dvr/clips"), get(dvr::clips).fallback(unknown))
+        .route(
+            &path("/dvr/clips/{id}"),
+            axum::routing::delete(dvr::delete).fallback(unknown),
+        )
         .route(&path("/audio"), get(audio::read).fallback(unknown))
         .route(
             &path("/audio/settings"),

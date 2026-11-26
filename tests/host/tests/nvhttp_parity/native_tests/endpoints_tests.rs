@@ -183,7 +183,8 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "session.couch_menu",
             "pairing.approve",
             "session.guest-invites",
-            "clipboard.image"
+            "clipboard.image",
+            "stream.dvr"
         ]
     );
     // Guests from other devices are listed only while `guest_join` is not off (the default).
@@ -197,7 +198,7 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
     let guests_at = asking.features.iter().position(|f| f == "session.guests");
     assert_eq!(
         guests_at,
-        Some(asking.features.len() - 3),
+        Some(asking.features.len() - 4),
         "{:?}",
         asking.features
     );
@@ -233,7 +234,8 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "coop",
             "pairing.approve",
             "session.guest-invites",
-            "clipboard.image"
+            "clipboard.image",
+            "stream.dvr"
         ]
     );
     s.host().nucleus.use_pc(Arc::new(

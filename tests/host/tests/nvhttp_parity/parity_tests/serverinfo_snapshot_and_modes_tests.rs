@@ -107,6 +107,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <SecondScreenVersion>1</SecondScreenVersion>\
              <FrameWarpProtocol>2</FrameWarpProtocol>\
              <ControllerIdentityVersion>1</ControllerIdentityVersion>\
+             <StreamDvrVersion>1</StreamDvrVersion>\
              </root>"
         ),
         "{paired}"
@@ -171,6 +172,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <SecondScreenVersion>1</SecondScreenVersion>\
              <FrameWarpProtocol>2</FrameWarpProtocol>\
              <ControllerIdentityVersion>1</ControllerIdentityVersion>\
+             <StreamDvrVersion>1</StreamDvrVersion>\
              </root>"
         ),
         "{unpaired}"

@@ -11,6 +11,7 @@ pub use clients::handle as update_clients;
 pub use clients::pairing_qr;
 mod config;
 mod displays;
+mod dvr;
 mod guests;
 mod logs;
 mod maintenance;
@@ -406,6 +407,9 @@ pub(crate) async fn api(
     }
     if path == "/api/power" || path.starts_with("/api/power/") {
         return power::handle(&h, &method, &uri, connection.local.ip(), &data).await;
+    }
+    if path == "/api/dvr" || path.starts_with("/api/dvr/") {
+        return dvr::handle(&h, &method, path, uri.query(), &headers, &data).await;
     }
     if let Some(action) = path.strip_prefix("/api/library/") {
         return apps::library(&h, &method, action, &data).await;

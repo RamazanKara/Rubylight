@@ -205,16 +205,22 @@ impl AudioEncoder {
     }
 
     /// Encodes one packet's samples (one AC3 frame for AC3 and E-AC3) and sends it, returning
-    /// how many RTP packets did not go out.
+    /// how many RTP packets did not go out. An Opus packet is also copied to Stream DVR's tap
+    /// while it runs (one relaxed load otherwise).
     pub(super) fn send(
         &mut self,
         output: &mut dyn AudioSink,
         samples: &[f32],
         captured: Instant,
         position: u64,
+        dvr: &butterpollo_session::session::dvr_tap::DvrTap,
     ) -> Result<usize> {
         match self {
-            Self::Opus(opus) => output.send(opus.encode_frame(samples)?, captured, position),
+            Self::Opus(opus) => {
+                let packet = opus.encode_frame(samples)?;
+                dvr.audio(packet, captured, position, samples.len());
+                output.send(packet, captured, position)
+            }
             Self::Pcm(buf) => {
                 audio_passthrough::pcm_s16le_into(samples, buf);
                 output.send(buf, captured, position)

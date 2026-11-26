@@ -12,6 +12,7 @@ use std::{
 };
 
 mod congestion;
+pub mod dvr_tap;
 mod fec;
 mod frame_warp;
 mod hdr;
@@ -254,6 +255,8 @@ pub struct Session<P = (), A = ()> {
     /// The host-drawn couch menu: open flag, revision and panel, shared by the
     /// control loop, the menu worker, the video loop and the native API.
     pub couch_menu: Arc<butterpollo_input_policy::couch_menu::Shared>,
+    /// Stream DVR's copy of the encoded stream; off unless the host armed it for this stream.
+    pub dvr: dvr_tap::DvrTap,
 }
 /// The client's address after its roams.
 struct Roam {
@@ -354,6 +357,7 @@ impl<P, A> Session<P, A> {
             couch_menu: Arc::new(butterpollo_input_policy::couch_menu::Shared::refusing(
                 "couch menu: this stream's control connection has not started",
             )),
+            dvr: Default::default(),
         })
     }
     /// The client's IP: the launch's, or the one it last roamed to.

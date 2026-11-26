@@ -52,7 +52,11 @@ fn pcm_goes_out_as_s16le_packets_and_opus_is_not_a_passthrough() {
     let mut pcm = AudioEncoder::passthrough(nowhere, Codec::Pcm, 2).unwrap();
     let mut sink = Recorder::default();
     let samples = [0.5, -0.5, 0.0, 1.0];
-    assert_eq!(pcm.send(&mut sink, &samples, Instant::now(), 0).unwrap(), 0);
+    assert_eq!(
+        pcm.send(&mut sink, &samples, Instant::now(), 0, &Default::default())
+            .unwrap(),
+        0
+    );
     assert_eq!(sink.packets, [pcm_s16le(&samples)]);
     assert!(sink.parts.is_empty());
     let error = AudioEncoder::passthrough(nowhere, Codec::Opus, 2)
@@ -252,7 +256,11 @@ fn ffmpeg_dolby_frames_go_out_in_numbered_chunks_and_never_as_opus_packets() {
     let mut ac3 = AudioEncoder::passthrough(&ffmpeg(), Codec::Ac3, 6).unwrap();
     let mut sink = Recorder::default();
     for _ in 0..3 {
-        assert_eq!(ac3.send(&mut sink, &samples, Instant::now(), 0).unwrap(), 0);
+        assert_eq!(
+            ac3.send(&mut sink, &samples, Instant::now(), 0, &Default::default())
+                .unwrap(),
+            0
+        );
     }
     assert!(sink.packets.is_empty());
     for (index, parts) in sink.parts.iter().enumerate() {
@@ -287,7 +295,13 @@ fn ffmpeg_dolby_frames_go_out_in_numbered_chunks_and_never_as_opus_packets() {
     }
     // A transport without passthrough refuses the frame instead of dropping it.
     let error = ac3
-        .send(&mut OpusOnly, &samples, Instant::now(), 0)
+        .send(
+            &mut OpusOnly,
+            &samples,
+            Instant::now(),
+            0,
+            &Default::default(),
+        )
         .unwrap_err();
     assert_eq!(error.to_string(), "this transport carries only Opus audio");
 }

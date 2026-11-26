@@ -309,6 +309,8 @@ impl SessionThread<'_> {
     ) -> Result<Started> {
         let SessionThread { m, h, s } = *self;
         workers.client_commands = Some(crate::process::ClientCommands::start(&h, &s)?);
+        // Stream DVR arms before the audio thread so it hears the Opus layout.
+        let _ = crate::stream::dvr::start(&h, &s, c);
         workers.audio = Some(m.spawn_audio(&h, &s)?);
         configure_video_fec(&s, &c)?;
         let max_kbps = max_bitrate_kbps(&s, &c);

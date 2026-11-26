@@ -35,6 +35,8 @@ impl SessionThread<'_> {
         // longer reaches.
         h.record_failure(&s);
         s.stop();
+        // A recording is finished and a clip being written completes (at most a few seconds).
+        crate::stream::dvr::end(&h, &s);
         // Congestion control over the whole stream, for the A/B (`congestion_ab.py`).
         if s.congestion_active() {
             let cc = s.congestion_snapshot();

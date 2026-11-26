@@ -15,6 +15,7 @@ mod config;
 mod control;
 mod couch_audio;
 mod device_recovery;
+pub mod dvr;
 #[cfg(test)]
 mod encoder_tests;
 pub(crate) mod frame_warp;

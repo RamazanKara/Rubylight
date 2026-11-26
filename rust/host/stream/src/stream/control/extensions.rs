@@ -142,6 +142,10 @@ pub(super) fn handle_extension_packet(
         butterpollo_media_policy::rate_change::RATE_CHANGE_MESSAGE_TYPE => {
             handle_rate_change(h, p, s, payload);
         }
+        // Stream DVR (0x554A): the worker answers through the pass below.
+        rubylight_protocol::stream_dvr::DVR_STATE_MESSAGE_TYPE => {
+            crate::stream::dvr::handle_control(h, control_wake, s, payload, encrypted);
+        }
         _ => return false,
     }
     true
@@ -296,6 +300,8 @@ pub(super) fn send_extension_updates(
             }
         }
     }
+    // Stream DVR state and clip results (0x554A), reliable and in order.
+    crate::stream::dvr::send_outgoing(host, peer_id, p, s);
     // Rate change answers (0x553C), reliable and in order.
     if s.rate_changes.queued() {
         while let Some(result) = s.rate_changes.take() {

@@ -256,6 +256,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("SecondScreenVersion", Reading::Read),
     ("FrameWarpProtocol", Reading::Read),
     ("ControllerIdentityVersion", Reading::Read),
+    ("StreamDvrVersion", Reading::Read),
     ("RustHostInternetPlayVersion", Reading::Read),
     (
         "RustHostSessionCount",

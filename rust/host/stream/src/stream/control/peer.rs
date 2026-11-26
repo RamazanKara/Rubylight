@@ -209,7 +209,12 @@ impl ControlPeer {
         }
     }
 
-    pub(super) fn encrypt(&mut self, s: &Session, kind: u16, payload: &[u8]) -> Result<Vec<u8>> {
+    pub(in crate::stream) fn encrypt(
+        &mut self,
+        s: &Session,
+        kind: u16,
+        payload: &[u8],
+    ) -> Result<Vec<u8>> {
         let seq = {
             let mut state = self.seq_state.lock().unwrap();
             let seq = state.sequence;

@@ -22,6 +22,7 @@ const ALL_ON: Offered = Offered {
     rate_change: true,
     clipboard_sync: true,
     transport_feedback: true,
+    stream_dvr: true,
     nvidia_enhancements: crate::nvidia_enhance::ALL,
     max_video_packet: video_packet::MAX_VIDEO_PACKET,
 };
@@ -63,6 +64,7 @@ fn everything_offered_gives_the_exact_fields_and_lines() {
             ("SecondScreenVersion", "1"),
             ("FrameWarpProtocol", "2"),
             ("ControllerIdentityVersion", "1"),
+            ("StreamDvrVersion", "1"),
             ("NvidiaEnhancements", "3"),
         ]
     );
@@ -77,13 +79,13 @@ fn everything_offered_gives_the_exact_fields_and_lines() {
              a=fmtp:97 surround-params=12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=x-ss-general.penBarrelRoll:1\r\n\
              a=x-rl-control:0x5508,0x5539,0x553a,0x553b,0x553c,0x553d,0x553e,0x5540,0x5543,\
-             0x5544,0x5545,0x5546,0x5547,0x5549\r\n"
+             0x5544,0x5545,0x5546,0x5547,0x5549,0x554a\r\n"
     );
     assert_eq!(
         ALL_ON.control_ids(),
         [
             0x5508, 0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540, 0x5543, 0x5544, 0x5545,
-            0x5546, 0x5547, 0x5549
+            0x5546, 0x5547, 0x5549, 0x554A
         ]
     );
 }
@@ -590,6 +592,19 @@ fn fec_choice_reads_the_launch_parameter() {
         let error = fec_choice(&options(Some(bad))).unwrap_err();
         assert_eq!(error.to_string(), "invalid rlFecPercentage", "{bad}");
     }
+}
+
+#[test]
+fn stream_dvr_is_a_serverinfo_version_and_one_control_id() {
+    let offered = Offered {
+        stream_dvr: true,
+        ..Offered::NONE
+    };
+    assert_eq!(
+        offered.serverinfo_fields(),
+        [("StreamDvrVersion", "1".to_owned())]
+    );
+    assert_eq!(offered.describe_lines(), "a=x-rl-control:0x554a\r\n");
 }
 
 #[test]

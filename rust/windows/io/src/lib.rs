@@ -6,6 +6,7 @@
 pub mod audio;
 pub mod audio_app_route;
 pub mod audio_route;
+pub mod background_write;
 pub mod child_session;
 pub mod clipboard;
 pub mod crash;

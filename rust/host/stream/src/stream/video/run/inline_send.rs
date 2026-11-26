@@ -153,6 +153,7 @@ impl InlineSender {
             ctx.s.launch.warnings.clear("encoder_recovery");
             source.device_recovered(&source.warnings);
         }
+        crate::stream::dvr::tap_video(ctx.s, &output);
         if let Some(sender) = ctx.pyrowave_sender {
             return sender.submit(
                 output,

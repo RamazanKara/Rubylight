@@ -553,6 +553,9 @@ pub(crate) async fn api(
             ("GET" | "POST", "/api/session/console") => {
                 session::console(&h, method.as_str(), &data)?
             }
+            ("GET" | "POST", "/api/session/suspend") | ("POST", "/api/session/resume") => {
+                session::quick_suspend(&h, method.as_str(), path)
+            }
             ("GET", "/api/display-devices") | ("GET", "/api/framegen/edid-refresh") => {
                 displays::handle(&h, method.as_str(), &uri, &data)?
             }

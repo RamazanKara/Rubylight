@@ -28,6 +28,8 @@ pub(super) fn catalog() -> Vec<auth::Scope> {
         ("/api/usb/detach", &["POST"][..]),
         ("/api/session/status", &["GET"][..]),
         ("/api/session/console", &["GET", "POST"][..]),
+        ("/api/session/suspend", &["GET", "POST"][..]),
+        ("/api/session/resume", &["POST"][..]),
         ("/api/sessions/history", &["GET"][..]),
         ("/api/rtsp/sessions", &["GET"][..]),
         ("/api/display-devices", &["GET"][..]),

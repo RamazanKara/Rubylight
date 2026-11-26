@@ -21,6 +21,7 @@ mod internet_play;
 mod launch;
 pub mod launch_warning;
 mod native;
+mod native_suspend;
 mod network_path;
 mod neural;
 pub mod pace;

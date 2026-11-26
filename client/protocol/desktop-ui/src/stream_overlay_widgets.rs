@@ -299,6 +299,8 @@ pub struct UsbDeviceView {
     pub pid: u16,
     pub name: String,
     pub blocked_message: Option<String>,
+    /// Windows has another driver on it and usbipd-win lists it: it may go through usbipd-win.
+    pub usbipd: bool,
     pub can_auto: bool,
     pub auto_on: bool,
     pub opening: bool,
@@ -326,6 +328,8 @@ pub struct UsbPanelView {
 pub enum UsbUiAction {
     Refresh,
     Attach(String),
+    /// Forward through usbipd-win, which the user asked for on a device another driver has.
+    AttachUsbipd(String),
     Detach(u32),
     SetAuto(String, bool),
 }
@@ -367,6 +371,15 @@ pub fn usb_show(ui: &mut egui::Ui, view: &UsbPanelView) -> Vec<UsbUiAction> {
                     ui.weak(phase_label);
                     if ui.button(tr("Detach")).clicked() {
                         actions.push(UsbUiAction::Detach(*request_id));
+                    }
+                }
+                (None, true) if device.usbipd => {
+                    if ui
+                        .button(tr("Forward with usbipd-win"))
+                        .on_hover_text(tr("Windows keeps its own driver on the device: usbipd-win lends it to the PC while it is attached. Windows asks for administrator rights to share it, and again to stop."))
+                        .clicked()
+                    {
+                        actions.push(UsbUiAction::AttachUsbipd(device.busid.clone()));
                     }
                 }
                 (None, true) => {

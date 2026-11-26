@@ -80,7 +80,8 @@ fn show_usb_section(ui: &mut egui::Ui, panel: &mut usb::Panel) {
             vid: d.vid,
             pid: d.pid,
             name: d.name.clone(),
-            blocked_message: d.blocked.as_ref().map(usb::Blocked::message),
+            blocked_message: usb::blocked_message(d),
+            usbipd: d.usbipd == usb::UsbipdOffer::Ready,
             can_auto: d.blocked.is_none(),
             auto_on: panel.is_auto(d),
             opening: panel.is_opening(d),
@@ -115,6 +116,7 @@ fn show_usb_section(ui: &mut egui::Ui, panel: &mut usb::Panel) {
                 panel.refresh();
             }
             UsbUiAction::Attach(busid) => panel.attach_busid(&busid),
+            UsbUiAction::AttachUsbipd(busid) => panel.attach_usbipd_busid(&busid),
             UsbUiAction::Detach(id) => panel.detach(id),
             UsbUiAction::SetAuto(busid, on) => panel.set_auto_busid(&busid, on),
         }

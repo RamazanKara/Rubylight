@@ -18,7 +18,7 @@ fn busids_follow_linux() {
 }
 
 fn plugged(busid: &str, vid: u16, pid: u16, blocked: Option<Blocked>) -> Local {
-    Local { busid: busid.into(), vid, pid, name: format!("{vid:04x}:{pid:04x}"), blocked, kernel: false }
+    Local { busid: busid.into(), vid, pid, name: format!("{vid:04x}:{pid:04x}"), blocked, kernel: false, usbipd: UsbipdOffer::None }
 }
 
 #[test]

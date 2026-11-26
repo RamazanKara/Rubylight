@@ -42,6 +42,8 @@ pub mod stream;
 pub mod timing_csv;
 pub mod usb;
 pub mod usb_arbitration;
+#[cfg(any(windows, test))]
+pub mod usb_windows;
 #[cfg(target_os = "linux")]
 pub mod usb_linux;
 #[cfg(any(windows, test, feature = "test-support"))]

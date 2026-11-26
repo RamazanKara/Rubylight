@@ -370,6 +370,12 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     if !second_screen::this_process() {
         stream::scan_sync::keep_in(store.dir());
     }
+    // Devices Nightjar shared through usbipd-win and could not unshare before it stopped (a
+    // crash, a cancelled prompt) go back to Windows. Nothing runs without its journal.
+    #[cfg(windows)]
+    if !second_screen::this_process() && !store.is_read_only() {
+        nightjar_desktop_media::usb_windows::recover_in_background();
+    }
     stream::scan_sync::restore(&store.scan_untrusted().displays);
     let profiles = store.profiles();
     let mappings = store.controller_mappings();

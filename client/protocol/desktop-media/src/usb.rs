@@ -87,6 +87,18 @@ impl Blocked {
     }
 }
 
+/// What usbipd-win can do for a device Windows has another driver on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UsbipdOffer {
+    /// Nothing: the device opens without it, or usbipd-win doesn't list it.
+    #[default]
+    None,
+    /// usbipd-win isn't installed; it would forward the device with Windows' driver left on.
+    NotInstalled,
+    /// usbipd-win lists it: the user may forward it through usbipd-win.
+    Ready,
+}
+
 /// A device plugged in here, as the picker shows it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Local {
@@ -97,6 +109,22 @@ pub struct Local {
     pub blocked: Option<Blocked>,
     /// Linux's usbip-host serves it, not libusb: it has isochronous endpoints.
     pub kernel: bool,
+    /// Windows: what usbipd-win can do for it while another driver has it.
+    pub usbipd: UsbipdOffer,
+}
+
+/// Why `local` can't be forwarded as it is, with what usbipd-win would change about that.
+pub fn blocked_message(local: &Local) -> Option<String> {
+    let blocked = local.blocked.as_ref()?.message();
+    Some(match local.usbipd {
+        UsbipdOffer::NotInstalled => format!("{blocked} {}", tr("Or install usbipd-win, then press Refresh, to forward it while Windows keeps its own driver.")),
+        _ => blocked,
+    })
+}
+
+/// The hub ports in Linux's busid (`1-2.4` is 2, 4).
+pub fn ports_of(busid: &str) -> Vec<u8> {
+    busid.split_once('-').map(|(_, ports)| ports.split('.').filter_map(|p| p.parse().ok()).collect()).unwrap_or_default()
 }
 
 /// Linux's name for the device at `ports` on `bus`: `1-2.4`.
@@ -120,10 +148,38 @@ fn sysfs_name(busid: &str) -> Option<String> {
     }
 }
 
-/// The devices plugged in here, hubs left out, without opening any of them.
+/// The devices plugged in here, hubs left out, without opening any of them; on Windows, with
+/// what usbipd-win can do for those another driver has.
 pub fn list() -> Result<Vec<Local>, String> {
     let context = rusb::Context::new().map_err(|e| trf("USB devices could not be listed: {}", &[&e]))?;
-    list_with(&context)
+    #[allow(unused_mut)]
+    let mut local = list_with(&context)?;
+    #[cfg(windows)]
+    offer_usbipd(&mut local);
+    Ok(local)
+}
+
+/// Marks the devices another driver has that usbipd-win could forward. Runs `usbipd state` only
+/// when there is such a device and usbipd-win is installed.
+#[cfg(windows)]
+fn offer_usbipd(local: &mut [Local]) {
+    let blocked = |l: &Local| matches!(l.blocked, Some(Blocked::NoWinUsb(_)));
+    if !local.iter().any(blocked) { return; }
+    let Some(cli) = crate::usb_windows::Cli::find() else {
+        local.iter_mut().filter(|l| blocked(l)).for_each(|l| l.usbipd = UsbipdOffer::NotInstalled);
+        return;
+    };
+    use crate::usb_windows::Usbipd;
+    let (state, nodes) = match (cli.state(), crate::usb_winusb::nodes()) {
+        (Ok(state), Ok(nodes)) => (state, nodes),
+        (Err(e), _) | (_, Err(e)) => return eprintln!("nightjar: USB: {e}"),
+    };
+    for device in local.iter_mut().filter(|l| blocked(l)) {
+        let listed = crate::usb_winusb::instance_id(&nodes, device.vid, device.pid, &ports_of(&device.busid))
+            .and_then(|id| crate::usb_windows::find(&state, &id).and_then(|d| d.busid().map(drop)))
+            .is_some();
+        if listed { device.usbipd = UsbipdOffer::Ready; }
+    }
 }
 
 /// Enumerates devices using a caller-owned `rusb::Context` so background polling avoids
@@ -159,7 +215,7 @@ fn list_with(context: &rusb::Context) -> Result<Vec<Local>, String> {
         #[cfg(not(target_os = "linux"))]
         let kernel = false;
         let name = name.unwrap_or_else(|| format!("USB device {vid:04x}:{pid:04x}"));
-        out.push(Local { busid, vid, pid, name, blocked, kernel });
+        out.push(Local { busid, vid, pid, name, blocked, kernel, usbipd: UsbipdOffer::None });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.busid.cmp(&b.busid)));
     Ok(out)
@@ -205,6 +261,49 @@ pub fn open(local: &Local) -> Result<Arc<dyn UsbDevice>, String> {
     #[cfg(not(target_os = "linux"))]
     let kernel = || None;
     open_or_kernel(opened, kernel)
+}
+
+/// Opens `local` through usbipd-win, which the user asked for: Windows keeps its own driver on
+/// it, and usbipd-win lends it while it is attached ([`crate::usb_windows`]).
+#[cfg(windows)]
+fn open_usbipd(local: &Local) -> Result<Arc<dyn UsbDevice>, String> {
+    let cli = crate::usb_windows::Cli::find().ok_or_else(|| tr("usbipd-win isn’t installed. Install it, then press Refresh.").to_owned())?;
+    let journal = crate::usb_windows::Journal::real()?;
+    let nodes = crate::usb_winusb::nodes()?;
+    let instance_id = crate::usb_winusb::instance_id(&nodes, local.vid, local.pid, &ports_of(&local.busid))
+        .ok_or_else(|| tr("The device was unplugged.").to_owned())?;
+    let picked = crate::usb_windows::Picked { busid: local.busid.clone(), vid: local.vid, pid: local.pid, instance_id, class: device_class(local) };
+    crate::usb_windows::open_with(Arc::new(cli), journal, crate::usb_windows::LOOPBACK, &picked).map(|device| device as Arc<dyn UsbDevice>)
+}
+
+#[cfg(not(windows))]
+fn open_usbipd(_: &Local) -> Result<Arc<dyn UsbDevice>, String> {
+    Err(trf("The device could not be opened: {}", &[&"usbipd-win"]))
+}
+
+/// bDeviceClass of `local`, or its first interface's class when that is 0, read from the
+/// descriptors libusb lists without opening it; 0 when it can't tell.
+#[cfg(windows)]
+fn device_class(local: &Local) -> u8 {
+    let Ok(context) = rusb::Context::new() else { return 0 };
+    let Ok(devices) = context.devices() else { return 0 };
+    let device = devices.iter().find(|d| busid(d.bus_number(), &d.port_numbers().unwrap_or_default()) == local.busid
+        && d.device_descriptor().is_ok_and(|desc| (desc.vendor_id(), desc.product_id()) == (local.vid, local.pid)));
+    device.map_or(0, |device| match device.device_descriptor().map(|d| d.class_code()) {
+        Ok(class) if class != 0 => class,
+        _ => device.active_config_descriptor().ok()
+            .and_then(|config| config.interfaces().next().and_then(|i| i.descriptors().next()).map(|s| s.class_code()))
+            .unwrap_or(0),
+    })
+}
+
+/// How a device is opened for an attachment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Route {
+    /// libusb, WinUSB or Linux's usbip-host, as [`open`] chooses.
+    Direct,
+    /// usbipd-win, which the user asked for ([`open_usbipd`]).
+    Usbipd,
 }
 
 /// libusb's answer for a device, with Linux's own USB/IP server ([`usb_linux`](crate::usb_linux))
@@ -332,9 +431,9 @@ fn auto_due(
 
 /// Opens and attaches `local`, which the caller marked as being opened; returns whether attach
 /// succeeded, and records any failure on the panel.
-fn attach_tracked(forwarder: &Forwarder, owner: u64, opening: &Mutex<Opening>, local: &Local) -> bool {
+fn attach_tracked(forwarder: &Forwarder, owner: u64, route: Route, opening: &Mutex<Opening>, local: &Local) -> bool {
     let _guard = OpeningGuard { opening, busid: local.busid.clone() };
-    match attach_now(forwarder, owner, local) {
+    match attach_now(forwarder, owner, route, local) {
         Ok(_) => true,
         Err(e) => {
             opening.lock().unwrap_or_else(PoisonError::into_inner).failed = Some(e);
@@ -411,7 +510,7 @@ impl Panel {
                                     continue;
                                 }
                                 eprintln!("nightjar: USB {}: attaching {} automatically", device.busid, device.name);
-                                if !attach_tracked(&forwarder, owner, &opening, &device) {
+                                if !attach_tracked(&forwarder, owner, Route::Direct, &opening, &device) {
                                     tried.insert(device.busid, Some(Instant::now() + AUTO_RETRY_COOLDOWN));
                                 }
                             }
@@ -516,14 +615,25 @@ impl Panel {
         }
     }
 
+    /// Forwards `local` through usbipd-win, as the user asked (Windows has another driver on it).
+    pub fn attach_usbipd_busid(&mut self, busid: &str) {
+        if let Some(device) = self.local().iter().find(|d| d.busid == busid).cloned() {
+            self.start_attach(&device, Route::Usbipd);
+        }
+    }
+
     pub fn attach(&mut self, local: &Local) {
+        self.start_attach(local, Route::Direct);
+    }
+
+    fn start_attach(&mut self, local: &Local, route: Route) {
         self.error = None;
         if !self.opening().try_start(&local.busid) { return; }
         // Opening devices (SetupAPI/libusb string reads, WinUSB handles, usbip-host bind) runs off the drawing thread.
         let busid = local.busid.clone();
         let (forwarder, opening, local, owner) = (self.forwarder.clone(), self.opening.clone(), local.clone(), self.owner);
         let spawned = std::thread::Builder::new().name("usb-open".into()).spawn(move || {
-            let _ = attach_tracked(&forwarder, owner, &opening, &local);
+            let _ = attach_tracked(&forwarder, owner, route, &opening, &local);
         });
         if let Err(e) = spawned {
             self.opening().finish(&busid);
@@ -582,13 +692,17 @@ const ARBITRATION_WAIT: Duration = Duration::from_millis(500);
 
 /// Opens `local` and asks the PC to attach it; what failed, for the user. A controller among
 /// them is paused here from now until the attachment ends ([`crate::usb_arbitration`]).
-fn attach_now(forwarder: &Forwarder, owner: u64, local: &Local) -> Result<u32, String> {
+fn attach_now(forwarder: &Forwarder, owner: u64, route: Route, local: &Local) -> Result<u32, String> {
     use crate::usb_arbitration::{Arbitrated, Forwarded, Registry};
     let claim = Registry::global().claim(owner, Forwarded { vid: local.vid, pid: local.pid, busid: local.busid.clone() });
     if !claim.wait_applied(ARBITRATION_WAIT) {
         eprintln!("nightjar: USB {}: the controllers did not let go in time; opening it anyway", local.busid);
     }
-    let attached = open(local).and_then(|device| forwarder.attach(Arbitrated::new(device, claim), &local.name).map_err(|e| attach_error(&e)));
+    let opened = match route {
+        Route::Direct => open(local),
+        Route::Usbipd => open_usbipd(local),
+    };
+    let attached = opened.and_then(|device| forwarder.attach(Arbitrated::new(device, claim), &local.name).map_err(|e| attach_error(&e)));
     match &attached {
         Ok(request_id) => eprintln!("nightjar: USB {}: asked the PC to attach {} ({:04x}:{:04x}), request {request_id}", local.busid, local.name, local.vid, local.pid),
         Err(e) => eprintln!("nightjar: USB {}: attaching {} failed: {e}", local.busid, local.name),

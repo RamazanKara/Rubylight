@@ -15,6 +15,8 @@ pub struct Node {
     pub service: String,
     /// The product string the device reported, empty when Windows has none.
     pub description: String,
+    /// Windows' device instance id (`USB\VID_054C&PID_0CE6\...`), as usbipd-win names it too.
+    pub instance_id: String,
 }
 
 /// `USB\VID_1209&PID_0001&MI_02\...`: the vendor, product and interface.
@@ -143,6 +145,13 @@ pub fn parse_guid(text: &str) -> Option<(u32, u16, u16, [u8; 8])> {
     Some((data1, data2, data3, data4))
 }
 
+/// Windows' device instance id of the device (not one of its interfaces) at `ports`.
+pub fn instance_id(nodes: &[Node], vid: u16, pid: u16, ports: &[u8]) -> Option<String> {
+    nodes.iter()
+        .find(|n| n.vid == vid && n.pid == pid && n.ports == ports && n.interface.is_none() && !n.instance_id.is_empty())
+        .map(|n| n.instance_id.clone())
+}
+
 /// The product string Windows has for the device at `ports`, if any.
 pub fn description(nodes: &[Node], vid: u16, pid: u16, ports: &[u8]) -> Option<String> {
     nodes.iter()
@@ -186,7 +195,7 @@ pub fn nodes() -> Result<Vec<Node>, String> {
             buffer.fill(0);
             let description = SetupDiGetDevicePropertyW(set, &data, &DEVPKEY_Device_BusReportedDeviceDesc, &mut kind, Some(&mut buffer), None, 0)
                 .ok().and_then(|()| wide(&buffer).into_iter().next()).unwrap_or_default();
-            nodes.push(Node { vid, pid, interface, ports, service, description });
+            nodes.push(Node { vid, pid, interface, ports, service, description, instance_id: id });
         }
         let _ = SetupDiDestroyDeviceInfoList(set);
         Ok(nodes)
@@ -351,7 +360,7 @@ mod tests {
     use super::*;
 
     fn node(interface: Option<u8>, ports: &[u8], service: &str) -> Node {
-        Node { vid: 0x1209, pid: 0x0001, interface, ports: ports.to_vec(), service: service.into(), description: String::new() }
+        Node { vid: 0x1209, pid: 0x0001, interface, ports: ports.to_vec(), service: service.into(), description: String::new(), instance_id: String::new() }
     }
 
     #[test]

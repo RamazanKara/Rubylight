@@ -12,6 +12,7 @@ const guest = await server.ssrLoadModule('/src/lib/webrtc/guest.ts');
 const gamepad = await server.ssrLoadModule('/src/lib/webrtc/gamepad.ts');
 const { default: GuestPanel } = await server.ssrLoadModule('/src/components/stream/GuestPanel.svelte');
 const { default: Guest } = await server.ssrLoadModule('/src/guest/Guest.svelte');
+const { default: JoinCard, PERMISSION_TEXT } = await server.ssrLoadModule('/src/guest/GuestJoinCard.svelte');
 const { render } = await server.ssrLoadModule('svelte/server');
 
 const TOKEN = '0123456789abcdef0123456789abcdef';
@@ -277,6 +278,66 @@ test('the guest page asks for a name with a link, and says when the link is cut 
   ({ body } = render(Guest));
   assert.match(body, /This invite link is incomplete/);
   assert.doesNotMatch(body, /Your name/);
+});
+
+// Rubylight 7.0: the join card on its dark stage and the stream's bar.
+
+test('the join card says what the host said, and keeps a browser’s own error under Details', () => {
+  const card = (props) => render(JoinCard, { props: { name: 'Sam', onjoin() {}, onleave() {}, ...props } }).body;
+  let body = card({ phase: 'name' });
+  assert.match(body, /Join the stream/);
+  assert.match(body, /The host sees the name you pick/);
+  assert.match(body, /maxlength="32"/);
+  body = card({ phase: 'joining' });
+  assert.match(body, /role="status"[^>]*>Joining…/);
+  // Waiting: the host's own sentence, or the page's when the host sent none.
+  body = card({ phase: 'waiting', waiting: 'The host has not started a game yet.' });
+  assert.match(body, /Waiting for the host/);
+  assert.match(body, /The host has not started a game yet\./);
+  assert.match(body, />Leave</);
+  assert.doesNotMatch(body, /View only|Controller/, 'the permission is unknown before the first offer');
+  body = card({ phase: 'waiting', permission: 'controller' });
+  assert.match(body, /This page joins when the stream starts\./);
+  assert.match(body, />Controller</);
+  assert.deepEqual(Object.keys(PERMISSION_TEXT), ['view', 'controller', 'controller-keyboard-mouse']);
+  // The three endings, and who may join again.
+  body = card({ phase: 'ended', ended: { code: 'left', message: 'You left the stream.', final: false } });
+  assert.match(body, /You left/);
+  assert.match(body, />Join again</);
+  body = card({ phase: 'ended', ended: { code: 'host-ended', message: 'The host stopped the stream.', final: false } });
+  assert.match(body, /The stream stopped/);
+  assert.match(body, /role="alert"[^>]*>The host stopped the stream\./);
+  body = card({ phase: 'ended', ended: { code: 'invalid-link', message: 'This invite link does not work any more.', final: true } });
+  assert.match(body, /This link no longer works/);
+  assert.doesNotMatch(body, /Join again/);
+  // A browser's WebRTC error is no sentence for a guest: it folds under Details.
+  body = card({ phase: 'ended', ended: { code: 'browser', message: 'This browser could not play the stream: InvalidAccessError: Failed to set remote answer sdp', final: false } });
+  assert.match(body, /role="alert"[^>]*>This browser could not play the stream\. Try another browser, or update this one\./);
+  assert.match(body, /<details[^>]*><summary[^>]*>Details<\/summary>[\s\S]*InvalidAccessError: Failed to set remote answer sdp/);
+  assert.doesNotMatch(body.slice(0, body.indexOf('<details')), /InvalidAccessError/);
+});
+
+test('the stream’s bar hides itself, leaves a mouse-and-keyboard guest’s pointer alone, and the page lets go on leaving', () => {
+  const page = readFileSync(new URL('./src/guest/Guest.svelte', import.meta.url), 'utf8');
+  // The page is a dark stage in either theme, and the bar a toolbar beside the picture, not in it.
+  assert.match(page, /<main class="media-plane"/);
+  const surface = page.slice(page.indexOf('class="surface"'), page.indexOf('</video>'));
+  assert.doesNotMatch(surface, /class="bar"/);
+  assert.match(page, /class="bar"\s+class:shown=\{barShown \|\| paused\}\s+role="toolbar"\s+aria-label="Stream controls"/);
+  for (const control of ["{fullscreen ? 'Exit full screen' : 'Full screen'}", "{muted ? 'Unmute' : 'Mute'}", 'onclick={leave}>Leave<']) assert.ok(page.includes(control), control);
+  // Four seconds without a reach for it; held while the pointer or the focus is on it.
+  assert.match(page, /const BAR_MS = 4000;/);
+  assert.match(page, /barTimer = setTimeout\(\(\) => \(barShown = barHeld\), BAR_MS\);/);
+  assert.match(page, /onfocusin=\{\(\) => hold\(true\)\}/);
+  assert.match(page, /onpointerenter=\{\(\) => hold\(true\)\}/);
+  // A guest whose mouse plays the game wakes the bar only at the top edge; a finger always does.
+  assert.match(page, /if \(!typing \|\| event\.pointerType !== 'mouse' \|\| event\.clientY - \(player\?\.getBoundingClientRect\(\)\.top \?\? 0\) < BAR_ZONE\) wake\(\);/);
+  // Leaving the page tells the host and lets go of the tracks.
+  assert.match(page, /onpagehide=\{\(\) => \{\s+stream\?\.leave\(\);\s+stopped\(\);\s+\}\}/);
+  // The bar's motion stops with reduced motion.
+  assert.match(page, /@media \(prefers-reduced-motion: reduce\)/);
+  // The join card shares the page's build: nothing of the console's API.
+  assert.doesNotMatch(readFileSync(new URL('./src/guest/GuestJoinCard.svelte', import.meta.url), 'utf8'), /lib\/api|lib\/session|router/);
 });
 
 test('the guest build is its own: base /guest/, its own entry, nothing of the console imported', () => {

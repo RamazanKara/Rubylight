@@ -312,6 +312,11 @@ export class ConsoleStream {
     status('');
   }
 
+  /** The browser's own numbers for the stream that plays, or null. Asking reaches the browser only, never the host. */
+  async stats(): Promise<RTCStatsReport | null> {
+    return (await this.pc?.getStats()) ?? null;
+  }
+
   /** Sends one input message; dropped when no stream runs. */
   send(message: InputMessage | null) {
     if (!message || this.input?.readyState !== 'open') return;

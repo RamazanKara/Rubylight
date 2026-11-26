@@ -2,17 +2,30 @@
   // The play page (docs/webrtc.md, "Play in a TV browser"): its own small build under /play/ on
   // the guest port, for TV, console and car browsers. It pairs once with a PIN the PC's console
   // confirms, lists the PC's games for a remote, the arrow keys or a pad, and plays one full
-  // screen. Holding Back or Select for a second opens Disconnect and Quit game.
+  // screen. Holding Back, Escape or the pad's Select for a second opens the play dock, and so does
+  // the handle at the top edge. Rubylight 7.0: the pairing card, the library, the dock, the stats
+  // capsule and the glyph bar are components of their own beside this file.
   import { onDestroy, onMount, tick } from 'svelte';
   import BrandMark from '../components/BrandMark.svelte';
+  import PlayDock from './PlayDock.svelte';
+  import PlayErrorCard from './PlayErrorCard.svelte';
+  import PlayGlyphBar from './PlayGlyphBar.svelte';
+  import PlayLibrary from './PlayLibrary.svelte';
+  import PlayPairCard from './PlayPairCard.svelte';
+  import PlayStatsCapsule from './PlayStatsCapsule.svelte';
+  import { activePad, firstSource, hints, keySource, pointerSource, type HintContext, type InputSource } from './play-input-source';
   import { CODECS, codecName, defaultChoice, hardwareCodecs, optionFor, receivableCodecs, streamOptions, type AppEntry, type Choice, type StreamOption } from '../lib/webrtc/client';
   import { buttonChanges, cropPadding, keyMessage, positionMessage, shownSize, Wheel } from '../lib/webrtc/input';
   import { deviceName, forgetCredentials, Hold, keyAction, loadCredentials, nearest, newPin, PadNavigator, PlayStream, saveCredentials, type Action, type Move } from '../lib/webrtc/play';
   import { RefusedError, SignallingError } from '../lib/webrtc/signalling';
+  import { readStats, type Look, type StreamStats } from '../lib/webrtc/stats';
 
   type Phase = 'connecting' | 'pair' | 'library' | 'starting' | 'stream' | 'error';
   const CHOICE_KEY = 'rubylight.play.picture';
+  /** Whether the stats capsule shows: this browser's choice, never a host setting. */
+  const STATS_KEY = 'rubylight.play.stats';
   const HINT_MS = 5000;
+  const STATS_MS = 1000;
 
   let phase = $state<Phase>('connecting');
   let message = $state('');
@@ -29,6 +42,15 @@
   let menu = $state(false);
   let muted = $state(false);
   let host = $state('');
+  /** The game that plays, for the dock. */
+  let playing = $state('');
+  let fullscreen = $state(false);
+  let canFullscreen = $state(false);
+  let statsOn = $state(savedStats());
+  let stats = $state.raw<StreamStats | null>(null);
+  const agent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+  /** What the page was last used with: the glyph bar draws that input's buttons. */
+  let source = $state<InputSource>(firstSource(agent, false));
   let video = $state<HTMLVideoElement>();
   let surface = $state<HTMLDivElement>();
   let screen = $state<HTMLElement>();
@@ -38,7 +60,7 @@
   let cancelPairing: (() => void) | null = null;
   /** The pairing or start in progress: a late answer to an earlier one is ignored. */
   let attempt: object | null = null;
-  const name = deviceName(typeof navigator === 'undefined' ? '' : navigator.userAgent);
+  const name = deviceName(agent);
   const pad = new PadNavigator();
   const padHold = new Hold();
   const keyHold = new Hold();
@@ -52,6 +74,14 @@
 
   const live = $derived(phase === 'stream' || phase === 'starting');
   const codecs = $derived(CODECS.filter((c) => options.some((o) => o.codec === c.id)));
+  const picture = $derived(choice ? `${codecName(choice.codec)} · ${choice.height}p${choice.fps}` : '');
+  /** What a press does on the screen that shows, for the glyph bar; null where nothing can be pressed. */
+  const hintContext = $derived<HintContext | null>(
+    phase === 'library' ? (apps.length ? 'library' : null) : phase === 'error' ? 'error' : phase === 'pair' && pairError ? 'pair-failed' : null,
+  );
+  const footHints = $derived(hintContext !== null && hints(source, hintContext).length > 0);
+  /** Touch and mouse get no hint, so the handle shows itself for a moment instead. */
+  const pointing = $derived(source === 'touch' || source === 'mouse');
 
   const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -60,6 +90,14 @@
       return JSON.parse(localStorage.getItem(CHOICE_KEY) ?? 'null') as Choice | null;
     } catch {
       return null;
+    }
+  }
+
+  function savedStats(): boolean {
+    try {
+      return localStorage.getItem(STATS_KEY) === '1';
+    } catch {
+      return false;
     }
   }
 
@@ -207,16 +245,15 @@
     notice = '';
     status = 'Starting…';
     menu = false;
+    playing = app.title;
+    stats = null;
     phase = 'starting';
     // Sound needs a key press or click on the page first; a pad press is none.
     const activation = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
     muted = activation ? !activation.hasBeenActive : false;
     video.muted = muted;
     // Full screen needs that too; without it the picture still fills the page.
-    document.documentElement
-      .requestFullscreen?.()
-      .then(() => (navigator as Navigator & { keyboard?: { lock?: (keys: string[]) => Promise<void> } }).keyboard?.lock?.(['Escape']))
-      .catch(() => {});
+    enterFullscreen();
     try {
       await stream.start(app.id, choice, video, (text) => (status = text || 'Starting…'));
     } catch (error) {
@@ -241,6 +278,50 @@
   function leaveFullscreen() {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
   }
+
+  /** Full screen, with Escape kept for the game where the browser can (it opens the dock when held). */
+  function enterFullscreen() {
+    document.documentElement
+      .requestFullscreen?.()
+      .then(() => (navigator as Navigator & { keyboard?: { lock?: (keys: string[]) => Promise<void> } }).keyboard?.lock?.(['Escape']))
+      .catch(() => {});
+  }
+
+  const toggleFullscreen = () => (document.fullscreenElement ? leaveFullscreen() : enterFullscreen());
+
+  function toggleMute() {
+    if (!video) return;
+    video.muted = muted = !muted;
+  }
+
+  function toggleStats() {
+    statsOn = !statsOn;
+    try {
+      localStorage.setItem(STATS_KEY, statsOn ? '1' : '0');
+    } catch {
+      // Not remembered; the capsule is off again next time.
+    }
+  }
+
+  // The capsule's numbers: the browser is asked a second after its last answer, and only while the capsule shows.
+  $effect(() => {
+    if (phase !== 'stream' || !statsOn) return;
+    let last: Look | null = null;
+    let over = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const look = async () => {
+      const report = await stream?.stats().catch(() => null);
+      if (over) return;
+      if (report) {
+        const read = readStats(report, last, performance.now());
+        last = read.look;
+        stats = read.stats;
+      }
+      timer = setTimeout(look, STATS_MS);
+    };
+    void look();
+    return () => ((over = true), clearTimeout(timer));
+  });
 
   function ended(from: PlayStream, reason: string, closed: boolean) {
     if (stream !== from || gone) return;
@@ -319,6 +400,8 @@
   /** Pads: to the host while a game plays, else they move the focus. */
   function loop(now: number) {
     const pads = navigator.getGamepads?.() ?? [];
+    const family = activePad(pads);
+    if (family && family !== source) source = family;
     const here = `${phase}${menu}`;
     if (here !== context) {
       // What was held when the screen changed acts only once let go.
@@ -340,6 +423,8 @@
   });
 
   function windowKey(event: KeyboardEvent) {
+    const from = keySource(event, agent);
+    if (from !== source) source = from;
     if (live && !menu) return;
     const action = keyAction(event);
     if (!action) return;
@@ -394,10 +479,17 @@
     backKey = false;
   }
 
+  function pointed(event: PointerEvent) {
+    const from = pointerSource(event.pointerType);
+    if (from !== source) source = from;
+  }
+
   onMount(() => {
     // Edge on Xbox hands the pad to the page only when asked; it moves a pointer otherwise.
     const xbox = navigator as Navigator & { gamepadInputEmulation?: string };
     if ('gamepadInputEmulation' in xbox) xbox.gamepadInputEmulation = 'gamepad';
+    canFullscreen = typeof document.documentElement.requestFullscreen === 'function';
+    source = firstSource(agent, matchMedia('(pointer: coarse)').matches);
     frame = requestAnimationFrame(loop);
     void connect();
   });
@@ -411,65 +503,41 @@
   });
 </script>
 
-<svelte:window onkeydown={windowKey} onpagehide={() => stream?.close()} />
+<svelte:window onkeydown={windowKey} onpointerdown={pointed} onpointermove={pointed} onpagehide={() => stream?.close()} />
+<svelte:document onfullscreenchange={() => (fullscreen = !!document.fullscreenElement)} />
 
-<main class:live bind:this={page}>
+<main class="media-plane" class:live class:hinted={footHints} bind:this={page}>
   {#if !live}
-    <header>
-      <BrandMark size={44} />
+    <header class="top">
+      <BrandMark size={40} />
       <span class="host">{host || 'Rubylight'}</span>
       {#if phase === 'library' && choice}
-        <button class="chip" data-nav onclick={nextPicture} aria-label="Picture: {codecName(choice.codec)}, {choice.height}p, {choice.fps} fps">
-          {codecName(choice.codec)} · {choice.height}p{choice.fps}
-        </button>
+        {#if codecs.length > 1}
+          <button class="chip" data-nav onclick={nextPicture} aria-label="Picture: {codecName(choice.codec)}, {choice.height}p, {choice.fps} fps. Press for the next codec.">
+            <span class="chip-label" aria-hidden="true">Picture</span>{picture}
+          </button>
+        {:else}
+          <span class="chip"><span class="chip-label">Picture</span>{picture}</span>
+        {/if}
       {/if}
     </header>
     {#if notice && (phase === 'library' || phase === 'pair')}<p class="notice" role="alert">{notice}</p>{/if}
   {/if}
 
-  <section class="screen" bind:this={screen} hidden={live}>
+  <section class="screen" class:centred={phase !== 'library'} bind:this={screen} hidden={live}>
     {#if phase === 'connecting'}
-      <p class="muted" role="status">Connecting…</p>
+      <p class="connecting" role="status"><span class="pulse" aria-hidden="true"></span>Connecting…</p>
     {:else if phase === 'pair'}
-      <div class="card">
-        <h1>Pair with your PC</h1>
-        <p class="pin" aria-label="PIN {pin.split('').join(' ')}">{pin}</p>
-        <p>Enter this PIN in the Rubylight console under Devices.</p>
-        <p class="muted">This device: <strong>{name}</strong></p>
-        {#if pairError}
-          <p class="error" role="alert">{pairError}</p>
-          <div><button class="action" data-nav onclick={pair}>New PIN</button></div>
-        {:else}
-          <p class="muted" role="status">Waiting for the PC…</p>
-        {/if}
-      </div>
+      <PlayPairCard {pin} {name} error={pairError} onretry={pair} />
     {:else if phase === 'library'}
-      {#if loading}
-        <p class="muted" role="status">Loading games…</p>
-      {:else if apps.length === 0}
-        <p class="muted">No games on this PC yet. Add them in the Rubylight console.</p>
-      {/if}
-      <ul class="grid">
-        {#each apps as app (app.id)}
-          <li>
-            <button class="tile" data-nav onclick={() => start(app)}>
-              <span class="cover">
-                {#if covers[app.id]}<img src={covers[app.id]} alt="" />{:else}<span class="initial" aria-hidden="true">{app.title.slice(0, 1)}</span>{/if}
-                {#if app.running}<span class="badge">Running</span>{/if}
-              </span>
-              <span class="title">{app.title}</span>
-            </button>
-          </li>
-        {/each}
-      </ul>
+      <PlayLibrary {apps} {covers} {loading} onstart={start} />
     {:else if phase === 'error'}
-      <div class="card">
-        <h1>Can’t play right now</h1>
-        <p class="error" role="alert">{message}</p>
-        <div><button class="action" data-nav onclick={connect}>Try again</button></div>
-      </div>
+      <PlayErrorCard {message} onretry={connect} />
     {/if}
   </section>
+  {#if !live && footHints && hintContext}
+    <footer><PlayGlyphBar {source} context={hintContext} /></footer>
+  {/if}
 
   <section class="player" hidden={!live} aria-label="Game">
     <!-- The picture takes every key and pointer event while it has the focus. -->
@@ -492,16 +560,34 @@
     >
       <video id="play-video" bind:this={video} autoplay playsinline></video>
     </div>
-    {#if status}<p class="status" role="status">{status}</p>{/if}
-    {#if phase === 'stream' && !menu && (hint || muted)}
-      <p class="hint">{muted ? 'Sound is off: press a key or click to hear it. ' : ''}Hold Back or Select for the menu.</p>
+    {#if status}<p class="status" role="status"><span class="pulse" aria-hidden="true"></span>{status}</p>{/if}
+    {#if phase === 'stream' && !menu}
+      <!-- Nothing but the game shows once the first seconds have passed. -->
+      {#if muted}<p class="sound" role="status">Sound is off. Press a key or click to hear it.</p>{/if}
+      {#if hint}<PlayGlyphBar {source} context="stream" floating />{/if}
+      {#if statsOn}<PlayStatsCapsule {stats} codec={picture} />{/if}
+      <!-- The pointer's way to the dock; a key or a pad holds Back or Select instead. -->
+      <button class="handle" class:peek={hint && pointing} tabindex="-1" aria-label="Stream menu" onclick={openMenu}>
+        <span aria-hidden="true"></span>
+      </button>
     {/if}
     {#if menu}
-      <div class="menu" bind:this={menuBox} role="dialog" aria-label="Stream menu">
-        <button class="action" data-nav onclick={closeMenu}>Back to game</button>
-        <button class="action" data-nav onclick={disconnect}>Disconnect</button>
-        <button class="action" data-nav onclick={quit}>Quit game</button>
-      </div>
+      <PlayDock
+        bind:box={menuBox}
+        title={playing}
+        {picture}
+        {muted}
+        stats={statsOn}
+        {fullscreen}
+        {canFullscreen}
+        {source}
+        onresume={closeMenu}
+        onfullscreen={toggleFullscreen}
+        onmute={toggleMute}
+        onstats={toggleStats}
+        ondisconnect={disconnect}
+        onquit={quit}
+      />
     {/if}
   </section>
 </main>
@@ -509,18 +595,24 @@
 <style>
   main {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1.5em;
     align-content: start;
     min-height: 100vh;
     box-sizing: border-box;
     /* TVs crop the edges of the picture. */
     padding: 5vh 5vw;
+    background-image: var(--media-glow);
+    background-repeat: no-repeat;
     font-size: clamp(18px, 1.5vw, 32px);
+  }
+  main.hinted {
+    padding-bottom: calc(5vh + 4em);
   }
   main.live {
     padding: 0;
   }
-  header {
+  .top {
     display: flex;
     align-items: center;
     gap: 0.75em;
@@ -528,7 +620,13 @@
   }
   .host {
     flex: 1;
-    font-size: 1.25em;
+    min-width: 0;
+    overflow: hidden;
+    font-family: var(--font-display);
+    font-size: 1.15em;
+    letter-spacing: var(--tracking-tight);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   [hidden] {
     display: none !important;
@@ -538,105 +636,79 @@
     color: inherit;
     cursor: pointer;
   }
-  .chip,
-  .action {
-    padding: 0.6em 1.2em;
-    border: 2px solid var(--line);
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6em;
+    min-height: max(44px, 2.4em);
+    box-sizing: border-box;
+    padding: 0.3em 1em;
+    border: 2px solid var(--media-line);
     border-radius: var(--radius-pill);
-    background: var(--panel);
+    background: var(--media-panel);
+    font-size: 0.8em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
-  .action {
-    border-radius: var(--radius);
-    min-width: 10em;
+  .chip-label {
+    color: var(--media-idle);
+    font-size: 0.8em;
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
   }
-  .chip:focus,
-  .action:focus,
-  .tile:focus {
-    outline: 4px solid var(--focus);
+  .chip:focus {
+    outline: 4px solid var(--media-focus);
     outline-offset: 4px;
-    border-color: var(--focus);
   }
-  .card {
+  .screen.centred {
     display: grid;
-    gap: 1em;
-    justify-self: center;
-    width: min(36em, 100%);
-    padding: 1.5em;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--panel);
-  }
-  h1 {
-    margin: 0;
-    font-size: 1.5em;
+    align-content: center;
+    min-height: 70vh;
   }
   p {
     margin: 0;
   }
-  .pin {
-    font-size: 4em;
-    font-weight: var(--weight-semibold);
-    letter-spacing: 0.3em;
-    font-variant-numeric: tabular-nums;
-  }
-  .error,
   .notice {
-    color: var(--media-danger);
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(10em, 1fr));
-    gap: 1.5em;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-  .tile {
-    display: grid;
-    gap: 0.5em;
-    width: 100%;
-    padding: 0.4em;
-    border: 2px solid transparent;
+    justify-self: start;
+    padding: 0.6em 1em;
+    border: 1px solid color-mix(in srgb, var(--media-warn) 36%, var(--media-panel));
     border-radius: var(--radius);
-    background: none;
-    text-align: left;
-    transition: transform var(--duration-fast);
-  }
-  .tile:focus {
-    transform: scale(1.05);
-  }
-  .cover {
-    position: relative;
-    display: grid;
-    place-items: center;
-    aspect-ratio: 3 / 4;
-    overflow: hidden;
-    border-radius: var(--radius);
-    background: var(--panel);
-  }
-  .cover img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .initial {
-    font-size: 3em;
-    color: var(--muted);
-  }
-  .badge {
-    position: absolute;
-    top: 0.5em;
-    left: 0.5em;
-    padding: 0.2em 0.6em;
-    border-radius: var(--radius-pill);
-    background: var(--accent);
+    background: color-mix(in srgb, var(--media-warn) 14%, var(--media-panel));
     color: var(--media-ink);
-    font-size: 0.8em;
+    font-size: 0.85em;
   }
-  .title {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .connecting,
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 0.7em;
+    color: var(--media-ink-2);
+  }
+  .connecting {
+    justify-self: center;
+  }
+  .pulse {
+    flex: none;
+    width: 0.6em;
+    height: 0.6em;
+    border-radius: var(--radius-pill);
+    background: var(--media-accent-text);
+    animation: breathe var(--pulse-duration) var(--ease-standard) infinite alternate;
+  }
+  @keyframes breathe {
+    to {
+      opacity: 0.3;
+    }
+  }
+  footer {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: var(--z-bar);
+    padding: 1.2em 5vw max(3vh, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--media-line);
+    background: var(--media-bg);
   }
   .player {
     position: fixed;
@@ -656,28 +728,72 @@
     object-fit: contain;
     pointer-events: none;
   }
+  /* Over the picture: solid decks, never a blur. */
   .status,
-  .hint {
+  .sound {
     position: absolute;
     left: 50%;
+    z-index: var(--z-raised);
     transform: translateX(-50%);
-    padding: 0.5em 1em;
-    border-radius: var(--radius);
-    background: var(--media-scrim-strong);
+    max-width: 90vw;
+    box-sizing: border-box;
+    padding: 0.6em 1.1em;
+    border: 1px solid var(--media-line);
+    border-radius: var(--radius-pill);
+    background: var(--media-panel);
+    box-shadow: var(--media-shadow);
     color: var(--media-ink);
+    font-size: 0.85em;
+    text-align: center;
   }
   .status {
     top: 45%;
   }
-  .hint {
-    bottom: 5vh;
+  .sound {
+    top: max(3vh, env(safe-area-inset-top));
+    pointer-events: none;
   }
-  .menu {
+  /* The handle: a strip at the top edge that shows a grip under the pointer. */
+  .handle {
     position: absolute;
-    inset: 0;
+    top: 0;
+    left: 50%;
+    z-index: var(--z-raised);
     display: grid;
-    gap: 1em;
-    place-content: center;
-    background: var(--media-scrim-strong);
+    place-items: start center;
+    width: min(12em, 60vw);
+    height: 44px;
+    padding: 8px 0 0;
+    border: 0;
+    background: none;
+    opacity: 0;
+    transform: translateX(-50%);
+    transition: opacity var(--duration-base) var(--ease-standard);
+  }
+  .handle span {
+    width: 4em;
+    height: 8px;
+    border: 1px solid var(--media-line-strong);
+    border-radius: var(--radius-pill);
+    background: var(--media-ink-2);
+    box-shadow: var(--media-shadow);
+  }
+  .handle:hover,
+  .handle:focus-visible,
+  .handle.peek {
+    opacity: 1;
+  }
+  @media (max-width: 600px) {
+    .chip-label {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pulse {
+      animation: none;
+    }
+    .handle {
+      transition: none;
+    }
   }
 </style>

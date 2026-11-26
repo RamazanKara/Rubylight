@@ -40,6 +40,11 @@
     drive: 'M3 13h18v6H3zM3 13l3-8h12l3 8M17 16h.01',
     up: 'M12 19V5M6 11l6-6 6 6',
     info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 11v6M12 7.5h.01',
+    // The play and guest pages' stream controls.
+    sound: 'M4 9.5h3.5L12 6v12l-4.5-3.5H4zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11',
+    mute: 'M4 9.5h3.5L12 6v12l-4.5-3.5H4zM16 9.5l5 5M21 9.5l-5 5',
+    fullscreen: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
+    stats: 'M5 20v-9M12 20V4M19 20v-6',
   } as const;
   export type IconName = keyof typeof paths;
 </script>

@@ -3,6 +3,7 @@
 import { mount } from 'svelte';
 import '../styles/tokens.css';
 import '../styles/base.css';
+import '../styles/media-plane.css';
 import Play from './Play.svelte';
 
 const target = document.getElementById('app');

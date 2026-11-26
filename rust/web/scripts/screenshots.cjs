@@ -14,9 +14,14 @@
 // SHOT_HOME sets Home's state: fresh (nothing paired), fresh-off (and pairing off), warning (paired, audio and
 // wake need a look), ready, streaming, or paired-now (a device pairs a few seconds in; with SHOT_WAIT=7000).
 // Each gives Portal 2 a last-played time and the home art as its cover. SHOT_WAIT=ms waits before each shot.
+// SHOT_STREAM shows the play and guest pages (SHOT_PAGES=/play/ or /guest/#<32 hex digits>) against a fake
+// host (scripts/fake-stream.cjs lists the states); SHOT_PAD=xbox, playstation or nintendo holds that pad,
+// and SHOT_HOLD=Escape holds a key for the second that opens the play dock, after the clicks.
+// SHOT_SETTLE=ms waits once more right before the shot (the stats capsule's second look).
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('node:path');
 const fs = require('node:fs');
+const fakeStream = require('./fake-stream.cjs');
 
 const out = path.resolve(process.argv[2] || 'shots');
 const label = process.argv[3] || 'shot';
@@ -285,6 +290,7 @@ function power(ready = false) {
           }
           return route.fulfill({ json: dynamic(url.pathname) ?? replies[url.pathname] ?? { status: true, available: false, enabled: false } });
         });
+        if (process.env.SHOT_STREAM) await page.addInitScript(fakeStream.install, { state: process.env.SHOT_STREAM, pad: process.env.SHOT_PAD || '' });
         for (const where of pages) {
           clientLists = 0;
           await page.goto(base + where);
@@ -298,6 +304,12 @@ function power(ready = false) {
             await page.locator('summary', { hasText: fold }).first().click();
             await page.waitForTimeout(300);
           }
+          if (process.env.SHOT_HOLD) {
+            await page.keyboard.down(process.env.SHOT_HOLD);
+            await page.waitForTimeout(1300);
+            await page.keyboard.up(process.env.SHOT_HOLD);
+            await page.waitForTimeout(300);
+          }
           for (const key of (process.env.SHOT_KEYS || '').split(',').filter(Boolean)) {
             await page.keyboard.press(key);
             await page.waitForTimeout(300);
@@ -306,7 +318,8 @@ function power(ready = false) {
             await page.keyboard.type(process.env.SHOT_TYPE);
             await page.waitForTimeout(300);
           }
-          const name = where === '/' ? 'home' : where.slice(1).replace(/\.html$/, '').replace(/\//g, '-');
+          if (process.env.SHOT_SETTLE) await page.waitForTimeout(Number(process.env.SHOT_SETTLE));
+          const name = where === '/' ? 'home' : where.slice(1).replace(/#.*$/, '').replace(/\/$/, '').replace(/\.html$/, '').replace(/\//g, '-');
           const file = path.join(out, `${label}-${name}-${theme}-${form}.png`);
           await page.screenshot({ path: file, fullPage: viewport.width < 900 || !!process.env.SHOT_FULL });
           console.log(file);

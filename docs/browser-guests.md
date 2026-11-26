@@ -20,6 +20,8 @@ To have a paired Nightjar or Moonlight device join the game another device plays
    - **Address** is the address in the link. Type over it to use another one, such as a DNS name for your router; without a port the link uses 47991. The console remembers an address you type, one for each choice of **Guests are**, until you clear it.
 3. Copy the link and send it.
 
+A guest types the name you will see and clicks **Join**. While they watch, a bar at the top of the picture shows that name, what the link lets them do, and **Full screen**, **Mute** and **Leave**; it hides after four seconds and comes back when they move the pointer or tap (with keyboard and mouse permission, where the pointer plays the game: when the pointer reaches the top edge, or with Ctrl+Alt+Shift+Z).
+
 A guest who opens the link while you are not streaming sees "Waiting for the host" and joins when your stream starts. When your stream ends, every guest's ends with it; their pages wait for your next stream and join it while the link works.
 
 **Guests** lists who is watching and every link that still works. **Kick** disconnects a guest; the link still works, so they can come back. **Revoke** withdraws a link: it opens nothing from then on, and whoever joined with it is disconnected. An expired link lets nobody new in; guests already watching stay until you kick them, revoke the link or stop streaming, and the link stays listed as **Expired** until they have gone, so you can still revoke it. Rubylight keeps links in memory only, so restarting it (or the PC) revokes them all. It keeps at most 16 links at once.

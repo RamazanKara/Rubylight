@@ -1,0 +1,32 @@
+/* A media plane for a whole page: the play and guest pages are stages for video, dark in both
+   themes. The theme's own tokens point at the media palette here, so Button, Badge, Field and
+   Input inside draw for the plane without a variant, as on the console's live stage. */
+.media-plane {
+  --bg: var(--media-bg);
+  --panel: var(--media-panel-raised);
+  --sunken: var(--media-panel);
+  --field: var(--media-panel);
+  --ink: var(--media-ink);
+  --ink-2: var(--media-ink-2);
+  --muted: var(--media-idle);
+  --line: var(--media-line);
+  --line-strong: var(--media-line-strong);
+  --focus: var(--media-focus);
+  --edge: var(--media-edge);
+  --shadow: var(--media-shadow);
+  --ok: var(--media-ok);
+  --ok-soft: color-mix(in srgb, var(--media-ok) 14%, var(--media-panel));
+  --ok-line: color-mix(in srgb, var(--media-ok) 36%, var(--media-panel));
+  --warn: var(--media-warn);
+  --warn-soft: color-mix(in srgb, var(--media-warn) 14%, var(--media-panel));
+  --warn-line: color-mix(in srgb, var(--media-warn) 36%, var(--media-panel));
+  --danger: var(--media-danger);
+  --danger-soft: color-mix(in srgb, var(--media-danger) 14%, var(--media-panel));
+  --danger-line: color-mix(in srgb, var(--media-danger) 40%, var(--media-panel));
+  --accent-text: var(--media-accent-text);
+  --accent-soft: color-mix(in srgb, var(--media-accent-text) 16%, var(--media-panel));
+  --accent-line: color-mix(in srgb, var(--media-accent-text) 40%, var(--media-panel));
+  background-color: var(--media-bg);
+  color: var(--media-ink);
+  color-scheme: dark;
+}

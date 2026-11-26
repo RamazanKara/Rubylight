@@ -154,6 +154,14 @@ impl Evidence {
             "continueHereOffered".into(),
             Value::from(self.continue_here_offered),
         );
+        map.insert(
+            "quickSuspendVersion".into(),
+            Value::from(self.quick_suspend_version),
+        );
+        map.insert(
+            "quickSuspendOffered".into(),
+            Value::from(self.quick_suspend_offered),
+        );
         if let Some(version) = &self.rust_host_version {
             map.insert("rustHostVersion".into(), Value::from(version.as_str()));
         }
@@ -289,6 +297,8 @@ impl Evidence {
             pairing_offered: opt_bool("pairingOffered")?,
             pairing_permission: opt_bool("pairingPermission")?,
             continue_here_offered: opt_bool("continueHereOffered")?,
+            quick_suspend_version: opt_i32("quickSuspendVersion", -1)?,
+            quick_suspend_offered: opt_bool("quickSuspendOffered")?,
             max_video_packet,
         })
     }

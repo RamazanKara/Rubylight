@@ -81,7 +81,8 @@ public final class HostCapabilities {
         PC_RESTART(0),
         PC_SHUTDOWN(0),
         HOST_UPDATE(0),
-        PAIRING_APPROVE(0);
+        PAIRING_APPROVE(0),
+        QUICK_SUSPEND(0);
 
         @StringRes public final int label;
 

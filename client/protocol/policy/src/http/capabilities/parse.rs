@@ -102,6 +102,7 @@ impl Evidence {
             pipeline_rates_version: -1,
             display_scale_version: -1,
             second_screen_version: -1,
+            quick_suspend_version: -1,
             nvidia_enhancements: 0,
             internet_play_version: -1,
             ..Default::default()
@@ -160,6 +161,7 @@ impl Evidence {
                 "PipelineRatesVersion" => e.pipeline_rates_version = unsigned(&text, 0xFFFF) as i32,
                 "DisplayScaleVersion" => e.display_scale_version = unsigned(&text, 0xFFFF) as i32,
                 "SecondScreenVersion" => e.second_screen_version = unsigned(&text, 0xFFFF) as i32,
+                "QuickSuspendVersion" => e.quick_suspend_version = unsigned(&text, 0xFFFF) as i32,
                 "NvidiaEnhancements" => {
                     e.nvidia_enhancements =
                         rubylight_protocol::nvidia_enhance::parse_offer(Some(&text))

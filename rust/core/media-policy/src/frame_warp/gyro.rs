@@ -15,7 +15,7 @@ use std::collections::VecDeque;
 
 use rubylight_protocol::frame_warp::HELD_NONE;
 use rubylight_protocol::frame_warp_v2::{
-    BIAS_STILL_RATE, GyroAxes, GyroBias, YawSource, gyro_rate,
+    BIAS_STILL_RATE, GyroAxes, GyroBias, YawSource, gyro_rate, reading_tag,
 };
 
 /// A motion packet's kind for a gyro reading.
@@ -37,6 +37,8 @@ struct Sample {
     seq: u32,
     /// Yaw and pitch rate less the bias, radians per second: `[yaw from y, yaw from z]`.
     rate: [[f32; 2]; 2],
+    /// The reading's [`reading_tag`].
+    tag: u16,
 }
 
 /// The gyro pad's readings (see the module documentation).
@@ -90,6 +92,7 @@ impl GyroHistory {
             at_us,
             seq: self.seq,
             rate,
+            tag: reading_tag(xyz),
         });
         while self.samples.len() > MAX_SAMPLES
             || self.samples.len() > 1 && at_us.saturating_sub(self.samples[1].at_us) > KEEP_US
@@ -163,6 +166,11 @@ impl GyroHistory {
             ),
         };
         (seq, if seq == 0 { HELD_NONE } else { held })
+    }
+
+    /// The [`reading_tag`] of the packet [`GyroHistory::tag`] names for `at_us`, if it is kept.
+    pub fn reading_at(&self, at_us: u64) -> Option<u16> {
+        self.held_at(at_us).map(|i| self.samples[i].tag)
     }
 }
 

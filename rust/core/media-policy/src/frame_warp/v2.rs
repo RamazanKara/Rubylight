@@ -425,7 +425,9 @@ impl V2State {
             .or_else(|| self.gyro_rls().fit().map(|f| f.lag_us))
             .or_else(|| self.lags().map(|(mouse, _)| mouse))
             .unwrap_or(super::calibrate::DEFAULT_LAG_US);
-        let (gyro_seq, gyro_held_us) = self.gyro.tag(capture_us.saturating_sub(gyro_lag));
+        let reflected = capture_us.saturating_sub(gyro_lag);
+        let (gyro_seq, gyro_held_us) = self.gyro.tag(reflected);
+        let gyro_tag = self.gyro.reading_at(reflected).filter(|_| gyro_seq != 0);
         let gain = self
             .gyro
             .pad()
@@ -454,6 +456,9 @@ impl V2State {
         if self.warm_locked() {
             flags |= meta_flags::PRIOR_WARM_LOCKED;
         }
+        if gyro_tag.is_some() {
+            flags |= meta_flags::GYRO_TAGGED;
+        }
         if self.hud.known() && self.hud.value() < HUD_STEADY {
             flags |= meta_flags::HUD_SOFT_EDGE;
         }
@@ -470,7 +475,7 @@ impl V2State {
             omega_mrad_s: [milli(self.omega[0]), milli(self.omega[1])],
             edge_fade_strength: DEFAULT_EDGE_FADE,
             hud_guard: DEFAULT_HUD_GUARD,
-            gyro_received: self.gyro.seq() as u16,
+            gyro_tag: gyro_tag.unwrap_or(0),
         }
     }
 }

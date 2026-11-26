@@ -4,7 +4,9 @@
 use super::*;
 use crate::frame_warp::{FADE, Predictor, Tag, Tags};
 use rubylight_protocol::frame_warp::{FrameWarpRequest, Model};
-use rubylight_protocol::frame_warp_v2::{DEFAULT_EDGE_FADE, RADIANS_PER_DEGREE, to_unit16};
+use rubylight_protocol::frame_warp_v2::{
+    DEFAULT_EDGE_FADE, RADIANS_PER_DEGREE, reading_tag, to_unit16,
+};
 
 const MS: u64 = 1000;
 
@@ -243,35 +245,94 @@ fn packets_in_flight_while_the_pad_rests_keep_the_counts_together() {
     assert_eq!(v2.seq_offset, 5, "five packets lost on the way");
 }
 
+/// A resting pad's reading `i`: noise, never twice the same.
+fn noise(i: u32) -> [f32; 3] {
+    [1e-4 * i as f32, -2e-4 - 1e-5 * i as f32, 3e-5]
+}
+
 #[test]
-fn packets_lost_while_the_gyro_flows_are_counted_from_the_hosts_receipts() {
+fn the_tagged_packet_sets_the_counts_through_losses_and_packets_in_flight() {
     let mut v2 = V2::new(request(true));
-    let mut lost = 0;
+    // A packet every 4 ms. The host never counted the first three (sent before its request
+    // arrived), lost five more at 1.5 s, and its frames reflect packets 60 ms old.
+    let mut sent = Vec::new();
+    let gain = [800.0, 400.0];
     let mut frame = 0;
-    // A packet every 4 ms; a meta every 16 ms, with what the host had received 20 ms earlier
-    // (five packets in flight). Five packets go missing at 1.5 s.
-    for at in (0..=3_000 * MS).step_by(4 * MS as usize) {
-        v2.note_motion(0, GYRO, [0.0; 3], at);
-        if at == 1_500 * MS {
-            lost = 5;
-        }
-        if at % (16 * MS) == 0 && at >= 20 * MS {
-            let received = ((at - 20 * MS) / (4 * MS)) as u32 + 1 - lost;
+    for at in (0..=2_000 * MS).step_by(4 * MS as usize) {
+        let i = sent.len() as u32;
+        v2.note_motion(0, GYRO, noise(i), at);
+        sent.push(noise(i));
+        if at % (16 * MS) == 0 && at >= 96 * MS {
+            // The packet the frame reflects: client number `reflected`, the host's count of it.
+            let reflected = ((at - 60 * MS) / (4 * MS)) as u32 + 1;
+            let lost = if at >= 1_560 * MS { 5 } else { 0 };
             frame += 1;
             v2.on_meta(
                 FrameWarpV2Meta {
-                    gyro_seq: received.saturating_sub(10),
-                    gyro_received: received as u16,
+                    flags: meta_flags::GYRO_LOCKED | meta_flags::GYRO_TAGGED,
+                    gyro_seq: reflected - 3 - lost,
+                    gyro_held_us: 0,
+                    gyro_tag: reading_tag(sent[reflected as usize - 1]),
+                    gyro_gain: gain,
                     ..meta(frame, 1.0)
                 },
                 at,
             );
-            if at == 1_392 * MS {
-                assert_eq!(v2.seq_offset, 0, "in flight is not lost");
-            }
+            assert_eq!(v2.seq_offset, 3 + lost, "at {at}");
         }
     }
-    assert_eq!(v2.seq_offset, 5);
+    // Then a turn: the frame drawn reflects the last resting packet, the whole turn is missing.
+    let last = sent.len() as u32;
+    for at in (2_004 * MS..=2_100 * MS).step_by(4 * MS as usize) {
+        v2.note_motion(0, GYRO, [0.0, 90.0, 0.0], at);
+    }
+    frame += 1;
+    v2.on_meta(
+        FrameWarpV2Meta {
+            flags: meta_flags::GYRO_LOCKED | meta_flags::GYRO_TAGGED,
+            gyro_seq: last - 8,
+            gyro_held_us: 0,
+            gyro_tag: reading_tag(sent[last as usize - 1]),
+            gyro_gain: gain,
+            ..meta(frame, 1.0)
+        },
+        2_100 * MS,
+    );
+    let shift = v2.gyro_shift(frame, 2_100 * MS);
+    let expected = gain[0] * 90.0 * RADIANS_PER_DEGREE * 0.096;
+    assert!(
+        (shift[0] - expected).abs() < expected * 0.01,
+        "{shift:?} vs {expected}"
+    );
+}
+
+#[test]
+fn a_repeated_reading_leaves_the_counts_as_they_are() {
+    let mut v2 = V2::new(request(true));
+    for at in (0..=200 * MS).step_by(4 * MS as usize) {
+        v2.note_motion(0, GYRO, [0.0; 3], at);
+    }
+    v2.on_meta(
+        FrameWarpV2Meta {
+            flags: meta_flags::GYRO_TAGGED,
+            gyro_seq: 40,
+            gyro_tag: reading_tag([0.0; 3]),
+            ..meta(1, 1.0)
+        },
+        200 * MS,
+    );
+    assert_eq!(v2.seq_offset, 0, "the reading where the counts put it matches: they stay");
+    // A tag that matches nothing changes nothing either.
+    v2.on_meta(
+        FrameWarpV2Meta {
+            flags: meta_flags::GYRO_TAGGED,
+            gyro_seq: 30,
+            gyro_tag: reading_tag([1.0; 3]),
+            ..meta(2, 1.0)
+        },
+        200 * MS,
+    );
+    assert_eq!(v2.seq_offset, 0);
 }
 
 #[test]

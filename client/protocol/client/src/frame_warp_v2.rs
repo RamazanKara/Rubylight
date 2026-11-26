@@ -18,9 +18,9 @@
 //! Motion packets go unreliably, so a lost one leaves the counts apart; whenever the client has
 //! sent no gyro packet for [`crate::frame_warp::REBASE_IDLE`] (everything sent has reached the
 //! picture), the next meta sets them equal again. A resting pad still sends packets (its noise),
-//! so while they flow the client measures what was lost instead ([`Losses`]): each meta says how
-//! many packets the host had received, the least of what the client had sent beyond that while
-//! the flow began is what is merely in flight, and anything more than that since is lost.
+//! so each meta also carries the tag of the reading it names (`reading_tag`), and the client finds
+//! that packet among those it sent, nearest where the counts say it is ([`V2::find`]): that sets
+//! the counts equal however many packets were lost or are in flight.
 
 use std::collections::VecDeque;
 
@@ -30,7 +30,7 @@ pub use rubylight_protocol::frame_warp_v2::{
     BIAS_STILL_RATE, FRAME_WARP_V2_META_MESSAGE_TYPE, FrameWarpV2Meta, GyroAxes, GyroBias,
     MAX_HUD_GUARD, RequestV2, YawSource, from_unit16, gyro_rate, meta_flags,
 };
-use rubylight_protocol::frame_warp_v2::{DEFAULT_EDGE_FADE, DEFAULT_HUD_GUARD};
+use rubylight_protocol::frame_warp_v2::{DEFAULT_EDGE_FADE, DEFAULT_HUD_GUARD, reading_tag};
 
 /// Time constant of the envelope's fall, microseconds.
 pub const CONFIDENCE_ATTACK_US: f32 = 40_000.0;
@@ -59,48 +59,9 @@ const GYRO_HISTORY_US: u64 = MAX_GYRO_WINDOW_US + 600_000;
 const GYRO_SAMPLES: usize = 4096;
 /// A gyro packet's number among those the host counts (motion packets with a gyro reading).
 const GYRO: u8 = 2;
-/// Metas at the start of a flow of gyro packets that learn what is merely in flight.
-const FLIGHT_METAS: u32 = 30;
-/// How far back the least of a meta's sent-beyond-received is taken from, microseconds.
-const LOSS_WINDOW_US: u64 = 1_000_000;
-/// A gyro packet sent this recently means they are flowing, microseconds.
-const FLOWING_US: u64 = 100_000;
-/// The most packets counted lost.
-const MAX_LOST: i32 = 4096;
-
-/// Gyro packets lost while they flow (see the module documentation), from each meta's `gap`: the
-/// packets the client had sent beyond what the host had received, those in flight and those lost.
-/// The least gap over the flow's first [`FLIGHT_METAS`] metas is what is in flight; the least over
-/// the last [`LOSS_WINDOW_US`], less that, is what was lost since. A longer round trip reads as
-/// loss and draws less of the gyro's turn, never more.
-#[derive(Debug, Default)]
-struct Losses {
-    in_flight: Option<i32>,
-    learned: u32,
-    recent: VecDeque<(u64, i32)>,
-}
-
-impl Losses {
-    /// One meta's gap at `now_us`: the packets lost since the flow began.
-    fn observe(&mut self, gap: i32, now_us: u64) -> i32 {
-        if self.learned < FLIGHT_METAS {
-            self.learned += 1;
-            self.in_flight = Some(self.in_flight.map_or(gap, |f| f.min(gap)));
-            return 0;
-        }
-        self.recent.push_back((now_us, gap));
-        while self.recent.len() > 1024
-            || self
-                .recent
-                .front()
-                .is_some_and(|(at, _)| now_us.saturating_sub(*at) > LOSS_WINDOW_US)
-        {
-            self.recent.pop_front();
-        }
-        let least = self.recent.iter().map(|(_, g)| *g).min().unwrap_or(gap);
-        (least - self.in_flight.unwrap_or(least)).clamp(0, MAX_LOST)
-    }
-}
+/// How many packets either side of where the counts say it is the client looks for the packet a
+/// meta names by its tag ([`V2::find`]).
+const MATCH_REACH: u32 = 256;
 
 /// The confidence envelope (see the module documentation).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -221,6 +182,8 @@ struct GyroSample {
     seq: u32,
     /// Yaw and pitch rate less the bias, radians per second, with the yaw from y and from z.
     rate: [[f32; 2]; 2],
+    /// The reading's `reading_tag`.
+    tag: u16,
 }
 
 /// What the statistics overlay shows of Frame Warp 2.
@@ -243,9 +206,6 @@ pub struct V2 {
     envelope: Envelope,
     gyro_seq: u32,
     seq_offset: u32,
-    /// [`V2::seq_offset`] as the last exact rebase set it: the packets lost before the flow.
-    base_offset: u32,
-    losses: Losses,
     /// When the last gyro packet went out.
     last_sent_us: Option<u64>,
     samples: VecDeque<GyroSample>,
@@ -266,8 +226,6 @@ impl V2 {
             envelope: Envelope::default(),
             gyro_seq: 0,
             seq_offset: 0,
-            base_offset: 0,
-            losses: Losses::default(),
             last_sent_us: None,
             samples: VecDeque::new(),
             bias: [GyroBias::default(); 2],
@@ -302,6 +260,7 @@ impl V2 {
             at_us,
             seq: self.gyro_seq,
             rate,
+            tag: reading_tag(xyz),
         });
         while self.samples.len() > GYRO_SAMPLES
             || self.samples.len() > 1
@@ -319,17 +278,45 @@ impl V2 {
             return;
         }
         self.newest = Some(meta);
-        let since = self.last_sent_us.map(|at| now_us.saturating_sub(at));
-        if since.is_none_or(|since| since >= REBASE_IDLE.as_micros() as u64) {
+        let idle = self
+            .last_sent_us
+            .is_none_or(|at| now_us.saturating_sub(at) >= REBASE_IDLE.as_micros() as u64);
+        if let Some(seq) = self.find(&meta) {
+            self.seq_offset = seq.wrapping_sub(meta.gyro_seq);
+        } else if idle {
             // Everything sent has arrived: the counts compare exactly.
             self.seq_offset = self.gyro_seq.wrapping_sub(meta.gyro_seq);
-            self.base_offset = self.seq_offset;
-            self.losses = Losses::default();
-        } else if since.is_some_and(|since| since <= FLOWING_US) {
-            let gap = i32::from((self.gyro_seq as u16).wrapping_sub(meta.gyro_received) as i16);
-            let lost = self.losses.observe(gap, now_us);
-            self.seq_offset = self.base_offset.wrapping_add(lost as u32);
         }
+    }
+
+    /// The number of the sent packet `meta` names: of those within [`MATCH_REACH`] of where the
+    /// counts put it whose tag is the meta's, the nearest. `None` for a meta without a tag, when
+    /// none matches, or when two are as near (a resting sensor can repeat a reading).
+    fn find(&self, meta: &FrameWarpV2Meta) -> Option<u32> {
+        if !meta.has(meta_flags::GYRO_TAGGED) || meta.gyro_seq == 0 {
+            return None;
+        }
+        let expected = meta.gyro_seq.wrapping_add(self.seq_offset);
+        let mut best: Option<(u32, u32)> = None;
+        let mut tie = false;
+        for sample in self.samples.iter().filter(|s| s.tag == meta.gyro_tag) {
+            let distance = sample
+                .seq
+                .wrapping_sub(expected)
+                .min(expected.wrapping_sub(sample.seq));
+            if distance > MATCH_REACH {
+                continue;
+            }
+            match best {
+                Some((_, nearest)) if distance > nearest => {}
+                Some((_, nearest)) if distance == nearest => tie = true,
+                _ => {
+                    best = Some((sample.seq, distance));
+                    tie = false;
+                }
+            }
+        }
+        best.filter(|_| !tie).map(|(seq, _)| seq)
     }
 
     /// The meta of `frame`, or the newest one before it within a few frames.

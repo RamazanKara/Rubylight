@@ -385,7 +385,7 @@ round_trip!(
                 omega_mrad_s: omega,
                 edge_fade_strength: edge,
                 hud_guard: guard % 10,
-                gyro_received: (seq >> 16) as u16,
+                gyro_tag: (seq >> 16) as u16,
             }
             .encode()
             .map(|m| m.to_vec())

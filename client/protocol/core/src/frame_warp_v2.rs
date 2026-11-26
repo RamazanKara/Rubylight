@@ -12,7 +12,8 @@
 //! The host sends a [`FrameWarpV2Meta`] (0x5549, unreliable) with each frame's tags: how sure it
 //! is that the camera, not a menu, a cutscene or a cursor, moves the picture
 //! ([`FrameWarpV2Meta::camera_confidence`]), how steady its HUD mask is, the gyro packet the frame
-//! reflects and the gyro's gain, and how to fill the strip a shift uncovers. The client adds the gyro's part to the shift,
+//! reflects and the gyro's gain, and how to fill the strip a shift uncovers. The client adds the
+//! gyro's part to the shift,
 //!
 //! ```text
 //! shift += gyro_gain * integral(gyro_rate(packet) - bias, tau_g..now)
@@ -63,14 +64,18 @@ pub mod meta_flags {
     pub const SCENE_CUT: u8 = 1 << 1;
     /// A pointer shows on the host: a menu or a pause, not a camera.
     pub const CURSOR_VISIBLE_PAUSE: u8 = 1 << 2;
-    /// The HUD mask's edges are soft: the client probes past them ([`super::FrameWarpV2Meta::hud_guard`]).
+    /// The HUD mask's edges are soft: the client probes past them
+    /// ([`super::FrameWarpV2Meta::hud_guard`]).
     pub const HUD_SOFT_EDGE: u8 = 1 << 3;
     /// The model locked from the game's saved prior, confirmed by this stream's first turn.
     pub const PRIOR_WARM_LOCKED: u8 = 1 << 4;
     /// The gyro gain's yaw is the motion packet's z axis, not its y axis: what the host found
     /// for a request that left the axis to it ([`super::YawSource::Auto`]).
     pub const GYRO_YAW_Z: u8 = 1 << 5;
-    pub const ALL: u8 = 0x3F;
+    /// [`super::FrameWarpV2Meta::gyro_tag`] is the [`super::reading_tag`] of packet
+    /// [`super::FrameWarpV2Meta::gyro_seq`].
+    pub const GYRO_TAGGED: u8 = 1 << 6;
+    pub const ALL: u8 = 0x7F;
 }
 
 /// Which motion packet axis turns the camera left and right.
@@ -234,9 +239,10 @@ pub struct FrameWarpV2Meta {
     /// Mask cells the client probes back along the shift for a background pixel when a shifted
     /// point lands on the HUD, 0 to [`MAX_HUD_GUARD`].
     pub hud_guard: u8,
-    /// Gyro packets the host had received from the gyro's pad when it made this meta (wrapping,
-    /// the low 16 bits): the client measures lost packets by it.
-    pub gyro_received: u16,
+    /// The [`reading_tag`] of gyro packet [`FrameWarpV2Meta::gyro_seq`] (with
+    /// [`meta_flags::GYRO_TAGGED`]): the client finds that packet among those it sent by it, so
+    /// the two counts stay together through lost packets.
+    pub gyro_tag: u16,
 }
 
 impl Default for FrameWarpV2Meta {
@@ -253,7 +259,7 @@ impl Default for FrameWarpV2Meta {
             omega_mrad_s: [0; 2],
             edge_fade_strength: DEFAULT_EDGE_FADE,
             hud_guard: DEFAULT_HUD_GUARD,
-            gyro_received: 0,
+            gyro_tag: 0,
         }
     }
 }
@@ -296,7 +302,7 @@ impl FrameWarpV2Meta {
         out[32..36].copy_from_slice(&self.omega_mrad_s[1].to_le_bytes());
         out[36] = self.edge_fade_strength;
         out[37] = self.hud_guard;
-        out[38..40].copy_from_slice(&self.gyro_received.to_le_bytes());
+        out[38..40].copy_from_slice(&self.gyro_tag.to_le_bytes());
         Some(out)
     }
 
@@ -320,7 +326,7 @@ impl FrameWarpV2Meta {
             omega_mrad_s: [i32::from_le_bytes(word(28)), i32::from_le_bytes(word(32))],
             edge_fade_strength: data[36],
             hud_guard: data[37],
-            gyro_received: u16::from_le_bytes([data[38], data[39]]),
+            gyro_tag: u16::from_le_bytes([data[38], data[39]]),
         };
         meta.valid().then_some(meta)
     }
@@ -341,6 +347,17 @@ pub fn from_unit16(value: u16) -> f32 {
 
 /// Radians per degree.
 pub const RADIANS_PER_DEGREE: f32 = core::f32::consts::PI / 180.0;
+
+/// A gyro reading's tag: the bits of its three floats as sent (x, y, z of the motion packet)
+/// folded to 16. The host names the packet a frame reflects by it
+/// ([`FrameWarpV2Meta::gyro_tag`]), and the client finds that packet among those it sent: a
+/// sensor's noise makes neighbouring readings differ.
+pub fn reading_tag(xyz: [f32; 3]) -> u16 {
+    let [x, y, z] = xyz.map(f32::to_bits);
+    let bits = x ^ y.rotate_left(11) ^ z.rotate_left(22);
+    let mixed = bits.wrapping_mul(0x9E37_79B1);
+    (mixed >> 16) as u16 ^ mixed as u16
+}
 
 /// A motion packet's gyro reading (x, y, z in degrees per second, as moonlight-common-c sends
 /// it: x pitch, y yaw, z roll) as the camera's yaw and pitch rate in radians per second, by

@@ -151,7 +151,7 @@ One per tagged frame, after its tags: the gyro as a third camera input, a confid
 | Offset | Size | Field | Rule |
 | --- | --- | --- | --- |
 | 0 | u8 | version | 2 (0 rejects) |
-| 1 | u8 | flags | Bit 0 gyro gain locked; bit 1 the picture just cut to another scene; bit 2 a pointer shows on the host; bit 3 soft HUD edges; bit 4 locked from the game's saved prior; bit 5 the gyro's yaw is the z axis (the host's choice for yaw axes 2). Unknown bits are ignored |
+| 1 | u8 | flags | Bit 0 gyro gain locked; bit 1 the picture just cut to another scene; bit 2 a pointer shows on the host; bit 3 soft HUD edges; bit 4 locked from the game's saved prior; bit 5 the gyro's yaw is the z axis (the host's choice for yaw axes 2); bit 6 `gyro tag` names packet `gyro seq`. Unknown bits are ignored |
 | 2 | u16 | model generation | As the tags' |
 | 4 | u32 | frame | The video frame number, as the tags' |
 | 8 | u16 | camera confidence | 0 to 65535 for 0 to 1: how sure the host is that the camera moves the picture |
@@ -162,7 +162,7 @@ One per tagged frame, after its tags: the gyro as a third camera input, a confid
 | 28 | i32 × 2 | omega | The camera's yaw and pitch rate the host measured, milliradians per second |
 | 36 | u8 | edge fade | How dark the far edge of the uncovered strip gets, 0 to 255 for none to black |
 | 37 | u8 | HUD guard | Mask cells to probe back along the shift for a background pixel, 0 to 8 (more rejects) |
-| 38 | u16 | gyro received | Gyro packets received from the gyro controller when the host made the meta (wrapping, low 16 bits) |
+| 38 | u16 | gyro tag | With flag bit 6: the tag of gyro packet `gyro seq`'s reading, the bits of its x, y and z floats as sent, `b = x ^ rotl(y, 11) ^ rotl(z, 22)`, `m = b * 0x9E3779B1` (wrapping), `tag = (m >> 16) ^ (m & 0xFFFF)` |
 
 The gyro rate of a motion packet (degrees per second: x pitch, y yaw, z roll) is `(yaw, pitch)` in radians per second, with the yaw from y or z and each axis inverted as the request says. Both ends learn the gyro's zero-rate bias alike from the packets: a reading under 0.05 rad/s on both axes for 20 packets in a row moves the bias 2% of the way to it (`GyroBias` in `rubylight_protocol::frame_warp_v2`). The shift gains
 
@@ -170,7 +170,7 @@ The gyro rate of a motion packet (degrees per second: x pitch, y yaw, z roll) is
 gyro_gain * integral(rate - bias, tau_g..now)
 ```
 
-with `tau_g` the client's send time of gyro packet `gyro seq` plus `gyro held`, and the client scales the whole shift by the confidence: down with a 40 ms time constant, back up along a 180 ms smoothstep (full confidence before the first meta). Motion packets travel unreliably, so the client sets its gyro count to the host's whenever it has sent no gyro packet for 600 ms; while they flow (a resting pad still sends its noise), it takes the least of how many it had sent beyond `gyro received` over the flow's first 30 metas as what is in flight, and counts anything more than that over the last second as lost. A point past the picture's edge samples back inside by a quarter of how far past it is and is darkened by up to `edge fade / 255` along a smoothstep over 8% of the picture (`edge fade` 90 before the first meta); a point whose source lands on the HUD tries up to `HUD guard` points (2 before the first meta) one mask cell apart back along the shift before it keeps its own pixel.
+with `tau_g` the client's send time of gyro packet `gyro seq` plus `gyro held`, and the client scales the whole shift by the confidence: down with a 40 ms time constant, back up along a 180 ms smoothstep (full confidence before the first meta). Motion packets travel unreliably, so the client finds the packet a meta names by its `gyro tag` among those it sent, the nearest to where the counts put it within 256 packets (none when two are as near), and sets its count to the host's from it; without a match it does so whenever it has sent no gyro packet for 600 ms. A point past the picture's edge samples back inside by a quarter of how far past it is and is darkened by up to `edge fade / 255` along a smoothstep over 8% of the picture (`edge fade` 90 before the first meta); a point whose source lands on the HUD tries up to `HUD guard` points (2 before the first meta) one mask cell apart back along the shift before it keeps its own pixel.
 
 ## Client behavior (Nightjar)
 

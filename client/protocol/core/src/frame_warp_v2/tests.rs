@@ -89,7 +89,7 @@ fn meta() -> FrameWarpV2Meta {
         omega_mrad_s: [-1234, 56],
         edge_fade_strength: DEFAULT_EDGE_FADE,
         hud_guard: DEFAULT_HUD_GUARD,
-        gyro_received: 0x0304,
+        gyro_tag: 0x0304,
     }
 }
 
@@ -113,6 +113,22 @@ fn meta_golden_bytes_round_trip() {
     assert!((meta().confidence() - 1.0).abs() < 1e-6);
     assert!(meta().has(meta_flags::GYRO_LOCKED));
     assert!(!meta().has(meta_flags::SCENE_CUT));
+}
+
+#[test]
+fn reading_tags_tell_neighbouring_readings_apart() {
+    let a = reading_tag([0.0012, -0.0031, 0.0007]);
+    assert_eq!(a, reading_tag([0.0012, -0.0031, 0.0007]), "the same reading, the same tag");
+    // A resting pad's noise: readings one step apart in any axis get different tags.
+    let mut tags: alloc::vec::Vec<u16> = (0..64)
+        .map(|i| reading_tag([0.0012 + i as f32 * 1e-4, -0.0031, 0.0007]))
+        .chain((0..64).map(|i| reading_tag([0.0012, -0.0031 + i as f32 * 1e-4, 0.0007])))
+        .chain((0..64).map(|i| reading_tag([0.0012, -0.0031, 0.0007 + i as f32 * 1e-4])))
+        .collect();
+    let all = tags.len();
+    tags.sort_unstable();
+    tags.dedup();
+    assert!(tags.len() >= all - 3, "{} of {all} distinct", tags.len());
 }
 
 #[test]

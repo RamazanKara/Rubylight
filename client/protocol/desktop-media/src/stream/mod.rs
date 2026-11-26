@@ -30,6 +30,7 @@ mod rate_change;
 pub use rate_change::{own_lowering_at_start, store_keep};
 pub mod menu_extras;
 pub mod guests;
+pub mod quick_suspend;
 mod touch;
 /// Touchpad passthrough: Raw Input on Windows, evdev on Linux, trackpad touches on macOS.
 mod touchpad;
@@ -388,6 +389,8 @@ pub struct Streaming {
     pub host_audio: menu_extras::HostAudio,
     /// Join requests and guests of this device's game, on a PC that offers them.
     pub guests: guests::Guests,
+    /// Suspend game and Resume game, on a PC that announced Quick Suspend (0x554B).
+    pub quick_suspend: quick_suspend::QuickSuspend,
     pub pending_command: Option<usize>,
     pub bitrate_busy: bool,
     /// The toast that packed full chroma's copies leave the decoder behind was shown (`doctor::packed_hint`).

@@ -54,7 +54,9 @@ fn every_choice_for_a_button_is_one_the_desktop_can_draw_and_run() {
     let menu = layout(&a, 0);
     for cell in &menu.grid {
         if let Cell::Tile { id, .. } = cell {
-            assert!(*id == model::MORE || ASSIGNABLE.iter().any(|(tile, _)| tile == id), "{id}");
+            // Pausing the game is never a button's (model::assignable).
+            let pauses = *id == "suspend_game" || *id == "resume_game";
+            assert!(*id == model::MORE || pauses || ASSIGNABLE.iter().any(|(tile, _)| tile == id), "{id}");
         }
     }
 }
@@ -62,7 +64,7 @@ fn every_choice_for_a_button_is_one_the_desktop_can_draw_and_run() {
 fn everything() -> Available {
     Available {
         mouse: Some(true), overlay: true, shortcuts: true, microphone: Some(false), quality: true, clipboard: true, image_clipboard: true,
-        commands: true, session: true, host_audio: true, controller_audio: true, usb: true, guests: true, exits: vec![HostExit::End, HostExit::CloseGame],
+        commands: true, session: true, host_audio: true, controller_audio: true, usb: true, guests: true, suspend: Some(false), exits: vec![HostExit::End, HostExit::CloseGame],
     }
 }
 

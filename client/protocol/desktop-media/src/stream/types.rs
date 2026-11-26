@@ -124,6 +124,8 @@ pub struct Facts {
     pub link_notice: bool,
     /// The host reports its pipeline frame rates (0x553D).
     pub pipeline_rates: bool,
+    /// The host pauses and resumes the game on request (Quick Suspend, 0x554B).
+    pub quick_suspend: bool,
     pub clock_sync: bool,
     pub display_caps: bool,
     pub cursor_shapes: bool,

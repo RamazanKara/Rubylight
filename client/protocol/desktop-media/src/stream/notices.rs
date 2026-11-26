@@ -279,6 +279,7 @@ impl Streaming {
             }
             ControlEvent::PipelineRates(report) => self.pipeline_rates = Some(report),
             ControlEvent::RateChange(result) => self.rate_change_result(&result),
+            ControlEvent::QuickSuspend(report) => self.quick_suspend_state(report),
             ControlEvent::ClockSync { reply, received } => {
                 let receive_us = session::now_us().saturating_sub(received.elapsed().as_micros() as u64);
                 self.offset.add(&reply, receive_us);

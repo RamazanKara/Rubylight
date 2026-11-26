@@ -72,6 +72,9 @@ pub struct Available {
     pub usb: bool,
     /// This device manages the guests of its game (`session.guests`).
     pub guests: bool,
+    /// Quick Suspend, as the host offers it: Some(false) offers Suspend game, Some(true) Resume
+    /// game while the game is paused on the PC.
+    pub suspend: Option<bool>,
     /// The ways out that end the PC's session or game, beside Disconnect: End session (a More row)
     /// and Close or Quit game as the Session and graphics page offers them, Quit game on a PC
     /// without it.
@@ -103,6 +106,9 @@ pub fn offers(a: &Available) -> Vec<Offer> {
     }
     if a.session {
         offers.push(Offer::action("native_page"));
+    }
+    if let Some(paused) = a.suspend {
+        offers.push(Offer::action(if paused { "resume_game" } else { "suspend_game" }));
     }
     // One level down: the picture's settings, the rest of the clipboard and the session's extras.
     offers.push(Offer::action("picture"));
@@ -204,6 +210,8 @@ pub fn label(id: &str) -> &'static str {
         "clipboard_receive" => tr("Get clipboard"),
         "server_commands" => tr("PC commands"),
         "native_page" => tr("Session and graphics"),
+        "suspend_game" => tr("Suspend game"),
+        "resume_game" => tr("Resume game"),
         model::MORE => tr("More"),
         other => unreachable!("grid tile {other} without a label"),
     }
@@ -220,6 +228,8 @@ fn icon(id: &str) -> Icon {
         "clipboard_receive" => Icon::ClipboardDown,
         "server_commands" => Icon::Terminal,
         "native_page" => Icon::Sliders,
+        "suspend_game" => Icon::Pause,
+        "resume_game" => Icon::Play,
         _ => Icon::More,
     }
 }

@@ -17,6 +17,7 @@ impl Streaming {
             // Every second, as the overlay refreshes.
             let _ = session.send(ClientMessage::PipelineRatesRequest(PipelineRatesRequest { enabled: true, interval_ms: 1000 }));
         }
+        let quick_suspend = quick_suspend::QuickSuspend::new(facts.quick_suspend);
         // Without the request the PC sends no notices, so the keyboard stays as the user leaves it.
         if facts.text_input && connecting.settings.keyboard_follows_text_fields
             && let Err(error) = session.send(ClientMessage::TextInputRequest(text_field::request())) {
@@ -232,6 +233,7 @@ impl Streaming {
             guide_waiting: false,
             host_audio: Default::default(),
             guests: Default::default(),
+            quick_suspend,
             pending_command: None,
             bitrate_busy: false,
             packed_hint_shown: false,
@@ -308,6 +310,7 @@ impl Streaming {
             frame_warp: warp_presenter,
         };
         streaming.report_keyboard_layout();
+        streaming.query_quick_suspend();
         // Before anything that sets a bitrate: what the PC counts this stream's bitrate as.
         if let Some(request) = streaming.rate_change.as_mut().map(|rates| rates.query_request(0)) { streaming.send_rate_query(request); }
         streaming.start_clipboard_sync();

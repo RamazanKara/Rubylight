@@ -84,7 +84,7 @@ pub(super) const SOURCES: [(&str, &str); 79] = [
 ];
 
 /// Read for its marked texts and its toasts only: the stream code keeps its own overlay lines.
-pub(super) const MARKED_ONLY: [(&str, &str); 32] = [
+pub(super) const MARKED_ONLY: [(&str, &str); 33] = [
     ("glyphs.rs", include_str!("../../../../desktop-ui/src/glyphs.rs")),
     ("stream_types.rs", include_str!("../../stream_types.rs")),
     ("latency_bench_state.rs", include_str!("../../latency_bench_state.rs")),
@@ -107,6 +107,7 @@ pub(super) const MARKED_ONLY: [(&str, &str); 32] = [
     ("stream/notices.rs", include_str!("../../../../desktop-media/src/stream/notices.rs")),
     ("stream/menu_extras.rs", include_str!("../../../../desktop-media/src/stream/menu_extras.rs")),
     ("stream/guests.rs", include_str!("../../../../desktop-media/src/stream/guests.rs")),
+    ("stream/quick_suspend.rs", include_str!("../../../../desktop-media/src/stream/quick_suspend.rs")),
     ("stream/microphone.rs", include_str!("../../../../desktop-media/src/stream/microphone.rs")),
     ("stream/rate_change.rs", include_str!("../../../../desktop-media/src/stream/rate_change.rs")),
     ("stream/clipboard_sync.rs", include_str!("../../../../desktop-media/src/stream/clipboard_sync.rs")),

@@ -115,6 +115,16 @@ pub fn ea(xml: &str, folder: &Path, name: &str) -> Result<Game> {
         }),
     ))
 }
+/// How the EA app starts an EA game by its first content id through its own `link2ea` scheme,
+/// on a PC where Origin's `origin2` scheme, which [`ea`] uses, is not registered.
+pub fn ea_link2ea(content_id: &str) -> Launch {
+    Launch::Uri {
+        uri: format!(
+            "link2ea://launchgame/{}?platform=PCWIN",
+            uri_part(content_id)
+        ),
+    }
+}
 /// Standard base64, as the Epic launcher writes its catalog cache. Line breaks are skipped.
 pub(super) fn base64(text: &[u8]) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(text.len() / 4 * 3);

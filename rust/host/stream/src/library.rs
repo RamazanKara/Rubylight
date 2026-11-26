@@ -90,6 +90,8 @@ fn scan_installed(settings: library::Settings) -> Scan {
                 .skipped()
                 .filter(|source| *source != library::Source::Steam),
         )
+        // At the sign-in screen the Microsoft Store lists nothing: its games keep the last state.
+        .signed_out(discovery.signed_out())
         .reading(settings)
         // `0` is Steam's never played; without a read history the time is unknown.
         .playing(
@@ -195,6 +197,11 @@ fn refresh(
                 let cache = caches.entry(directory).or_default();
                 match scan {
                     Ok(scan) => {
+                        // What a source unread at the sign-in screen had stays.
+                        let scan = match &cache.scan {
+                            Some(previous) => scan.carrying(previous),
+                            None => scan,
+                        };
                         cache.scan = Some(scan);
                         cache.at = Some(Instant::now());
                     }

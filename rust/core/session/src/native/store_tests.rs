@@ -1,5 +1,6 @@
 //! A Playnite app gets the store `game_id` of the installed launcher game it stands for, so a
-//! client merges it with another PC's own copy of that game (roadmap item 09, part 3).
+//! client merges it with another PC's own copy of that game (roadmap item 09, part 3), and a
+//! store the scan cannot read at the sign-in screen keeps its games' state (part 4).
 
 use super::*;
 use crate::library::Game as LauncherGame;
@@ -142,4 +143,43 @@ fn playnite_plugins_name_their_launchers() {
     ] {
         assert_eq!(Source::of_playnite_plugin(plugin), source, "{plugin}");
     }
+}
+
+#[test]
+fn a_store_unread_at_the_sign_in_screen_keeps_what_the_last_scan_found() {
+    let signed_in = Scan::from_games(&[
+        launcher(Source::Microsoft, "Halo_8wekyb3d8bbwe!App", "Halo Infinite"),
+        launcher(Source::Epic, "Fortnite", "Fortnite"),
+    ]);
+    let locked = || {
+        Scan::from_games(&[launcher(Source::Epic, "Fortnite", "Fortnite")])
+            .signed_out([Source::Microsoft])
+    };
+    let halo = "microsoft:Halo_8wekyb3d8bbwe!App";
+    assert_eq!(
+        locked().installed(halo),
+        None,
+        "unknown without an earlier scan"
+    );
+    let carried = locked().carrying(&signed_in);
+    assert_eq!(carried.installed(halo), Some(true));
+    assert_eq!(carried.installed("epic:Fortnite"), Some(true));
+    // Another sign-in-screen scan after it still keeps it; a signed-in one reads afresh.
+    let again = locked().carrying(&carried);
+    assert_eq!(again.installed(halo), Some(true));
+    let xbox = playnite(
+        "Halo Infinite",
+        "a5f8c1d2-0000-4000-8000-00000000000a",
+        "Xbox",
+    );
+    assert_eq!(
+        again.playnite_store(&xbox).map(|(_, game_id)| game_id),
+        Some(halo.to_owned())
+    );
+    let uninstalled = Scan::from_games(&[]).carrying(&carried);
+    assert_eq!(uninstalled.installed(halo), Some(false));
+    // A source turned off stays unknown, and one the last scan did not read is not carried.
+    let off = Scan::from_games(&[]).skipping([Source::Microsoft]);
+    assert_eq!(off.clone().carrying(&signed_in).installed(halo), None);
+    assert_eq!(locked().carrying(&off).installed(halo), None);
 }

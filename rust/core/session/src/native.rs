@@ -61,6 +61,9 @@ pub struct Scan {
     /// The installed games by source key and title in [`crate::library::name_key`] form, for
     /// [`Self::playnite_store`]: each title's `game_id`, or None for a title two games share.
     titles: BTreeMap<(String, String), Option<String>>,
+    /// Source keys not read because no user was signed in: [`Self::carrying`] keeps what an
+    /// earlier scan found for them.
+    signed_out: BTreeSet<String>,
 }
 impl Scan {
     pub fn new(game_ids: impl IntoIterator<Item = String>) -> Self {
@@ -74,6 +77,7 @@ impl Scan {
             collections_cut: 0,
             collections_bytes: 0,
             titles: BTreeMap::new(),
+            signed_out: BTreeSet::new(),
         }
     }
     /// Also known by title: these installed games, each its source, title and `game_id`.
@@ -217,6 +221,43 @@ impl Scan {
     pub fn skipping(mut self, sources: impl IntoIterator<Item = Source>) -> Self {
         self.skipped
             .extend(sources.into_iter().map(|source| source.key().to_owned()));
+        self
+    }
+    /// The scan could not read these sources because no user was signed in (the Microsoft
+    /// Store at the sign-in screen): skipped, until [`Self::carrying`] gives them the state an
+    /// earlier scan found.
+    pub fn signed_out(mut self, sources: impl IntoIterator<Item = Source>) -> Self {
+        for source in sources {
+            self.skipped.insert(source.key().to_owned());
+            self.signed_out.insert(source.key().to_owned());
+        }
+        self
+    }
+    /// Keeps what the previous scan found for the sources this one could not read while no
+    /// user was signed in, when the previous scan read them: a game stays installed at the
+    /// sign-in screen instead of turning unknown.
+    pub fn carrying(mut self, previous: &Scan) -> Self {
+        for source in &self.signed_out {
+            if previous.skipped.contains(source) {
+                continue;
+            }
+            let prefix = format!("{source}:");
+            self.installed.extend(
+                previous
+                    .installed
+                    .iter()
+                    .filter(|game_id| game_id.starts_with(&prefix))
+                    .cloned(),
+            );
+            self.titles.extend(
+                previous
+                    .titles
+                    .iter()
+                    .filter(|((key, _), _)| key == source)
+                    .map(|(key, game_id)| (key.clone(), game_id.clone())),
+            );
+            self.skipped.remove(source);
+        }
         self
     }
     /// The scan read the game folders of these settings and no others.

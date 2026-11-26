@@ -20,6 +20,8 @@ pub struct Scan {
     pub errors: Vec<String>,
     /// Whether there is anything of this kind on the PC: a game, or an `XboxGames` folder.
     pub available: bool,
+    /// Windows named no signed-in user, so the packages were not read ([`SignedOut`]).
+    pub signed_out: bool,
 }
 
 /// A registered package that can hold a game.
@@ -45,7 +47,14 @@ fn packages() -> Result<Vec<Installed>> {
     let sid = package_user(crate::process::user_sid())?;
     let found = manager
         .FindPackagesByUserSecurityId(&HSTRING::from(sid))
-        .context("Windows could not list the user's packages")?;
+        .map_err(|error| {
+            // The account is known but not signed in (its logon session is gone).
+            if error.code() == NO_SUCH_LOGON_SESSION {
+                anyhow::Error::new(SignedOut)
+            } else {
+                anyhow::Error::new(error).context("Windows could not list the user's packages")
+            }
+        })?;
     let mut installed = vec![];
     for package in found {
         let skip = |what: windows::core::Result<bool>| what.unwrap_or(true);
@@ -62,12 +71,29 @@ fn packages() -> Result<Vec<Installed>> {
     Ok(installed)
 }
 
+/// `HRESULT_FROM_WIN32(ERROR_NO_SUCH_LOGON_SESSION)`.
+const NO_SUCH_LOGON_SESSION: windows::core::HRESULT =
+    windows::core::HRESULT(0x8007_0520_u32 as i32);
+
+/// Windows names no signed-in user (the PC is at its sign-in screen, after a restart or once the
+/// user signed out), so the packages cannot be listed: the scan did not read them.
+#[derive(Debug)]
+pub(super) struct SignedOut;
+impl std::fmt::Display for SignedOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "no user is signed in on this PC, so its Microsoft Store packages cannot be listed; \
+             their games keep the state the last scan found",
+        )
+    }
+}
+impl std::error::Error for SignedOut {}
+
 /// The account whose packages are listed. No signed-in user is an error the console shows, not
 /// an empty list.
 fn package_user(sid: Option<String>) -> Result<String> {
-    sid.filter(|sid| !sid.is_empty()).context(
-        "no user is signed in on this PC, so its Microsoft Store packages cannot be listed",
-    )
+    sid.filter(|sid| !sid.is_empty())
+        .ok_or_else(|| anyhow::Error::new(SignedOut))
 }
 
 fn installed_of(package: &Package) -> Option<Installed> {
@@ -177,6 +203,7 @@ fn discover_from(packages: Result<Vec<Installed>>, drives: &[PathBuf]) -> Scan {
         games: vec![],
         errors: vec![],
         available: false,
+        signed_out: false,
     };
     match packages {
         Ok(found) => {
@@ -184,6 +211,15 @@ fn discover_from(packages: Result<Vec<Installed>>, drives: &[PathBuf]) -> Scan {
                 let result = game_in(&package).with_context(|| package.family.clone());
                 add(result, &mut scan.games, &mut scan.errors);
             }
+        }
+        // Said, and not read: the games keep their last state (`Discovery::skipped`). The
+        // `XboxGames` folders are not read either, as every registered game there would look
+        // unregistered.
+        Err(error) if error.is::<SignedOut>() => {
+            scan.signed_out = true;
+            scan.errors
+                .push(format!("Microsoft Store packages: {error:#}"));
+            return scan;
         }
         // Loud: without the list a registered game would look as if it were not installed.
         Err(error) => scan
@@ -292,6 +328,26 @@ mod tests {
             "{:?}",
             scan.errors
         );
+    }
+
+    #[test]
+    fn a_signed_out_pc_reads_no_store_games_and_says_so() {
+        let drive = tempfile::tempdir().unwrap();
+        fixture(&drive.path().join("XboxGames").join("Contoso Racing"), true);
+        let drives = [drive.path().to_path_buf()];
+        for signed_out in [
+            package_user(None).unwrap_err(),
+            anyhow::Error::new(SignedOut),
+        ] {
+            let scan = discover_from(Err(signed_out), &drives);
+            assert!(scan.signed_out);
+            // Not an empty library and not an unregistered game: nothing was read.
+            assert!(scan.games.is_empty() && !scan.available);
+            assert_eq!(scan.errors.len(), 1);
+            assert!(scan.errors[0].contains("signed in"), "{:?}", scan.errors);
+        }
+        assert!(!discover_from(Err(anyhow::anyhow!("access denied")), &drives).signed_out);
+        assert_eq!(NO_SUCH_LOGON_SESSION.0 as u32, 0x8007_0520);
     }
 
     #[test]

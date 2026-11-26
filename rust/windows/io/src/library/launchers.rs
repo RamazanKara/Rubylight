@@ -11,6 +11,27 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// The uninstall entry's name for a launcher's game folder, compared as Windows compares paths
+/// (any case, either slash, a trailing slash or quotes: the EA app, Ubisoft Connect and the
+/// uninstall entry each write the folder their own way), else the folder's own name.
+pub(super) fn display_name(installs: &[Installed], folder: &Path) -> String {
+    let folder_text = folder.to_string_lossy();
+    installs
+        .iter()
+        .find(|item| {
+            !item.name.is_empty()
+                && library::same_folder(&item.folder.to_string_lossy(), &folder_text)
+        })
+        .map(|item| item.name.clone())
+        .unwrap_or_else(|| {
+            folder
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned()
+        })
+}
+
 pub(super) fn program_folders() -> Vec<PathBuf> {
     let user = crate::process::user_environment().unwrap_or_default();
     ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"]
@@ -278,8 +299,9 @@ pub(super) fn scan_ea(
             );
         }
     }
-    let can_launch = protocol("origin2");
-    for folder in candidates.into_iter().collect::<BTreeSet<_>>() {
+    let (origin2, link2ea) = (protocol("origin2"), protocol("link2ea"));
+    let can_launch = origin2 || link2ea;
+    for folder in unique_folders(candidates) {
         if !super::on_this_pc(&folder) {
             continue;
         }
@@ -287,29 +309,35 @@ pub(super) fn scan_ea(
         if !manifest.exists() {
             continue;
         }
-        let name = installs
-            .iter()
-            .find(|item| item.folder == folder && !item.name.is_empty())
-            .map(|item| item.name.clone())
-            .unwrap_or_else(|| {
-                folder
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned()
-            });
+        let name = display_name(installs, &folder);
         let result = bytes(&manifest)
             .and_then(|data| library::ea(std::str::from_utf8(&data)?, &folder, &name))
             .map(|mut game| {
                 if !can_launch {
                     game.unavailable_reason =
                         Some("Install or repair the EA app to launch this game.".into());
+                } else if !origin2 {
+                    // The EA app without Origin's old scheme: its own.
+                    game.launch = Some(library::ea_link2ea(&game.id));
                 }
                 Some(game)
             });
         add(result, games, errors);
     }
     can_launch
+}
+
+/// The folders, each once however the registry and the folder listing spell it (case,
+/// slashes, a trailing slash, quotes), in a stable order.
+pub(super) fn unique_folders(folders: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
+    let mut seen = BTreeSet::new();
+    let mut unique: Vec<PathBuf> = folders
+        .into_iter()
+        .map(|folder| PathBuf::from(folder.to_string_lossy().trim().trim_matches('"').trim()))
+        .filter(|folder| seen.insert(library::folder_key(&folder.to_string_lossy())))
+        .collect();
+    unique.sort_by_key(|folder| library::folder_key(&folder.to_string_lossy()));
+    unique
 }
 
 pub(super) fn scan_ubisoft(
@@ -321,17 +349,7 @@ pub(super) fn scan_ubisoft(
     let entries = folders(r"SOFTWARE\Ubisoft\Launcher\Installs", errors);
     let available = can_launch;
     for (id, folder) in entries {
-        let name = installs
-            .iter()
-            .find(|item| item.folder == folder && !item.name.is_empty())
-            .map(|item| item.name.clone())
-            .unwrap_or_else(|| {
-                folder
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned()
-            });
+        let name = display_name(installs, &folder);
         add(
             library::ubisoft(&id, &folder, &name).map(|mut game| {
                 if !can_launch {

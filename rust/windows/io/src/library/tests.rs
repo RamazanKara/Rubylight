@@ -291,3 +291,38 @@ fn non_local_network_share_paths_are_rejected_without_filesystem_probing() {
     gog_registered(&[gog_rec], &mut games, &mut errors);
     assert!(games.is_empty());
 }
+
+/// The EA app and the uninstall records spell one folder differently: case, slashes, a
+/// trailing separator, quotes (roadmap item 09, part 4).
+#[test]
+fn a_folder_spelled_differently_is_the_same_game_folder() {
+    let installs = [registry::Installed {
+        key: "{EA}".into(),
+        name: "Battlefield 2042".into(),
+        publisher: "Electronic Arts".into(),
+        folder: registry::folder_of(r#" "D:\Games\EA Games\Battlefield 2042\" "#),
+        uninstall: String::new(),
+    }];
+    let folder = Path::new("d:/games/ea games/battlefield 2042");
+    assert_eq!(
+        launchers::display_name(&installs, folder),
+        "Battlefield 2042"
+    );
+    assert_eq!(
+        launchers::display_name(&installs, Path::new(r"D:\Games\EA Games\Battlefield 1")),
+        "Battlefield 1",
+        "another folder is named after itself"
+    );
+    let unique = launchers::unique_folders([
+        PathBuf::from(r"D:\Games\EA Games\Battlefield 2042\"),
+        PathBuf::from(r#""d:/games/ea games/battlefield 2042""#),
+        PathBuf::from(r"C:\Program Files\EA Games\Apex"),
+    ]);
+    assert_eq!(
+        unique,
+        [
+            PathBuf::from(r"C:\Program Files\EA Games\Apex"),
+            PathBuf::from(r"D:\Games\EA Games\Battlefield 2042\"),
+        ]
+    );
+}

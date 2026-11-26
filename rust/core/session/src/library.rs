@@ -16,7 +16,7 @@ pub use battlenet::{
 };
 pub use local::{LOCAL_SKIPPED_FOLDERS, Program, finish, local};
 pub use microsoft::{StorePackage, microsoft, store_launch_target};
-pub use stores::{ea, epic, epic_cover_key, epic_covers, gog, gog_registry, ubisoft};
+pub use stores::{ea, ea_link2ea, epic, epic_cover_key, epic_covers, gog, gog_registry, ubisoft};
 pub use sync::{
     AppIndex, DISMISSED, MANAGED, SYNC_OWNER_VERSION, SYNCED_BY, Stamped, SyncChange, chosen,
     dismissal_keys, dismissed_key, hand_over, managed_key, playnite_dismissed_key, reconcile,
@@ -307,15 +307,19 @@ pub(crate) fn name_key(name: &str) -> String {
         .flat_map(char::to_lowercase)
         .collect()
 }
-/// A folder path compared as Windows does: any case, either slash, no trailing slash.
-fn folder_key(path: &str) -> String {
+/// A folder path compared as Windows does: any case, either slash, no trailing slash, and no
+/// quotes around it, as some launchers write their registry values.
+pub fn folder_key(path: &str) -> String {
     path.trim()
+        .trim_matches('"')
+        .trim()
         .replace('/', "\\")
         .trim_end_matches('\\')
         .to_lowercase()
 }
-fn same_folder(a: &str, b: &str) -> bool {
-    !a.trim().is_empty() && folder_key(a) == folder_key(b)
+/// Whether `a` and `b` name one folder ([`folder_key`]); a blank path names none.
+pub fn same_folder(a: &str, b: &str) -> bool {
+    !folder_key(a).is_empty() && folder_key(a) == folder_key(b)
 }
 /// Whether `path` is `folder` or inside it. A path that climbs out with `..` is in no folder.
 fn within(path: &str, folder: &str) -> bool {

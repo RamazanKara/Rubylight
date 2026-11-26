@@ -57,9 +57,10 @@ public final class RedactedLog {
     // A user's home folder in a path, up to the name, which becomes [user]: C:\Users\ (any case,
     // either separator, doubled when escaped), Documents and Settings, /Users/ and /home/. A name
     // with spaces counts up to the separator after it; at the end of the path its first word goes.
+    // The lookbehind is Rust's ASCII \b: Android's \b counts letters past ASCII as word characters.
     private static final String PATH_NAME = "[^\\\\/ \\t\\n\\x0B\\f\\r\"'<>|:*?]+";
     private static final java.util.regex.Pattern USER_PATH = java.util.regex.Pattern.compile(
-            "(\\b[A-Za-z]:[\\\\/]+(?i:users|documents and settings)[\\\\/]+|/(?:Users|home)/+)(?:"
+            "((?<![A-Za-z0-9_])[A-Za-z]:[\\\\/]+(?i:users|documents and settings)[\\\\/]+|/(?:Users|home)/+)(?:"
                     + PATH_NAME + "(?: +" + PATH_NAME + ")*([\\\\/])|" + PATH_NAME + ")");
     // Informational lines worth keeping; the rest is too frequent and would push out a session.
     private static final String[] INFO_PREFIXES = {

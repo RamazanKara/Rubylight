@@ -41,6 +41,11 @@
       "expect": "HOME=/home/[user] ready"
     },
     {
+      "name": "a drive letter after a letter past ASCII",
+      "input": "éC:\\Users\\bob\\x",
+      "expect": "éC:\\Users\\[user]\\x"
+    },
+    {
       "name": "a drive letter inside a word and other folders stay",
       "input": "abc:\\Users\\x D:\\Games\\Steam /usr/share/nightjar",
       "expect": "abc:\\Users\\x D:\\Games\\Steam /usr/share/nightjar"

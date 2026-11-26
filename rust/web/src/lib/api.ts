@@ -63,15 +63,19 @@ import type {
   WebhookSave,
   WebhookStatus,
 } from './api/types-network';
+import { dvrEndpoints } from './api/dvr';
 
 export * from './api/types-core';
 export * from './api/types-sessions';
 export * from './api/types-network';
+export * from './api/dvr';
 
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** The refusal's machine-readable `reason` when the body has one (Stream DVR's 409s). */
+    readonly reason?: string,
   ) {
     super(message);
   }
@@ -227,9 +231,9 @@ async function json<T>(method: Method, path: string, body?: unknown, timeout = R
     // Some errors are plain text.
   }
   if (!response.ok) {
-    const message =
-      (parsed as { error?: string } | undefined)?.error ?? (text || `${response.status} ${response.statusText}`);
-    throw new ApiError(response.status, message);
+    const refusal = parsed as { error?: string; reason?: string } | undefined;
+    const message = refusal?.error ?? (text || `${response.status} ${response.statusText}`);
+    throw new ApiError(response.status, message, typeof refusal?.reason === 'string' ? refusal.reason : undefined);
   }
   return parsed as T;
 }
@@ -528,6 +532,8 @@ export const api = {
     /** The support bundle with the newest crash memory dump, which is left out unless asked for. */
     supportBundleWithDumpUrl: '/api/logs/export_crash?include_dump=1',
   },
+  /** Stream DVR: instant replay, recording and the saved clips (`lib/api/dvr.ts`). */
+  dvr: dvrEndpoints(json),
   updates: {
     state: () => get<UpdatesState>('/api/updates'),
     check: () => post<Ok>('/api/updates/check'),

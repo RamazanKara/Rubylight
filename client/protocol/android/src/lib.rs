@@ -11,6 +11,7 @@ mod bridge;
 pub mod capabilities;
 pub mod collections;
 pub mod connect;
+pub mod display_profile;
 pub mod console;
 pub mod echo;
 mod engine;

@@ -126,4 +126,11 @@
     <string name="game_preset_quality_summary" formatted="false">Ustawia bitrate na 150% wartości z komputera lub, jeśli komputer jej nie ma, z ustawień głównych, do limitu komputera. Frame pacing i adaptacyjne odświeżanie się nie zmieniają; przy słabym połączeniu większe klatki mogą zwiększyć opóźnienie.</string>
     <string name="game_preset_custom">Własne</string>
     <string name="game_preset_custom_summary">Twoje własne wartości, ustawione poniżej.</string>
+    <string name="profiles_screen">Profil dla tego ekranu</string>
+    <string name="profiles_screen_none">Brak profilu dla tego ekranu</string>
+    <string name="profiles_screen_summary">Nightjar jest na ekranie %1$s. Transmisja uruchomiona na nim używa tego profilu, przed siecią i profilem w użyciu.</string>
+    <string name="profiles_screen_built_in">Ekran tego urządzenia</string>
+    <string name="profiles_marker_screen">Zachowany dla %1$s</string>
+    <string name="profiles_screen_forget">Zapomnij ekran</string>
+    <string name="layers_part_profile_screen">profil %1$s, zachowany dla tego ekranu</string>
 </resources>

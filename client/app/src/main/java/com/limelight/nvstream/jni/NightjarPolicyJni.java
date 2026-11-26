@@ -463,4 +463,11 @@ public final class NightjarPolicyJni {
             int capabilities, boolean dolbyVisionCorrupts, boolean dolbyVisionAv1Corrupts, int hdrFormat);
     public static native long videoRecordFrameGap(int gap, long newDecoderDrops);
     public static native int videoThermalState(int level, boolean holdsBitrate, boolean easesLoad);
+
+    /**
+     * The profile kept for a screen (`protocol/android/src/display_profile.rs`): {@code {"rules":[{"profile":"3",
+     * "display":{"id":"builtin","name":""}}],"screen":{"id":"builtin","name":""}}} answers {@code {"profile":"3"}},
+     * or {@code {"profile":null}} when no profile is kept for the screen.
+     */
+    public static native String displayProfile(String request);
 }

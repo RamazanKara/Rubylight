@@ -23,6 +23,9 @@ public final class StreamLayersText {
     /** "profile Hotel, chosen for Mobile data", or "profile Hotel"; null when no profile applies. */
     public static String profile(Context context, StreamLayers.Result result) {
         if (result.profileName == null) return null;
+        if (result.reason == StreamLayers.Reason.SCREEN) {
+            return context.getString(R.string.layers_part_profile_screen, result.profileName);
+        }
         return result.reason == StreamLayers.Reason.NETWORK ?
                 context.getString(R.string.layers_part_profile_network, result.profileName, network(context, result.network)) :
                 context.getString(R.string.layers_part_profile, result.profileName);

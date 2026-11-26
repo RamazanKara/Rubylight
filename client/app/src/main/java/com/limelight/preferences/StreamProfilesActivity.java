@@ -30,6 +30,7 @@ import com.limelight.ui.TopAppBar;
 import com.limelight.utils.UiHelper;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -215,6 +216,13 @@ public class StreamProfilesActivity extends NightjarActivity {
             choice.removeAll();
             row(choice, "in_use", getString(R.string.profiles_in_use),
                     profileName(profiles, profiles.activeId, R.string.profiles_none), this::pickInUse);
+            StreamScreen screen = StreamScreen.of(activity);
+            if (screen != null) {
+                row(choice, "screen", getString(R.string.profiles_screen),
+                        profileName(profiles, StreamLayers.screenProfile(profiles, screen), R.string.profiles_screen_none)
+                                + "\n" + getString(R.string.profiles_screen_summary, screen.label(activity)),
+                        () -> pickScreen(screen));
+            }
             MaterialSwitchPreference auto = new MaterialSwitchPreference(activity, null);
             auto.setKey("auto");
             auto.setLayoutResource(R.layout.settings_preference);
@@ -278,6 +286,8 @@ public class StreamProfilesActivity extends NightjarActivity {
             if (!networks.isEmpty()) {
                 summary.append('\n').append(getString(R.string.profiles_marker_rules, String.join(", ", networks)));
             }
+            StreamScreen screen = profiles.screen(id);
+            if (screen != null) summary.append('\n').append(getString(R.string.profiles_marker_screen, screen.label(activity)));
             return summary.toString();
         }
 
@@ -302,10 +312,13 @@ public class StreamProfilesActivity extends NightjarActivity {
                 return;
             }
             String name = profiles.name(id);
-            CharSequence[] actions = {getString(R.string.profiles_edit), getString(R.string.profiles_rename),
-                    getString(R.string.profiles_duplicate), getString(R.string.profiles_delete)};
+            List<CharSequence> actions = new ArrayList<>(Arrays.asList(getString(R.string.profiles_edit),
+                    getString(R.string.profiles_rename), getString(R.string.profiles_duplicate),
+                    getString(R.string.profiles_delete)));
+            // Only a profile kept for a screen offers to let it go, so one kept for a screen not here can be freed.
+            if (profiles.screen(id) != null) actions.add(getString(R.string.profiles_screen_forget));
             UiHelper.showDialog(activity, new NavigationDialogBuilder(activity).setTitle(name)
-                    .setItems(actions, (dialog, which) -> {
+                    .setItems(actions.toArray(new CharSequence[0]), (dialog, which) -> {
                         switch (which) {
                             case 0:
                                 HostStreamSettings.showProfile(activity, id);
@@ -316,8 +329,12 @@ public class StreamProfilesActivity extends NightjarActivity {
                             case 2:
                                 duplicate(id);
                                 break;
-                            default:
+                            case 3:
                                 confirmDelete(id, name);
+                                break;
+                            default:
+                                StreamProfiles.forgetScreen(activity, id);
+                                refresh();
                                 break;
                         }
                     }).setNegativeButton(android.R.string.cancel, null).create());
@@ -427,6 +444,12 @@ public class StreamProfilesActivity extends NightjarActivity {
         private void pickInUse() {
             pickProfile(R.string.profiles_in_use, R.string.profiles_none, StreamProfiles.load(activity).activeId,
                     id -> StreamProfiles.setActive(activity, id));
+        }
+
+        private void pickScreen(StreamScreen screen) {
+            pickProfile(R.string.profiles_screen, R.string.profiles_screen_none,
+                    StreamLayers.screenProfile(StreamProfiles.load(activity), screen),
+                    id -> StreamProfiles.keepForScreen(activity, screen, id));
         }
 
         private void pickRule(StreamLayers.Network network) {

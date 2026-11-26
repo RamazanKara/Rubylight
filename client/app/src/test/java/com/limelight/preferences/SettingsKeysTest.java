@@ -523,10 +523,11 @@ public class SettingsKeysTest {
     public void profileStoreKeysKeepTheirNames() {
         assertEquals("StreamProfiles", StreamProfiles.PREFERENCES);
         assertEquals(Arrays.asList("order", "next_id", "name.", "values.", "active", "auto", "rule.mobile",
-                "rule.home_wifi", "rule.wifi", "home_wifi"), Arrays.asList(StreamProfiles.ORDER, StreamProfiles.NEXT_ID,
+                "rule.home_wifi", "rule.wifi", "home_wifi", "screen.", "screen_name."),
+                Arrays.asList(StreamProfiles.ORDER, StreamProfiles.NEXT_ID,
                 StreamProfiles.NAME, StreamProfiles.VALUES, StreamProfiles.ACTIVE, StreamProfiles.AUTO,
                 StreamProfiles.RULE_MOBILE, StreamProfiles.RULE_HOME_WIFI, StreamProfiles.RULE_WIFI,
-                StreamProfiles.HOME_WIFI));
+                StreamProfiles.HOME_WIFI, StreamProfiles.SCREEN, StreamProfiles.SCREEN_NAME));
         assertEquals("list_mobile_bitrate_kbps", PreferenceConfiguration.MOBILE_BITRATE_PREF_STRING);
         assertEquals("pc1/uuid:game", AppStreamSettings.lookupKey("pc1", "game", 3));
         assertEquals("pc1/id:3", AppStreamSettings.lookupKey("pc1", null, 3));

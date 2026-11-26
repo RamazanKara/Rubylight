@@ -81,6 +81,8 @@ impl Streaming {
             crate::sdl::prefer_immediate(renderer, present::prefers_immediate(self.vrr.display_vrr(), wayland, crate::handheld::gamescope()));
             interval.or(Some(self.vrr.interval))
         } else { interval };
+        #[cfg(target_os = "linux")]
+        let interval = interval.map(|interval| self.gamescope_interval(renderer, interval));
         #[cfg(not(target_os = "linux"))]
         let _ = display_vrr;
         if self.pacer.mode != before {

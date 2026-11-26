@@ -56,6 +56,22 @@ impl Streaming {
         }
     }
 
+    /// The sync interval the renderer gets for `interval`, the pacing's: under gamescope a V-Sync
+    /// stream that takes the newest picture presents MAILBOX with V-Sync off instead of
+    /// gamescope's FIFO queue (`present::gamescope_mailbox`, Nightjar #181), and the other modes
+    /// take IMMEDIATE again (`present::prefers_immediate`). Elsewhere it is `interval`.
+    #[cfg(target_os = "linux")]
+    pub(super) fn gamescope_interval(&self, renderer: *mut SDL_Renderer, interval: i32) -> i32 {
+        let gamescope = crate::handheld::gamescope();
+        if !gamescope { return interval; }
+        if present::gamescope_mailbox(self.pacer.mode, self.pacer.in_order(), gamescope, crate::sdl::renderer_is(renderer, "gpu")) {
+            crate::sdl::prefer_mailbox(renderer);
+            return 0;
+        }
+        crate::sdl::prefer_immediate(renderer, present::prefers_immediate(self.vrr.display_vrr(), crate::sdl::video_driver() == "wayland", gamescope));
+        interval
+    }
+
     /// Whether this display tells when it showed a picture, which fractional V-Sync's turns count
     /// from: Windows' swap chain statistics while they can be read, a KMS commit, or Wayland's
     /// presentation feedback with times in the last second.

@@ -348,8 +348,10 @@ public class StreamView extends FrameLayout {
     }
 
     // Picture position (StreamSafeAreaController): thousandths of the parent's sides to move the
-    // laid-out video by, kept on screen. Touch maps through getX(), so it follows.
-    private int offsetPermilleX, offsetPermilleY;
+    // laid-out video by, kept on screen, as a translation under the soft keyboard's pan. Touch
+    // maps through getX() and getY(), which include it.
+    private int offsetPermilleX, offsetPermilleY, offsetX, offsetY;
+    private float keyboardPan;
 
     public void setPictureOffset(int permilleX, int permilleY) {
         if (permilleX == offsetPermilleX && permilleY == offsetPermilleY) return;
@@ -358,15 +360,24 @@ public class StreamView extends FrameLayout {
         requestLayout();
     }
 
+    /** The picture position's vertical move in pixels, which the keyboard pan starts from. */
+    public int pictureOffsetY() { return offsetY; }
+
+    public float keyboardPan() { return keyboardPan; }
+
+    public void setKeyboardPan(float pan) {
+        keyboardPan = pan;
+        setTranslationY(offsetY + pan);
+    }
+
     @Override
-    public void layout(int l, int t, int r, int b) {
-        if ((offsetPermilleX != 0 || offsetPermilleY != 0) && getParent() instanceof android.view.View) {
-            android.view.View parent = (android.view.View) getParent();
-            int dx = SafeAreaPolicy.offsetPx(offsetPermilleX, parent.getWidth(), l, r - l);
-            int dy = SafeAreaPolicy.offsetPx(offsetPermilleY, parent.getHeight(), t, b - t);
-            l += dx; r += dx; t += dy; b += dy;
-        }
-        super.layout(l, t, r, b);
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        super.onLayout(changed, l, t, r, b);
+        android.view.View parent = getParent() instanceof android.view.View ? (android.view.View) getParent() : null;
+        offsetX = parent == null ? 0 : SafeAreaPolicy.offsetPx(offsetPermilleX, parent.getWidth(), l, r - l);
+        offsetY = parent == null ? 0 : SafeAreaPolicy.offsetPx(offsetPermilleY, parent.getHeight(), t, b - t);
+        setTranslationX(offsetX);
+        setTranslationY(offsetY + keyboardPan);
     }
 
     @Override

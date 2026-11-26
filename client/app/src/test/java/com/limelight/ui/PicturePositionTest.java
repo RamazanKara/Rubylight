@@ -50,17 +50,21 @@ public class PicturePositionTest {
         assertEquals(240, video.getLeft());
         video.setPictureOffset(50, 0);
         layOut(parent);
-        assertEquals(360, video.getLeft());
+        assertEquals(240, video.getLeft());
         assertEquals(360f, video.getX(), 0f);
         assertEquals(1920, video.getWidth());
         // Never past the screen's edge, and nothing to move into vertically.
         video.setPictureOffset(-150, 100);
         layOut(parent);
-        assertEquals(0, video.getLeft());
-        assertEquals(0, video.getTop());
+        assertEquals(0f, video.getX(), 0f);
+        assertEquals(0f, video.getY(), 0f);
+        // The soft keyboard's pan adds to the picture's own move.
+        video.setKeyboardPan(-200);
+        assertEquals(-200f, video.getY(), 0f);
+        video.setKeyboardPan(0);
         video.setPictureOffset(0, 0);
         layOut(parent);
-        assertEquals(240, video.getLeft());
+        assertEquals(240f, video.getX(), 0f);
     }
 
     private static void layOut(View parent) {

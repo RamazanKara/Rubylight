@@ -197,12 +197,12 @@ final class GameHostTextInput {
         float pan = 0;
         View parent = (View) game.streamView.getParent();
         if (parent != null) {
-            pan = hostKeyboard.pan(parent.getHeight(), keyboardInsetBottom, game.streamView.getTop(), game.streamView.getHeight(),
+            pan = hostKeyboard.pan(parent.getHeight(), keyboardInsetBottom, game.streamView.getTop() + game.streamView.pictureOffsetY(), game.streamView.getHeight(),
                     HostKeyboard.MARGIN_DP * game.getResources().getDisplayMetrics().density);
         }
-        if (pan == game.streamView.getTranslationY()) return;
+        if (pan == game.streamView.keyboardPan()) return;
         LimeLog.info(pan == 0 ? "Stream moves back down" : "Stream moves " + Math.round(-pan) + " px up for the soft keyboard");
-        game.streamView.setTranslationY(pan);
+        game.streamView.setKeyboardPan(pan);
     }
 
     /**

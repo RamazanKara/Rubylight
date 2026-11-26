@@ -28,10 +28,20 @@ const SHARED_PROFILES: &[&str] = &[
     "all users",
     "defaultapppool",
     "system",
+    "systemprofile",
+    "localservice",
+    "networkservice",
 ];
 
+/// A user's home folder in a path, up to the user's name: `C:\Users\` and `Documents and
+/// Settings` (any case, either separator), `/Users/` and `/home/`. A name with spaces counts as
+/// one only up to the separator after it.
 static USER_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)((?:[a-z]:)?[\\/]+(?:users|home)[\\/]+)[^\\/"'\s:*?<>|]+"#).unwrap()
+    let name = r#"[^\\/"'\s:*?<>|]+"#;
+    Regex::new(&format!(
+        r"(?i)((?:\b[a-z]:)?[\\/]+(?:users|home|documents and settings)[\\/]+)(?:{name}(?: +{name})*([\\/])|{name})"
+    ))
+    .unwrap()
 });
 static MAC_COLONS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b").unwrap());
@@ -101,12 +111,22 @@ fn word(c: Option<char>) -> bool {
     c.is_some_and(|c| c.is_alphanumeric() || c == '_')
 }
 
+/// A name the redactor was told and the mark that replaces it.
+struct Name {
+    text: String,
+    lower: String,
+    mark: String,
+    ignore_case: bool,
+}
+
 /// Redacts lines with the names it was told and the patterns every line gets.
 #[derive(Default)]
 pub struct Redactor {
-    /// Each name, its pattern and its mark, longest name first, so a name inside a longer one
-    /// does not leave the rest behind.
-    names: Vec<(String, Regex, String)>,
+    /// Longest name first, so a name inside a longer one does not leave the rest behind.
+    names: Vec<Name>,
+    /// Every name in one pattern, so a line is searched once however long the library is; built
+    /// at the first line after a name was added.
+    pattern: std::sync::OnceLock<Regex>,
     devices: usize,
     apps: usize,
 }
@@ -118,26 +138,58 @@ impl Redactor {
 
     fn add(&mut self, name: &str, mark: String, ignore_case: bool) -> bool {
         let name = name.trim();
-        if name.chars().count() < MIN_NAME
-            || self
-                .names
-                .iter()
-                .any(|(known, _, _)| known.to_lowercase() == name.to_lowercase())
-        {
+        let lower = name.to_lowercase();
+        if name.chars().count() < MIN_NAME || self.names.iter().any(|known| known.lower == lower) {
             return false;
         }
-        // The name, not inside a longer word.
-        let flags = if ignore_case { "(?i)" } else { "" };
-        let Ok(pattern) = Regex::new(&format!(
-            r"{flags}(^|[^\p{{L}}\p{{N}}_]){}($|[^\p{{L}}\p{{N}}_])",
-            regex::escape(name)
-        )) else {
-            return false;
-        };
-        self.names.push((name.to_owned(), pattern, mark));
+        self.names.push(Name {
+            text: name.to_owned(),
+            lower,
+            mark,
+            ignore_case,
+        });
         self.names
-            .sort_by(|a, b| b.0.chars().count().cmp(&a.0.chars().count()));
+            .sort_by_key(|n| std::cmp::Reverse(n.text.chars().count()));
+        self.pattern = std::sync::OnceLock::new();
         true
+    }
+
+    /// The names, each not inside a longer word, longest first; `None` without names.
+    fn names_pattern(&self) -> Option<&Regex> {
+        if self.names.is_empty() {
+            return None;
+        }
+        Some(self.pattern.get_or_init(|| {
+            let names: Vec<String> = self
+                .names
+                .iter()
+                .map(|n| match n.ignore_case {
+                    true => format!("(?i:{})", regex::escape(&n.text)),
+                    false => regex::escape(&n.text),
+                })
+                .collect();
+            regex::RegexBuilder::new(&format!(
+                r"(^|[^\p{{L}}\p{{N}}_])({})($|[^\p{{L}}\p{{N}}_])",
+                names.join("|")
+            ))
+            .size_limit(256 << 20)
+            .build()
+            .expect("escaped names form a pattern")
+        }))
+    }
+
+    /// The mark of the name `found` matched.
+    fn mark(&self, found: &str) -> &str {
+        let lower = found.to_lowercase();
+        self.names
+            .iter()
+            .find(|n| n.text == found)
+            .or_else(|| {
+                self.names
+                    .iter()
+                    .find(|n| n.ignore_case && n.lower == lower)
+            })
+            .map_or("[redacted]", |n| n.mark.as_str())
     }
 
     /// A Windows user name; a profile every PC has is left alone.
@@ -178,17 +230,18 @@ impl Redactor {
         let mut text = EMAIL.replace_all(line, "[email]").into_owned();
         text = BEARER.replace_all(&text, "$1 [redacted]").into_owned();
         text = SECRET.replace_all(&text, "$1$2[redacted]").into_owned();
-        text = USER_PATH.replace_all(&text, "${1}[user]").into_owned();
-        for (_, pattern, mark) in &self.names {
+        if let Some(pattern) = self.names_pattern() {
             // Twice: a match takes the separator after it, which the next match may need.
             for _ in 0..2 {
                 text = pattern
                     .replace_all(&text, |c: &regex::Captures| {
-                        format!("{}{mark}{}", &c[1], &c[2])
+                        format!("{}{}{}", &c[1], self.mark(&c[2]), &c[3])
                     })
                     .into_owned();
             }
         }
+        // After the names: a known name with a space goes whole before the path takes a word.
+        text = USER_PATH.replace_all(&text, "${1}[user]${2}").into_owned();
         text = MAC_COLONS.replace_all(&text, "[mac]").into_owned();
         text = MAC_DASHES.replace_all(&text, "[mac]").into_owned();
         text = MAPPED_V4
@@ -294,6 +347,35 @@ mod tests {
         assert_eq!(
             r.line("/Users/bob/Library/Logs and /home/carol/.config and C:/Users/Dave/x"),
             "/Users/[user]/Library/Logs and /home/[user]/.config and C:/Users/[user]/x"
+        );
+    }
+
+    #[test]
+    fn a_large_library_is_one_pattern_and_each_title_keeps_its_mark() {
+        let mut r = Redactor::new();
+        for n in 1..=3000 {
+            r.app(&format!("Game Title {n}"));
+        }
+        r.user("alice");
+        assert_eq!(
+            r.line("launch app=\"Game Title 2999\" user=ALICE then Game Title 7"),
+            "launch app=\"[app-2999]\" user=[user] then [app-7]"
+        );
+    }
+
+    #[test]
+    fn a_user_folder_with_a_space_goes_whole() {
+        let mut r = Redactor::new();
+        // Known, as every profile folder of this PC is, and unknown (another PC's path).
+        r.user("John Smith");
+        r.user("systemprofile");
+        assert_eq!(
+            r.line(r"open C:\Users\John Smith\Videos and D:\Documents and Settings\Ann Lee\x.mp4"),
+            r"open C:\Users\[user]\Videos and D:\Documents and Settings\[user]\x.mp4"
+        );
+        assert_eq!(
+            r.line(r"C:\Windows\system32\config\systemprofile\AppData"),
+            r"C:\Windows\system32\config\systemprofile\AppData"
         );
     }
 

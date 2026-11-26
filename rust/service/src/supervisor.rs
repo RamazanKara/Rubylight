@@ -446,11 +446,11 @@ fn supervise() -> Result<()> {
         version = crate::SERVICE_VERSION,
         "Rubylight service started"
     );
-    // An update that power loss or a crash interrupted is rolled back before
-    // a host starts from a mix of two versions.
+    // An update that power loss or a crash interrupted is rolled back (or,
+    // stopped before it changed a file, recorded as failed) before a host starts.
     if let Some(install) = executable.parent() {
         match crate::update_recovery::recover(&config, install) {
-            Ok(Some(outcome)) => tracing::warn!(outcome, "interrupted update rolled back"),
+            Ok(Some(outcome)) => tracing::warn!(outcome, "interrupted update ended"),
             Ok(None) => {}
             // The host still starts: it serves the console that reports the
             // failure, and the next start or setup tries again. Stopping the

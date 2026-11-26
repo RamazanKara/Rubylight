@@ -39,7 +39,7 @@ pub fn run(
         }
     };
     let _lock = lock;
-    write_result(&result, "installing", None).inspect_err(|_| remove_work(&work))?;
+    write_record(&result, &started(&install)).inspect_err(|_| remove_work(&work))?;
     progress.set("Stopping Rubylight…");
     stop_for_update(
         &result,
@@ -475,7 +475,9 @@ fn recover_or_supersede(result: &Path) -> Result<()> {
 /// With update.lock held: if the last update still says "installing" after
 /// its backup was made, its setup never finished, so the files the backup
 /// holds are put back. The service does the same when it starts
-/// (butterpollo_session::update_recovery); keep the two in step.
+/// (butterpollo_session::update_recovery); keep the two in step. The service
+/// also records an update that stopped before its backup ([`started`]) as
+/// failed; setup leaves that record, since it writes its own next.
 fn recover_locked(result: &Path) -> Result<()> {
     let bytes = match std::fs::read(result) {
         Ok(bytes) => bytes,
@@ -568,6 +570,13 @@ fn attempt_install(
     }
 }
 
+/// The record from when update.lock is held until the backup is made: no file
+/// has changed yet. It names the installation, so that the service, finding
+/// it after setup stopped there (power loss, a crash), records this update of
+/// that installation as failed (butterpollo_session::update_recovery).
+fn started(install: &Path) -> serde_json::Value {
+    json!({"version":env!("CARGO_PKG_VERSION"),"phase":"installing","error":null,"install":install})
+}
 fn write_result(path: &Path, phase: &str, error: Option<&str>) -> Result<()> {
     write_record(
         path,

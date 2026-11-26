@@ -19,7 +19,7 @@ export function suspendedCopy(quick: QuickSuspendStatus, now = Date.now()): stri
   const title = quick.app_title || 'The game';
   const since = quick.suspended_since_unix_ms ? sinceText(quick.suspended_since_unix_ms, now) : '';
   const by = quick.suspended_by ? ` from ${quick.suspended_by}` : '';
-  return `${title} is paused on this PC${since ? ` ${since}` : ''}${by}. It stays paused until you resume it, here or from any device.`;
+  return `${title} is paused on this PC${since ? ` ${since}` : ''}${by}. It stays paused until you resume it here or from the device that paused it, a device with Host control resumes it, or a stream of it starts.`;
 }
 
 function sinceText(unixMs: number, now: number): string {

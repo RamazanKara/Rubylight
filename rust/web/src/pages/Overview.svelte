@@ -302,7 +302,7 @@
     <div class="pair"><PairPanel bare onpaired={(client) => (welcomed = client)} /></div>
   </section>
 {:else if staged}
-  <LiveCommandStage label="PC status" {streams} {game} {status} {quick} stale={Boolean(sessionsError)} {disconnecting} ondisconnect={disconnect} onchange={refreshSessions}>
+  <LiveCommandStage label="PC status" {streams} {game} {status} stale={Boolean(sessionsError)} {quick} {disconnecting} ondisconnect={disconnect} onchange={refreshSessions}>
     {@render foot()}
   </LiveCommandStage>
 {:else}

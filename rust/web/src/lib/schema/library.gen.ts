@@ -31,8 +31,8 @@ export const settings: Setting[] = [
   {
     key: 'quick_suspend',
     label: 'Quick Suspend',
-    description: 'Lets a device pause the running game on this PC and resume it later, also from another device, so the PC stays cool and quiet meanwhile. Online and anti-cheat games are never paused; leave it off if your games disconnect when paused.',
-    details: "When a device asks, the game's own processes are paused from the device's stream menu or the console, and resumed by Resume, by the next stream of the game, or when the session ends. A launcher, a system process and anything the game did not start keep running; a game with anti-cheat is refused. If Rubylight stops while a game is paused, the game is resumed.",
+    description: 'Lets a device pause the running game and resume it later, also from another device. Nothing is paused while anti-cheat runs; leave it off for online games.',
+    details: "When a device asks, the game's own processes are paused from the device's stream menu or the console, and resumed by Resume, by the next stream of the game, or when the session ends; after a disconnect a paused game keeps its session for the paused-display timeout. A launcher, a system process and anything the game did not start keep running, and nothing is paused while anti-cheat runs on the PC. If Rubylight stops while a game is paused, the game is resumed.",
     category: 'library',
     group: 'App behavior',
     control: { kind: 'select', options: [{ value: 'off', label: 'Off' }, { value: 'manual', label: 'When a device asks' }] },

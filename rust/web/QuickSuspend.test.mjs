@@ -42,7 +42,7 @@ test('the banner names the game, how long it has been paused and the device that
   assert.equal(view.isSuspended(quick({ state: 'resuming' })), true);
   assert.equal(view.isSuspended(quick()), false);
   assert.equal(view.suspendedCopy(suspended, now),
-    'Hollow Knight is paused on this PC for 25 min from Pixel 9. It stays paused until you resume it, here or from any device.');
+    'Hollow Knight is paused on this PC for 25 min from Pixel 9. It stays paused until you resume it here or from the device that paused it, a device with Host control resumes it, or a stream of it starts.');
   assert.match(view.suspendedCopy(quick({ state: 'suspended', app_title: null }), now), /^The game is paused on this PC\. /);
   const html = render(Banner, { props: { quick: suspended } }).body;
   assert.match(html, /Game suspended/);
@@ -72,6 +72,7 @@ test('Home reads the state with its poll, and the stage offers the same button',
   const overview = source('pages/Overview.svelte');
   assert.match(overview, /api\.sessions\.suspendStatus\(\)/);
   assert.match(overview, /\{#if quick && isSuspended\(quick\)\}<SuspendedGameBanner /);
+  assert.match(overview, /<LiveCommandStage [^>]*\{quick\}/);
   assert.match(source('components/overview/LiveCommandStage.svelte'), /<SuspendButton \{quick\} \{onchange\} \/><Button variant="danger" icon="power"/);
   const api = source('lib/api.ts');
   for (const call of ["get<QuickSuspendStatus>('/api/session/suspend')", "post<QuickSuspendStatus>('/api/session/suspend'", "post<QuickSuspendStatus>('/api/session/resume'"]) {

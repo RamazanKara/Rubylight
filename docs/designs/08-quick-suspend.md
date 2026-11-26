@@ -2,6 +2,8 @@
 
 Status: design, not implemented (Wave 2, Rubylight & Nightjar 7.0.0). Rebased 2026-11-25 onto post-refactoring `origin/main` `955ef39598` (`v6.4.1`) and [protocol reservations](00-protocol-reservations.md).
 
+> **As built (explicit suspend and resume, 7.0):** the shipped wire and API are in [control-messages.md](../control-messages.md#0x554b-quick-suspend-9-or-20-bytes) and [native-api.md](../native-api.md), and they win over sections 2.2 and 2.3 below. Request `flags` are 0 (no `disconnect_after_suspend`); `POST /session/suspend` and `/session/resume` take `{}` and answer 200 with `QuickSuspendStatus` (`state`, `reason`, `message`, `app_title`, `suspended_count`, `suspended_since_unix_ms`, `suspended_by`), a refusal included; the setting is `off` or `manual`, host-wide. The journal is its own `quick-suspend.json` with a watchdog helper (`--quick-suspend-watch`) instead of the shared recovery journal and a service hook. Not built: `on_disconnect`, per-app overrides, audio muting, `game_frozen` in the session snapshot and the tray banner.
+
 ## 1. Summary & User Experience
 
 Handheld consoles let players put a single-player game to sleep in one tap and pick up right where they left off minutes or hours later — without burning GPU power, spinning fans, or risking unpaused gameplay while disconnected. **Quick Suspend & Resume** brings that workflow cleanly to Rubylight & Nightjar in pure Rust (zero third-party suspend binaries or external mods):

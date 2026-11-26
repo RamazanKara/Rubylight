@@ -12,9 +12,10 @@
   import { coverPath, coverVersion, placeholder } from '../library/app';
   import PipelineTimeline from './PipelineTimeline.svelte';
   import StreamCard from './StreamCard.svelte';
+  import SuspendButton from '../session/SuspendButton.svelte';
   import TelemetrySparklines from './TelemetrySparklines.svelte';
   import { diagnosticsText, leadStream, pipelinePhases, specPills, stageTitle, traces, worstHealth } from './studio-telemetry';
-  import { api, type App, type SessionStatus, type StreamSession } from '../../lib/api';
+  import { api, type App, type QuickSuspendStatus, type SessionStatus, type StreamSession } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
   import { link } from '../../lib/router.svelte';
 
@@ -25,6 +26,8 @@
     game?: { name: string; app?: App | null } | null;
     /** The running app, for Quit game; without it the stage offers no quit. */
     status?: SessionStatus | null;
+    /** Quick Suspend's state: Suspend game shows when the host can pause the game now. */
+    quick?: QuickSuspendStatus | null;
     /** The last poll went unanswered: the figures stay, marked as old. */
     stale?: boolean;
     /** The region's name. */
@@ -37,7 +40,7 @@
     /** The stage's last row: what the page adds under the streams. */
     children?: Snippet;
   }
-  let { streams, game = null, status = null, stale = false, label = 'Live stream', disconnecting = null, ondisconnect, onchange, children }: Props = $props();
+  let { streams, game = null, status = null, quick = null, stale = false, label = 'Live stream', disconnecting = null, ondisconnect, onchange, children }: Props = $props();
 
   const lead = $derived(leadStream(streams) as StreamSession);
   const health = $derived(worstHealth(streams));
@@ -134,7 +137,7 @@
     <Button icon="info" onclick={showDetails}>Stream details</Button>
     <Button icon="copy" onclick={copyDiagnostics}>Copy diagnostics</Button>
     {#if status?.appRunning}
-      <span class="end"><Button variant="danger" icon="power" busy={quitting} onclick={quit}>Quit game</Button></span>
+      <span class="end"><SuspendButton {quick} {onchange} /><Button variant="danger" icon="power" busy={quitting} onclick={quit}>Quit game</Button></span>
     {/if}
   </div>
 
@@ -342,6 +345,8 @@
   }
   .end {
     display: inline-flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
     margin-inline-start: auto;
   }
   .rows {

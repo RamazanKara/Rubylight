@@ -19,12 +19,14 @@
   import RunningApp from '../components/overview/RunningApp.svelte';
   import LiveCommandStage from '../components/overview/LiveCommandStage.svelte';
   import StreamCard from '../components/overview/StreamCard.svelte';
+  import SuspendedGameBanner from '../components/session/SuspendedGameBanner.svelte';
   import { heroGame, pairedCopy, readyCopy } from '../components/overview/now-playing';
   import {
-    api, ApiError, type App, type Client, type CoopSessions, type GuestInvites, type PowerStatus, type SessionGuestsStatus, type SessionStatus,
+    api, ApiError, type App, type Client, type CoopSessions, type GuestInvites, type PowerStatus, type QuickSuspendStatus, type SessionGuestsStatus, type SessionStatus,
     type StreamSession,
   } from '../lib/api';
   import { shown as guestsShown } from '../lib/session-guests';
+  import { isSuspended } from '../lib/quick-suspend';
   import { endedTitle, endedTone, endText, homeSessions, lastEnded, liveCoop } from '../lib/coop-view';
   import Banner from '../components/Banner.svelte';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
@@ -38,6 +40,8 @@
 
   let sessions = $state<StreamSession[] | null>(null);
   let status = $state<SessionStatus | null>(null);
+  /** Quick Suspend's state; null while unknown or when the host did not answer. */
+  let quick = $state<QuickSuspendStatus | null>(null);
   let sessionsError = $state<string | null>(null);
   let statusError = $state<string | null>(null);
   let metadataError = $state<string | null>(null);
@@ -159,8 +163,9 @@
   let latestSessions = 0;
   async function refreshSessions() {
     const id = ++latestSessions;
-    const [list, current] = await Promise.allSettled([api.sessions.streams(), api.sessions.status()]);
+    const [list, current, paused] = await Promise.allSettled([api.sessions.streams(), api.sessions.status(), api.sessions.suspendStatus()]);
     if (id !== latestSessions) return;
+    quick = paused.status === 'fulfilled' ? paused.value : null;
     if (list.status === 'fulfilled') {
       sessions = list.value.sessions ?? [];
       sessionsError = null;
@@ -297,7 +302,7 @@
     <div class="pair"><PairPanel bare onpaired={(client) => (welcomed = client)} /></div>
   </section>
 {:else if staged}
-  <LiveCommandStage label="PC status" {streams} {game} {status} stale={Boolean(sessionsError)} {disconnecting} ondisconnect={disconnect} onchange={refreshSessions}>
+  <LiveCommandStage label="PC status" {streams} {game} {status} {quick} stale={Boolean(sessionsError)} {disconnecting} ondisconnect={disconnect} onchange={refreshSessions}>
     {@render foot()}
   </LiveCommandStage>
 {:else}
@@ -336,6 +341,7 @@
   </section>
 {/if}
 
+{#if quick && isSuspended(quick)}<SuspendedGameBanner {quick} onchange={refreshSessions} />{/if}
 {#if sessionsError}<p class="notice danger" role="alert">{sessions ? 'Showing the last known stream state. ' : ''}{sessionsError}</p>{/if}
 {#if statusError}<p class="notice danger" role="alert">Could not refresh the running app: {statusError}</p>{/if}
 {#if metadataError}<p class="notice danger" role="alert">Could not refresh this PC's details: {metadataError}</p>{/if}
@@ -372,7 +378,7 @@
   </Panel>
 {/if}
 {#if others.length}<Panel title="Other connections" flush><ConnectionList sessions={others} busy={disconnecting} ondisconnect={disconnect} /></Panel>{/if}
-{#if status?.appRunning && !staged}<RunningApp {status} error={statusError} onchange={refreshSessions} />{/if}
+{#if status?.appRunning && !staged}<RunningApp {status} {quick} error={statusError} onchange={refreshSessions} />{/if}
 
 <section class="games" aria-labelledby="games-title">
   <header><h2 id="games-title">Your games</h2><a href="/library" use:link>All games <Icon name="chevron" /></a></header>

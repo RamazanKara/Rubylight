@@ -35,6 +35,7 @@ import type {
   GoldenStatus,
   LimiterStatus,
   NeuralStatus,
+  QuickSuspendStatus,
   SessionHistory,
   SessionStatus,
   StreamSession,
@@ -408,6 +409,10 @@ export const api = {
       session_id: recovery.session_id,
       console_session_id: recovery.console_session_id,
     }, ACTION_TIMEOUT_MS),
+    /** Quick Suspend: the running game's paused state; a refusal is an answer, never an error. */
+    suspendStatus: () => get<QuickSuspendStatus>('/api/session/suspend'),
+    suspend: () => post<QuickSuspendStatus>('/api/session/suspend', {}, ACTION_TIMEOUT_MS),
+    resume: () => post<QuickSuspendStatus>('/api/session/resume', {}, ACTION_TIMEOUT_MS),
   },
   displays: {
     devices: () => get<DisplayDevice[]>('/api/display-devices'),

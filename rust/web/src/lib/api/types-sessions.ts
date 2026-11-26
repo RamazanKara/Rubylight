@@ -211,6 +211,21 @@ export interface SessionStatus {
   /** `uuid` is the library app that runs; null for one that is no longer in the library. */
   app: { name: string; id: number; uuid?: string | null } | null;
 }
+/**
+ * Quick Suspend (`GET /api/session/suspend`): whether the running game can be paused, is paused,
+ * or why a pause was refused. `reason` is stable (`none`, `anti_cheat_detected`, …) and `message`
+ * says it in plain English.
+ */
+export interface QuickSuspendStatus {
+  status: true;
+  state: 'unavailable' | 'ready' | 'suspended' | 'resuming' | 'refused' | 'unknown';
+  reason: string;
+  message?: string | null;
+  app_title?: string | null;
+  suspended_count: number;
+  suspended_since_unix_ms?: number | null;
+  suspended_by?: string | null;
+}
 export interface DisplayDevice {
   device_id: string;
   display_name: string;

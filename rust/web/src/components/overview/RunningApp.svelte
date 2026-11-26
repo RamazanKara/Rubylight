@@ -2,14 +2,17 @@
   import Badge from '../Badge.svelte';
   import Button from '../Button.svelte';
   import Panel from '../Panel.svelte';
-  import { api, type SessionStatus } from '../../lib/api';
+  import SuspendButton from '../session/SuspendButton.svelte';
+  import { api, type QuickSuspendStatus, type SessionStatus } from '../../lib/api';
+  import { isSuspended } from '../../lib/quick-suspend';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
 
   let {
     status,
+    quick = null,
     error,
     onchange,
-  }: { status: SessionStatus | null; error: string | null; onchange: () => void } = $props();
+  }: { status: SessionStatus | null; quick?: QuickSuspendStatus | null; error: string | null; onchange: () => void } = $props();
 
   let closing = $state(false);
   const name = $derived(status?.app?.name || status?.appName || 'Unnamed app');
@@ -44,7 +47,9 @@
       <div class="text">
         <div class="name">
           <strong>{name}</strong>
-          {#if status.paused}
+          {#if isSuspended(quick)}
+            <Badge tone="warn">Suspended</Badge>
+          {:else if status.paused}
             <Badge tone="warn">Paused</Badge>
           {:else}
             <Badge tone="live">Running</Badge>
@@ -56,7 +61,10 @@
             : 'Closing it ends every stream.'}
         </p>
       </div>
-      <Button variant="danger" size="sm" icon="stop" busy={closing} onclick={close}>Close app</Button>
+      <div class="actions">
+        <SuspendButton {quick} size="sm" {onchange} />
+        <Button variant="danger" size="sm" icon="stop" busy={closing} onclick={close}>Close app</Button>
+      </div>
     </div>
   {:else}
     <p class="muted">No app is running. A device starts one when it connects.</p>
@@ -80,6 +88,11 @@
   .name {
     display: flex;
     align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .actions {
+    display: flex;
     gap: var(--space-2);
     flex-wrap: wrap;
   }

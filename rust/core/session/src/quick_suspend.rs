@@ -11,6 +11,7 @@
 //! a section of the display crash-restore journal: the two are written by
 //! different code at different times, and each can be read and cleared alone.
 pub mod journal;
+pub mod policy;
 
 pub use journal::{FILE, Journal, Record};
 

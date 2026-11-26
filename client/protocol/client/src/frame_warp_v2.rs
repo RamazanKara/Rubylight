@@ -15,8 +15,10 @@
 //! shift by the envelope: down with a 40 ms time constant when the host's confidence drops (a
 //! pause menu stops the warp within 100 ms), back up along a 180 ms S-curve when it recovers.
 //!
-//! Motion packets go unreliably, so a lost one leaves the counts apart; whenever the gyro has
-//! been still for [`crate::frame_warp::REBASE_IDLE`], the next meta sets them equal again.
+//! Motion packets go unreliably, so a lost one leaves the counts apart; whenever the client has
+//! sent no gyro packet for [`crate::frame_warp::REBASE_IDLE`] (everything sent has reached the
+//! picture), the next meta sets them equal again. A resting pad still sends packets (its noise),
+//! and those in flight must not count as lost.
 
 use std::collections::VecDeque;
 
@@ -197,7 +199,8 @@ pub struct V2 {
     envelope: Envelope,
     gyro_seq: u32,
     seq_offset: u32,
-    last_turn_us: Option<u64>,
+    /// When the last gyro packet went out.
+    last_sent_us: Option<u64>,
     samples: VecDeque<GyroSample>,
     bias: [GyroBias; 2],
 }
@@ -216,7 +219,7 @@ impl V2 {
             envelope: Envelope::default(),
             gyro_seq: 0,
             seq_offset: 0,
-            last_turn_us: None,
+            last_sent_us: None,
             samples: VecDeque::new(),
             bias: [GyroBias::default(); 2],
         }
@@ -240,9 +243,7 @@ impl V2 {
             self.bias[0].observe(gyro_rate(xyz, axes(YawSource::Y), false)),
             self.bias[1].observe(gyro_rate(xyz, axes(YawSource::Z), true)),
         ];
-        if rate.iter().flatten().any(|r| r.abs() >= BIAS_STILL_RATE) {
-            self.last_turn_us = Some(now_us);
-        }
+        self.last_sent_us = Some(now_us);
         self.gyro_seq = self.gyro_seq.wrapping_add(1);
         let at_us = self
             .samples
@@ -269,10 +270,10 @@ impl V2 {
             return;
         }
         self.newest = Some(meta);
-        let still = self
-            .last_turn_us
+        let idle = self
+            .last_sent_us
             .is_none_or(|at| now_us.saturating_sub(at) >= REBASE_IDLE.as_micros() as u64);
-        if still {
+        if idle {
             self.seq_offset = self.gyro_seq.wrapping_sub(meta.gyro_seq);
         }
     }

@@ -180,4 +180,11 @@ fn a_newer_hosts_file_is_read_but_not_written_over() {
     assert_eq!(scratch.store(Some("uuid:a")).load(), Some(prior(1.5)));
     scratch.store(Some("uuid:b")).save(prior(2.0), false);
     assert_eq!(std::fs::read(&path).unwrap(), newer);
+    // One whose shape this host cannot read is neither renamed nor written over.
+    let reshaped = br#"{"schema":3,"games":[{"key":"uuid:a"}]}"#;
+    std::fs::write(&path, reshaped).unwrap();
+    assert_eq!(scratch.store(Some("uuid:a")).load(), None);
+    scratch.store(Some("uuid:b")).save(prior(2.0), true);
+    assert_eq!(std::fs::read(&path).unwrap(), reshaped);
+    assert!(!scratch.0.join(CORRUPT).exists());
 }

@@ -271,10 +271,12 @@ fn work(s: &Session, store: &Store, receiver: &Receiver<Work>) {
             );
         }
         let (model, prior) = (learned.model.filter(Model::locked), learned.prior);
-        if model.is_some() == locked {
+        // A player who aims only by the gyro locks the stream too.
+        let now_locked = model.is_some() || learned.gyro_locked;
+        if now_locked == locked {
             continue;
         }
-        locked = model.is_some();
+        locked = now_locked;
         log_model(s, model);
         if locked
             && !saved

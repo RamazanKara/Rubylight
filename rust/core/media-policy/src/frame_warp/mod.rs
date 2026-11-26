@@ -86,6 +86,9 @@ pub struct Status {
 pub struct Learned {
     pub model: Option<Model>,
     pub prior: Option<PriorV2>,
+    /// The gyro's fast fit is locked: the stream shifts by the gyro even while the model's
+    /// mouse and stick fits are not.
+    pub gyro_locked: bool,
 }
 
 #[derive(Debug)]
@@ -501,6 +504,7 @@ impl FrameWarpHost {
         Learned {
             model: self.v2_model().or(self.last_model),
             prior: self.prior_v2(),
+            gyro_locked: self.v2().is_some_and(|v2| v2.locked_fits()[2].is_some()),
         }
     }
 }

@@ -195,6 +195,55 @@ fn the_gyro_turn_the_frame_lacks_shifts_it() {
 }
 
 #[test]
+fn packets_in_flight_while_the_pad_rests_keep_the_counts_together() {
+    let mut v2 = V2::new(request(true));
+    // A resting pad still sends a packet every 4 ms (its noise).
+    for at in (0..=1_000 * MS).step_by(4 * MS as usize) {
+        v2.note_motion(0, GYRO, [0.0; 3], at);
+    }
+    let sent = v2.status().gyro_packets;
+    let gain = [800.0, 400.0];
+    // The frames reflect packets 100 ms old: 25 are in flight, none lost.
+    let locked = FrameWarpV2Meta {
+        flags: meta_flags::GYRO_LOCKED,
+        gyro_seq: sent - 25,
+        gyro_held_us: 0,
+        gyro_gain: gain,
+        ..meta(1, 1.0)
+    };
+    v2.on_meta(locked, 1_000 * MS);
+    // Then the player turns at 90 degrees a second.
+    for at in (1_004 * MS..=1_100 * MS).step_by(4 * MS as usize) {
+        v2.note_motion(0, GYRO, [0.0, 90.0, 0.0], at);
+    }
+    // The frame drawn now reflects the last resting packet: the whole turn is missing from it.
+    v2.on_meta(
+        FrameWarpV2Meta {
+            frame: 2,
+            gyro_seq: sent,
+            ..locked
+        },
+        1_100 * MS,
+    );
+    let shift = v2.gyro_shift(2, 1_100 * MS);
+    let expected = gain[0] * 90.0 * RADIANS_PER_DEGREE * 0.096;
+    assert!(
+        (shift[0] - expected).abs() < expected * 0.01,
+        "{shift:?} vs {expected}"
+    );
+    // Once nothing has gone out for a while, the next meta sets the counts equal.
+    v2.on_meta(
+        FrameWarpV2Meta {
+            frame: 3,
+            gyro_seq: sent + 20,
+            ..locked
+        },
+        1_800 * MS,
+    );
+    assert_eq!(v2.seq_offset, 5, "five packets lost on the way");
+}
+
+#[test]
 fn the_row_carries_the_fill_hints() {
     let mut v2 = V2::new(request(false));
     assert_eq!(v2.row(3), DEFAULT_ROW, "the defaults before a meta");

@@ -153,7 +153,8 @@ impl Store {
 }
 
 /// The file, or nothing learned when it does not exist yet or does not parse (then renamed
-/// [`CORRUPT`]).
+/// [`CORRUPT`]). A file a newer host saved in a shape this one cannot read is an error and stays
+/// as it is.
 fn read(path: &Path) -> std::io::Result<Remembered> {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
@@ -164,6 +165,9 @@ fn read(path: &Path) -> std::io::Result<Remembered> {
     };
     match serde_json::from_slice(&bytes) {
         Ok(remembered) => Ok(remembered),
+        Err(error) if newer_schema(&bytes) => Err(std::io::Error::other(format!(
+            "priors a newer host saved: {error}"
+        ))),
         Err(error) => {
             let corrupt = path.with_file_name(CORRUPT);
             let renamed = std::fs::rename(path, &corrupt);
@@ -177,6 +181,14 @@ fn read(path: &Path) -> std::io::Result<Remembered> {
             Ok(Remembered::default())
         }
     }
+}
+
+/// Whether the bytes are JSON whose `schema` is past [`SCHEMA`].
+fn newer_schema(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|file| file.get("schema")?.as_u64())
+        .is_some_and(|schema| schema > u64::from(SCHEMA))
 }
 
 #[cfg(test)]

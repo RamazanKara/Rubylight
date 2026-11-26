@@ -486,6 +486,9 @@ impl Host {
             launch_cancel: Mutex::new(None),
             power: Default::default(),
             bandwidth_probes: Default::default(),
+            pyrowave_probes: Mutex::new(butterpollo_media_policy::bandwidth_probe::Limiter::new(
+                butterpollo_media_policy::bandwidth_probe::PYROWAVE,
+            )),
             file_transfers: Default::default(),
             usb: Default::default(),
             session: Mutex::new(session),

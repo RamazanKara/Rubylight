@@ -186,6 +186,8 @@ pub struct Host {
     pub power: crate::power_action::PowerActions,
     /// Each paired client's `GET /bandwidth-probe` cooldown and budget.
     pub bandwidth_probes: Mutex<butterpollo_media_policy::bandwidth_probe::Limiter>,
+    /// `/pyrowave-bandwidth-probe`'s cooldown and budget per client.
+    pub pyrowave_probes: Mutex<butterpollo_media_policy::bandwidth_probe::Limiter>,
     /// File transfer uploads and downloads, all paced together.
     pub file_transfers: crate::file_transfers::Transfers,
     /// The USB devices clients forward to this host.

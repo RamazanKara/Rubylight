@@ -423,3 +423,50 @@ async fn approve_new_devices_lost_during_the_handshake_refuses_the_new_device() 
     });
     assert!(saved(&f, "TV").is_none());
 }
+
+#[tokio::test]
+async fn an_ipv6_prefix_holds_two_pending_requests_whatever_address_it_rotates_to() {
+    let f = Fixture::new();
+    for (name, address) in [("TV", "fd00:1:2:3::1"), ("Tablet", "fd00:1:2:3::2")] {
+        let client = Identity::generate().unwrap();
+        let request = device_request(&client, name, None);
+        let host = f.host.clone();
+        let peer: std::net::IpAddr = address.parse().unwrap();
+        tokio::spawn(async move { do_pair(host, &request, peer).await });
+        let id = pairing_id(name, peer);
+        until("the device's request", || {
+            f.host.pins.lock().unwrap().contains_key(&id)
+        })
+        .await;
+    }
+    // A third privacy address of the same /64 is refused at once instead of waiting for a PIN.
+    let client = Identity::generate().unwrap();
+    let rotated: std::net::IpAddr = "fd00:1:2:3:aaaa:bbbb:cccc:3".parse().unwrap();
+    let refused = tokio::time::timeout(
+        Duration::from_secs(5),
+        do_pair(
+            f.host.clone(),
+            &device_request(&client, "Phone", None),
+            rotated,
+        ),
+    )
+    .await
+    .expect("the request is refused, not left waiting for a PIN")
+    .unwrap_err();
+    assert!(
+        refused
+            .to_string()
+            .contains("pairing request limit reached for this address"),
+        "{refused:#}"
+    );
+    // Another prefix is not held up by it.
+    let request = device_request(&client, "Phone", None);
+    let host = f.host.clone();
+    let elsewhere: std::net::IpAddr = "fd00:1:2:4::3".parse().unwrap();
+    tokio::spawn(async move { do_pair(host, &request, elsewhere).await });
+    let id = pairing_id("Phone", elsewhere);
+    until("the other prefix's request", || {
+        f.host.pins.lock().unwrap().contains_key(&id)
+    })
+    .await;
+}

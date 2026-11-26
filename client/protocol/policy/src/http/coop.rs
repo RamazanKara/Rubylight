@@ -229,7 +229,7 @@ mod tests {
     fn api(status: u16, code: ErrorCode, message: &str) -> Error {
         Error::Api {
             status,
-            error: ApiError::new(code, message),
+            error: Box::new(ApiError::new(code, message)),
         }
     }
 

@@ -20,11 +20,18 @@ pub struct Failure {
     pub message: String,
     pub setting: Option<String>,
     pub retry_after_ms: Option<u64>,
+    /// Boxed, so the many `Result<_, Failure>` stay small.
+    explained: Option<Box<Explained>>,
+}
+
+/// What the cause adds to the error body.
+#[derive(Debug, Default)]
+struct Explained {
     /// The cause's own headline; without one the body takes `error_catalog`'s.
-    pub title: Option<String>,
-    pub next_step: Option<String>,
+    title: Option<String>,
+    next_step: Option<String>,
     /// Codes and error chains, already redacted and cut by [`error_catalog::detail`].
-    pub technical_detail: Option<String>,
+    technical_detail: Option<String>,
 }
 
 impl Failure {
@@ -34,9 +41,7 @@ impl Failure {
             message: message.into(),
             setting: None,
             retry_after_ms: None,
-            title: None,
-            next_step: None,
-            technical_detail: None,
+            explained: None,
         }
     }
 
@@ -50,14 +55,17 @@ impl Failure {
     /// A headline and next step this cause knows better than its code; `None` leaves the next
     /// step out rather than taking the code's.
     pub fn explained(mut self, title: &str, next_step: Option<&str>) -> Self {
-        self.title = Some(title.to_owned());
-        self.next_step = next_step.map(str::to_owned);
+        let explained = self.explained.get_or_insert_with(Box::default);
+        explained.title = Some(title.to_owned());
+        explained.next_step = next_step.map(str::to_owned);
         self
     }
 
     /// The codes or error chain behind the failure, for a bug report.
     pub fn with_detail(mut self, detail: impl AsRef<str>) -> Self {
-        self.technical_detail = Some(error_catalog::detail(detail.as_ref()));
+        self.explained
+            .get_or_insert_with(Box::default)
+            .technical_detail = Some(error_catalog::detail(detail.as_ref()));
         self
     }
 
@@ -67,9 +75,16 @@ impl Failure {
         let mut error = ApiError::new(self.code, self.message);
         error.setting = self.setting;
         error.retry_after_ms = self.retry_after_ms;
-        error.title = self.title;
-        error.next_step = self.next_step;
-        error.technical_detail = self.technical_detail;
+        if let Some(explained) = self.explained {
+            let Explained {
+                title,
+                next_step,
+                technical_detail,
+            } = *explained;
+            error.title = title;
+            error.next_step = next_step;
+            error.technical_detail = technical_detail;
+        }
         error_catalog::explain(error)
     }
 

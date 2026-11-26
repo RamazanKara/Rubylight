@@ -9,7 +9,9 @@ use rubylight_native_api::error::ApiError;
 /// `lead` with the host's `title` above it and its `next_step` and `technical_detail` below,
 /// each its own paragraph; `lead` alone when the host sent none of them.
 pub fn compose(title: Option<&str>, lead: &str, next_step: Option<&str>, technical_detail: Option<&str>) -> String {
-    let given = |part: Option<&str>| part.map(str::trim).filter(|p| !p.is_empty());
+    fn given(part: Option<&str>) -> Option<&str> {
+        part.map(str::trim).filter(|p| !p.is_empty())
+    }
     let mut parts: Vec<String> = Vec::with_capacity(4);
     if let Some(title) = given(title).filter(|t| *t != lead.trim()) {
         parts.push(title.to_owned());

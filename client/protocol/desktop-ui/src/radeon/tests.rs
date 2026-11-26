@@ -242,7 +242,7 @@ fn a_pending_change_says_what_the_session_end_restores() {
 fn api_error(status: u16, code: ErrorCode, setting: Option<&str>) -> Error {
     Error::Api {
         status,
-        error: ApiError { setting: setting.map(str::to_owned), ..ApiError::new(code, "host words") },
+        error: Box::new(ApiError { setting: setting.map(str::to_owned), ..ApiError::new(code, "host words") }),
     }
 }
 
@@ -272,7 +272,7 @@ fn a_host_that_explains_adds_its_next_step_and_detail() {
         error.title = Some("Host title".into());
         error.next_step = Some("Host step.".into());
         error.technical_detail = Some("ADLX_FAIL".into());
-        Error::Api { status: 409, error }
+        Error::Api { status: 409, error: Box::new(error) }
     };
     let rejected = Failure::of(&explained(ErrorCode::DriverRejected), None);
     assert_eq!(

@@ -184,7 +184,7 @@ fn fake(writable: bool) -> (Fake, Counters) {
 }
 
 fn api_error(status: u16, code: ErrorCode, setting: Option<&str>) -> Error {
-    Error::Api { status, error: ApiError { setting: setting.map(str::to_owned), ..ApiError::new(code, "host words") } }
+    Error::Api { status, error: Box::new(ApiError { setting: setting.map(str::to_owned), ..ApiError::new(code, "host words") }) }
 }
 
 impl Api for Fake {

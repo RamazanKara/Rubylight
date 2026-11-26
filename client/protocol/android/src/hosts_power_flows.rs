@@ -341,7 +341,7 @@ fn error_from_json(err: &Value) -> Error {
             error.title = part("title");
             error.next_step = part("next_step");
             error.technical_detail = part("technical_detail");
-            Error::Api { status: http_status, error }
+            Error::Api { status: http_status, error: Box::new(error) }
         }
         "cancelled" => Error::Cancelled,
         _ => Error::Malformed(message),

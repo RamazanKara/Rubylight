@@ -52,7 +52,7 @@ pub(super) fn error_of(response: transport::Response, path: &str) -> Error {
     match serde_json::from_slice::<ErrorBody>(&response.body) {
         Ok(body) => Error::Api {
             status: response.status,
-            error: body.error,
+            error: Box::new(body.error),
         },
         Err(_) if response.status == 404 => Error::NotFound(format!("/{path}")),
         Err(_) => Error::Status {

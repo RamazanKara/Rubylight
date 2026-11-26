@@ -98,6 +98,7 @@ fn write_settings(h: &Shared, connection: &Connection, body: &[u8]) -> Reply {
     let s = own_stream(h, &client).ok_or(Refusal::NoSession)?;
     let base = base(h, &s)?;
     let audio = audio_dsp_api::apply(&s.audio, base, &write).map_err(|error| {
+        let error = *error;
         let failure = Failure::new(error.code, error.message);
         match error.setting {
             Some(id) => failure.for_setting(&id),

@@ -349,7 +349,7 @@ fn restart_and_shut_down_spend_a_fresh_token_and_show_the_hosts_refusal() {
             r#"{"code":"host_in_use","message":"Desk is streaming from this PC.","setting":null,"retry_after_ms":null}"#,
         )
         .unwrap();
-        Err(Error::Api { status: 409, error })
+        Err(Error::Api { status: 409, error: Box::new(error) })
     };
     let pc = power_pc(&[TOKEN_A], None, refused);
     assert_eq!(

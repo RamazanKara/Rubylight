@@ -96,10 +96,12 @@ pub enum Error {
     /// HTTP 404.
     NotFound(String),
     /// A non-2xx answer from the native API, with the host's error body. `status` is the HTTP
-    /// status, which an `ErrorCode::Unknown` from a newer host is handled by.
+    /// status, which an `ErrorCode::Unknown` from a newer host is handled by. Boxed: with its
+    /// optional title, next step and technical detail the body is large, and every
+    /// `Result<_, Error>` would carry its size.
     Api {
         status: u16,
-        error: native_api::error::ApiError,
+        error: Box<native_api::error::ApiError>,
     },
     Malformed(String),
     /// HTTPS needs the host certificate from pairing.
@@ -158,7 +160,7 @@ impl Error {
     /// The native API's error body, if this is one.
     pub fn api_error(&self) -> Option<&native_api::error::ApiError> {
         match self {
-            Error::Api { error, .. } => Some(error),
+            Error::Api { error, .. } => Some(error.as_ref()),
             _ => None,
         }
     }

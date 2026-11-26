@@ -386,7 +386,7 @@ pub struct Failure {
     pub host_message: Option<String>,
     /// The host's error body when it sent one: its title, next step and technical detail go
     /// with the text ([`Failure::with_host_parts`]).
-    pub host_error: Option<ApiError>,
+    pub host_error: Option<Box<ApiError>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -408,7 +408,7 @@ impl Failure {
     }
 
     pub fn of_gpu(error: &Error, gpu: Option<i32>, requested: Option<&str>) -> Failure {
-        let host_error = error.api_error().cloned();
+        let host_error = error.api_error().cloned().map(Box::new);
         let (kind, setting, host_message) = match error {
             Error::Api { status, error } => {
                 let kind = match error.code {

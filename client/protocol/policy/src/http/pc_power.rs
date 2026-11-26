@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn a_refusal_shows_the_hosts_words() {
         let body = r#"{"error":{"code":"host_in_use","message":"TV is streaming from this PC.","setting":null,"retry_after_ms":null}}"#;
-        let error = Error::Api { status: 409, error: serde_json::from_str::<super::super::native_api::error::ErrorBody>(body).unwrap().error };
+        let error = Error::Api { status: 409, error: Box::new(serde_json::from_str::<super::super::native_api::error::ErrorBody>(body).unwrap().error) };
         assert_eq!(host_words(&error).as_deref(), Some("TV is streaming from this PC."));
         assert_eq!(host_words(&Error::NotFound("/x".into())), None);
     }

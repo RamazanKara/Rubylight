@@ -585,3 +585,28 @@ fn winusb_iso_pool_rejects_stale_slots_across_set_interface_and_reset_port() {
     assert!(pool.release(0x81, 0, post_reset_gen, "fresh-post-reset", 8).is_none());
     assert_eq!(pool.take(0x81, 0, |_| true), (post_reset_gen, Some("fresh-post-reset")));
 }
+
+/// Track 8B: libusb refused permission (`EACCES`, no udev rule) hands the device to Linux's own
+/// USB/IP server when it can run here; the udev advice stays when it can't, and follows the
+/// fallback's own failure. Any other libusb answer never starts the fallback.
+#[test]
+fn a_refused_libusb_open_falls_back_to_the_kernel_server_and_keeps_the_udev_advice() {
+    use std::cell::Cell;
+
+    let access = open_error(rusb::Error::Access);
+    let tried = Cell::new(0);
+    let kernel_ok = || { tried.set(tried.get() + 1); Some(Ok("kernel")) };
+    assert_eq!(open_or_kernel(Err(rusb::Error::Access), kernel_ok), Ok("kernel"));
+    assert_eq!(tried.get(), 1, "the fallback runs once");
+
+    assert_eq!(open_or_kernel::<&str>(Err(rusb::Error::Access), || None), Err(access.clone()), "nothing to fall back to: the advice alone");
+
+    let failed = open_or_kernel::<&str>(Err(rusb::Error::Access), || Some(Err("The prompt was cancelled.".to_owned()))).unwrap_err();
+    assert!(failed.starts_with("The prompt was cancelled."), "{failed}");
+    assert!(failed.ends_with(&access), "the advice follows the fallback's failure: {failed}");
+
+    let never = || -> Option<Result<&str, String>> { panic!("only EACCES falls back") };
+    assert_eq!(open_or_kernel(Ok("libusb"), never), Ok("libusb"));
+    assert_eq!(open_or_kernel::<&str>(Err(rusb::Error::Busy), never), Err(open_error(rusb::Error::Busy)));
+    assert_eq!(open_or_kernel::<&str>(Err(rusb::Error::NoDevice), never), Err(open_error(rusb::Error::NoDevice)));
+}

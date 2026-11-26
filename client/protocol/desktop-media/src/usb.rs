@@ -191,7 +191,35 @@ pub fn open(local: &Local) -> Result<Arc<dyn UsbDevice>, String> {
             }
         }
     }
-    libusb::open_device(&device, &local.busid, local.vid, local.pid).map_err(open_error)
+    let opened = libusb::open_device(&device, &local.busid, local.vid, local.pid);
+    #[cfg(target_os = "linux")]
+    let kernel = || {
+        let system = crate::usb_linux::System::real();
+        if let Some(missing) = system.missing() {
+            eprintln!("nightjar: USB {}: libusb may not open it and Linux's USB/IP server can't take over: {missing:?}", local.busid);
+            return None;
+        }
+        eprintln!("nightjar: USB {}: libusb may not open it; handing it to Linux's USB/IP server", local.busid);
+        Some(system.open(&local.busid, local.vid, local.pid).map(|device| device as Arc<dyn UsbDevice>))
+    };
+    #[cfg(not(target_os = "linux"))]
+    let kernel = || None;
+    open_or_kernel(opened, kernel)
+}
+
+/// libusb's answer for a device, with Linux's own USB/IP server ([`usb_linux`](crate::usb_linux))
+/// taking over when libusb was refused permission (`EACCES`, no udev rule gives the user the
+/// device): `kernel` opens it there, or is None when that can't run on this computer. The udev
+/// advice stays when there is no such fallback, and follows the fallback's own failure.
+fn open_or_kernel<T>(opened: Result<T, rusb::Error>, kernel: impl FnOnce() -> Option<Result<T, String>>) -> Result<T, String> {
+    match opened {
+        Err(rusb::Error::Access) => match kernel() {
+            Some(Ok(device)) => Ok(device),
+            Some(Err(why)) => Err(format!("{why} {}", open_error(rusb::Error::Access))),
+            None => Err(open_error(rusb::Error::Access)),
+        },
+        other => other.map_err(open_error),
+    }
 }
 
 fn open_error(e: rusb::Error) -> String {

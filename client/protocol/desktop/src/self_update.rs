@@ -6,7 +6,8 @@
 //! as an AppImage has its file replaced atomically and starts the new one. Every other copy has no
 //! Update now: a Windows copy the setup didn't install and macOS copies keep the link to the release
 //! page, and a deb, rpm, Flatpak or archive on Linux doesn't check at all, as its package manager or
-//! its user updates it.
+//! its user updates it. A Linux copy whose program path cannot be read keeps the link too, unless
+//! it is a Flatpak (`unknown_copy`).
 //! Either way the next Nightjar can start while this one is still leaving, so what it reads is saved
 //! before the hand-over (save_for_next_run in app.rs).
 //!
@@ -80,7 +81,8 @@ impl Failure {
 pub enum CopyKind {
     /// The setup installed this folder.
     Installed,
-    /// Windows, anywhere else: an unpacked zip or a build.
+    /// Windows, anywhere else: an unpacked zip or a build. macOS, and a Linux copy whose program
+    /// path cannot be read (`unknown_copy`): the release page's link, nothing replaced in place.
     Portable,
     AppImage(PathBuf),
     /// deb, rpm, Flatpak, an unpacked archive or a build.
@@ -169,21 +171,27 @@ fn native_machine() -> Option<u16> {
 pub fn current() -> &'static CopyKind {
     static COPY: OnceLock<CopyKind> = OnceLock::new();
     COPY.get_or_init(|| {
-        let fallback = if cfg!(windows) || cfg!(target_os = "macos") {
-            CopyKind::Portable
-        } else {
-            CopyKind::Managed
-        };
         let copy = match std::env::current_exe() {
             Ok(exe) => detect(&exe),
             Err(e) => {
-                eprintln!("nightjar: update: no path to this program: {e}");
-                fallback
+                let flatpak = cfg!(target_os = "linux") && (std::env::var_os("FLATPAK_ID").is_some() || Path::new("/.flatpak-info").exists());
+                let copy = unknown_copy(flatpak);
+                eprintln!("nightjar: update: no path to this program ({e}), so nothing is replaced in place: {copy:?}");
+                copy
             }
         };
         eprintln!("nightjar: update: this copy is {copy:?}");
         copy
     })
+}
+
+/// The kind of a copy whose program path cannot be read. Nothing then ties a runtime's `$APPIMAGE`
+/// to this program, so no copy is replaced in place; but hiding Check for updates (`Managed`)
+/// would leave an AppImage, an archive or a build without any word of a new release. Such a copy
+/// keeps the check and the release page's link (`Portable`), as Windows and macOS copies do. A
+/// Flatpak (`flatpak`: `FLATPAK_ID` or `/.flatpak-info`) stays out of it: Flathub updates it.
+pub fn unknown_copy(flatpak: bool) -> CopyKind {
+    if flatpak { CopyKind::Managed } else { CopyKind::Portable }
 }
 
 fn detect(exe: &Path) -> CopyKind {

@@ -242,6 +242,9 @@ impl Session {
                 || session.compute.is_some()
                 || session.lender.is_some(),
             in_place = session.zero_copy,
+            gpu = %session.gpu.display.adapter,
+            capture_luid = ?session.adapter,
+            render_luid = ?render,
             "capturing from the Rubylight display driver's frame push"
         );
         Ok(session)

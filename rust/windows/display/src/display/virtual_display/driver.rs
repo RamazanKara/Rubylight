@@ -132,9 +132,10 @@ pub struct RenderAdapter {
     pub luid: (u32, i32),
 }
 /// The GPU the Graphics card setting names, for virtual displays to render on
-/// as Apollo and Vibepollo do. Automatic leaves the choice to Windows, except
-/// on a PC with an AMD and a non-AMD GPU, where it is the AMD GPU: the stream
-/// encodes only there, and the probe already counts on it.
+/// as Apollo and Vibepollo do. Automatic leaves the choice to Windows on a PC
+/// with one GPU; with several it is the AMD or NVIDIA GPU the stream pins to
+/// (discrete over integrated, then the most video memory), which the probe
+/// already counts on. `select` resolves it as `idd-push` capture does.
 pub fn configured_render_adapter_with(
     config: &butterpollo_config::config::Config,
     select: impl FnOnce(&str, &str) -> Result<Option<RenderAdapter>>,

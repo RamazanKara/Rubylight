@@ -223,7 +223,7 @@
         aria-controls="{id}-results"
         aria-autocomplete="list"
         aria-activedescendant={entries.length ? optionId(active) : undefined}
-        placeholder="Games, devices, settings, actions"
+        placeholder="Games, devices, settings"
         autocomplete="off"
         spellcheck="false"
         bind:value={query}
@@ -302,8 +302,6 @@
   }
   .field .input {
     padding-left: 40px;
-    /* On a phone the placeholder ends in an ellipsis instead of a cut-off word. */
-    text-overflow: ellipsis;
   }
   /* A steady height: the dialog doesn't jump as the results change. */
   .results {

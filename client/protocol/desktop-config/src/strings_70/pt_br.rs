@@ -22,4 +22,5 @@ pub const TABLE: &[(&str, &str)] = &[
     ("A program on this computer holds the device, so usbipd-win can’t take it. Close that program, then retry.", "Um programa deste computador está usando o dispositivo, então o usbipd-win não consegue assumi-lo. Feche esse programa e tente de novo."),
     ("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", "Outro driver controla este dispositivo ({}). Encaminhe-o com o usbipd-win, que mantém esse driver, ou instale o WinUSB para ele."),
     ("Frame Warp needs the current version of Nightjar and of the PC’s streaming app, so this stream runs without it.", "O Frame Warp precisa da versão atual do Nightjar e do app de transmissão do PC, então esta transmissão roda sem ele."),
+    ("Gamescope was holding frames back, so V-Sync now shows the newest frame at each refresh.", "O gamescope estava segurando quadros, então o V-Sync agora mostra o quadro mais recente a cada atualização."),
 ];

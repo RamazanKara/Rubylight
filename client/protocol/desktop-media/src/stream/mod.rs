@@ -281,6 +281,8 @@ pub struct Streaming {
     uploaded_epoch: u64,
     /// Finds pictures that missed their refresh, for `skipped`.
     miss_watch: present::MissWatch,
+    /// Finds gamescope's FIFO queue holding a V-Sync stream's pictures back (Nightjar #181).
+    gamescope_fifo: present::FifoWatch,
     /// How long a stream that skips keeps a new place from the host (`phase::SteadyReports`), from
     /// `NIGHTJAR_PHASE_STEADY_WINDOWS` for measurement runs, 0 to send every report as it is.
     phase_steady_windows: u32,
@@ -608,6 +610,7 @@ impl Streaming {
             self.phase_source_logged = None;
             self.phase_missing_logged = false;
             self.phase_first_miss_us = None;
+            self.gamescope_fifo.restart();
         }
         // The landing is the display's: the wait's budget measures it afresh on another one.
         self.scan_tally.forget_landing();

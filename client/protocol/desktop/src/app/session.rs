@@ -35,22 +35,10 @@ impl App {
         // The stream draws at 1.0: the launcher's white scale is the launcher's alone.
         #[cfg(target_os = "linux")]
         sdl::launcher_white(self.renderer, false);
-        // Under gamescope a V-Sync stream that takes the newest picture presents MAILBOX instead
-        // of gamescope's FIFO queue (`present::gamescope_mailbox`, Nightjar #181).
         #[cfg(target_os = "linux")]
-        let mailbox = stream::present::gamescope_mailbox(pacing, stream::present::in_order_pacing(settings.frame_pacing, settings.drop_late_frames, settings.host_frame_times),
-            handheld::gamescope(), sdl::renderer_is(self.renderer, "gpu"));
-        #[cfg(not(target_os = "linux"))]
-        let mailbox = false;
-        #[cfg(target_os = "linux")]
-        if mailbox {
-            sdl::prefer_mailbox(self.renderer);
-            eprintln!("nightjar: gamescope: V-Sync presents as Mailbox, which does not tear, instead of gamescope's FIFO queue");
-        } else {
-            sdl::prefer_immediate(self.renderer, stream::present::prefers_immediate(connecting.vrr(), sdl::video_driver() == "wayland", handheld::gamescope()));
-        }
+        sdl::prefer_immediate(self.renderer, stream::present::prefers_immediate(connecting.vrr(), sdl::video_driver() == "wayland", handheld::gamescope()));
         // SAFETY: window and renderer calls on the main thread.
-        self.set_render_vsync(if mailbox { 0 } else { stream::present::sync_interval(pacing, stream::present::VrrSync::Off) });
+        self.set_render_vsync(stream::present::sync_interval(pacing, stream::present::VrrSync::Off));
         unsafe {
             #[cfg(target_os = "linux")]
             eprintln!("nightjar: present mode {}", sdl::present_mode_name(sdl::present_mode(self.renderer)));

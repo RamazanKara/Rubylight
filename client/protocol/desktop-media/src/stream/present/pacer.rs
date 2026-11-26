@@ -85,21 +85,9 @@ pub fn in_order_pacing(frame_pacing: FramePacing, drop_late_frames: bool, host_f
         && (matches!(frame_pacing, FramePacing::CapFps | FramePacing::Smoothness) || (frame_pacing == FramePacing::Balanced && !drop_late_frames))
 }
 
-/// Whether a V-Sync stream on the GPU (Vulkan) renderer under gamescope asks for MAILBOX instead
-/// of FIFO (Nightjar #181). Gamescope's Vulkan layer gives the driver MAILBOX and runs FIFO
-/// itself, in its own queue of commits, each FIFO commit held behind the one before it; with the
-/// swapchain's three images a present then waits for gamescope to let go of one. Once that queue
-/// held pictures back it did not drain: after a change of the game's rate, a 60 fps stream on a
-/// 120 Hz Odin 2 Portal showed 34-42 fps with p95 present waits of 27.9 ms for the rest of the
-/// stream, while every picture arrived and decoded in 1 ms. Nothing on Nightjar's side kept that
-/// state: the pacer takes the newest due picture, and the PC's phase lock stood aside throughout.
-/// MAILBOX does not tear either: gamescope shows the newest finished picture at its refresh, and
-/// keeps no queue of them. Only the pacings that take the
-/// newest due picture ask for it; the in-order ones keep FIFO's one picture a refresh, and other
-/// renderers do not go through gamescope's layer.
-pub fn gamescope_mailbox(mode: PacingMode, in_order: bool, gamescope: bool, vulkan: bool) -> bool {
-    mode == PacingMode::Vsync && !in_order && gamescope && vulkan
-}
+#[path = "gamescope_fifo.rs"]
+mod gamescope_fifo;
+pub use gamescope_fifo::*;
 
 /// The longest a picture waits in the in-order frame pacings before a newer due one replaces it:
 /// one frame of the stream, at most 250 ms (Android's `FramePacingPolicy.shouldDrainOutput`).

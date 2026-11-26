@@ -601,6 +601,8 @@ impl Streaming {
         }
         // A redraw for the menu or the overlay leaves a kept picture to be shown and counted.
         if has_picture && self.skipped.shown() { eprintln!("nightjar: pacing: trying no-wait presents again (hold {:?})", self.skipped.hold()); }
+        #[cfg(target_os = "linux")]
+        if has_picture && !by_kms { self.watch_gamescope_fifo(renderer, flipped.issued_us, flipped.returned_us, dropped); }
         let presented = flipped.returned_us;
         let scan = flipped.scan;
         let watches = cfg!(windows) && has_picture && self.no_wait_present && !self.skipped.waits() && self.pacer.skips_instead_of_waiting(self.plan.display.refresh_hz);

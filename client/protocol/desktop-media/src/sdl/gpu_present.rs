@@ -21,7 +21,7 @@ pub fn prefer_immediate(renderer: *mut SDL_Renderer, prefer: bool) {
 
 /// Asks the GPU renderer for MAILBOX before IMMEDIATE the next time V-Sync turns off, whatever
 /// [`set_vrr_tearing`] says: a V-Sync stream under gamescope that presents MAILBOX instead of
-/// gamescope's FIFO (`stream::present::gamescope_mailbox`) must not tear.
+/// gamescope's FIFO once that held it back (`stream::present::FifoWatch`) must not tear.
 #[cfg(target_os = "linux")]
 pub fn prefer_mailbox(renderer: *mut SDL_Renderer) {
     // SAFETY: a live renderer and a property name constant.

@@ -1,2 +1,2 @@
 ## desktop
-- Linux handhelds in Game Mode: with V-Sync on, Lowest latency, Balanced and PC's frame times now present without gamescope's frame queue, still without tearing. That queue could hold a stream at about 60% of the frames it received after a game changed its frame rate.
+- Linux handhelds in Game Mode: when gamescope's frame queue holds a V-Sync stream back, which could keep it at about 60% of the frames it received after a game changed its frame rate, Nightjar now notices within a few seconds, tells you, and shows the newest frame at each refresh instead, still without tearing. Lowest latency, Balanced and PC's frame times; streams that never hit this keep presenting as before.

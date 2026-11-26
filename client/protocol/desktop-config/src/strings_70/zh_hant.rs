@@ -22,4 +22,5 @@ pub const TABLE: &[(&str, &str)] = &[
     ("A program on this computer holds the device, so usbipd-win can’t take it. Close that program, then retry.", "這台電腦上的某個程式正在占用此裝置，因此 usbipd-win 無法接管。請關閉該程式，然後重試。"),
     ("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", "此裝置由另一個驅動程式（{}）控制。請透過 usbipd-win 轉送它（保留該驅動程式），或為它安裝 WinUSB。"),
     ("Frame Warp needs the current version of Nightjar and of the PC’s streaming app, so this stream runs without it.", "Frame Warp 需要最新版本的 Nightjar 和電腦的串流應用程式，因此此次串流不使用它。"),
+    ("Gamescope was holding frames back, so V-Sync now shows the newest frame at each refresh.", "gamescope 一直在扣留影格，因此 V-Sync 現在會在每次更新畫面時顯示最新的影格。"),
 ];

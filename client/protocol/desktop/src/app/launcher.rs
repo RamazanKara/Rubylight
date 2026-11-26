@@ -107,6 +107,7 @@ impl App {
         }
         if another_display(kind) {
             self.gui.set_refresh(display_of(self.window).refresh_hz);
+            self.launcher.profiles.screen = screen_of(self.window);
         }
         // SAFETY: SDL cursor calls on the main thread.
         match self.pointer.input(pointer_input(event)) {

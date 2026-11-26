@@ -567,6 +567,28 @@ impl Launcher {
             self.dialog = Dialog::ProfileName { id: None, name: String::new(), settings: Overrides::default(), error: None };
             self.focus_dialog = true;
         }
+        if let Some(screen) = self.profiles.screen.clone() {
+            ui.add_space(16.0);
+            section(ui, "This screen");
+            ui.label(trf("Nightjar is on {}.", &[&screen.name]));
+            let kept = self.profiles.for_screen();
+            let mut chosen = kept;
+            let name = self.profiles.entries.iter().find(|p| Some(p.id) == kept).map_or(tr("Follow the network choices"), |p| p.name.as_str());
+            row(ui, "Profile for this screen", "A stream started on this screen uses this profile, ahead of the network choices.", |ui| {
+                Combo::from_id_salt("screen-profile").selected_text(name).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut chosen, None, tr("Follow the network choices"));
+                    for profile in &self.profiles.entries { ui.selectable_value(&mut chosen, Some(profile.id), &profile.name); }
+                }).response
+            });
+            if chosen != kept {
+                match (chosen, kept) {
+                    (Some(id), _) => self.profiles.keep_for_screen(id, Some(&screen)),
+                    (None, Some(id)) => self.profiles.keep_for_screen(id, None),
+                    (None, None) => {}
+                }
+                dirty = true;
+            }
+        }
         ui.add_space(16.0);
         section(ui, "Network choices");
         ui.label(self.network.description(&self.profiles.home_wifi));
@@ -648,12 +670,19 @@ impl Launcher {
             }
         }
         section(ui, "Saved profiles");
+        let mut forget = None;
         for profile in &self.profiles.entries {
             ui.push_id(profile.id, |ui| {
-                row(ui, &profile.name, if Some(profile.id) == self.profiles.active { en("Active for new streams") } else { en("Saved profile") }, |ui| {
+                let state = if Some(profile.id) == self.profiles.active { tr("Active for new streams") } else { tr("Saved profile") };
+                let state = profile.display_matcher.as_ref().map_or_else(|| state.to_owned(), |m| format!("{state} \u{b7} {}", trf("Kept for {}", &[&m.name])));
+                row(ui, &profile.name, &state, |ui| {
                     ui.horizontal(|ui| {
                         if quiet_button(ui, "Edit").clicked() { commands.push(Command::ProfileSettings(profile.id)); }
                         ui.menu_button(tr("More"), |ui| {
+                            if profile.display_matcher.is_some() && ui.button(tr("Forget screen")).clicked() {
+                                forget = Some(profile.id);
+                                ui.close();
+                            }
                             if ui.button(tr("Rename")).clicked() {
                                 self.dialog = Dialog::ProfileName { id: Some(profile.id), name: profile.name.clone(), settings: Overrides::default(), error: None };
                                 self.focus_dialog = true;
@@ -673,6 +702,10 @@ impl Launcher {
                     }).inner
                 });
             });
+        }
+        if let Some(id) = forget {
+            self.profiles.keep_for_screen(id, None);
+            dirty = true;
         }
         if dirty { commands.push(Command::SaveProfiles); }
     }

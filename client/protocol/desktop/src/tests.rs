@@ -599,7 +599,7 @@ fn the_topmost_layer_holding_controllers_is_named() {
     let off = config::Settings { controllers: false, ..Default::default() };
     let on = config::Settings::default();
     let both = &["controllers", "multi_controller"];
-    let profile = config::Profile { id: 1, name: "Travel".into(), settings: layer(&off, both) };
+    let profile = config::Profile::new(1, "Travel", layer(&off, both));
     let pc = layer(&off, both);
     let game = layer(&on, both);
     let unrelated = layer(&on, &["fps"]);

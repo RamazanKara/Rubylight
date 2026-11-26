@@ -30,4 +30,11 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Still shared through usbipd-win since Nightjar closed: {}", "Nightjar の終了後も usbipd-win で共有中: {}"),
     ("Giving back…", "戻しています…"),
     ("Give back to Windows", "Windows に戻す"),
+    ("This screen", "この画面"),
+    ("Nightjar is on {}.", "Nightjar は {} に表示されています。"),
+    ("Profile for this screen", "この画面のプロファイル"),
+    ("A stream started on this screen uses this profile, ahead of the network choices.", "この画面で開始したストリームは、ネットワークの選択より優先してこのプロファイルを使います。"),
+    ("Follow the network choices", "ネットワークの選択に従う"),
+    ("Kept for {}", "{} 用"),
+    ("Forget screen", "画面の割り当てを解除"),
 ];

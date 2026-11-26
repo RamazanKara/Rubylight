@@ -354,6 +354,9 @@ impl App {
         if self.attempts.is_connecting() {
             return;
         }
+        // The screen the stream starts on picks the profile kept for it, read now in case a
+        // move went unseen while another stream had the window.
+        self.launcher.profiles.screen = screen_of(self.window);
         let Some(host) = self.hosts.get(host_id) else {
             self.start_failed(
                 (host_id, app_id, resume, kind),

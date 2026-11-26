@@ -412,7 +412,7 @@ fn a_pcs_own_settings_count_each_game_once_and_clear_to_the_layers_below() {
 
 #[test]
 fn a_setting_names_the_layer_it_comes_from() {
-    let profile = Profile { id: 1, name: "Travel".into(), settings: serde_json::from_str(r#"{"bitrate_kbps":5000}"#).unwrap() };
+    let profile = Profile::new(1, "Travel", serde_json::from_str(r#"{"bitrate_kbps":5000}"#).unwrap());
     let pc: Overrides = serde_json::from_str(r#"{"fps":120,"bitrate_kbps":9000}"#).unwrap();
     let game: Overrides = serde_json::from_str(r#"{"hdr":true}"#).unwrap();
     assert_eq!(source(&["fps"], Some(&profile), Some(&pc), Some(&game)), Source::Pc);

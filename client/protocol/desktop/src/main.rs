@@ -430,6 +430,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     let mut launcher = Launcher::new(settings.clone(), profiles, store.shortcuts(), display);
     launcher.hdr_display = sdl::any_display_hdr();
     launcher.hdr_display_probe = Some(sdl::any_display_hdr);
+    launcher.profiles.screen = screen_of(window);
     // SAFETY: a live window.
     launcher.fullscreen_modes = fullscreen_modes(unsafe { SDL_GetDisplayForWindow(window) });
     // The System theme's light or dark; SDL tells of a change (SDL_EVENT_SYSTEM_THEME_CHANGED).

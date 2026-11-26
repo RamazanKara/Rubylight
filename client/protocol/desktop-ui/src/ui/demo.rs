@@ -176,11 +176,7 @@ pub fn fill(hosts: &mut Hosts, launcher: &mut Launcher, ctx: &egui::Context) {
             eprintln!("nightjar: demo shortcut {name}: {why}");
         }
     }
-    launcher.profiles.entries = vec![Profile {
-        id: PROFILE,
-        name: "Couch".into(),
-        settings: Default::default(),
-    }];
+    launcher.profiles.entries = vec![Profile::new(PROFILE, "Couch", Default::default())];
     let pc = &mut hosts.list[0];
     pc.reach = Reach::Online;
     pc.info = Some(answer(true, FIRST_APP as i32 + RUNNING as i32));

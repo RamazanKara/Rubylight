@@ -30,4 +30,11 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Still shared through usbipd-win since Nightjar closed: {}", "自 Nightjar 关闭后仍通过 usbipd-win 共享：{}"),
     ("Giving back…", "正在归还…"),
     ("Give back to Windows", "还给 Windows"),
+    ("This screen", "此屏幕"),
+    ("Nightjar is on {}.", "Nightjar 位于 {}。"),
+    ("Profile for this screen", "此屏幕的配置"),
+    ("A stream started on this screen uses this profile, ahead of the network choices.", "在此屏幕上开始的串流会使用此配置，优先于网络选择。"),
+    ("Follow the network choices", "跟随网络选择"),
+    ("Kept for {}", "用于 {}"),
+    ("Forget screen", "忘记屏幕"),
 ];

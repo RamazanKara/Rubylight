@@ -71,6 +71,9 @@ public class StreamScreenTest {
         assertEquals(Reason.SCREEN, tv.reason);
         assertEquals(Integer.valueOf(3840), tv.values.width);
         assertEquals("network mobile, profile #3 (for screen)", StreamLayers.describe(tv));
+        // The stream keeps the screen in its intent with the network, and a restart resolves with both.
+        assertEquals("external:hdmi screen", tv.screen.id);
+        assertEquals("3", resolve(Network.MOBILE, tv.screen).profileId);
 
         StreamLayers.Result own = resolve(Network.WIFI, StreamScreen.builtIn());
         assertEquals("4", own.profileId);

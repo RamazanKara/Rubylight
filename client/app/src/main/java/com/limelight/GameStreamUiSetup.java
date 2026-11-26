@@ -55,6 +55,7 @@ import com.limelight.preferences.ControllersChoice;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.StreamLayers;
+import com.limelight.preferences.StreamScreen;
 import com.limelight.ui.AdaptiveLayout;
 import com.limelight.ui.ConnectingScreen;
 import com.limelight.ui.DesktopGestures;
@@ -129,13 +130,15 @@ final class GameStreamUiSetup {
                 game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID),
                 HostCapabilityCache.load(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID)),
                 game.getIntent().getStringExtra(Game.EXTRA_APP_UUID),
-                game.getIntent().getIntExtra(Game.EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID), startNetwork);
+                game.getIntent().getIntExtra(Game.EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID), startNetwork,
+                startNetwork == null ? null : StreamScreen.from(game.getIntent()));
         if (DualScreen.isSecond(game.getIntent())) {
             DualScreen.configureSecond(game.prefConfig, game.getWindowManager().getDefaultDisplay());
         }
         game.prefConfig.experimentalPacked444 = PackedFallback.effective(
                 game.prefConfig.experimentalPacked444, game.getIntent().getBooleanExtra(Game.EXTRA_PACKED_OFF, false));
         game.getIntent().putExtra(Game.EXTRA_STREAM_NETWORK, game.prefConfig.layers.network.name());
+        if (game.prefConfig.layers.screen != null) game.prefConfig.layers.screen.putInto(game.getIntent());
         HdrPolicy.setDebugHlgOnly(BuildConfig.DEBUG, game.prefConfig.debugHdrHlgOnly);
         game.overlays.showStreamLayers(game.prefConfig, startNetwork == null);
         game.streamRecovery.readRecoveryBudget(SystemClock.elapsedRealtime());

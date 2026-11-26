@@ -1,6 +1,7 @@
 package com.limelight.preferences;
 
 import android.content.Context;
+import android.content.Intent;
 import android.hardware.display.DisplayManager;
 import android.os.Build;
 import android.view.Display;
@@ -36,6 +37,20 @@ public final class StreamScreen {
         return trimmed.isEmpty() ? null : new StreamScreen(EXTERNAL + trimmed, trimmed);
     }
 
+    private static final String EXTRA_ID = "StreamScreen";
+    private static final String EXTRA_NAME = "StreamScreenName";
+
+    /** Keeps the screen in a stream's intent, so its restarts and its second stream pick as it did. */
+    public void putInto(Intent intent) {
+        intent.putExtra(EXTRA_ID, id).putExtra(EXTRA_NAME, name);
+    }
+
+    /** The screen {@link #putInto} kept in the intent; null for none. */
+    public static StreamScreen from(Intent intent) {
+        String id = intent.getStringExtra(EXTRA_ID);
+        return id == null || id.trim().isEmpty() ? null : new StreamScreen(id, intent.getStringExtra(EXTRA_NAME));
+    }
+
     /** The screen's name as the Profiles page shows it. */
     public String label(Context context) {
         return BUILT_IN.equals(id) || name.isEmpty() ? context.getString(R.string.profiles_screen_built_in) : name;
@@ -63,7 +78,9 @@ public final class StreamScreen {
             DisplayManager manager = (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
             if (manager != null) {
                 for (Display display : manager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)) {
-                    if (display.getDisplayId() == Display.DEFAULT_DISPLAY) continue;
+                    // As DualScreen.secondDisplay: a display the app can't show on is not where a stream goes.
+                    if (display.getDisplayId() == Display.DEFAULT_DISPLAY || !display.isValid()
+                            || (display.getFlags() & Display.FLAG_PRIVATE) != 0) continue;
                     StreamScreen screen = external(display.getName());
                     if (screen != null) return screen;
                 }

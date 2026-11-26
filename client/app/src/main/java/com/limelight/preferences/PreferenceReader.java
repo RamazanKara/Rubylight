@@ -44,7 +44,8 @@ final class PreferenceReader {
     }
 
     static PreferenceConfiguration readLayered(Context context, String hostUuid, HostCapabilities caps,
-                                               String appUuid, int appId, StreamLayers.Network network) {
+                                               String appUuid, int appId, StreamLayers.Network network,
+                                               StreamScreen screen) {
         PreferenceConfiguration config = readGlobal(context);
         if (hostUuid != null) config.applyLowerBitrate(AutoBitrateChoice.forPc(context, hostUuid));
         PreferenceConfiguration.FormatOption allPcsFormat = config.videoFormat;
@@ -54,7 +55,9 @@ final class PreferenceReader {
         if (network == null) {
             StreamNetwork.fill(context, input);
         } else {
+            // A restart or a second stream picks as its stream did when it started.
             input.network = network;
+            input.screen = screen;
         }
         StreamLayers.Result layers = StreamLayers.resolve(input);
         config.layers = layers;

@@ -60,6 +60,8 @@ public final class StreamLayers {
         final EnumMap<HostStreamProfile.Field, Source> sources = new EnumMap<>(HostStreamProfile.Field.class);
         public final List<Problem> problems = new ArrayList<>();
         public Network network = Network.OTHER;
+        /** The screen the stream started on, which its restarts keep; null when Android could not say. */
+        public StreamScreen screen;
         /** The profile applied, or null. */
         public String profileId, profileName;
         /** Why {@link #profileId} was applied; for {@link Problem#PROFILE_MISSING} or INVALID, why it was picked. */
@@ -107,6 +109,7 @@ public final class StreamLayers {
     public static Result resolve(Input in) {
         Result result = new Result();
         result.network = in.network;
+        result.screen = in.screen;
         StreamProfiles.Snapshot profiles = in.profiles;
         String picked = screenProfile(profiles, in.screen);
         if (picked != null) {

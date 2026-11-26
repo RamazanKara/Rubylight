@@ -74,6 +74,8 @@
     <string name="stream_tile_pc_commands">Команди ПК</string>
     <string name="stream_tile_diagnostics">Діагностика</string>
     <string name="stream_tile_session_graphics">Сеанс і графіка</string>
+    <string name="stream_tile_suspend_game">Призупинити гру</string>
+    <string name="stream_tile_resume_game">Продовжити гру</string>
     <string name="stream_tile_more">Більше</string>
     <string name="stream_tile_return">Повернутися до трансляції</string>
     <string name="stream_tile_add_shortcut">Додати комбінацію</string>

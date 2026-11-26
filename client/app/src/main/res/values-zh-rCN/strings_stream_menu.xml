@@ -74,6 +74,8 @@
     <string name="stream_tile_pc_commands">PC 命令</string>
     <string name="stream_tile_diagnostics">诊断</string>
     <string name="stream_tile_session_graphics">会话与图形</string>
+    <string name="stream_tile_suspend_game">暂停游戏</string>
+    <string name="stream_tile_resume_game">继续游戏</string>
     <string name="stream_tile_more">更多</string>
     <string name="stream_tile_return">返回串流</string>
     <string name="stream_tile_add_shortcut">添加快捷键</string>

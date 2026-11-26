@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="quick_suspend_paused">Trò chơi đang tạm dừng trên PC. Mở menu stream để tiếp tục.</string>
+    <string name="quick_suspend_resumed">Đã tiếp tục trò chơi.</string>
+    <string name="quick_suspend_refused_anti_cheat">Trò chơi này dùng phần mềm chống gian lận nên PC sẽ không tạm dừng nó.</string>
+    <string name="quick_suspend_refused_protected">Một chương trình được bảo vệ hoặc chương trình hệ thống đang chạy cùng trò chơi này nên PC sẽ không tạm dừng nó.</string>
+    <string name="quick_suspend_refused_others">Người khác đang chơi hoặc đang xem nên PC sẽ không tạm dừng trò chơi.</string>
+    <string name="quick_suspend_refused_not_owner">Chỉ thiết bị đã khởi động trò chơi, hoặc thiết bị có quyền điều khiển máy chủ, mới có thể tạm dừng nó.</string>
+    <string name="quick_suspend_refused_busy">Trò chơi đang khởi động hoặc đang dừng. Hãy thử lại sau giây lát.</string>
+    <string name="quick_suspend_refused_nothing">Hiện không có trò chơi nào mà PC có thể tạm dừng.</string>
+    <string name="quick_suspend_refused_failed">PC không thể tạm dừng trò chơi nên không có gì bị tạm dừng.</string>
+</resources>

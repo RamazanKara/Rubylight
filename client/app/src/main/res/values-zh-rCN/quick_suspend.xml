@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="quick_suspend_paused">游戏已在电脑上暂停。打开串流菜单即可继续。</string>
+    <string name="quick_suspend_resumed">游戏已继续。</string>
+    <string name="quick_suspend_refused_anti_cheat">此游戏运行着反作弊程序，因此电脑不会暂停它。</string>
+    <string name="quick_suspend_refused_protected">有受保护的程序或系统程序与此游戏一同运行，因此电脑不会暂停它。</string>
+    <string name="quick_suspend_refused_others">有其他人正在游玩或观看，因此电脑不会暂停游戏。</string>
+    <string name="quick_suspend_refused_not_owner">只有启动游戏的设备，或拥有“主机控制”的设备，才能暂停游戏。</string>
+    <string name="quick_suspend_refused_busy">游戏正在启动或退出。请稍后再试。</string>
+    <string name="quick_suspend_refused_nothing">现在没有电脑可以暂停的游戏。</string>
+    <string name="quick_suspend_refused_failed">电脑未能暂停游戏，因此没有任何内容保持暂停。</string>
+</resources>

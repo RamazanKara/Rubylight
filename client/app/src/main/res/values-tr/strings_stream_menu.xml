@@ -74,6 +74,8 @@
     <string name="stream_tile_pc_commands">PC komutları</string>
     <string name="stream_tile_diagnostics">Tanılama</string>
     <string name="stream_tile_session_graphics">Oturum ve grafik</string>
+    <string name="stream_tile_suspend_game">Oyunu duraklat</string>
+    <string name="stream_tile_resume_game">Oyuna devam et</string>
     <string name="stream_tile_more">Daha fazla</string>
     <string name="stream_tile_return">Yayına dön</string>
     <string name="stream_tile_add_shortcut">Kısayol ekle</string>

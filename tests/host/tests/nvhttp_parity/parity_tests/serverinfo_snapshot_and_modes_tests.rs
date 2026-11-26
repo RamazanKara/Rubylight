@@ -310,7 +310,7 @@ async fn successful_launch_and_resume_xml_include_driver_readiness_and_the_calle
         for ready in [false, true] {
             let url = "rtspenc://[::1]:48010";
             let root = document(launch_response(
-                Ok((reply.into(), url.into())),
+                Ok((reply.into(), url.into(), None)),
                 1,
                 reply,
                 resume,

@@ -166,8 +166,11 @@ struct Engaged {
     layout: Layout,
     format: (u32, u64),
     generation: Option<crate::dmabuf::Generation>,
-    /// Framebuffers and their layouts by DMA-BUF (`fb_cache`), bounded; the ones put out and an old
-    /// pool's wait in `retired` for the next commit.
+    /// The pool `generation` names, kept alive so that no other pool takes its address while its
+    /// surfaces' framebuffers are kept (`dmabuf::SurfaceCache` holds its pool the same way).
+    pool: crate::dmabuf::FramesRef,
+    /// Framebuffers and their layouts by VA surface (`fb_cache`), bounded; the ones put out and an
+    /// old pool's wait in `retired` for the next commit.
     fbs: FbCache<(Framebuffer, plan::FbLayout)>,
     retired: Vec<Framebuffer>,
     /// Framebuffers made, and pictures that found theirs kept.
@@ -291,24 +294,13 @@ impl Scanout {
         Ok((layout, fds, count))
     }
 
-    /// Which DMA-BUF a picture is (`fb_cache::FbKey`): its VA surface, the inode of its first
-    /// object (0 when it cannot be read, which leaves the surface and modifier to tell) and its
-    /// modifier.
-    fn fb_key(export: &crate::dmabuf::Export) -> Result<FbKey, String> {
-        let descriptor = export.descriptor()?;
-        if descriptor.num_objects == 0 {
-            return Err("the picture has no DMA-BUF".into());
-        }
-        let object = &descriptor.objects[0];
-        Ok(FbKey { surface: export.surface(), inode: fb_cache::dmabuf_inode(object.fd).unwrap_or(0), modifier: object.drm_format_modifier })
-    }
-
     fn prepare_inner(&mut self, decoded: &Decoded, hdr: Option<HdrMetadata>, viewport: &Viewport<'_>) -> Result<(), String> {
         let frame = decoded.picture.frame().ok_or("the picture is not a decoded frame")?;
         let export = frame.dmabuf().ok_or("the picture is not a VA-API DMA-BUF export")?;
         let info = frame.info();
         let visible = decoded.visible.unwrap_or((info.width, info.height));
-        let (key, generation) = (Self::fb_key(export)?, export.generation());
+        // A kept framebuffer is found without exporting the surface again: only a new one exports.
+        let (key, generation) = (FbKey { surface: export.surface() }, export.generation());
         let color = (decoded.setup.color_space, decoded.setup.color_range);
         if self.engaged.is_none() {
             let (layout, fds, n) = Self::export_layout(export)?;
@@ -316,14 +308,18 @@ impl Scanout {
                 return Err("the card takes no framebuffer modifiers".into());
             }
             let fb = self.card.add_dmabuf_fb(&layout, &fds[..n]).map_err(|e| format!("the first picture's framebuffer cannot be made: {e}"))?;
-            return self.engage(layout, fb, (key, generation), visible, (hdr, color), viewport);
+            // SAFETY: the frames context of the live picture.
+            let pool = unsafe { crate::dmabuf::FramesRef::of(export.frames()) };
+            return self.engage(layout, fb, (key, generation, pool), visible, (hdr, color), viewport);
         }
         let card = &self.card;
         let engaged = self.engaged.as_mut().expect("engaged");
-        // A new pool (a new stream mode): its surfaces are other buffers.
+        // A new pool (a new stream mode, a decoder made again): its surfaces are other buffers.
         if engaged.generation != Some(generation) {
             engaged.retired.extend(engaged.fbs.take_all().into_iter().map(|(fb, _)| fb));
             engaged.generation = Some(generation);
+            // SAFETY: the frames context of the live picture.
+            engaged.pool = unsafe { crate::dmabuf::FramesRef::of(export.frames()) };
         }
         let (fb, rect) = if let Some((fb, layout)) = engaged.fbs.get(key) {
             engaged.fbs_reused += 1;

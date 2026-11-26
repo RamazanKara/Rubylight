@@ -4,17 +4,17 @@
 //! another can go. What goes out is handed back to be removed once the next commit has taken the
 //! screen off it; a new pool (a mode change) and the end of the stream hand back all of them.
 
-/// How many framebuffers a stream keeps. A VA-API pool holds the decoder's references and a few
-/// pictures in flight, about 20 for HEVC; a pool larger than this makes some again, as before.
-pub(super) const FB_CACHE_CAPACITY: usize = 32;
+/// How many framebuffers a stream keeps: as many as a pool's surface imports are kept for
+/// (`dmabuf::CACHE_LIMIT`, more than FFmpeg's VA-API pools have surfaces).
+pub(super) const FB_CACHE_CAPACITY: usize = crate::dmabuf::CACHE_LIMIT;
 
-/// A DMA-BUF a framebuffer was made of: the VA surface, the DMA-BUF's inode (the same buffer
-/// exported again has it) and its modifier.
+/// The buffer a framebuffer was made of: the VA surface in its pool, which is the same buffer for
+/// as long as the pool lives (`dmabuf::SurfaceCache` keys its imports the same way). A new pool
+/// empties the cache, and the pool is held while its framebuffers are kept, so no other pool can
+/// take its place unseen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct FbKey {
     pub surface: u32,
-    pub inode: u64,
-    pub modifier: u64,
 }
 
 /// The kept framebuffers (`V`: the framebuffer and what goes with it), most recently used last.
@@ -66,22 +66,12 @@ impl<V> FbCache<V> {
     }
 }
 
-/// The inode of DMA-BUF `fd`: the same buffer exported again has the same one. None when it
-/// cannot be read.
-pub(super) fn dmabuf_inode(fd: i32) -> Option<u64> {
-    // SAFETY: fstat writes the stat of an open descriptor into the zeroed struct it is given.
-    unsafe {
-        let mut stat: libc::stat = std::mem::zeroed();
-        (libc::fstat(fd, &mut stat) == 0).then_some(stat.st_ino as u64)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn key(surface: u32) -> FbKey {
-        FbKey { surface, inode: 100 + u64::from(surface), modifier: 0 }
+        FbKey { surface }
     }
 
     #[test]
@@ -97,9 +87,8 @@ mod tests {
             }
         }
         assert_eq!(cache.len(), 3);
-        // The same surface with another buffer behind it (another inode or modifier) is not it.
-        assert_eq!(cache.get(FbKey { inode: 7, ..key(1) }), None);
-        assert_eq!(cache.get(FbKey { modifier: 1, ..key(1) }), None);
+        // A surface the pool has not shown yet has none.
+        assert_eq!(cache.get(key(3)), None);
     }
 
     #[test]
@@ -146,12 +135,13 @@ mod tests {
     }
 
     #[test]
-    fn a_descriptor_exported_again_has_the_same_inode() {
-        use std::os::fd::AsRawFd;
-        let file = std::fs::File::open("/proc/self/exe").unwrap();
-        let again = file.try_clone().unwrap();
-        let inode = dmabuf_inode(file.as_raw_fd()).unwrap();
-        assert_eq!(dmabuf_inode(again.as_raw_fd()), Some(inode));
-        assert_eq!(dmabuf_inode(-1), None);
+    fn it_keeps_as_many_framebuffers_as_a_pool_keeps_imports() {
+        let mut cache = FbCache::new(FB_CACHE_CAPACITY);
+        let surfaces = u32::try_from(FB_CACHE_CAPACITY).unwrap();
+        for surface in 0..surfaces {
+            assert!(cache.insert(key(surface), surface, |_| false).is_empty());
+        }
+        assert_eq!(cache.insert(key(surfaces), surfaces, |_| false), vec![0]);
+        assert_eq!(cache.len(), FB_CACHE_CAPACITY);
     }
 }

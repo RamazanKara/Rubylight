@@ -15,7 +15,7 @@ impl Scanout {
         &mut self,
         layout: plan::FbLayout,
         fb: Framebuffer,
-        (key, generation): (FbKey, crate::dmabuf::Generation),
+        (key, generation, pool): (FbKey, crate::dmabuf::Generation, crate::dmabuf::FramesRef),
         visible: (i32, i32),
         (hdr, color): (Option<HdrMetadata>, (i32, i32)),
         viewport: &Viewport<'_>,
@@ -63,7 +63,7 @@ impl Scanout {
         let mut fbs = FbCache::new(FB_CACHE_CAPACITY);
         fbs.insert(key, (fb, layout), |_| true);
         let mut engaged = Engaged {
-            snapshot, layout: layouts[0].clone(), format: (fmt, modifier), generation: Some(generation),
+            snapshot, layout: layouts[0].clone(), format: (fmt, modifier), generation: Some(generation), pool,
             fbs, retired: Vec::new(), fbs_made: 1, fbs_reused: 0, next_fb, shown_fb: 0, rect, shown_rect: None,
             on_screen: None,
             overlay: OverlayPlane { plane: 0, buffers: overlay_buffers, front: 0, shown: false, change: None, last_canvas: Vec::new() },

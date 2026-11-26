@@ -51,6 +51,15 @@ pub fn parse_max_stream_resolution(text: &str) -> Result<Option<(u32, u32)>> {
     }
 }
 
+/// Quick Suspend (`Config::quick_suspend`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuickSuspendMode {
+    /// No game is ever paused.
+    Off,
+    /// A device or the console pauses the running game until it is resumed.
+    Manual,
+}
+
 /// Updates (`Config::updates`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UpdatesMode {

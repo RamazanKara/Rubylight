@@ -2,9 +2,9 @@
 //! Generated from `rust/core/config/settings.toml` by `tools/generated_docs.py`; do not edit by hand.
 
 use super::{
-    BitrateAdaptation, Config, DisplayAdjust, MAX_STREAM_RESOLUTION, RemoveRemoteMonitor,
-    TouchMode, UpdatesMode, invalid, parse_boolean, parse_integer, parse_max_stream_resolution,
-    unquote,
+    BitrateAdaptation, Config, DisplayAdjust, MAX_STREAM_RESOLUTION, QuickSuspendMode,
+    RemoveRemoteMonitor, TouchMode, UpdatesMode, invalid, parse_boolean, parse_integer,
+    parse_max_stream_resolution, unquote,
 };
 use anyhow::{Result, bail};
 use std::path::PathBuf;
@@ -486,6 +486,18 @@ impl Config {
             _ => {
                 invalid("remove_remote_monitor", value);
                 RemoveRemoteMonitor::Never
+            }
+        }
+    }
+    /// Quick Suspend: `off` (default) or `manual`, a device pauses the running game until it is resumed.
+    pub fn quick_suspend(&self) -> QuickSuspendMode {
+        let value = self.get("quick_suspend", "off");
+        match unquote(value.trim()).to_ascii_lowercase().as_str() {
+            "off" => QuickSuspendMode::Off,
+            "manual" => QuickSuspendMode::Manual,
+            _ => {
+                invalid("quick_suspend", value);
+                QuickSuspendMode::Off
             }
         }
     }

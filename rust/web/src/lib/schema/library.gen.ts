@@ -29,6 +29,16 @@ export const settings: Setting[] = [
     advanced: true,
   },
   {
+    key: 'quick_suspend',
+    label: 'Quick Suspend',
+    description: 'Lets a device pause the running game on this PC and resume it later, also from another device, so the PC stays cool and quiet meanwhile. Online and anti-cheat games are never paused; leave it off if your games disconnect when paused.',
+    details: "When a device asks, the game's own processes are paused from the device's stream menu or the console, and resumed by Resume, by the next stream of the game, or when the session ends. A launcher, a system process and anything the game did not start keep running; a game with anti-cheat is refused. If Rubylight stops while a game is paused, the game is resumed.",
+    category: 'library',
+    group: 'App behavior',
+    control: { kind: 'select', options: [{ value: 'off', label: 'Off' }, { value: 'manual', label: 'When a device asks' }] },
+    default: 'off',
+  },
+  {
     key: 'steam_enabled',
     label: 'Steam library',
     description: 'Adds your Steam games to the library, with their covers, and ends a stream when the game it started exits. Off adds no more games; added ones stay.',

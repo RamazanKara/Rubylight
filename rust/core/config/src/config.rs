@@ -20,8 +20,8 @@ pub use settings30::{DisplayAdjust, SETTINGS_30, TouchMode};
 pub use types::{
     BitrateAdaptation, DSU_DEFAULT_PORT, FEC_MAX_PERCENTAGE, KeyboardLayoutSetting,
     MAX_STREAM_RESOLUTION, MAX_STREAM_RESOLUTION_NATIVE, MAX_STREAM_RESOLUTION_RANGE,
-    MIC_PORT_OFFSET, PacketPacing, Ports, RemoveRemoteMonitor, UpdatesMode, WEBRTC_MEDIA_PORT,
-    WEBRTC_PORT, parse_klid, parse_max_stream_resolution, parse_resolution,
+    MIC_PORT_OFFSET, PacketPacing, Ports, QuickSuspendMode, RemoveRemoteMonitor, UpdatesMode,
+    WEBRTC_MEDIA_PORT, WEBRTC_PORT, parse_klid, parse_max_stream_resolution, parse_resolution,
 };
 
 /// Generated fallback-console setting tables and choice labels (`settings.toml`).

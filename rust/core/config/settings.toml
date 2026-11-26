@@ -394,6 +394,7 @@ keys = [
   "terminate_on_pause",
   "remote_monitor_terminate_on_first_request",
   "exit_timeout",
+  "quick_suspend",
   "library_auto_sync",
   "library_autosync_remove_uninstalled",
   "library_sync_all_installed",
@@ -588,6 +589,7 @@ grips = ["none", "a", "b", "x", "y", "lb", "rb", "lt", "rt", "l3", "r3", "back",
 global_order = [
   "terminate_on_pause",
   "exit_timeout",
+  "quick_suspend",
   "guest_join",
   "guest_permission",
   "virtual_sink",
@@ -4791,6 +4793,20 @@ details = "Applies to every app without its own exit timeout under Behavior, inc
 control = { kind = "number", min = 0, max = 300, step = 1, unit = "s" }
 caution_when = { when = { str_trim_eq = "exit_timeout", default = "", value = "0" }, message = "Apps are ended by force at once, with no time to close by themselves." }
 console = { group = "App behavior", label = "App shutdown timeout (seconds; apps without their own; default 10)", control = "number" }
+
+[[setting]]
+key = "quick_suspend"
+part = "library"
+type = "enum"
+default = "off"
+category = "library"
+group = "App behavior"
+label = "Quick Suspend"
+description = "Lets a device pause the running game on this PC and resume it later, also from another device, so the PC stays cool and quiet meanwhile. Online and anti-cheat games are never paused; leave it off if your games disconnect when paused."
+details = "When a device asks, the game's own processes are paused from the device's stream menu or the console, and resumed by Resume, by the next stream of the game, or when the session ends. A launcher, a system process and anything the game did not start keep running; a game with anti-cheat is refused. If Rubylight stops while a game is paused, the game is resumed."
+control = { kind = "select", options = [{ value = "off", label = "Off" }, { value = "manual", label = "When a device asks" }] }
+console = { group = "App behavior", label = "Quick Suspend (when a device asks pauses the running game until it is resumed; off never pauses one)", control = "choice", choices = ["off", "manual"] }
+rust_accessor = { kind = "enum_ci", method = "quick_suspend", ret = "QuickSuspendMode", variants = [["off", "QuickSuspendMode::Off"], ["manual", "QuickSuspendMode::Manual"]], doc = "Quick Suspend: `off` (default) or `manual`, a device pauses the running game until it is resumed." }
 
 [[setting]]
 key = "steam_enabled"

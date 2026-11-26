@@ -1229,5 +1229,5 @@ test('the generated web schema matches the declarative TOML catalog in rust/core
     restartKeys.sort(),
     'restart flags must match settings.toml',
   );
-  assert.equal(parts.length, 280);
+  assert.equal(parts.length, 281);
 });

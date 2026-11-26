@@ -75,7 +75,7 @@ fn generated_tables_match_settings_toml_counts_and_uniqueness() {
             toml_restarts.insert(key);
         }
     }
-    assert_eq!(toml_keys.len(), 296);
+    assert_eq!(toml_keys.len(), 297);
 
     let generated_overrides: BTreeSet<&str> = super::super::catalog_gen::OVERRIDE_ALLOWED
         .iter()
@@ -134,7 +134,7 @@ fn generated_console_catalog_preserves_layers_and_choice_labels() {
     use super::super::console_catalog::{APP, CLIENT, GLOBAL, GRIPS, choice_label};
 
     assert_eq!(GRIPS.len(), 20);
-    assert_eq!(GLOBAL.len(), 188);
+    assert_eq!(GLOBAL.len(), 189);
     assert_eq!(APP.len(), 41);
     assert_eq!(CLIENT.len(), 22);
 

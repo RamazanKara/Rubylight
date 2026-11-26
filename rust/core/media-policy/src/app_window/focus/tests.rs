@@ -286,7 +286,9 @@ fn a_minimised_window_shows_the_display_without_a_warning_and_comes_back_on_rest
     });
     windows[1].visible = false;
     windows[1].minimized = true;
-    let look = window_only.look(&windows, &tree(), &focused(), None, start);
+    // The game alone: a fresh look prefers a shown window, the launcher.
+    let only_game = [windows[1].clone()];
+    let look = window_only.look(&only_game, &tree(), &focused(), None, start);
     assert_eq!(look.decision.warning, Some(MINIMIZED));
 }
 

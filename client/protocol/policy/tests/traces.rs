@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Every module folder, each with at least one trace, so a renamed or emptied folder fails.
-const MODULES: [&str; 9] = [
+const MODULES: [&str; 10] = [
     "bitrate",
     "client_hint",
     "continue_here",
@@ -14,6 +14,7 @@ const MODULES: [&str; 9] = [
     "pyrowave",
     "quality",
     "recovery",
+    "safe_area",
     "stick",
 ];
 

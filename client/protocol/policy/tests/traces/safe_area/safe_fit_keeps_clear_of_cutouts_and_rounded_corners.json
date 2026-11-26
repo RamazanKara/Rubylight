@@ -1,0 +1,22 @@
+{
+  "rust": "safe_area::Geometry",
+  "java": "com.limelight.ui.SafeAreaPolicy",
+  "new": null,
+  "calls": [
+    {"call": "corner_inset", "args": [0], "expect": 0},
+    {"call": "corner_inset", "args": [-4], "expect": 0},
+    {"call": "corner_inset", "args": [1], "expect": 1},
+    {"call": "corner_inset", "args": [48], "expect": 15},
+    {"call": "corner_inset", "args": [100], "expect": 30},
+    {"call": "corner_inset", "args": [120], "expect": 36},
+    {"call": "corner_inset", "args": [147], "expect": 44},
+    {"call": "corner_inset", "args": [250], "expect": 74},
+    {"call": "edge_inset", "args": [0, 0, 0], "expect": 0},
+    {"call": "edge_inset", "args": [-2, 0, 0], "expect": 0},
+    {"call": "edge_inset", "args": [80, 100, 100], "expect": 80},
+    {"call": "edge_inset", "args": [0, 100, 120], "expect": 36},
+    {"call": "edge_inset", "args": [20, 120, 0], "expect": 36},
+    {"call": "edge_inset", "args": [136, 147, 147], "expect": 136},
+    {"call": "edge_inset", "args": [0, 0, 250], "expect": 74}
+  ]
+}

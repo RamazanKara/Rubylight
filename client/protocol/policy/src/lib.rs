@@ -36,6 +36,7 @@ pub mod quality;
 pub mod recovery;
 pub mod roaming;
 pub mod rumble;
+pub mod safe_area;
 pub mod settings_catalog_gen;
 pub mod shortcuts;
 pub mod simple_profile;

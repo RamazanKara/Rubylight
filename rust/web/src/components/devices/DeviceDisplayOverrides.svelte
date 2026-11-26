@@ -1,6 +1,7 @@
 <script lang="ts">
   import Field from '../Field.svelte';
   import Toggle from '../Toggle.svelte';
+  import DisplayTopologyCanvas from './DisplayTopologyCanvas.svelte';
   import type { DisplayDevice } from '../../lib/api';
   import {
     DISPLAY_OVERRIDE_OPTIONS,
@@ -62,6 +63,9 @@
 </script>
 
 <p class="note">“Use the host setting” follows the value in Settings.</p>
+{#if displays?.length}
+  <DisplayTopologyCanvas {displays} target={draft.output_name_override} targetLabel="This device streams here" />
+{/if}
 <div class="form-grid">
   <Field
     label="Display"

@@ -9,6 +9,7 @@
     title,
     description,
     meta,
+    facts,
     open = $bindable(false),
     variant = 'card',
     level,
@@ -21,6 +22,8 @@
     description?: string;
     /** Quiet facts after the title, such as "20 settings, 1 customized". */
     meta?: string;
+    /** Facts after the title drawn by the caller, such as count pills, in place of `meta`. */
+    facts?: Snippet;
     open?: boolean;
     variant?: 'card' | 'inline';
     /** The card title's heading level; it looks the same at either. */
@@ -48,7 +51,7 @@
         {:else}
           <span class="title">{title}</span>
         {/if}
-        {#if meta}<span class="meta">{meta}</span>{/if}
+        {#if facts}{@render facts()}{:else if meta}<span class="meta">{meta}</span>{/if}
       </span>
       {#if description}<span class="description">{description}</span>{/if}
     {:else}

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import Badge from '../Badge.svelte';
   import Button from '../Button.svelte';
   import Field from '../Field.svelte';
   import Icon from '../Icon.svelte';
@@ -9,6 +8,8 @@
   import PathPicker from '../PathPicker.svelte';
   import Toggle from '../Toggle.svelte';
   import CoverPicker from './CoverPicker.svelte';
+  import GameStudioHeader from './GameStudioHeader.svelte';
+  import { studioFacts } from './game-studio';
   import DetachedList from './DetachedList.svelte';
   import DisplaySettings from './DisplaySettings.svelte';
   import NumberField from './NumberField.svelte';
@@ -148,6 +149,13 @@
     draft.reset(draft.saved);
   }
 
+  /** Brings the Cover panel into view and puts the keyboard on its first control. */
+  function editCover() {
+    const panel = document.getElementById('cover');
+    panel?.scrollIntoView({ block: 'center' });
+    panel?.querySelector<HTMLElement>('button, input, [href]')?.focus({ preventScroll: true });
+  }
+
   async function launch() {
     busy = 'launch';
     await launchApp(draft.saved);
@@ -206,17 +214,35 @@
     Games
   </a>
 
-  <PageHeader
-    title={isNew ? 'New app' : savedName || 'Unnamed app'}
-    subtitle={isNew ? 'Give it a name and the command to run, then save.' : undefined}
-  >
-    {#snippet actions()}
-      <div class="header-actions">
-        {#if isRunning}
-          {#if status?.paused}<Badge tone="warn">Paused</Badge>{:else}<Badge tone="live">Running</Badge>{/if}
+  {#if isNew}
+    <PageHeader title="New app" subtitle="Give it a name and the command to run, then save." />
+  {:else}
+    <GameStudioHeader
+      name={savedName || 'Unnamed app'}
+      uuid={draft.saved.uuid}
+      cover={coverPath(draft.saved)}
+      launcher={launcherName}
+      status={isRunning ? (status?.paused ? 'paused' : 'running') : null}
+      facts={studioFacts(draft.saved)}
+    >
+      {#snippet actions()}
+        {#if !isRunning}
+          <Button
+            variant="primary"
+            icon="play"
+            busy={busy === 'launch'}
+            disabled={running !== '' || busy !== ''}
+            title={running ? `Close ${running} first` : draft.changed ? 'Starts it on this PC with the saved settings' : 'Starts it on this PC'}
+            onclick={launch}
+          >
+            Launch
+          </Button>
         {/if}
+        <Button icon="image" onclick={editCover}>Edit cover</Button>
+      {/snippet}
+      {#snippet aside()}
         {#if position}
-          <span class="muted position num" role="status">{reordering ? 'Saving the library order…' : `${position.index + 1} of ${position.count}`}</span>
+          <span class="position num" role="status">{reordering ? 'Saving the library order…' : `${position.index + 1} of ${position.count}`}</span>
           <Button size="sm" disabled={position.index === 0 || busy === 'move' || reordering} onclick={() => move(-1)}>
             Move earlier
           </Button>
@@ -228,9 +254,9 @@
             Move later
           </Button>
         {/if}
-      </div>
-    {/snippet}
-  </PageHeader>
+      {/snippet}
+    </GameStudioHeader>
+  {/if}
 
 
   <form class="sections" onsubmit={save} aria-label={isNew ? 'New app' : `Edit ${savedName}`}>
@@ -282,7 +308,7 @@
         </div>
       </Panel>
 
-      <Panel title="Cover">
+      <Panel id="cover" title="Cover">
         <CoverPicker {draft} />
       </Panel>
     </div>
@@ -486,13 +512,8 @@
     display: inline-flex;
     transform: rotate(180deg);
   }
-  .header-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-  }
   .position {
+    color: var(--muted);
     font-size: var(--text-xs);
     margin-right: 2px;
   }

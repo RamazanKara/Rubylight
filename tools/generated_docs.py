@@ -808,6 +808,21 @@ def render_web_tiers(cat, _existing):
     return '\n'.join(lines) + '\n'
 
 
+def render_web_overrides(cat, _existing):
+    by_key = cat['_by_key']
+    lines = [
+        '// Generated from rust/core/config/settings.toml by tools/generated_docs.py; do not edit by hand.',
+        '',
+        '/** Keys a device or an app may override (`override_allowed`), in the order the host lists them. */',
+        'export const OVERRIDE_ALLOWED: readonly string[] = [',
+    ]
+    for key in cat['rust']['override_order']:
+        assert by_key[key].get('override_allowed'), f'{key} in override_order but override_allowed is false'
+        lines.append(f'  {ts_str(key)},')
+    lines.extend(['];', ''])
+    return '\n'.join(lines)
+
+
 def _render_control_ts(ctrl, used_rules, uses_presets):
     parts = [f'kind: {ts_str(ctrl["kind"])}']
     if 'options_ref' in ctrl:
@@ -1030,6 +1045,7 @@ DOCS = [
     Doc('rust/core/config/src/config/console_layers_gen.rs', inputs=HOST_SETTINGS_INPUTS, render=render_rust_console_layers),
     Doc('rust/web/src/lib/schema/rules.gen.ts', inputs=HOST_SETTINGS_INPUTS, render=render_web_rules),
     Doc('rust/web/src/lib/schema/tiers.gen.ts', inputs=HOST_SETTINGS_INPUTS, render=render_web_tiers),
+    Doc('rust/web/src/lib/schema/overrides.gen.ts', inputs=HOST_SETTINGS_INPUTS, render=render_web_overrides),
     Doc('rust/web/src/lib/schema/basics_core.gen.ts', inputs=HOST_SETTINGS_INPUTS, render=render_web_part('basics_core')),
     Doc('rust/web/src/lib/schema/basics_io.gen.ts', inputs=HOST_SETTINGS_INPUTS, render=render_web_part('basics_io')),
     Doc('rust/web/src/lib/schema/video_stream.gen.ts', inputs=HOST_SETTINGS_INPUTS, render=render_web_part('video_stream')),

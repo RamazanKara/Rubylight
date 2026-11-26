@@ -69,7 +69,8 @@ pub(super) fn handle(
                 butterpollo_win_display::display::monitors,
             )
             .map_err(|error| anyhow::anyhow!("Windows display enumeration failed ({error:#}). If Windows is at the sign-in screen or an RDP session was disconnected, sign in to and unlock the console session, then retry"))?;
-            serde_json::to_value(monitors)?
+            // With where each display sits (read-only: the console draws its display map from it).
+            serde_json::to_value(butterpollo_win_display::display::placed(&monitors))?
         }
         ("GET", "/api/framegen/edid-refresh") => {
             let query: std::collections::HashMap<_, _> =

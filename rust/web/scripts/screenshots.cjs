@@ -4,6 +4,7 @@
 // SHOT_PAGES=/,/devices picks pages (/design.html is the component gallery);
 // SHOT_FULL=1 captures the full page on desktop too (phones always are).
 // SHOT_CLICK=Select,"Select all" clicks those buttons, in order, before each shot.
+// SHOT_OPEN="Per device" then opens the folds whose summary holds that text.
 // SHOT_KEYS=Control+k presses those keys, in order, after the clicks; SHOT_TYPE=text then types it
 // (Control+k and SHOT_TYPE=po show the quick switcher with results).
 // SHOT_AUTH=signed-out shows the sign-in page, SHOT_AUTH=setup first-run setup
@@ -48,13 +49,20 @@ const replies = {
   '/api/clients/pending': { requests: [] },
   '/api/clients/list': { clients: [
     { uuid: 'phone', name: 'Pixel 9', enabled: true, connected: true, perm: 0x071f1f00 },
-    { uuid: 'tv', name: 'Living room TV', enabled: true, connected: false, perm: 0x071f1f00 },
+    { uuid: 'tv', name: 'Living room TV', enabled: true, connected: false, perm: 0x071f1f00, output_name_override: '{d1}',
+      config_overrides: { max_bitrate: 40000, dd_hdr_option: 'force_off' } },
   ] },
   '/api/clients/hdr-profiles': { profiles: [] },
-  '/api/display-devices': [],
+  // Three displays as Windows would arrange them: a portrait monitor left of the primary, a virtual display right of it.
+  '/api/display-devices': [
+    { device_id: '{d1}', display_name: '\\\\.\\DISPLAY1', friendly_name: 'LG UltraGear 27GP950', hdr_supported: true, hdr_enabled: true, primary: true, x: 0, y: 0, width: 3840, height: 2160, refresh: 144, scale: 150, virtual: false },
+    { device_id: '{d2}', display_name: '\\\\.\\DISPLAY2', friendly_name: 'Dell U2415', hdr_supported: false, hdr_enabled: false, primary: false, x: -1200, y: -220, width: 1200, height: 1920, refresh: 60, scale: 100, virtual: false },
+    { device_id: '{d3}', display_name: '\\\\.\\DISPLAY3', friendly_name: 'Rubylight Virtual Display', hdr_supported: true, hdr_enabled: false, primary: false, x: 3840, y: 0, width: 2560, height: 1600, refresh: 120, scale: 200, virtual: true },
+  ],
   '/api/apps': { apps: [
     { uuid: 'desktop', name: 'Desktop' }, { uuid: 'steam', name: 'Steam Big Picture', cmd: 'steam://open/bigpicture' },
-    { uuid: 'steam-620', name: 'Portal 2', 'steam-id': '620', 'synced-by': 'steam' },
+    { uuid: 'steam-620', name: 'Portal 2', 'steam-id': '620', 'synced-by': 'steam', 'config-overrides': { fec_percentage: 10 },
+      'device-overrides': { tv: { 'config-overrides': { max_bitrate: 80000, hevc_mode: '2', frame_limiter_fps_limit: 60 } } } },
     { uuid: 'mirage', name: 'Assassin’s Creed Mirage', 'launcher-source': 'ubisoft', 'launcher-id': '13504', 'synced-by': 'launcher' },
     { uuid: 'fortnite', name: 'Fortnite', 'launcher-source': 'epic', 'launcher-id': 'Fortnite', 'synced-by': 'launcher' },
     { uuid: 'forza', name: 'Forza Horizon 5', 'launcher-source': 'microsoft', 'launcher-id': 'Microsoft.SunriseBaseGame', 'synced-by': 'launcher' },
@@ -284,6 +292,10 @@ function power(ready = false) {
           await page.waitForTimeout(Number(process.env.SHOT_WAIT || 300));
           for (const button of (process.env.SHOT_CLICK || '').split(',').filter(Boolean)) {
             await page.getByRole('button', { name: button, exact: true }).first().click();
+            await page.waitForTimeout(300);
+          }
+          for (const fold of (process.env.SHOT_OPEN || '').split(',').filter(Boolean)) {
+            await page.locator('summary', { hasText: fold }).first().click();
             await page.waitForTimeout(300);
           }
           for (const key of (process.env.SHOT_KEYS || '').split(',').filter(Boolean)) {

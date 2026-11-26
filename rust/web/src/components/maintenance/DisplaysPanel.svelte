@@ -4,7 +4,8 @@
   import Button from '../Button.svelte';
   import Panel from '../Panel.svelte';
   import LoadState from '../LoadState.svelte';
-  import { api, type GoldenStatus } from '../../lib/api';
+  import DisplayTopologyCanvas from '../devices/DisplayTopologyCanvas.svelte';
+  import { api, type DisplayDevice, type GoldenStatus } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
   import { reason } from './util';
 
@@ -13,6 +14,18 @@
   let golden = $state<GoldenStatus | null>(null);
   let loadError = $state('');
   let running = $state<Action | null>(null);
+  /** The displays as they are now, for the map: read apart from the saved layout, so one failing leaves the other. */
+  let displays = $state<DisplayDevice[] | null>(null);
+  let displaysError = $state('');
+
+  async function loadDisplays() {
+    try {
+      displays = await api.displays.devices();
+      displaysError = '';
+    } catch (error) {
+      displaysError = reason(error);
+    }
+  }
 
   async function load() {
     try {
@@ -33,7 +46,7 @@
     } finally {
       running = null;
     }
-    await load();
+    await Promise.all([load(), loadDisplays()]);
   }
 
   async function save() {
@@ -83,7 +96,10 @@
       await run('disconnect', api.displays.disconnectVirtual, 'Virtual displays disconnected.', 'Disconnecting failed');
   }
 
-  onMount(load);
+  onMount(() => {
+    void load();
+    void loadDisplays();
+  });
 </script>
 
 <Panel id="displays" title="Displays" level={3} description="After each stream, Rubylight restores the saved layout if all of its displays are connected.">
@@ -105,6 +121,10 @@
       {#if loadError}
         <LoadState error={loadError} what="the display layout" stale onretry={load} />
       {/if}
+      <div class="group">
+        <h4>Displays now</h4>
+        <DisplayTopologyCanvas {displays} error={displaysError} onretry={loadDisplays} />
+      </div>
       <div class="columns">
         <div class="group">
           <h4>Saved layout</h4>

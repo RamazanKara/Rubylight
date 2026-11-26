@@ -109,10 +109,6 @@ export function findAnchorLauncherGroup(anchor: string, tabId: TabId, described:
 export const isPlainClick = (event: MouseEvent): boolean =>
   event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 
-export function foldMetaText(count: number, fold: { customized: number; unsaved: number }): string {
-  return `${count} ${count === 1 ? 'setting' : 'settings'}${fold.customized ? `, ${fold.customized} customized` : ''}${fold.unsaved ? `, ${fold.unsaved} unsaved` : ''}`;
-}
-
 export interface RowModel {
   part: Setting | undefined;
   value: ConfigValue;

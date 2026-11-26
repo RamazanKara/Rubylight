@@ -8,6 +8,7 @@
   import PresetNote from '../components/settings/PresetNote.svelte';
   import SaveBar from '../components/settings/SaveBar.svelte';
   import SettingRow from '../components/settings/SettingRow.svelte';
+  import DisclosureMeta from '../components/settings/DisclosureMeta.svelte';
   import SettingsContentsTrack from '../components/settings/SettingsContentsTrack.svelte';
   import SettingsResults from '../components/settings/SettingsResults.svelte';
   import SettingsSidebar from '../components/settings/SettingsSidebar.svelte';
@@ -437,10 +438,10 @@
       title={name}
       level={3}
       flush
-      meta={page.foldMetaText(item.settings.length, fold)}
       open={(foldOpen[item.name] ?? fold.customized > 0) || fold.mustOpen}
       ontoggle={(open) => (foldOpen[item.name] = open)}
     >
+      {#snippet facts()}<DisclosureMeta count={item.settings.length} customized={fold.customized} unsaved={fold.unsaved} />{/snippet}
       {@render rows(item)}
     </Disclosure>
   {:else}

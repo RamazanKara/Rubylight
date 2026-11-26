@@ -14,6 +14,7 @@ use windows::{
 mod color_state;
 mod driver_recovery;
 pub(crate) mod end_trace;
+mod geometry;
 mod hdr;
 mod hotplug;
 mod modes;
@@ -24,6 +25,7 @@ pub mod self_test;
 mod topology;
 mod virtual_display;
 
+pub use geometry::{Geometry, Placed, geometry, placed};
 pub(crate) use hdr::hdr_matches_applied;
 pub use hdr::{sdr_white_nits, set_hdr};
 pub use modes::{

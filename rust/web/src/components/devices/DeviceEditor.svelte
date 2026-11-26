@@ -7,6 +7,8 @@
   import CommandList from './CommandList.svelte';
   import DeviceCouchOverrides from './DeviceCouchOverrides.svelte';
   import DeviceDisplayOverrides from './DeviceDisplayOverrides.svelte';
+  import OverrideCascadeCards from '../library/OverrideCascadeCards.svelte';
+  import { CASCADE_KEYS, setCount } from '../library/override-cascade';
   import DeviceFoldersSection from './DeviceFoldersSection.svelte';
   import DevicePermissions from './DevicePermissions.svelte';
   import { accessOf, coopJoinAfterAccess, coopJoinAfterSwitch, withAccess, type Access } from './access';
@@ -115,6 +117,9 @@
   let foldersError = $state('');
   /** The host's virtual display layout; empty until the configuration is read. */
   let hostLayout = $state('');
+  /** The host's settings, the layer under this device's on the cascade cards; null until they are read. */
+  let hostConfig = $state<Record<string, unknown> | null>(null);
+  let hostConfigError = $state('');
   // Open while the device holds a grant; choosing No access must not snap it shut.
   let foldersOpen = $state(untrack(() => Object.keys(draft.shared_folders).length > 0));
 
@@ -138,12 +143,14 @@
     api.config
       .get()
       .then((config) => {
+        hostConfig = config;
         hostLayout = typeof config.virtual_display_layout === 'string' ? config.virtual_display_layout : '';
         const read = readFolders(config.shared_folders);
         sharedFolders = read.folders;
         if (read.problem) foldersError = `The Shared folders setting can’t be read, so the PC shares no folder: ${read.problem}.`;
       })
       .catch((error: unknown) => {
+        hostConfigError = reason(error);
         sharedFolders = [];
         foldersError = `Could not read the shared folders: ${reason(error)}`;
       });
@@ -196,6 +203,7 @@
   let presetOpen = $state(untrack(() => presetUnknown));
   const gamepadUnknown = $derived(draft.gamepad !== '' && !GAMEPAD_OPTIONS.some((option) => option.value === draft.gamepad));
   let controllerOpen = $state(untrack(() => gamepadUnknown));
+  let streamOpen = $state(untrack(() => setCount(CASCADE_KEYS, draft.other_overrides) > 0));
   let soundOpen = $state(untrack(() => Object.values(draft.audio).some((value) => value !== '') || draft.audio_sink !== ''));
   const openWithUnknown = $derived(
     draft.couch.couch_menu_open_with !== '' &&
@@ -304,6 +312,24 @@
   <details class="override" bind:open={displayOpen}><summary>Display overrides</summary>
   <section>
     <DeviceDisplayOverrides {uid} bind:draft {displays} {displaysError} {hostLayout} {modeInvalid} />
+  </section>
+  </details>
+
+  <details class="override" bind:open={streamOpen}><summary>Stream settings</summary>
+  <section>
+    <p class="note">What this device sets for itself. A game’s own setting wins over these; “Inherit” follows the host.</p>
+    <OverrideCascadeCards
+      id="{uid}-cascade"
+      layers={[
+        { id: 'device', name: draft.name.trim() || 'This device', values: draft.other_overrides },
+        { id: 'host', name: 'Host', values: hostConfig },
+      ]}
+      hostError={hostConfigError}
+      onset={(key, value) => {
+        if (value === undefined) delete draft.other_overrides[key];
+        else draft.other_overrides[key] = value;
+      }}
+    />
   </section>
   </details>
 

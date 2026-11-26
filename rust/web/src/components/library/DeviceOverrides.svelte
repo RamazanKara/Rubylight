@@ -3,6 +3,8 @@
   import Button from '../Button.svelte';
   import Field from '../Field.svelte';
   import GameFiles from './GameFiles.svelte';
+  import OverrideCascadeCards from './OverrideCascadeCards.svelte';
+  import { CASCADE_KEYS, type Layer } from './override-cascade';
   import { api, type Client } from '../../lib/api';
   import { presets } from '../../lib/stream-presets';
   import { profileOf, profiles } from './radeon';
@@ -18,7 +20,18 @@
   let loading = $state(true);
   let readError = $state('');
   let adding = $state('');
+  /** The host's settings, the last layer of every card; null until they are read. */
+  let host = $state<Record<string, unknown> | null>(null);
+  let hostError = $state('');
+  function loadHost() {
+    hostError = '';
+    api.config
+      .get()
+      .then((config) => (host = config))
+      .catch((error: unknown) => (hostError = error instanceof Error ? error.message : String(error)));
+  }
   onMount(() => {
+    loadHost();
     api.clients
       .list()
       .then((list) => (clients = list.clients))
@@ -42,7 +55,22 @@
     const block = draft.app['device-overrides'] as Record<string, Record<string, unknown>> | undefined;
     const config = block?.[device]?.[CONFIG_KEY];
     if (!config || typeof config !== 'object') return [];
-    return Object.keys(config).filter((key) => key !== STREAM_PRESET && key !== FRAME_LIMIT && key !== CAPTURE_WINDOW);
+    return Object.keys(config).filter(
+      (key) => key !== STREAM_PRESET && key !== FRAME_LIMIT && key !== CAPTURE_WINDOW && !CASCADE_KEYS.includes(key),
+    );
+  }
+
+  const record = (value: unknown): Record<string, unknown> | undefined =>
+    value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+  /** Who decides a setting for this game on `device`, the deciding layer first (override-cascade.ts). */
+  function layersOf(device: string): Layer[] {
+    const client = clients.find((known) => known.uuid === device);
+    return [
+      { id: 'pair', name: 'This game, this device', values: record(record(record(draft.app['device-overrides'])?.[device])?.[CONFIG_KEY]) },
+      { id: 'app', name: 'This game', values: record(draft.app[CONFIG_KEY]) },
+      { id: 'device', name: client?.name ?? 'This device', values: record(client?.config_overrides) },
+      { id: 'host', name: 'Host', values: host },
+    ];
   }
 
   function add() {
@@ -157,6 +185,18 @@
           </select>
         </Field>
       </div>
+      <div class="more">
+        <h4>More stream settings</h4>
+        <p class="note">Each card shows who decides: this game on this device, the game, the device, then the host.</p>
+        <OverrideCascadeCards
+          id="{uid}-{device}-cascade"
+          layers={layersOf(device)}
+          skip={[FRAME_LIMIT]}
+          {hostError}
+          onretry={loadHost}
+          onset={(key, value) => draft.setDeviceSetting(device, key, value)}
+        />
+      </div>
       {#if kept.length}
         <p class="note">Also kept for this device: {kept.join(', ')}.</p>
       {/if}
@@ -217,7 +257,8 @@
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
   }
-  .files {
+  .files,
+  .more {
     display: grid;
     gap: var(--space-2);
   }

@@ -15,6 +15,9 @@
   import Table from '../components/Table.svelte';
   import Tabs from '../components/Tabs.svelte';
   import Toggle from '../components/Toggle.svelte';
+  import DisplayTopologyCanvas from '../components/devices/DisplayTopologyCanvas.svelte';
+  import OverrideCascadeCards from '../components/library/OverrideCascadeCards.svelte';
+  import DisclosureMeta from '../components/settings/DisclosureMeta.svelte';
   import { applyTheme, storedTheme, type Theme } from '../lib/theme';
 
   let theme = $state<Theme>(storedTheme());
@@ -33,6 +36,13 @@
     'ok', 'ok-soft', 'ok-line', 'warn', 'warn-soft', 'warn-line', 'danger', 'danger-soft', 'danger-line'];
   const media = ['media-bg', 'media-panel', 'media-panel-raised', 'media-line', 'media-ink', 'media-ink-2', 'media-idle',
     'media-ok', 'media-warn', 'media-danger', 'media-accent', 'media-focus', 'media-viz-1', 'media-viz-2', 'media-viz-3', 'media-viz-4'];
+  /** Fixtures for the display map and the override cascade: a desk with three displays, a TV with a game profile. */
+  const displays = [
+    { device_id: 'a', display_name: 'DISPLAY1', friendly_name: 'Studio display', hdr_supported: true, hdr_enabled: true, primary: true, x: 0, y: 0, width: 3840, height: 2160, refresh: 144, scale: 150, virtual: false },
+    { device_id: 'b', display_name: 'DISPLAY2', friendly_name: 'Side display', hdr_supported: false, hdr_enabled: false, primary: false, x: -1200, y: -220, width: 1200, height: 1920, refresh: 60, scale: 100, virtual: false },
+    { device_id: 'c', display_name: 'DISPLAY3', friendly_name: 'Virtual display', hdr_supported: true, hdr_enabled: false, primary: false, x: 3840, y: 0, width: 2560, height: 1600, refresh: 120, scale: 200, virtual: true },
+  ];
+  let pairOverrides = $state<Record<string, unknown>>({ max_bitrate: 80000 });
   const radii = ['xs', 'sm', '', 'lg', 'xl', 'pill'];
   const sizes = ['hero', '2xl', 'xl', 'lg', 'md', '', 'sm', 'xs'];
 </script>
@@ -181,6 +191,34 @@
       </Card>
       <Card><Skeleton label="Loading device" lines={3} /></Card>
       <Card padding="none"><EmptyState icon="devices" title="No devices yet">Pair a phone, TV or PC to stream to it.</EmptyState></Card>
+    </div>
+  </Panel>
+  <Panel title="Display map: read-only, drawn as Windows arranges the displays">
+    <DisplayTopologyCanvas {displays} target="c" />
+  </Panel>
+
+  <Panel title="Override cascade: who decides a stream setting">
+    <OverrideCascadeCards
+      id="gallery-cascade"
+      groups={[{ id: 'stream', title: 'Stream and codec', keys: ['max_bitrate', 'fec_percentage', 'dd_hdr_option', 'packed_444'] }]}
+      layers={[
+        { id: 'pair', name: 'This game, this device', values: pairOverrides },
+        { id: 'app', name: 'This game', values: { fec_percentage: 10 } },
+        { id: 'device', name: 'Living room TV', values: { max_bitrate: 40000, dd_hdr_option: 'force_off' } },
+        { id: 'host', name: 'Host', values: {} },
+      ]}
+      onset={(key, value) => {
+        if (value === undefined) delete pairOverrides[key];
+        else pairOverrides[key] = value;
+      }}
+    />
+  </Panel>
+
+  <Panel title="Fold facts">
+    <div class="row">
+      <DisclosureMeta count={20} />
+      <DisclosureMeta count={20} customized={2} />
+      <DisclosureMeta count={1} customized={1} unsaved={1} />
     </div>
   </Panel>
 </main>

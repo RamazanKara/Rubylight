@@ -218,6 +218,17 @@ export interface DisplayDevice {
   hdr_supported: boolean;
   hdr_enabled: boolean;
   primary: boolean;
+  /** Where it sits on the Windows desktop and its mode; absent when Windows cannot report them. */
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  /** Hz. */
+  refresh?: number;
+  /** Windows' scale in percent. */
+  scale?: number;
+  /** A Rubylight virtual display. */
+  virtual?: boolean;
 }
 export interface GoldenStatus {
   status: true;

@@ -40,6 +40,7 @@ mod duplication;
 mod env;
 mod focus;
 pub mod idd_push;
+mod luid_resolve;
 mod output;
 mod pool;
 mod wgc;
@@ -70,6 +71,7 @@ pub use duplication::Duplication;
 #[cfg(test)]
 use duplication::duplication_upright;
 pub use env::CaptureEnv;
+pub use luid_resolve::{missing_gpu_text, render_gpu};
 pub(crate) use output::{current_refresh_hz, published_refresh_hz};
 pub(crate) use pool::GpuPool;
 #[cfg(test)]

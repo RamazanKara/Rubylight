@@ -9,14 +9,14 @@ use super::rubylight_vdd::{self, Control};
 use super::topology::{Route, activate_target, is_rubylight_monitor, is_virtual_monitor};
 use super::*;
 use butterpollo_media_policy::virtual_output::{DisplayProvider, Mode};
-use driver::apply_render_adapter;
 #[cfg(test)]
 use driver::problem_text;
 pub use driver::{
-    RenderAdapter, VirtualOptions, configured_render_adapter_with,
+    RenderAdapter, RenderResolver, VirtualOptions, configured_render_adapter_with,
     ensure_virtual_display_available, virtual_display_available, virtual_display_installed,
     virtual_display_os, virtual_display_status, windows_build,
 };
+use driver::{apply_render_adapter, reresolve_render_adapter};
 pub use lease::joinable_mode;
 use lease::reshape;
 pub(super) use lease::{DisplayLease, display_lease, joined_monitor, raise_lease};
@@ -569,7 +569,11 @@ impl VirtualDisplay {
                 // target, so its desktop name changed too. The name lookup
                 // follows the device path and takes the new pair as the
                 // display's routes; the guard then reapplies the stream's
-                // layout and HDR on the new name.
+                // layout and HDR on the new name. A GPU reset can move the
+                // render GPU to a new LUID: ask for it again under that one.
+                if self.refresh_render_adapter() {
+                    apply_render_adapter(&self.driver, &self.options);
+                }
                 self.generation = self.generation.wrapping_add(1);
                 self.refresh_name()?;
                 tracing::info!(output=%self.name, "owned virtual display moved to another adapter or target");
@@ -596,7 +600,9 @@ impl VirtualDisplay {
         // Only a confirmed missing lease permits creation. Retain the
         // stream's descriptor and identity, never a recalled desktop mode.
         self.driver = Control::open_recovering()?;
-        // A restarted driver has forgotten the render adapter.
+        // A restarted driver has forgotten the render adapter, and the GPU
+        // may be back under another LUID.
+        self.refresh_render_adapter();
         apply_render_adapter(&self.driver, &self.options);
         let protection = match hotplug::Protection::capture() {
             Ok(protection) => protection,
@@ -635,6 +641,18 @@ impl VirtualDisplay {
         self.check_hotplug("recreated")?;
         tracing::info!(output=%self.name, "owned virtual display recovered");
         Ok(())
+    }
+}
+impl VirtualDisplay {
+    /// Resolves the render GPU again under its live LUID; whether it changed.
+    fn refresh_render_adapter(&mut self) -> bool {
+        let adapter = reresolve_render_adapter(
+            self.options.render_adapter.clone(),
+            self.options.render_resolver.as_ref(),
+        );
+        let changed = adapter != self.options.render_adapter;
+        self.options.render_adapter = adapter;
+        changed
     }
 }
 impl Drop for VirtualDisplay {

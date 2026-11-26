@@ -178,19 +178,44 @@ pub fn install_hooks() {
     });
 }
 
+/// The GPU a virtual display renders on: the one the Graphics card setting
+/// names, else the one Automatic pins, resolved as `idd-push` capture
+/// resolves the GPU it opens on (`capture::render_gpu`).
+fn render_adapter(name: &str, pnp_id: &str) -> Result<Option<RenderAdapter>> {
+    let gpus = capture::gpus()?;
+    Ok(
+        capture::render_gpu(&gpus, name, pnp_id)?.map(|gpu| RenderAdapter {
+            name: gpu.name.clone(),
+            luid: gpu.luid,
+        }),
+    )
+}
+
 pub(crate) fn configured_render_adapter(config: &Config) -> Option<RenderAdapter> {
-    display::configured_render_adapter_with(config, |name, pnp_id| {
-        let (name, pnp_id) = capture::stream_adapter(None, name, pnp_id);
-        if name.is_empty() && pnp_id.is_empty() {
-            return Ok(None);
+    display::configured_render_adapter_with(config, render_adapter)
+}
+
+/// The console warning a chosen GPU that is gone after a driver restart sets.
+const RENDER_GPU_WARNING: &str = "display_render_gpu";
+
+/// Resolves the virtual display's GPU again, from the same setting, after a
+/// driver restart or a GPU reset; a chosen GPU that is gone is a warning on
+/// the stream's console (`warnings`) until it returns.
+pub(crate) fn render_resolver(
+    config: &Config,
+    warnings: Option<Arc<Warnings>>,
+) -> display::RenderResolver {
+    let [name, pnp_id] =
+        ["adapter_name", "adapter_pnp_id"].map(|key| config.get(key, "").to_string());
+    display::RenderResolver::new(move || {
+        let resolved = render_adapter(&name, &pnp_id);
+        if let Some(warnings) = &warnings {
+            match &resolved {
+                Ok(_) => warnings.clear(RENDER_GPU_WARNING),
+                Err(error) => warnings.set(RENDER_GPU_WARNING, format!("{error:#}")),
+            }
         }
-        let gpus = capture::gpus()?;
-        Ok(
-            capture::select_gpu(&gpus, &name, &pnp_id)?.map(|gpu| RenderAdapter {
-                name: gpu.name.clone(),
-                luid: gpu.luid,
-            }),
-        )
+        resolved
     })
 }
 

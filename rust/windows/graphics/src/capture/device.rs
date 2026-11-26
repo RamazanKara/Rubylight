@@ -147,6 +147,34 @@ impl Device {
             pnp_id,
         )
     }
+    /// Capture's device for the named display on the GPU with `luid`, as
+    /// `idd-push` opens it on the GPU that renders Rubylight's virtual display
+    /// whichever adapter Windows lists the display under.
+    pub fn for_display_on(name: &str, luid: (u32, i32)) -> Result<Self> {
+        let choices = displays()?;
+        let mut display = select_display(&choices, name)?
+            .cloned()
+            .with_context(|| format!("{name} is not on the desktop"))?;
+        // SAFETY: The factory, adapters and output are live COM objects returned by these
+        // calls, and GetDesc1 returns an owned struct.
+        unsafe {
+            let factory: IDXGIFactory4 = CreateDXGIFactory1()?;
+            let output = Some(
+                factory
+                    .EnumAdapters1(display.adapter_index)?
+                    .EnumOutputs(display.output_index)?
+                    .cast()?,
+            );
+            let adapter: IDXGIAdapter1 = factory
+                .EnumAdapterByLuid(windows::Win32::Foundation::LUID {
+                    LowPart: luid.0,
+                    HighPart: luid.1,
+                })
+                .with_context(|| format!("the GPU {:08x}:{:08x} is not listed", luid.1, luid.0))?;
+            display.adapter = from_wide(&adapter.GetDesc1()?.Description);
+            Self::create(&adapter, output, display)
+        }
+    }
     fn with_display(display: Option<Display>, adapter_name: &str, pnp_id: &str) -> Result<Self> {
         // SAFETY: The factory, adapters and outputs are live COM objects returned by these calls,
         // and each GetDesc1 returns an owned struct.

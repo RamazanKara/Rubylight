@@ -352,6 +352,8 @@ impl Prepared {
             } else {
                 None
             },
+            render_resolver: virtual_mode
+                .then(|| crate::win_bridge::render_resolver(config, Some(launch.warnings.clone()))),
             joins: joined_mode.is_some(),
         };
         let original = if virtual_mode && retained.is_none() && launch.role == Role::Stream {

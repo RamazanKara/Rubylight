@@ -107,6 +107,8 @@ pub struct VirtualOptions {
     pub peak_nits: u32,
     /// The GPU to render the display on; None leaves the choice to Windows.
     pub render_adapter: Option<RenderAdapter>,
+    /// Finds `render_adapter` again after a driver restart or a GPU reset.
+    pub render_resolver: Option<RenderResolver>,
     /// The stream joins a running game's display and takes it as it is
     /// ([`super::joinable_mode`]).
     pub joins: bool,
@@ -116,6 +118,7 @@ impl Default for VirtualOptions {
         Self {
             peak_nits: 1000,
             render_adapter: None,
+            render_resolver: None,
             joins: false,
         }
     }
@@ -145,6 +148,52 @@ pub fn configured_render_adapter_with(
     })
     .ok()
     .flatten()
+}
+/// Finds the GPU that renders the driver's displays again from the Graphics
+/// card setting it was resolved from: after a driver restart or a GPU reset
+/// Windows may list that GPU under another LUID, and the frozen one would
+/// name no GPU.
+#[derive(Clone)]
+pub struct RenderResolver(std::sync::Arc<dyn Fn() -> Result<Option<RenderAdapter>> + Send + Sync>);
+impl RenderResolver {
+    pub fn new(
+        resolve: impl Fn() -> Result<Option<RenderAdapter>> + Send + Sync + 'static,
+    ) -> Self {
+        Self(std::sync::Arc::new(resolve))
+    }
+}
+impl std::fmt::Debug for RenderResolver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RenderResolver")
+    }
+}
+/// The render adapter a display asks for after a driver restart or a GPU
+/// reset: the one `resolver` finds now, under its live LUID, never the frozen
+/// one. A chosen GPU that is missing leaves none and is logged (the resolver
+/// sets the console warning): Rubylight never moves the display to another
+/// GPU on its own, and capture then fails with the same reason. Without a
+/// resolver the previous adapter stays.
+pub(super) fn reresolve_render_adapter(
+    previous: Option<RenderAdapter>,
+    resolver: Option<&RenderResolver>,
+) -> Option<RenderAdapter> {
+    let Some(resolver) = resolver else {
+        return previous;
+    };
+    match (resolver.0)() {
+        Ok(adapter) => {
+            if let (Some(old), Some(new)) = (&previous, &adapter)
+                && old.luid != new.luid
+            {
+                tracing::info!(gpu = %new.name, old = ?old.luid, new = ?new.luid, "the virtual display's GPU is listed under a new LUID");
+            }
+            adapter
+        }
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "the virtual display's GPU is missing; Windows picks the GPU that renders it until the chosen one returns");
+            None
+        }
+    }
 }
 /// Best effort: a driver that refuses leaves the display on the GPU Windows picks, and
 /// capture then says it encodes there.

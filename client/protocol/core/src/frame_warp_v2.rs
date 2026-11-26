@@ -234,6 +234,9 @@ pub struct FrameWarpV2Meta {
     /// Mask cells the client probes back along the shift for a background pixel when a shifted
     /// point lands on the HUD, 0 to [`MAX_HUD_GUARD`].
     pub hud_guard: u8,
+    /// Gyro packets the host had received from the gyro's pad when it made this meta (wrapping,
+    /// the low 16 bits): the client measures lost packets by it.
+    pub gyro_received: u16,
 }
 
 impl Default for FrameWarpV2Meta {
@@ -250,6 +253,7 @@ impl Default for FrameWarpV2Meta {
             omega_mrad_s: [0; 2],
             edge_fade_strength: DEFAULT_EDGE_FADE,
             hud_guard: DEFAULT_HUD_GUARD,
+            gyro_received: 0,
         }
     }
 }
@@ -292,12 +296,13 @@ impl FrameWarpV2Meta {
         out[32..36].copy_from_slice(&self.omega_mrad_s[1].to_le_bytes());
         out[36] = self.edge_fade_strength;
         out[37] = self.hud_guard;
+        out[38..40].copy_from_slice(&self.gyro_received.to_le_bytes());
         Some(out)
     }
 
     /// Parses a meta; version 0, a message shorter than [`META_BYTES`], a gain that is not
     /// finite or past [`MAX_GAIN`] and a guard over [`MAX_HUD_GUARD`] reject it. Unknown flag
-    /// bits, the reserved bytes and bytes after them are a later version's and are ignored.
+    /// bits and bytes after [`META_BYTES`] are a later version's and are ignored.
     pub fn decode(data: &[u8]) -> Option<Self> {
         if data.len() < META_BYTES || data[0] == 0 {
             return None;
@@ -315,6 +320,7 @@ impl FrameWarpV2Meta {
             omega_mrad_s: [i32::from_le_bytes(word(28)), i32::from_le_bytes(word(32))],
             edge_fade_strength: data[36],
             hud_guard: data[37],
+            gyro_received: u16::from_le_bytes([data[38], data[39]]),
         };
         meta.valid().then_some(meta)
     }

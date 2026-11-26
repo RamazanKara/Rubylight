@@ -244,6 +244,37 @@ fn packets_in_flight_while_the_pad_rests_keep_the_counts_together() {
 }
 
 #[test]
+fn packets_lost_while_the_gyro_flows_are_counted_from_the_hosts_receipts() {
+    let mut v2 = V2::new(request(true));
+    let mut lost = 0;
+    let mut frame = 0;
+    // A packet every 4 ms; a meta every 16 ms, with what the host had received 20 ms earlier
+    // (five packets in flight). Five packets go missing at 1.5 s.
+    for at in (0..=3_000 * MS).step_by(4 * MS as usize) {
+        v2.note_motion(0, GYRO, [0.0; 3], at);
+        if at == 1_500 * MS {
+            lost = 5;
+        }
+        if at % (16 * MS) == 0 && at >= 20 * MS {
+            let received = ((at - 20 * MS) / (4 * MS)) as u32 + 1 - lost;
+            frame += 1;
+            v2.on_meta(
+                FrameWarpV2Meta {
+                    gyro_seq: received.saturating_sub(10),
+                    gyro_received: received as u16,
+                    ..meta(frame, 1.0)
+                },
+                at,
+            );
+            if at == 1_392 * MS {
+                assert_eq!(v2.seq_offset, 0, "in flight is not lost");
+            }
+        }
+    }
+    assert_eq!(v2.seq_offset, 5);
+}
+
+#[test]
 fn the_row_carries_the_fill_hints() {
     let mut v2 = V2::new(request(false));
     assert_eq!(v2.row(3), DEFAULT_ROW, "the defaults before a meta");

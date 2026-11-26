@@ -89,6 +89,7 @@ fn meta() -> FrameWarpV2Meta {
         omega_mrad_s: [-1234, 56],
         edge_fade_strength: DEFAULT_EDGE_FADE,
         hud_guard: DEFAULT_HUD_GUARD,
+        gyro_received: 0x0304,
     }
 }
 
@@ -106,6 +107,7 @@ fn meta_golden_bytes_round_trip() {
     expected[32..36].copy_from_slice(&56i32.to_le_bytes());
     expected[36] = 90;
     expected[37] = 2;
+    expected[38..40].copy_from_slice(&[0x04, 0x03]);
     assert_eq!(wire, expected);
     assert_eq!(FrameWarpV2Meta::decode(&wire), Some(meta()));
     assert!((meta().confidence() - 1.0).abs() < 1e-6);
@@ -118,7 +120,6 @@ fn meta_ignores_what_a_later_version_adds() {
     let mut wire = meta().encode().unwrap().to_vec();
     wire[0] = 3;
     wire[1] |= 0x80;
-    wire[38] = 9;
     wire.extend_from_slice(&[1, 2, 3]);
     assert_eq!(FrameWarpV2Meta::decode(&wire), Some(meta()));
 }

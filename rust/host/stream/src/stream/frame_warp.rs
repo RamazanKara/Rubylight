@@ -277,7 +277,14 @@ fn work(s: &Session, store: &Store, receiver: &Receiver<Work>) {
             continue;
         }
         locked = now_locked;
-        log_model(s, model);
+        if model.is_none() && locked {
+            tracing::info!(
+                client = %s.launch.client.name,
+                "frame warp locked by the gyro alone"
+            );
+        } else {
+            log_model(s, model);
+        }
         if locked
             && !saved
             && let Some(prior) = prior

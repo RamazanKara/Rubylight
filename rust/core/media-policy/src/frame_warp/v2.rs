@@ -470,6 +470,7 @@ impl V2State {
             omega_mrad_s: [milli(self.omega[0]), milli(self.omega[1])],
             edge_fade_strength: DEFAULT_EDGE_FADE,
             hud_guard: DEFAULT_HUD_GUARD,
+            gyro_received: self.gyro.seq() as u16,
         }
     }
 }

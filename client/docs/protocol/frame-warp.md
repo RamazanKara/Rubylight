@@ -162,7 +162,7 @@ One per tagged frame, after its tags: the gyro as a third camera input, a confid
 | 28 | i32 × 2 | omega | The camera's yaw and pitch rate the host measured, milliradians per second |
 | 36 | u8 | edge fade | How dark the far edge of the uncovered strip gets, 0 to 255 for none to black |
 | 37 | u8 | HUD guard | Mask cells to probe back along the shift for a background pixel, 0 to 8 (more rejects) |
-| 38 | u16 | reserved | 0, ignored |
+| 38 | u16 | gyro received | Gyro packets received from the gyro controller when the host made the meta (wrapping, low 16 bits) |
 
 The gyro rate of a motion packet (degrees per second: x pitch, y yaw, z roll) is `(yaw, pitch)` in radians per second, with the yaw from y or z and each axis inverted as the request says. Both ends learn the gyro's zero-rate bias alike from the packets: a reading under 0.05 rad/s on both axes for 20 packets in a row moves the bias 2% of the way to it (`GyroBias` in `rubylight_protocol::frame_warp_v2`). The shift gains
 
@@ -170,7 +170,7 @@ The gyro rate of a motion packet (degrees per second: x pitch, y yaw, z roll) is
 gyro_gain * integral(rate - bias, tau_g..now)
 ```
 
-with `tau_g` the client's send time of gyro packet `gyro seq` plus `gyro held`, and the client scales the whole shift by the confidence: down with a 40 ms time constant, back up along a 180 ms smoothstep (full confidence before the first meta). Motion packets travel unreliably, so the client sets its gyro count to the host's whenever its gyro has been still for 600 ms. A point past the picture's edge samples back inside by a quarter of how far past it is and is darkened by up to `edge fade / 255` along a smoothstep over 8% of the picture (`edge fade` 90 before the first meta); a point whose source lands on the HUD tries up to `HUD guard` points (2 before the first meta) one mask cell apart back along the shift before it keeps its own pixel.
+with `tau_g` the client's send time of gyro packet `gyro seq` plus `gyro held`, and the client scales the whole shift by the confidence: down with a 40 ms time constant, back up along a 180 ms smoothstep (full confidence before the first meta). Motion packets travel unreliably, so the client sets its gyro count to the host's whenever it has sent no gyro packet for 600 ms; while they flow (a resting pad still sends its noise), it takes the least of how many it had sent beyond `gyro received` over the flow's first 30 metas as what is in flight, and counts anything more than that over the last second as lost. A point past the picture's edge samples back inside by a quarter of how far past it is and is darkened by up to `edge fade / 255` along a smoothstep over 8% of the picture (`edge fade` 90 before the first meta); a point whose source lands on the HUD tries up to `HUD guard` points (2 before the first meta) one mask cell apart back along the shift before it keeps its own pixel.
 
 ## Client behavior (Nightjar)
 

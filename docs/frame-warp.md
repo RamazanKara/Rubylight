@@ -256,7 +256,7 @@ full rules for other hosts. Little-endian throughout.
 | Model 0x5544 | version, flags (bit 0 mouse locked, bit 1 stick locked), generation u16, picture width u16, height u16, then f32: mouse gain x, y (picture px per count), stick gain x, y (px per second of full deflection after the curve), stick dead zone, stick exponent (1 to 3 in halves), max shift x, y; lag µs u32; fit f32; focal length f32 (picture px, 0 for none; absent from hosts before it was added, and clients from before it ignore it) |
 | Tags 0x5545 | version, count 1-4, model generation u16, then per tag: frame u32, mouse sum x i32, y i32, pad packet count u32, held µs u32 (0xFFFFFFFF none) |
 | Mask 0x5546 | version, kind (0 none, 1 runs), generation u16, width u16, height u16, then per row LEB128 run lengths alternating clear and set, starting clear |
-| Meta 0x5549 | version 2, flags, model generation u16, frame u32, camera confidence u16, HUD stability u16, gyro seq u32, gyro held µs u32, gyro gain f32 x 2, omega mrad/s i32 x 2, edge fade u8, HUD guard u8, 0 u16 |
+| Meta 0x5549 | version 2, flags, model generation u16, frame u32, camera confidence u16, HUD stability u16, gyro seq u32, gyro held µs u32, gyro gain f32 x 2, omega mrad/s i32 x 2, edge fade u8, HUD guard u8, gyro received u16 |
 
 ## Where the code is
 

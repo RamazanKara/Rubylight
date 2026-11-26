@@ -1,13 +1,15 @@
 //! Installing, upgrading and replacing a previous Vibepollo-family host.
+mod driver_repair;
 mod drivers;
 mod profile;
 mod side_by_side;
 mod staging;
 
-pub use drivers::repair_drivers;
+pub use driver_repair::{Driver, RepairRun, repair_drivers};
+pub(crate) use driver_repair::{display_driver_declined, repair_drivers_in};
 pub(crate) use drivers::{
     LIBVIRTUALDISPLAY, LIBVIRTUALGAMEPAD, RUBYLIGHT_DISPLAY_SCRIPT, RUBYLIGHT_GAMEPAD_SCRIPT,
-    display_driver_declined, install_drivers,
+    install_drivers,
 };
 pub(crate) use profile::{
     prepare_install, prepare_profile, trust_console_or_warn, unrepairable, untrust_console,
@@ -20,7 +22,7 @@ pub(crate) use staging::{
     staging_root,
 };
 
-use drivers::remember_driver_choice;
+use driver_repair::remember_driver_choice;
 use profile::{
     Target, import_error, migration_source, nvprefs_undo_pending, outside_other_hosts,
     refuse_foreign_service, secure_profile, stop_running, target, trust_console,
@@ -245,7 +247,7 @@ fn install_with(
             SERVICE_DESCRIPTION,
             &install.join("butterpollo-service.exe"),
         )?;
-        remember_driver_choice(&profile, options.display_driver);
+        remember_driver_choice(&profile, options.display_driver, options.gamepad_driver);
         crate::update::run(
             &install,
             options.start,
@@ -431,7 +433,7 @@ fn install_with(
     }
     secure_profile(&profile)?;
 
-    remember_driver_choice(&profile, options.display_driver);
+    remember_driver_choice(&profile, options.display_driver, options.gamepad_driver);
     restart_needed |= install_drivers(
         &install,
         options.display_driver,
@@ -654,7 +656,7 @@ fn move_install(
         &install.join("uninstall.exe"),
         payload::packaged_stub(staging.path(), &entries)?.as_deref(),
     )?;
-    remember_driver_choice(profile, options.display_driver);
+    remember_driver_choice(profile, options.display_driver, options.gamepad_driver);
     let mut restart_needed = false;
     let point_at = |folder: &Path| {
         system::install_service(
@@ -743,6 +745,8 @@ fn move_install(
     })
 }
 
+#[cfg(test)]
+use driver_repair::*;
 #[cfg(test)]
 use drivers::*;
 #[cfg(test)]

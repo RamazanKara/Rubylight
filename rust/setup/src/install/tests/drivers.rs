@@ -130,7 +130,7 @@ fn a_failed_rubylight_gamepad_install_becomes_a_setup_note() {
     assert_eq!(
         notes,
         [
-            "The virtual gamepad driver could not be set up: pnputil /add-driver failed with exit code 5 Run setup again; the setup log has the details."
+            "The virtual gamepad driver could not be set up: pnputil /add-driver failed with exit code 5 The Rubylight service tries again within a day, or run \"butterpollo-setup.exe --repair-drivers --now\" in an administrator shell; the setup log has the details."
         ]
     );
     assert!(!libvirtualdisplay_replaced(false, true, false));
@@ -203,36 +203,141 @@ fn a_failed_rubylight_display_install_becomes_a_setup_note() {
     assert!(notes.is_empty());
 }
 #[test]
-fn the_display_driver_is_repaired_once_a_day_per_version_unless_declined() {
-    let day = 86_400;
-    let record = |text: &str| Some(text.as_bytes().to_vec());
-    let skipped =
-        |text: Option<Vec<u8>>, now| repair_skipped(text.as_deref(), "2.0.0-rc.27", now, false);
-    // A person running the repair (--now) is never held back by an
-    // automatic attempt that failed earlier the same day, nor by a
-    // declined choice. The default, which the service runs, is limited.
-    for text in [
-        r#"{"version":"2.0.0-rc.27","unix":86400}"#,
-        r#"{"declined":true}"#,
+fn the_repair_record_reads_old_and_unreadable_files() {
+    use Driver::*;
+    let read = |text: &str| read_record(Some(text.as_bytes()));
+    // Missing, unreadable or not an object: nothing holds a repair back.
+    for record in [
+        read_record(None),
+        read("not json"),
+        read("null"),
+        read("[1]"),
     ] {
+        assert_eq!(record, serde_json::json!({}));
+        for driver in Driver::ALL {
+            assert_eq!(
+                repair_skipped(&record, driver, "7.0.0", 100, RepairRun::Service),
+                None
+            );
+        }
+    }
+    // What setups before the gamepad driver's entry wrote: the display
+    // driver's at the top level, and nothing for the gamepad driver.
+    let declined = read(r#"{"declined":true}"#);
+    assert!(repair_skipped(&declined, Display, "7.0.0", 100, RepairRun::Service).is_some());
+    assert_eq!(
+        repair_skipped(&declined, Gamepad, "7.0.0", 100, RepairRun::Service),
+        None
+    );
+    let tried = read(r#"{"version":"7.0.0","unix":86400}"#);
+    assert!(repair_skipped(&tried, Display, "7.0.0", 86_460, RepairRun::Service).is_some());
+    assert_eq!(
+        repair_skipped(&tried, Gamepad, "7.0.0", 86_460, RepairRun::Service),
+        None
+    );
+    // The gamepad driver's attempt keeps the display driver's entry where
+    // those setups read it, and the other way round.
+    let both = record_attempt(tried, Gamepad, "7.0.0", 90_000);
+    assert_eq!(
+        both,
+        serde_json::json!({"version":"7.0.0","unix":86400,"gamepad":{"version":"7.0.0","unix":90000}})
+    );
+    let both = record_attempt(both, Display, "7.0.1", 95_000);
+    assert_eq!(both["version"], "7.0.1");
+    assert_eq!(both["gamepad"]["unix"], 90_000);
+    // A repair a person asked for ends the choice to leave a driver out.
+    let display = record_attempt(declined, Display, "7.0.0", 1);
+    assert!(display.get("declined").is_none());
+    let gamepad = record_attempt(
+        read(r#"{"declined":true,"gamepad":{"declined":true}}"#),
+        Gamepad,
+        "7.0.0",
+        1,
+    );
+    assert_eq!(gamepad["declined"], true);
+    assert!(gamepad["gamepad"].get("declined").is_none());
+}
+#[test]
+fn each_driver_is_repaired_once_a_day_per_version_on_its_own() {
+    use Driver::*;
+    let day = 86_400;
+    let version = "2.0.0-rc.27";
+    let skipped = |record: &serde_json::Value, driver, now| {
+        repair_skipped(record, driver, version, now, RepairRun::Service)
+    };
+    // The service's run at second `day` repairs the display driver.
+    let mut record = read_record(None);
+    assert_eq!(skipped(&record, Display, day), None);
+    record = record_attempt(record, Display, version, day);
+    // The same day the display driver waits, the gamepad driver does not.
+    assert!(skipped(&record, Display, day + 60).is_some());
+    assert_eq!(skipped(&record, Gamepad, day + 60), None);
+    record = record_attempt(record, Gamepad, version, day + 60);
+    assert!(skipped(&record, Gamepad, day + 120).is_some());
+    // A day after each attempt, each may go again, on its own clock.
+    assert_eq!(skipped(&record, Display, 2 * day), None);
+    assert!(skipped(&record, Gamepad, 2 * day).is_some());
+    assert_eq!(skipped(&record, Gamepad, 2 * day + 60), None);
+    // A new version may try again the same day.
+    for driver in Driver::ALL {
         assert_eq!(
-            repair_skipped(Some(text.as_bytes()), "2.0.0-rc.27", day + 60, true),
+            repair_skipped(
+                &record,
+                driver,
+                "2.0.0-rc.28",
+                day + 120,
+                RepairRun::Service
+            ),
             None
         );
     }
-    assert_eq!(skipped(None, day), None);
-    assert_eq!(skipped(record("not json"), day), None);
-    let tried = record(r#"{"version":"2.0.0-rc.27","unix":86400}"#);
-    assert!(skipped(tried.clone(), day + 60).is_some());
-    assert_eq!(skipped(tried, 2 * day), None);
-    assert_eq!(
-        skipped(
-            record(r#"{"version":"2.0.0-rc.26","unix":86400}"#),
-            day + 60
-        ),
-        None
-    );
-    assert!(skipped(record(r#"{"declined":true}"#), day).is_some());
+    // A person running --repair-drivers --now is never held back by an
+    // automatic attempt that failed earlier the same day, nor by a choice
+    // made at install; --repair is not held back by the day either, but
+    // keeps a driver left out at install out.
+    let declined = read_record(Some(
+        &br#"{"declined":true,"gamepad":{"declined":true}}"#[..],
+    ));
+    for driver in Driver::ALL {
+        for record in [&record, &declined] {
+            assert_eq!(
+                repair_skipped(record, driver, version, day + 120, RepairRun::ByHand),
+                None
+            );
+        }
+        assert_eq!(
+            repair_skipped(&record, driver, version, day + 120, RepairRun::Repair),
+            None
+        );
+        for run in [RepairRun::Service, RepairRun::Repair] {
+            assert!(
+                repair_skipped(&declined, driver, version, day, run)
+                    .unwrap()
+                    .contains("left out with --no-")
+            );
+        }
+    }
+}
+#[test]
+fn an_installation_records_only_the_drivers_it_left_out() {
+    use Driver::*;
+    assert_eq!(choices(true, true), None);
+    let display = choices(false, true).unwrap();
+    assert_eq!(display, serde_json::json!({"declined":true}));
+    let gamepad = choices(true, false).unwrap();
+    for (record, left_out) in [
+        (display, [true, false]),
+        (gamepad, [false, true]),
+        (choices(false, false).unwrap(), [true, true]),
+    ] {
+        for (driver, left_out) in [Display, Gamepad].into_iter().zip(left_out) {
+            let skipped = repair_skipped(&record, driver, "7.0.0", 1, RepairRun::Service);
+            assert_eq!(skipped.is_some(), left_out, "{record} {driver:?}");
+        }
+    }
+    assert_eq!(Driver::parse("Gamepad"), Some(Gamepad));
+    assert_eq!(Driver::parse("display"), Some(Display));
+    assert_eq!(Driver::parse("usbip"), None);
 }
 #[test]
 fn the_unattended_repair_needs_a_positive_idle_answer() {
@@ -284,16 +389,36 @@ fn a_repair_that_finds_the_driver_lock_taken_does_not_report_success() {
     );
 }
 #[test]
-fn only_the_display_drivers_own_notes_fail_the_repair() {
+fn only_a_drivers_own_notes_fail_the_repair() {
     let notes = [
         "The virtual display driver could not be set up: pnputil failed".to_owned(),
         "The old libvirtualdisplay driver could not be removed: busy".to_owned(),
+        "The virtual gamepad driver could not be set up: pnputil failed".to_owned(),
     ];
     // The display step added the first one: that is the failure.
-    let error = display_failed(&notes, 1).unwrap_err().to_string();
-    assert!(error.contains("could not be set up"), "{error}");
-    assert!(!error.contains("libvirtualdisplay"), "{error}");
+    assert_eq!(step_notes(&notes, 0, 1), &notes[..1]);
     // Only the removal warned: the driver is repaired, the note stays.
-    assert!(display_failed(&notes[1..], 0).is_ok());
-    assert!(display_failed(&[], 0).is_ok());
+    assert!(step_notes(&notes, 1, 0).is_empty());
+    // The gamepad step, after both of the display step's.
+    assert_eq!(step_notes(&notes, 2, 1), &notes[2..]);
+    assert!(step_notes(&[], 0, 0).is_empty());
+    assert!(step_notes(&notes, 5, 2).is_empty());
+}
+#[test]
+fn a_person_is_told_which_drivers_were_set_up_again() {
+    use Driver::*;
+    let told = |repaired: Vec<Driver>, restart| DriverRepair { restart, repaired }.text();
+    assert_eq!(
+        told(vec![Display], false),
+        "The virtual display driver was set up again."
+    );
+    assert_eq!(
+        told(vec![Gamepad], true),
+        "The virtual gamepad driver was set up again. Windows must restart to finish."
+    );
+    assert_eq!(
+        told(vec![Display, Gamepad], false),
+        "The virtual display and gamepad drivers were set up again."
+    );
+    assert!(told(Vec::new(), false).contains("left out at install stays out"));
 }

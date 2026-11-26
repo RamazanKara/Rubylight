@@ -1,10 +1,7 @@
-//! Virtual display, gamepad and USBip driver setup and daily repair.
-use super::{
-    probe, profile,
-    side_by_side::{ensure_idle_positive, serverinfo},
-};
+//! Virtual display, gamepad and USBip driver setup; their repair is in
+//! `driver_repair`.
+use super::profile;
 use crate::{detect, log::line, system, ui::Progress};
-use anyhow::{Context, Result, bail};
 use std::{
     path::Path,
     time::{Duration, Instant},
@@ -260,10 +257,9 @@ pub(super) fn driver_result(code: i32, output: &str, notes: &mut Vec<String>, na
         let reason = after("driver action failed: ").or_else(|| after("DRIVER_WARNING: "));
         let retry = if name == "USB audio and haptics" {
             "Run setup again with USB audio and haptics selected; the setup log has the details."
-        } else if name == "virtual gamepad" {
-            "Run setup again; the setup log has the details."
         } else {
-            // The service looks for the display driver every minute.
+            // The service looks for the display and gamepad drivers every
+            // minute.
             "The Rubylight service tries again within a day, or run \"butterpollo-setup.exe --repair-drivers --now\" in an administrator shell; the setup log has the details."
         };
         notes.push(match reason {
@@ -296,131 +292,4 @@ pub(super) fn driver_lock(wait: Duration) -> Option<std::fs::File> {
             Err(_) => std::thread::sleep(Duration::from_secs(1)),
         }
     }
-}
-pub(super) const REPAIR_RECORD: &str = "driver-repair.json";
-/// What the log tells a person when the service's repair was held back.
-pub(super) const REPAIR_BY_HAND: &str = "To try again now, run \"butterpollo-setup.exe --repair-drivers --now\" from the Rubylight folder in an administrator shell.";
-/// A new installation may repair the display driver again, unless it was
-/// installed with --no-display-driver.
-pub(super) fn remember_driver_choice(profile: &Path, display_driver: bool) {
-    let record = profile.join(REPAIR_RECORD);
-    let _ = if display_driver {
-        std::fs::remove_file(&record)
-    } else {
-        std::fs::create_dir_all(profile)
-            .and_then(|()| std::fs::write(&record, br#"{"declined":true}"#))
-    };
-}
-/// `butterpollo-setup.exe --repair-drivers`, which the service runs when its
-/// host has had no virtual display driver for a minute. An old host's
-/// uninstaller, an in-app update before rc.27 or a failed driver step leaves
-/// it missing, and Artemis then reports the "SudoVDA" driver as not
-/// installed. Sets the display driver up again from this installation, at
-/// most once a day per version and never during a stream; the driver script
-/// restarts the service. By default (the service's run) the daily limit and
-/// the --no-display-driver choice apply and only a positive idle answer from
-/// the host lets it go on. `--now`, `by_hand`, is a person asking: neither
-/// limit applies, so a failed automatic attempt cannot lock them out for the
-/// day, and a host that hides its counts (a LAN bind_address) does not stop
-/// them; a stream still does.
-/// Returns whether Windows must restart.
-pub fn repair_drivers(progress: &Progress, by_hand: bool) -> Result<bool> {
-    let exe = std::env::current_exe()?;
-    let install = system::win32_path(exe.parent().context("setup folder unavailable")?)?;
-    let profile = profile();
-    // Verify and lock down ProgramData\Butterpollo before reading or writing
-    // driver-setup.lock / driver-repair.json as SYSTEM.
-    super::prepare_profile(&profile, true)
-        .context("checking the Rubylight settings folder before repairing drivers")?;
-    let record = profile.join(REPAIR_RECORD);
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs();
-    let version = env!("CARGO_PKG_VERSION");
-    if let Some(reason) = repair_skipped(
-        std::fs::read(&record).ok().as_deref(),
-        version,
-        now,
-        by_hand,
-    ) {
-        line(format!(
-            "not repairing the display driver: {reason}. {REPAIR_BY_HAND}"
-        ));
-        return Ok(false);
-    }
-    // Setup or an update that is installing the drivers right now restarts
-    // the service when done, and the service checks again.
-    let Some(_turn) = driver_lock(Duration::ZERO) else {
-        return when_locked(by_hand);
-    };
-    let address = probe(&profile);
-    if let Err(error) = ensure_idle_positive(
-        &serverinfo(address),
-        || system::process_running("butterpollo.exe"),
-        by_hand,
-    ) {
-        if by_hand {
-            return Err(error);
-        }
-        line(format!(
-            "not repairing the display driver now: {error:#}. The service asks again later. {REPAIR_BY_HAND}"
-        ));
-        return Ok(false);
-    }
-    std::fs::write(
-        &record,
-        serde_json::to_vec(&serde_json::json!({"version": version, "unix": now}))?,
-    )?;
-    let mut notes = Vec::new();
-    // Automatic display repair never installs an optional USB/IP driver.
-    let (restart, display_notes) = display_step(&install, progress, &mut notes);
-    for note in &notes {
-        line(format!("note: {note}"));
-    }
-    display_failed(&notes, display_notes)?;
-    Ok(restart)
-}
-/// Another setup holds the driver lock. It restarts the service when done and
-/// the service checks again, so the service's run ends quietly; a person who
-/// asked is told nothing was repaired.
-pub(super) fn when_locked(by_hand: bool) -> Result<bool> {
-    if by_hand {
-        bail!("Setup is installing the drivers right now; try again when it finishes.");
-    }
-    Ok(false)
-}
-/// A note about the display step is a step that failed or was refused: say so
-/// rather than "done". The first `display_notes` notes are that step's; a
-/// warning about removing the old libvirtualdisplay stays a plain note.
-pub(super) fn display_failed(notes: &[String], display_notes: usize) -> Result<()> {
-    if display_notes > 0 {
-        bail!("{}", notes[..display_notes.min(notes.len())].join("\n"));
-    }
-    Ok(())
-}
-/// Whether setup ran with --no-display-driver.
-pub(crate) fn display_driver_declined() -> bool {
-    std::fs::read(profile().join(REPAIR_RECORD))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .is_some_and(|record| record["declined"] == true)
-}
-pub(super) fn repair_skipped(
-    record: Option<&[u8]>,
-    version: &str,
-    now: u64,
-    by_hand: bool,
-) -> Option<&'static str> {
-    if by_hand {
-        return None;
-    }
-    let record: serde_json::Value = serde_json::from_slice(record?).ok()?;
-    if record["declined"] == true {
-        return Some("it was left out with --no-display-driver");
-    }
-    (record["version"] == version
-        && record["unix"]
-            .as_u64()
-            .is_some_and(|at| now.saturating_sub(at) < 86_400))
-    .then_some("this version already tried today")
 }

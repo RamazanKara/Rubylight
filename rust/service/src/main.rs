@@ -5,8 +5,10 @@
 //! Co-op session left as the user signs in, whether the host can use the
 //! virtual display driver) runs as short `butterpollo.exe` tasks ([`tasks`]),
 //! only on those events, never on a timer; so this executable stays the same
-//! until its own code does.
+//! until its own code does. It also has setup set up the virtual display or
+//! gamepad driver again when one goes missing ([`driver_watch`]).
 mod driver;
+mod driver_watch;
 mod logfile;
 mod process;
 mod state;

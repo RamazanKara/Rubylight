@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="quick_suspend_paused">Das Spiel ist auf dem PC pausiert. Öffne das Stream-Menü, um es fortzusetzen.</string>
+    <string name="quick_suspend_resumed">Spiel fortgesetzt.</string>
+    <string name="quick_suspend_refused_anti_cheat">Dieses Spiel nutzt einen Anti-Cheat, deshalb pausiert der PC es nicht.</string>
+    <string name="quick_suspend_refused_protected">Mit diesem Spiel läuft ein geschütztes oder System-Programm, deshalb pausiert der PC es nicht.</string>
+    <string name="quick_suspend_refused_others">Andere spielen oder schauen zu, deshalb pausiert der PC das Spiel nicht.</string>
+    <string name="quick_suspend_refused_not_owner">Nur das Gerät, das das Spiel gestartet hat, oder eines mit Host-Steuerung kann es pausieren.</string>
+    <string name="quick_suspend_refused_busy">Das Spiel startet oder wird beendet. Versuche es gleich noch einmal.</string>
+    <string name="quick_suspend_refused_nothing">Gerade läuft kein Spiel, das der PC pausieren kann.</string>
+    <string name="quick_suspend_refused_failed">Der PC konnte das Spiel nicht pausieren, deshalb bleibt nichts pausiert.</string>
+</resources>

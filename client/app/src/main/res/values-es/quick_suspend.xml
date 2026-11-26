@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="quick_suspend_paused">El juego está en pausa en el PC. Abre el menú de transmisión para reanudarlo.</string>
+    <string name="quick_suspend_resumed">Juego reanudado.</string>
+    <string name="quick_suspend_refused_anti_cheat">Este juego usa un sistema antitrampas, así que el PC no lo pausará.</string>
+    <string name="quick_suspend_refused_protected">Con este juego se ejecuta un programa protegido o del sistema, así que el PC no lo pausará.</string>
+    <string name="quick_suspend_refused_others">Otras personas están jugando o mirando, así que el PC no pausará el juego.</string>
+    <string name="quick_suspend_refused_not_owner">Solo el dispositivo que inició el juego, o uno con control del host, puede pausarlo.</string>
+    <string name="quick_suspend_refused_busy">El juego se está iniciando o cerrando. Vuelve a intentarlo en un momento.</string>
+    <string name="quick_suspend_refused_nothing">Ahora mismo no hay ningún juego que el PC pueda pausar.</string>
+    <string name="quick_suspend_refused_failed">El PC no pudo pausar el juego, así que nada queda en pausa.</string>
+</resources>

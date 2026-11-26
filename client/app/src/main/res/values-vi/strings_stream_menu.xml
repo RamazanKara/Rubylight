@@ -74,6 +74,8 @@
     <string name="stream_tile_pc_commands">Lệnh PC</string>
     <string name="stream_tile_diagnostics">Chẩn đoán</string>
     <string name="stream_tile_session_graphics">Phiên và đồ họa</string>
+    <string name="stream_tile_suspend_game">Tạm dừng trò chơi</string>
+    <string name="stream_tile_resume_game">Tiếp tục trò chơi</string>
     <string name="stream_tile_more">Thêm</string>
     <string name="stream_tile_return">Quay lại stream</string>
     <string name="stream_tile_add_shortcut">Thêm phím tắt</string>

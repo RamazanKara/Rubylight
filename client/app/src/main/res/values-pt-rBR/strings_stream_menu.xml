@@ -74,6 +74,8 @@
     <string name="stream_tile_pc_commands">Comandos do PC</string>
     <string name="stream_tile_diagnostics">Diagnósticos</string>
     <string name="stream_tile_session_graphics">Sessão e gráficos</string>
+    <string name="stream_tile_suspend_game">Pausar jogo</string>
+    <string name="stream_tile_resume_game">Retomar jogo</string>
     <string name="stream_tile_more">Mais</string>
     <string name="stream_tile_return">Voltar à transmissão</string>
     <string name="stream_tile_add_shortcut">Adicionar atalho</string>

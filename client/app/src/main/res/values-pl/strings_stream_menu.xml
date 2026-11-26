@@ -74,6 +74,8 @@
     <string name="stream_tile_pc_commands">Polecenia PC</string>
     <string name="stream_tile_diagnostics">Diagnostyka</string>
     <string name="stream_tile_session_graphics">Sesja i grafika</string>
+    <string name="stream_tile_suspend_game">Wstrzymaj grę</string>
+    <string name="stream_tile_resume_game">Wznów grę</string>
     <string name="stream_tile_more">Więcej</string>
     <string name="stream_tile_return">Wróć do strumienia</string>
     <string name="stream_tile_add_shortcut">Dodaj skrót</string>

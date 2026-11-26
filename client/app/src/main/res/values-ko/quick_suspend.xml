@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="quick_suspend_paused">PC에서 게임이 일시 중지되었습니다. 재개하려면 스트림 메뉴를 여세요.</string>
+    <string name="quick_suspend_resumed">게임을 재개했습니다.</string>
+    <string name="quick_suspend_refused_anti_cheat">이 게임은 안티치트를 사용하므로 PC가 일시 중지하지 않습니다.</string>
+    <string name="quick_suspend_refused_protected">보호된 프로그램이나 시스템 프로그램이 이 게임과 함께 실행 중이므로 PC가 일시 중지하지 않습니다.</string>
+    <string name="quick_suspend_refused_others">다른 사람이 플레이하거나 시청 중이므로 PC가 게임을 일시 중지하지 않습니다.</string>
+    <string name="quick_suspend_refused_not_owner">게임을 시작한 기기나 호스트 제어 권한이 있는 기기만 일시 중지할 수 있습니다.</string>
+    <string name="quick_suspend_refused_busy">게임이 시작되거나 종료되는 중입니다. 잠시 후 다시 시도하세요.</string>
+    <string name="quick_suspend_refused_nothing">지금은 PC가 일시 중지할 수 있는 게임이 없습니다.</string>
+    <string name="quick_suspend_refused_failed">PC가 게임을 일시 중지하지 못했으므로 일시 중지된 것은 없습니다.</string>
+</resources>

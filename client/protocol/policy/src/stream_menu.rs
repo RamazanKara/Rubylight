@@ -115,6 +115,9 @@ pub const TILES: &[Tile] = &[
     grid("server_commands", None, l("pc_commands", "PC commands")),
     grid("overlay_page", None, l("diagnostics", "Diagnostics")),
     grid("native_page", None, l("session_graphics", "Session and graphics")),
+    // One of the two, as the host's Quick Suspend state offers it (crate::quick_suspend::tile).
+    grid("suspend_game", None, l("suspend_game", "Suspend game")),
+    grid("resume_game", None, l("resume_game", "Resume game")),
     more("mouse_cursor"),
     more("keyboard_keys"),
     more("controls_layout"),
@@ -239,8 +242,11 @@ pub type Buttons = BTreeMap<Hotkey, String>;
 /// Whether a button can be given this tile: what shows on the first page, in the grid or under it.
 /// Quality is one choice, as `bitrate`, and Quit game one, as `quit_game` (both read Quit game);
 /// [`layout_with_buttons`] finds whichever a stream offers.
+/// A controller button never pauses or resumes the game: Suspend and Resume game are tapped.
 pub fn assignable(tile: &Tile) -> bool {
-    tile.label.is_some() && tile.place != Place::More && tile.id != "rate_change" && tile.id != "close_game"
+    tile.label.is_some()
+        && tile.place != Place::More
+        && !matches!(tile.id, "rate_change" | "close_game" | "suspend_game" | "resume_game")
 }
 
 /// A saved choice as this version reads it: a settings file from before Quit game was one choice

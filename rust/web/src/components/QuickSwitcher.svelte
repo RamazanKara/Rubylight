@@ -302,6 +302,8 @@
   }
   .field .input {
     padding-left: 40px;
+    /* On a phone the placeholder ends in an ellipsis instead of a cut-off word. */
+    text-overflow: ellipsis;
   }
   /* A steady height: the dialog doesn't jump as the results change. */
   .results {

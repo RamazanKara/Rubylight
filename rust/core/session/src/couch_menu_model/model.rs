@@ -10,6 +10,12 @@ use butterpollo_input_policy::couch_menu::{
 };
 use rubylight_native_api::radeon::{self, Change, ControlState, Kind, Value};
 
+mod text;
+#[cfg(test)]
+use text::columns;
+pub(crate) use text::{Widget, fit};
+use text::{row_text, shown};
+
 /// How long End session and Close game wait for the second press.
 pub const CONFIRM: Duration = Duration::from_secs(5);
 /// Text lines a page has for its rows and their notes; the rest scroll.
@@ -323,6 +329,9 @@ pub(crate) enum Style {
 pub(crate) struct Line {
     pub text: String,
     pub style: Style,
+    /// What a row draws for its value, the last `value` characters of `text`.
+    pub widget: Widget,
+    pub value: usize,
     /// The row this line belongs to, for taps.
     row: Option<usize>,
 }
@@ -656,6 +665,8 @@ fn lines(s: &Strings, state: &State, snap: &Snapshot, rows: &[Row]) -> Vec<Line>
     let line = |text: &str, style| Line {
         text: fit(text, COLUMNS as usize),
         style,
+        widget: Widget::Text,
+        value: 0,
         row: None,
     };
     let focus = state.focus_index(rows);
@@ -672,7 +683,14 @@ fn lines(s: &Strings, state: &State, snap: &Snapshot, rows: &[Row]) -> Vec<Line>
     let mut body = Vec::new();
     let mut focus_end = 0;
     for (index, row) in rows.iter().enumerate() {
-        let value = if state.busy.as_ref() == Some(&row.id) {
+        let busy = state.busy.as_ref() == Some(&row.id);
+        let widget = match row.setting {
+            _ if busy => Widget::Text,
+            Some(setting) => Widget::of(&setting.control),
+            None if row.id == RowId::Radeon => Widget::Link,
+            None => Widget::Text,
+        };
+        let value = if busy {
             s.working.clone()
         } else {
             match row.setting {
@@ -690,12 +708,15 @@ fn lines(s: &Strings, state: &State, snap: &Snapshot, rows: &[Row]) -> Vec<Line>
                 None => String::new(),
             }
         };
+        let (text, value) = row_text(row.label, &value);
         body.push(Line {
-            text: columns(row.label, &value),
+            text,
             style: Style::Row {
                 focus: index == focus,
                 locked: row.locked.is_some(),
             },
+            widget,
+            value,
             row: Some(index),
         });
         if row
@@ -730,54 +751,6 @@ fn lines(s: &Strings, state: &State, snap: &Snapshot, rows: &[Row]) -> Vec<Line>
     lines.push(message);
     lines.push(line(&s.hint, Style::Hint));
     lines
-}
-
-fn shown(s: &Strings, control: &Control) -> String {
-    match control {
-        Control::Toggle(true) => s.on.clone(),
-        Control::Toggle(false) => s.off.clone(),
-        Control::Choice { index, options } => options
-            .get(*index)
-            .map_or_else(String::new, |o| o.label.clone()),
-        Control::Integer { value, unit, .. } => match unit {
-            Some(unit) => format!("{value} {unit}"),
-            None => value.to_string(),
-        },
-        Control::Text(text) => text.clone(),
-    }
-}
-
-/// `text` cut to `width` characters, ending in "..." when cut (and too narrow for that, just
-/// cut).
-fn fit(text: &str, width: usize) -> String {
-    if text.chars().count() <= width {
-        return text.to_owned();
-    }
-    if width < 3 {
-        return text.chars().take(width).collect();
-    }
-    let mut cut: String = text.chars().take(width - 3).collect();
-    cut.push_str("...");
-    cut
-}
-
-/// The label characters a row keeps beside a value too wide for both.
-const LABEL_KEEPS: usize = 8;
-
-/// A row line: the label on the left, the value right-aligned. A value that would leave the
-/// label fewer than [`LABEL_KEEPS`] characters (or fewer than it has) is cut instead.
-fn columns(label: &str, value: &str) -> String {
-    let width = COLUMNS as usize;
-    let keep = label.chars().count().min(LABEL_KEEPS);
-    let room = if keep == 0 { width } else { width - keep - 1 };
-    let value = fit(value, room);
-    let value_len = value.chars().count();
-    if value_len == 0 {
-        return fit(label, width);
-    }
-    let label = fit(label, width.saturating_sub(value_len + 1));
-    let gap = width.saturating_sub(value_len + label.chars().count());
-    format!("{label}{}{value}", " ".repeat(gap))
 }
 
 #[cfg(test)]

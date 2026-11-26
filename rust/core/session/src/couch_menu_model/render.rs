@@ -1,37 +1,40 @@
-//! Draws a page into the 1× panel the encoder composites (section 6.5): crisp
-//! 1-bit text on an opaque panel with a 2-pixel border, RGBA8 sRGB, alpha
-//! 255 everywhere.
-use super::model::{Menu, Snapshot, Style};
+//! Draws a page into the 1x panel the encoder composites (section 6.5) in
+//! the Rubylight 7.0 look: a STAGE container with a hairline border, a
+//! header with the badge, and each row as a rounded card inset in its text
+//! line, its value drawn as a switch, slider, chevrons or text. Text stays
+//! crisp 1-bit Spleen (the GPU scales the panel by whole numbers); shapes are
+//! anti-aliased against the opaque colour beneath them, so alpha stays 255
+//! everywhere. Colours come from [`super::theme_70`] only.
+use super::model::{Line, Menu, Snapshot, Style, Widget, fit};
+use super::theme_70::{CARD, ERROR, FOCUS, HAIRLINE, INK, MUTED, Rgb, STAGE};
+use super::widgets::{self, Canvas, Tone};
 use butterpollo_input_policy::couch_menu::{
     Frame,
+    font::Font,
     layout::{COLUMNS, Layout},
 };
 
-pub const PANEL: [u8; 3] = [0x17, 0x17, 0x1c];
-pub const TEXT: [u8; 3] = [0xf0, 0xf0, 0xf0];
-pub const DISABLED: [u8; 3] = [0x8a, 0x8a, 0x93];
-/// Ruby: the focus bar and the border.
-pub const FOCUS: [u8; 3] = [0xe0, 0x11, 0x5f];
-pub const ERROR: [u8; 3] = [0xff, 0x5a, 0x5a];
-/// Border width at 1×.
-pub const BORDER: u32 = 2;
+/// Text columns a slider's rail takes.
+const RAIL_COLUMNS: u32 = 5;
 
-struct Canvas {
+/// One page's geometry at 1x.
+struct Grid {
+    font: &'static Font,
+    pad: [u32; 2],
+    /// Width of the canvas.
     width: u32,
-    rgba: Vec<u8>,
+    /// Cell height over 32: the widgets' unit.
+    u: f32,
 }
 
-impl Canvas {
-    fn fill(&mut self, [x, y, w, h]: [u32; 4], colour: [u8; 3]) {
-        for row in y..y + h {
-            let start = ((row * self.width + x) * 4) as usize;
-            for pixel in self.rgba[start..start + (w * 4) as usize]
-                .as_chunks_mut::<4>()
-                .0
-            {
-                pixel.copy_from_slice(&[colour[0], colour[1], colour[2], 0xff]);
-            }
-        }
+impl Grid {
+    /// Left edge of text column `column`.
+    fn x(&self, column: u32) -> u32 {
+        self.pad[0] + column * self.font.width
+    }
+    /// Top of text line `line`.
+    fn y(&self, line: usize) -> u32 {
+        self.pad[1] + line as u32 * self.font.height
     }
 }
 
@@ -43,42 +46,24 @@ pub fn render(menu: &Menu, snap: &Snapshot, layout: &Layout) -> Frame {
     let rect = layout.panel(count);
     let [width, height] = layout.size_1x(count);
     let font = layout.font.font();
-    let [pad_x, pad_y] = layout.padding();
-    let mut canvas = Canvas {
+    let grid = Grid {
+        font,
+        pad: layout.padding(),
         width,
-        rgba: vec![0; (width * height * 4) as usize],
+        u: font.height as f32 / 32.,
     };
-    canvas.fill([0, 0, width, height], FOCUS);
-    canvas.fill(
-        [BORDER, BORDER, width - 2 * BORDER, height - 2 * BORDER],
-        PANEL,
-    );
+    let mut canvas = Canvas::new(width, height, STAGE);
+    canvas.border(HAIRLINE);
     for (index, line) in lines.iter().enumerate() {
-        let y = pad_y + index as u32 * font.height;
-        let ink = match line.style {
-            Style::Title | Style::Message => TEXT,
-            Style::Row { focus, locked } => {
-                if focus && !locked {
-                    canvas.fill([pad_x, y, COLUMNS * font.width, font.height], FOCUS);
-                } else if focus {
-                    // A locked row cannot take the bar: a ruby mark in the
-                    // left padding shows the focus, the text stays grey.
-                    canvas.fill([pad_x * 3 / 8, y, pad_x / 2, font.height], FOCUS);
-                }
-                if locked { DISABLED } else { TEXT }
+        let y = grid.y(index);
+        match line.style {
+            Style::Title => header(&mut canvas, &grid, y, &line.text),
+            Style::Row { focus, locked } => row(&mut canvas, &grid, y, line, focus, locked),
+            Style::Info | Style::Note | Style::Hint => {
+                text(&mut canvas, font, [grid.x(0), y], &line.text, MUTED, false);
             }
-            Style::Info | Style::Note | Style::Hint => DISABLED,
-            Style::Error => ERROR,
-        };
-        for (column, c) in line.text.chars().take(COLUMNS as usize).enumerate() {
-            let x = pad_x + column as u32 * font.width;
-            for gy in 0..font.height {
-                for gx in 0..font.width {
-                    if font.pixel(c, gx, gy) {
-                        canvas.fill([x + gx, y + gy, 1, 1], ink);
-                    }
-                }
-            }
+            Style::Message => text(&mut canvas, font, [grid.x(0), y], &line.text, INK, false),
+            Style::Error => text(&mut canvas, font, [grid.x(0), y], &line.text, ERROR, false),
         }
     }
     Frame {
@@ -90,123 +75,157 @@ pub fn render(menu: &Menu, snap: &Snapshot, layout: &Layout) -> Frame {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::time::Instant;
-
-    use super::super::model::tests::{snapshot, strings};
-    use super::*;
-    use butterpollo_input_policy::couch_menu::Nav;
-
-    fn fnv1a(frame: &Frame) -> u64 {
-        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-        let header = [frame.origin, frame.size, [frame.scale, 0]];
-        for byte in header
-            .iter()
-            .flatten()
-            .flat_map(|v| v.to_le_bytes())
-            .chain(frame.rgba.iter().copied())
-        {
-            hash = (hash ^ byte as u64).wrapping_mul(0x0100_0000_01b3);
+/// Draws `chars` from (`x`, `y`) in 1-bit glyphs; `bold` strikes each glyph
+/// twice, one pixel apart.
+fn text(canvas: &mut Canvas, font: &Font, [x, y]: [u32; 2], chars: &str, ink: Rgb, bold: bool) {
+    let limit = canvas.width - 1;
+    for (column, c) in chars.chars().enumerate() {
+        let left = x + column as u32 * font.width;
+        if left + font.width > limit {
+            break;
         }
-        hash
-    }
-
-    /// The main page and the Radeon page, as the tests' snapshot shows them.
-    fn pages(layout: &Layout) -> [Frame; 2] {
-        let snap = snapshot();
-        let mut menu = Menu::new(strings(false));
-        let now = Instant::now();
-        menu.nav(Nav::Opened, now, &snap, layout);
-        let main = render(&menu, &snap, layout);
-        menu.nav(Nav::Down, now, &snap, layout);
-        menu.nav(Nav::Accept, now, &snap, layout);
-        menu.nav(Nav::Down, now, &snap, layout);
-        [main, render(&menu, &snap, layout)]
-    }
-
-    fn colour(frame: &Frame, x: u32, y: u32) -> [u8; 4] {
-        let width = frame.size[0] / frame.scale;
-        let at = ((y * width + x) * 4) as usize;
-        frame.rgba[at..at + 4].try_into().unwrap()
-    }
-
-    #[test]
-    fn couch_menu_render_golden_hash_per_page() {
-        // Changing a page's look changes these: check the dump by eye, then
-        // update them.
-        let golden = [
-            ([1280, 720], [0x4e89_4713_575d_9a2a, 0x639e_a070_ad48_f842]),
-            ([3840, 2160], [0x4770_6db7_c2a9_5a47, 0x35a5_677f_abbf_1a2b]),
-        ];
-        let mut got = Vec::new();
-        for (target, _) in golden {
-            let layout = Layout::for_stream(target[0], target[1]).unwrap();
-            got.push((target, pages(&layout).map(|page| fnv1a(&page))));
-        }
-        let want: Vec<_> = golden.to_vec();
-        assert_eq!(got, want, "golden hashes");
-    }
-
-    #[test]
-    fn couch_menu_render_is_opaque_bordered_and_sized_for_the_layout() {
-        for [w, h] in [
-            [640, 360],
-            [1280, 720],
-            [1920, 1080],
-            [3840, 2160],
-            [1080, 2400],
-        ] {
-            let layout = Layout::for_stream(w, h).unwrap();
-            for frame in pages(&layout) {
-                let [fw, fh] = frame.size.map(|v| v / frame.scale);
-                assert_eq!(frame.size, [fw, fh].map(|v| v * layout.scale));
-                assert_eq!(frame.rgba.len(), (fw * fh * 4) as usize);
-                assert!(
-                    frame.rgba.as_chunks::<4>().0.iter().all(|p| p[3] == 0xff),
-                    "alpha 255"
-                );
-                assert!(frame.origin.iter().chain(&frame.size).all(|v| v % 16 == 0));
-                for (x, y) in [(0, 0), (1, 1), (fw - 1, fh - 1), (fw - 2, 7), (5, fh - 2)] {
-                    assert_eq!(colour(&frame, x, y)[..3], FOCUS, "border at {x},{y}");
+        for gy in 0..font.height {
+            for gx in 0..font.width {
+                if font.pixel(c, gx, gy) {
+                    let wide = if bold { 2 } else { 1 };
+                    canvas.fill([left + gx, y + gy, wide.min(limit - left - gx), 1], ink);
                 }
-                assert_eq!(colour(&frame, 2, 2)[..3], PANEL);
-                let used: std::collections::HashSet<_> = frame
-                    .rgba
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|p| [p[0], p[1], p[2]])
-                    .collect();
-                assert!(
-                    used.iter()
-                        .all(|c| [PANEL, TEXT, DISABLED, FOCUS, ERROR].contains(c))
-                );
-                assert!(used.contains(&TEXT) && used.contains(&DISABLED));
             }
         }
     }
-
-    /// Writes the golden pages as PPM files into the temp directory, for a
-    /// look by eye: `cargo test -p butterpollo-core couch_menu_render_dump -- --ignored`.
-    #[test]
-    #[ignore]
-    fn couch_menu_render_dump() {
-        let layout = Layout::for_stream(1280, 720).unwrap();
-        for (name, frame) in ["main", "radeon"].into_iter().zip(pages(&layout)) {
-            let [w, h] = frame.size.map(|v| v / frame.scale);
-            let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
-            ppm.extend(
-                frame
-                    .rgba
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .flat_map(|p| [p[0], p[1], p[2]]),
-            );
-            let path = std::env::temp_dir().join(format!("couch-menu-{name}.ppm"));
-            std::fs::write(&path, ppm).unwrap();
-            println!("{}", path.display());
-        }
-    }
 }
+
+/// The header strip: the badge, the title in bold INK and a hairline rule
+/// under the strip, across the container.
+fn header(canvas: &mut Canvas, grid: &Grid, y: u32, title: &str) {
+    let cell = grid.font.height as f32;
+    let size = (cell * 0.75).round();
+    widgets::badge(
+        canvas,
+        [grid.x(0) as f32, y as f32 + ((cell - size) / 2.).round()],
+        size,
+    );
+    let title = fit(title, COLUMNS as usize - 2);
+    text(canvas, grid.font, [grid.x(2), y], &title, INK, true);
+    let rule = y + grid.font.height - 1;
+    canvas.fill([1, rule, grid.width - 2, 1], HAIRLINE);
+}
+
+/// A row card inset in its line, the label left and the value right.
+fn row(canvas: &mut Canvas, grid: &Grid, y: u32, line: &Line, focus: bool, locked: bool) {
+    let font = grid.font;
+    let u = grid.u;
+    let tone = match (focus, locked) {
+        (_, true) => Tone::Locked,
+        (true, false) => Tone::Focused,
+        (false, false) => Tone::Normal,
+    };
+    let gap = 2. * u;
+    let card = [
+        (grid.pad[0] / 2) as f32,
+        y as f32 + gap,
+        (grid.width - grid.pad[0]) as f32,
+        font.height as f32 - 2. * gap,
+    ];
+    let radius = 6. * u;
+    if focus && locked {
+        // A locked row cannot take the focus fill: a thin ruby outline and a
+        // marker at the card's left edge show the focus, the text stays muted.
+        let ring = (2. * u).max(1.);
+        canvas.rounded(card, radius, FOCUS);
+        let [x, y, w, h] = card;
+        let inner = [x + ring, y + ring, w - 2. * ring, h - 2. * ring];
+        canvas.rounded(inner, radius - ring, CARD);
+        let inset = 5. * u;
+        let marker = [x + ring + u, y + inset, 3. * u, h - 2. * inset];
+        canvas.rounded(marker, 1.5 * u, FOCUS);
+    } else {
+        let fill = if tone == Tone::Focused { FOCUS } else { CARD };
+        canvas.rounded(card, radius, fill);
+    }
+    let (label_ink, value_ink) = widgets::inks(tone);
+    let chars: Vec<char> = line.text.chars().collect();
+    let split = chars.len().saturating_sub(line.value);
+    let label: String = chars[..split].iter().collect::<String>().trim_end().into();
+    let value: String = chars[split..].iter().collect();
+    let right = grid.x(COLUMNS);
+    let cy = y as f32 + font.height as f32 / 2.;
+    // The first column the label may not reach.
+    let label_end = match line.widget {
+        _ if line.value == 0 => COLUMNS + 1,
+        Widget::Switch(on) => {
+            let left = widgets::switch(canvas, right as f32, cy, u, on, tone);
+            ((left - grid.x(0) as f32) / font.width as f32).floor() as u32
+        }
+        Widget::Slider {
+            value: at,
+            min,
+            max,
+        } => {
+            let shown = unwrap_chevrons(&value).unwrap_or(&value);
+            let columns = shown.chars().count() as u32;
+            text(
+                canvas,
+                font,
+                [grid.x(COLUMNS - columns), y],
+                shown,
+                value_ink,
+                false,
+            );
+            let start = COLUMNS.saturating_sub(columns + 1 + RAIL_COLUMNS);
+            let span = (max - min).max(1) as f32;
+            let fraction = (at - min) as f32 / span;
+            let rail = [grid.x(start) as f32, (RAIL_COLUMNS * font.width) as f32];
+            widgets::slider(canvas, rail, cy, u, fraction, tone);
+            start
+        }
+        Widget::Choice if unwrap_chevrons(&value).is_some() => {
+            let n = line.value as u32;
+            let middle = |column: u32| (grid.x(column) + font.width / 2) as f32;
+            widgets::chevron(canvas, [middle(COLUMNS - n), cy], u, false, value_ink);
+            widgets::chevron(canvas, [middle(COLUMNS - 1), cy], u, true, value_ink);
+            let inner = unwrap_chevrons(&value).unwrap_or_default();
+            text(
+                canvas,
+                font,
+                [grid.x(COLUMNS - n + 2), y],
+                inner,
+                value_ink,
+                false,
+            );
+            COLUMNS - n
+        }
+        Widget::Link => {
+            let middle = (grid.x(COLUMNS - 1) + font.width / 2) as f32;
+            widgets::chevron(canvas, [middle, cy], u, true, value_ink);
+            COLUMNS - 1
+        }
+        _ => {
+            let n = line.value as u32;
+            text(
+                canvas,
+                font,
+                [grid.x(COLUMNS - n), y],
+                &value,
+                value_ink,
+                false,
+            );
+            COLUMNS - n
+        }
+    };
+    let room = label_end.saturating_sub(1) as usize;
+    let label = if label.chars().count() > room && line.value > 0 {
+        fit(&label, room)
+    } else {
+        label
+    };
+    text(canvas, font, [grid.x(0), y], &label, label_ink, false);
+}
+
+/// `value` without the model's `< ` and ` >`, if it has them.
+fn unwrap_chevrons(value: &str) -> Option<&str> {
+    value.strip_prefix("< ")?.strip_suffix(" >")
+}
+
+#[cfg(test)]
+mod tests;

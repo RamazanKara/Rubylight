@@ -6,6 +6,8 @@
 
 pub mod model;
 pub mod render;
+pub mod theme_70;
+mod widgets;
 
 pub use model::{
     Action, Applies, Availability, Control, Menu, Setting, Snapshot, Strings, Target, items,

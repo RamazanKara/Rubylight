@@ -1,0 +1,2 @@
+# Couch Menu 7.0 look
+- **The Couch Menu in the new look.** The host menu you open from the controller now matches the redesigned console: dark rounded row cards, a ruby card for the focused row, pill switches for on/off settings, inline sliders for values, arrows around a choice you can change, and a Rubylight badge in the header. Every page, row, confirmation and touch target works as before, and text stays pixel-sharp at 720p, 1080p and 4K.

@@ -161,7 +161,7 @@ fn an_ice_outage_is_surfaced_and_ends_the_session_after_the_timeout() {
     while !link.host.is_closed() {
         link.step(Duration::from_millis(50));
         assert!(
-            link.now - went_down < Duration::from_secs(10),
+            link.now - went_down < DISCONNECT_TIMEOUT * 2,
             "never closed"
         );
     }
@@ -193,6 +193,34 @@ fn an_outage_that_ends_in_time_resumes_with_a_keyframe_request() {
     }
     assert!(link.host.is_connected(), "{:?}", link.host_events);
     assert!(link.host_events.contains(&TransportEvent::Reconnected));
+    assert!(link.idr.contains(&IdrReason::Reconnected), "{:?}", link.idr);
+}
+
+#[test]
+fn a_five_second_drop_after_the_path_went_down_still_resumes() {
+    let mut link = Link::connected(spec(VideoCodec::H264, false));
+    link.partition = true;
+    let started = link.now;
+    while !link.host.is_disconnected() {
+        link.step(Duration::from_millis(100));
+        assert!(link.now - started < Duration::from_secs(60));
+    }
+    // The drop lasts 5 s more: the old 3 s grace ended the session here.
+    let went_down = link.now;
+    while link.now - went_down < Duration::from_secs(5) {
+        link.step(Duration::from_millis(100));
+    }
+    assert!(!link.host.is_closed(), "{:?}", link.host_events);
+    link.host_events.clear();
+    link.idr.clear();
+    link.partition = false;
+    for _ in 0..50 {
+        link.step(Duration::from_millis(100));
+        if link.host.is_connected() {
+            break;
+        }
+    }
+    assert!(link.host.is_connected(), "{:?}", link.host_events);
     assert!(link.idr.contains(&IdrReason::Reconnected), "{:?}", link.idr);
 }
 

@@ -52,8 +52,9 @@ pub const DEFAULT_DATAGRAM_QUEUE: usize = 2048;
 /// How often a stalled encoder (waiting for a keyframe) is asked again.
 const IDR_REQUEST_INTERVAL: Duration = Duration::from_millis(250);
 /// An ICE path that stays down this long ends the session. A shorter outage is a network
-/// handover, and the session resumes with a keyframe when the path comes back.
-pub const DISCONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+/// handover or a Wi-Fi drop of a few seconds, and the session resumes with a keyframe when the
+/// path comes back. A browser waits longer before it gives up on its connection.
+pub const DISCONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// How far behind schedule a late wake may send back to back to catch up; a longer stall earns
 /// no more than this, so the pacer never releases a burst.
 const CATCH_UP_CREDIT: Duration = Duration::from_millis(4);

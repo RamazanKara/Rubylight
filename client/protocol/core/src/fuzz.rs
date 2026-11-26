@@ -6,7 +6,7 @@
 
 use crate::{
     audio_ext, control, controller_identity, cursor_shape, fec_report, frame_warp, keyboard_layout, pairing_uri,
-    pen, phase_lock, pipeline_rates, rate_change, roaming, steam_controller, text_input, transport_feedback, usb, usbip,
+    pen, phase_lock, pipeline_rates, ps_speaker_pcm, rate_change, roaming, steam_controller, text_input, transport_feedback, usb, usbip,
 };
 use alloc::{string::String, vec, vec::Vec};
 use proptest::collection::vec;
@@ -499,6 +499,65 @@ round_trip!(
     raw(pipeline_rates::PIPELINE_RATES_REPORT_BYTES),
     |b| pipeline_rates::PipelineRatesReport::decode(b),
     |v| Some(v.encode().to_vec())
+);
+round_trip!(
+    ps_speaker_block,
+    (
+        0u16..18,
+        any::<u32>(),
+        any::<u32>(),
+        prop_oneof![any::<u64>(), Just(u64::MAX - 240)],
+        0u16..3,
+        any::<u64>(),
+        vec(byte(), 0..964),
+    )
+        .prop_map(
+            |(controller, generation, sequence, sample_position, flags, owner, samples)| {
+                ps_speaker_pcm::SpeakerBlock {
+                    controller,
+                    generation,
+                    sequence,
+                    sample_position,
+                    flags,
+                    owner,
+                    samples: &samples,
+                }
+                .encode()
+                .unwrap_or_default()
+            }
+        ),
+    |b| ps_speaker_pcm::SpeakerBlock::decode(b).map(|k| {
+        (
+            k.controller,
+            k.generation,
+            k.sequence,
+            k.sample_position,
+            k.flags,
+            k.owner,
+            k.samples.to_vec(),
+        )
+    }),
+    |v| ps_speaker_pcm::SpeakerBlock {
+        controller: v.0,
+        generation: v.1,
+        sequence: v.2,
+        sample_position: v.3,
+        flags: v.4,
+        owner: v.5,
+        samples: &v.6,
+    }
+    .encode()
+);
+round_trip!(
+    ps_speaker_binding,
+    (0u16..18, any::<u64>()).prop_map(|(slot, owner)| {
+        ps_speaker_pcm::Binding { slot, owner }
+            .encode()
+            .map(|b| b.to_vec())
+            .unwrap_or_default()
+    }),
+    |b| ps_speaker_pcm::Binding::decode(b),
+    |v| v.encode().map(|b| b.to_vec())
 );
 round_trip!(
     rate_change_request,

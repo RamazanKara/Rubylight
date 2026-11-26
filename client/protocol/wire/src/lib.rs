@@ -4,6 +4,8 @@ pub mod crypto;
 pub mod fec_status;
 pub mod haptics;
 pub mod input;
+#[cfg(test)]
+mod input_shared_magic_tests;
 pub mod mic;
 pub mod packet;
 pub mod rtsp;

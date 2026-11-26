@@ -34,6 +34,7 @@ pub mod pen;
 pub mod phase_lock;
 pub mod pipeline_rates;
 pub mod present_clock;
+pub mod ps_speaker_pcm;
 pub mod pyrowave;
 pub mod rate_change;
 pub mod roaming;

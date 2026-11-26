@@ -12,6 +12,7 @@ fn hybrid_gpus() -> [Gpu; 2] {
             device: 0,
             luid: (0x1_0001, 0),
             pnp_id: Some(r"PCI\VEN_1002&DEV_1681&SUBSYS_0B1F1028&REV_C8\3&11583659&0&10".into()),
+            preference: None,
         },
         Gpu {
             name: "AMD Radeon RX 6850M XT".into(),
@@ -20,6 +21,7 @@ fn hybrid_gpus() -> [Gpu; 2] {
             device: 0,
             luid: (0x1_0002, 0),
             pnp_id: Some(r"PCI\VEN_1002&DEV_73DF&SUBSYS_0B1F1028&REV_C3\4&2F6A3B4&0&0008".into()),
+            preference: None,
         },
     ]
 }
@@ -151,6 +153,7 @@ fn desktop_duplication_on_a_display_driven_by_another_vendor_suggests_wgc() {
             device: 0,
             luid: (1, 0),
             pnp_id: None,
+            preference: None,
         },
         {
             let [amd, _] = hybrid_gpus();
@@ -193,8 +196,14 @@ fn a_stream_pins_to_the_amd_gpu_when_the_pc_has_another_vendors_too() {
         pinned_choice(&gpus, None, "Intel(R) UHD Graphics", ""),
         ("Intel(R) UHD Graphics".to_string(), String::new())
     );
-    // An all-AMD PC, or one with no GPU, leaves Automatic alone.
-    assert_eq!(pinned_choice(&hybrid_gpus(), None, "", ""), none());
+    // An all-AMD PC with an iGPU and a card pins the card; one with no GPU,
+    // or a single one, leaves Automatic alone.
+    let [_, card] = hybrid_gpus();
+    assert_eq!(
+        pinned_choice(&hybrid_gpus(), None, "", ""),
+        (card.name.clone(), card.pnp_id.clone().unwrap())
+    );
+    assert_eq!(pinned_choice(&[card], None, "", ""), none());
     assert_eq!(pinned_choice(&[], None, "", ""), none());
     // An Intel GPU beside an NVIDIA one: the NVIDIA GPU, which NVENC encodes on.
     let mut nvidia = hybrid_gpus();
@@ -207,9 +216,13 @@ fn a_stream_pins_to_the_amd_gpu_when_the_pc_has_another_vendors_too() {
             nvidia[1].pnp_id.clone().unwrap()
         )
     );
-    // An all-NVIDIA PC is left alone too.
+    // An all-NVIDIA PC pins its bigger GPU too, unless the display is on one.
     nvidia[0].vendor = 0x10de;
-    assert_eq!(pinned_choice(&nvidia, None, "", ""), none());
+    assert_eq!(
+        pinned_choice(&nvidia, None, "", "").0,
+        "AMD Radeon RX 6850M XT"
+    );
+    assert_eq!(pinned_choice(&nvidia, Some(0x10de), "", ""), none());
 }
 #[test]
 fn the_probe_without_a_display_opens_the_gpu_the_stream_pins() {
@@ -222,11 +235,12 @@ fn the_probe_without_a_display_opens_the_gpu_the_stream_pins() {
         device: 0,
         luid: (1, 0),
         pnp_id: None,
+        preference: None,
     };
     let gpus = [igpu, nvidia];
-    let adapters: Vec<(u32, u64)> = gpus
+    let adapters: Vec<encoder_gpu::Ranked> = gpus
         .iter()
-        .map(|gpu| (gpu.vendor, gpu.dedicated_memory))
+        .map(|gpu| encoder_gpu::Ranked::new(gpu.vendor, gpu.dedicated_memory))
         .collect();
     let probed = &gpus[encoder_gpu::headless(&adapters)];
     assert_eq!(probed.name, "NVIDIA GeForce RTX 5090");
@@ -244,12 +258,15 @@ fn the_probe_without_a_display_opens_the_gpu_the_stream_pins() {
         desc(0x1002, 512 << 20, 48 << 30),
         desc(0x10de, 32 << 30, 16 << 30),
     ];
-    assert_eq!(headless_candidate(&descs), 1);
-    // One vendor's adapters alone pin nothing: the first, as before.
+    assert_eq!(headless_candidate(&descs, &[]), 1);
+    // One vendor's iGPU before its card: the card, whose codecs `/serverinfo`
+    // reports.
     assert_eq!(
-        headless_candidate(&[desc(0x1002, 1 << 30, 0), desc(0x1002, 12 << 30, 0)]),
-        0
+        headless_candidate(&[desc(0x1002, 1 << 30, 0), desc(0x1002, 12 << 30, 0)], &[]),
+        1
     );
+    // A single adapter is the one probed.
+    assert_eq!(headless_candidate(&[desc(0x1002, 1 << 30, 0)], &[]), 0);
 }
 #[test]
 fn a_stream_pins_to_the_biggest_radeon_and_leaves_a_display_already_on_one() {
@@ -262,6 +279,7 @@ fn a_stream_pins_to_the_biggest_radeon_and_leaves_a_display_already_on_one() {
         device: 0,
         luid: (1, 0),
         pnp_id: None,
+        preference: None,
     };
     let dgpu_choice = (dgpu.name.clone(), dgpu.pnp_id.clone().unwrap());
     let gpus = [nvidia, igpu, dgpu];
@@ -286,6 +304,7 @@ fn with_no_display_the_stream_gpu_is_the_pinned_or_only_encoding_gpu_or_refused(
         device: 0,
         luid: (vendor, 0),
         pnp_id: None,
+        preference: None,
     };
     let nvidia = || other("NVIDIA GeForce RTX 3050", 0x10de);
     let intel = || other("Intel(R) UHD Graphics", 0x8086);
@@ -312,14 +331,12 @@ fn with_no_display_the_stream_gpu_is_the_pinned_or_only_encoding_gpu_or_refused(
         headless_gpu(&[intel(), nvidia()]).unwrap().name,
         "NVIDIA GeForce RTX 3050"
     );
-    // Several Radeons and none chosen, or none at all: refused, not guessed.
-    let error = format!(
-        "{:#}",
-        headless_gpu(&hybrid_gpus())
-            .map(|gpu| &gpu.name)
-            .unwrap_err()
+    // Several Radeons and none chosen: the card, not the iGPU listed first.
+    assert_eq!(
+        headless_gpu(&hybrid_gpus()).unwrap().name,
+        "AMD Radeon RX 6850M XT"
     );
-    assert!(error.contains("Graphics card setting"), "{error}");
+    // None at all: refused, not guessed.
     for gpus in [vec![intel()], vec![]] {
         let error = format!(
             "{:#}",
@@ -363,4 +380,50 @@ fn dxgi_pixel_format_mapping_recognizes_hdr_and_sdr_surfaces() {
     assert_eq!(Pixel::try_from_dxgi_raw(10), Some(Pixel::RgbaF16));
     assert_eq!(Pixel::try_from_dxgi_raw(24), Some(Pixel::Rgba10Pq));
     assert_eq!(Pixel::try_from_dxgi_raw(0), None);
+}
+#[test]
+fn windows_ranking_puts_a_laptops_card_before_an_igpu_with_more_memory() {
+    // A Radeon 780M laptop whose firmware gives the iGPU 16 GB beside an 8 GB
+    // RX 7700S: by memory alone the iGPU would win.
+    let [mut igpu, mut card] = hybrid_gpus();
+    igpu.dedicated_memory = 16 << 30;
+    card.dedicated_memory = 8 << 30;
+    // Windows lists the card first for performance and last to save power.
+    let orders = orders_by_luid(&[card.luid, igpu.luid], &[igpu.luid, card.luid]);
+    assert_eq!(orders, [(card.luid, (0, 1)), (igpu.luid, (1, 0))]);
+    igpu.preference = Some((1, 0));
+    card.preference = Some((0, 1));
+    let gpus = [igpu, card];
+    assert_eq!(
+        pinned_choice(&gpus, None, "", "").0,
+        "AMD Radeon RX 6850M XT"
+    );
+    assert_eq!(headless_gpu(&gpus).unwrap().name, "AMD Radeon RX 6850M XT");
+    // The probe ranks DXGI's descriptions the same way.
+    let desc = |luid: (u32, i32), dedicated: u64| DXGI_ADAPTER_DESC1 {
+        VendorId: 0x1002,
+        DedicatedVideoMemory: dedicated as usize,
+        AdapterLuid: windows::Win32::Foundation::LUID {
+            LowPart: luid.0,
+            HighPart: luid.1,
+        },
+        ..Default::default()
+    };
+    let descs = [desc(gpus[0].luid, 16 << 30), desc(gpus[1].luid, 8 << 30)];
+    assert_eq!(headless_candidate(&descs, &orders), 1);
+    assert_eq!(headless_candidate(&descs, &[]), 0);
+    // An explicit choice always wins, whatever Windows ranks first.
+    assert_eq!(
+        pinned_choice(&gpus, None, "AMD Radeon(TM) 680M", ""),
+        ("AMD Radeon(TM) 680M".to_string(), String::new())
+    );
+    let identity = gpus[0].pnp_id.clone().unwrap();
+    assert_eq!(
+        pinned_choice(&gpus, None, "", &identity),
+        (String::new(), identity.clone())
+    );
+    assert_eq!(
+        select_gpu(&gpus, "", &identity).unwrap().unwrap().name,
+        "AMD Radeon(TM) 680M"
+    );
 }

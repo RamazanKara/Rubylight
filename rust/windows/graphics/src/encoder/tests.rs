@@ -86,6 +86,7 @@ fn gpu(name: &str, vendor: u32) -> crate::capture::Gpu {
         device: 0,
         luid: (0, 0),
         pnp_id: None,
+        preference: None,
     }
 }
 #[test]

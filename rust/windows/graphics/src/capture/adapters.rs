@@ -160,6 +160,70 @@ pub struct Gpu {
     pub device: u32,
     pub luid: (u32, i32),
     pub pnp_id: Option<String>,
+    /// Where Windows lists it when asked for the highest-performance GPU and
+    /// for the lowest-power one ([`preference_orders`]); not in the console's
+    /// GPU list.
+    #[serde(skip)]
+    pub preference: Option<(u32, u32)>,
+}
+impl Gpu {
+    fn ranked(&self) -> encoder_gpu::Ranked {
+        encoder_gpu::Ranked {
+            vendor: self.vendor,
+            dedicated_memory: self.dedicated_memory,
+            preference: self.preference,
+        }
+    }
+}
+/// Where Windows lists each adapter, by LUID, when asked for the
+/// highest-performance GPU and when asked for the lowest-power one: external
+/// GPUs, then discrete, then integrated, and the reverse, as
+/// `IDXGIFactory6::EnumAdapterByGpuPreference` documents. Empty where Windows
+/// has no such order (before Windows 10 1803). Listing creates no device.
+pub(super) fn preference_orders() -> Vec<((u32, i32), (u32, u32))> {
+    // SAFETY: The factory and adapters are live COM objects returned by these calls, and
+    // GetDesc1 returns an owned struct.
+    unsafe {
+        let Ok(factory) = CreateDXGIFactory1::<IDXGIFactory6>() else {
+            return Vec::new();
+        };
+        let list = |preference| {
+            let mut luids = Vec::new();
+            for index in 0..32 {
+                let Ok(adapter) =
+                    factory.EnumAdapterByGpuPreference::<IDXGIAdapter1>(index, preference)
+                else {
+                    break;
+                };
+                if let Ok(desc) = adapter.GetDesc1() {
+                    luids.push((desc.AdapterLuid.LowPart, desc.AdapterLuid.HighPart));
+                }
+            }
+            luids
+        };
+        let fast = list(DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE);
+        let frugal = list(DXGI_GPU_PREFERENCE_MINIMUM_POWER);
+        orders_by_luid(&fast, &frugal)
+    }
+}
+/// Each LUID of both lists with its position in each.
+pub(super) fn orders_by_luid(
+    fast: &[(u32, i32)],
+    frugal: &[(u32, i32)],
+) -> Vec<((u32, i32), (u32, u32))> {
+    fast.iter()
+        .enumerate()
+        .filter_map(|(position, luid)| {
+            let other = frugal.iter().position(|l| l == luid)?;
+            Some((*luid, (position as u32, other as u32)))
+        })
+        .collect()
+}
+fn preference_of(orders: &[((u32, i32), (u32, u32))], luid: (u32, i32)) -> Option<(u32, u32)> {
+    orders
+        .iter()
+        .find(|(l, _)| *l == luid)
+        .map(|(_, order)| *order)
 }
 pub(super) fn hardware_adapter(desc: &DXGI_ADAPTER_DESC1) -> bool {
     // Windows can expose Basic Render Driver as the primary adapter without
@@ -168,12 +232,23 @@ pub(super) fn hardware_adapter(desc: &DXGI_ADAPTER_DESC1) -> bool {
         && (desc.VendorId, desc.DeviceId) != (0x1414, 0x8c)
 }
 /// Which of `candidates` (hardware adapters, in DXGI order) the probe opens
-/// when no display gives one: [`encoder_gpu::headless`] over their vendors
-/// and dedicated video memory, as the stream pins with no GPU chosen.
-pub(super) fn headless_candidate(candidates: &[DXGI_ADAPTER_DESC1]) -> usize {
-    let adapters: Vec<(u32, u64)> = candidates
+/// when no display gives one: [`encoder_gpu::headless`] over their vendors,
+/// dedicated video memory and Windows' preference `orders`, as the stream pins
+/// with no GPU chosen. Its encoders give the codecs `/serverinfo` reports.
+pub(super) fn headless_candidate(
+    candidates: &[DXGI_ADAPTER_DESC1],
+    orders: &[((u32, i32), (u32, u32))],
+) -> usize {
+    let adapters: Vec<encoder_gpu::Ranked> = candidates
         .iter()
-        .map(|desc| (desc.VendorId, desc.DedicatedVideoMemory as u64))
+        .map(|desc| encoder_gpu::Ranked {
+            vendor: desc.VendorId,
+            dedicated_memory: desc.DedicatedVideoMemory as u64,
+            preference: preference_of(
+                orders,
+                (desc.AdapterLuid.LowPart, desc.AdapterLuid.HighPart),
+            ),
+        })
         .collect();
     encoder_gpu::headless(&adapters)
 }
@@ -242,7 +317,15 @@ pub fn gpus() -> Result<Vec<Gpu>> {
                     device: info.DeviceId,
                     luid: (info.AdapterLuid.LowPart, info.AdapterLuid.HighPart),
                     pnp_id: adapter_pnp_id(info.AdapterLuid),
+                    preference: None,
                 });
+            }
+        }
+        // Only a PC with several GPUs needs Windows' ranking of them.
+        if result.len() > 1 {
+            let orders = preference_orders();
+            for gpu in &mut result {
+                gpu.preference = preference_of(&orders, gpu.luid);
             }
         }
         Ok(result)
@@ -258,10 +341,11 @@ pub fn gpu_adapters(gpus: &[Gpu]) -> Vec<encoder_gpu::Adapter> {
         .collect()
 }
 /// The GPU choice a stream that encodes on the capture device opens it with.
-/// A chosen GPU stays. With none chosen on a PC that mixes vendors it is the
-/// AMD or NVIDIA GPU with the most video memory, unless the display is already
-/// on one (`display_vendor`), so that WGC captures and AMF or NVENC encodes
-/// there whichever GPU drives the monitor, as the probe already assumes.
+/// A chosen GPU always stays. With none chosen on a PC with several GPUs it is
+/// the one [`encoder_gpu::pinned`] ranks first (discrete over integrated, then
+/// the most video memory), unless the display is already on an AMD or NVIDIA
+/// GPU (`display_vendor`), so that WGC captures and AMF or NVENC encodes there
+/// whichever GPU drives the monitor, as the probe already assumes.
 pub(super) fn pinned_choice(
     gpus: &[Gpu],
     display_vendor: Option<u32>,
@@ -269,16 +353,28 @@ pub(super) fn pinned_choice(
     pnp_id: &str,
 ) -> (String, String) {
     if adapter_name.is_empty() && pnp_id.is_empty() {
-        let adapters: Vec<(u32, u64)> = gpus
-            .iter()
-            .map(|gpu| (gpu.vendor, gpu.dedicated_memory))
-            .collect();
+        let adapters: Vec<encoder_gpu::Ranked> = gpus.iter().map(Gpu::ranked).collect();
         if let Some(gpu) = encoder_gpu::pinned(&adapters, display_vendor).map(|index| &gpus[index])
         {
+            log_automatic_choice(gpu, gpus.len());
             return (gpu.name.clone(), gpu.pnp_id.clone().unwrap_or_default());
         }
     }
     (adapter_name.to_string(), pnp_id.to_string())
+}
+/// Logs the GPU Automatic pins a stream to, once per change: on a PC with
+/// several GPUs the console log then says which one streams and why.
+fn log_automatic_choice(gpu: &Gpu, count: usize) {
+    static LAST: std::sync::Mutex<Option<(u32, i32)>> = std::sync::Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if last.replace(gpu.luid) != Some(gpu.luid) {
+        tracing::info!(
+            gpu = %gpu.name,
+            gpus = count,
+            windows_rank = ?gpu.preference,
+            "Graphics card is Automatic: streaming on the AMD or NVIDIA GPU Windows ranks first for performance (then the one with the most video memory); choose another under Graphics card to override"
+        );
+    }
 }
 /// `pinned_choice` for this PC's GPUs and the GPU of `display` (None for a
 /// display not created yet, such as a virtual one); the choice as given when
@@ -348,13 +444,9 @@ pub fn panel_driver(config: &butterpollo_config::config::Config) -> crate::radeo
 /// The GPU a stream encodes on while no display is connected, as on a
 /// headless host or one whose monitor is off: the GPU
 /// [`encoder_gpu::pinned`] chooses, else the only AMD or NVIDIA GPU. With
-/// several of them and none chosen, or none at all, which one would stream is
-/// unknown.
+/// none at all, nothing streams.
 pub(super) fn headless_gpu(gpus: &[Gpu]) -> Result<&Gpu> {
-    let adapters: Vec<(u32, u64)> = gpus
-        .iter()
-        .map(|gpu| (gpu.vendor, gpu.dedicated_memory))
-        .collect();
+    let adapters: Vec<encoder_gpu::Ranked> = gpus.iter().map(Gpu::ranked).collect();
     if let Some(index) = encoder_gpu::pinned(&adapters, None) {
         return Ok(&gpus[index]);
     }

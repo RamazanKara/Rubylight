@@ -51,12 +51,12 @@ pub use adapters::{
     stream_adapter, stream_gpu, stream_gpu_vendor,
 };
 use adapters::{
-    adapter_pnp_id, hardware_adapter, headless_candidate, probe_skips_display,
+    adapter_pnp_id, hardware_adapter, headless_candidate, preference_orders, probe_skips_display,
     require_encoding_duplication, select_display,
 };
 pub(crate) use adapters::{display_rect, window_client, window_cursor};
 #[cfg(test)]
-use adapters::{headless_gpu, pinned_choice};
+use adapters::{headless_gpu, orders_by_luid, pinned_choice};
 pub use amd_direct::Presented;
 pub(crate) use app_window::Crop;
 #[cfg(test)]

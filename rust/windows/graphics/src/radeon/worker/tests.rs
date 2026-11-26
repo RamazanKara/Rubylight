@@ -485,6 +485,7 @@ fn the_pci_and_pnp_identity_picks_the_configured_and_discrete_gpu() {
             device: 0x164E,
             luid: (1, 0),
             pnp_id: Some(igpu_pnp.into()),
+            preference: None,
         },
         DxgiGpu {
             name: "AMD Radeon RX 7900 XTX / XT".into(),
@@ -493,6 +494,7 @@ fn the_pci_and_pnp_identity_picks_the_configured_and_discrete_gpu() {
             device: 0x744C,
             luid: (2, 0),
             pnp_id: Some(dgpu_pnp.into()),
+            preference: None,
         },
     ];
 
@@ -522,6 +524,7 @@ fn the_pci_and_pnp_identity_picks_the_configured_and_discrete_gpu() {
         device: 0x744C,
         luid: (3, 0),
         pnp_id: None,
+        preference: None,
     }];
     assert_eq!(
         pick_gpu(

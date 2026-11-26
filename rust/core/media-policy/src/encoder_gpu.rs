@@ -152,23 +152,72 @@ pub fn preferred(vendors: &[u32]) -> usize {
         .unwrap_or(0)
 }
 
-/// The adapter a stream pins to when no GPU is chosen, by index among
-/// `adapters` (PCI vendor, dedicated video memory): only on a PC that mixes
-/// vendors, where Windows would otherwise render and capture on the wrong
-/// one. Not when the display's own GPU (`display_vendor`) is already AMD or
-/// NVIDIA, which capture then uses as it is with that vendor's encoder. Among
-/// several AMD and NVIDIA adapters it is the one with the most video memory,
-/// the first on a tie. None leaves the choice alone, as on a PC whose adapters
-/// are all one encoding vendor's (or none).
-pub fn pinned(adapters: &[(u32, u64)], display_vendor: Option<u32>) -> Option<usize> {
-    let one_vendor =
-        adapters.iter().all(|(v, _)| is_amd(*v)) || adapters.iter().all(|(v, _)| is_nvidia(*v));
-    if display_vendor.is_some_and(encodes) || one_vendor {
+/// A hardware adapter as the automatic GPU choice ranks it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Ranked {
+    /// The PCI vendor ID.
+    pub vendor: u32,
+    /// Dedicated video memory in bytes (an iGPU's BIOS carve-out, a card's VRAM).
+    pub dedicated_memory: u64,
+    /// Where Windows lists the adapter when asked for the highest-performance
+    /// GPU and when asked for the lowest-power one
+    /// (`IDXGIFactory6::EnumAdapterByGpuPreference`). Microsoft documents the
+    /// first order as external GPUs, then discrete, then integrated, and the
+    /// second as its reverse. None where Windows gives no such order.
+    pub preference: Option<(u32, u32)>,
+}
+impl Ranked {
+    /// An adapter without a Windows preference order, ranked by memory alone.
+    pub fn new(vendor: u32, dedicated_memory: u64) -> Self {
+        Self {
+            vendor,
+            dedicated_memory,
+            preference: None,
+        }
+    }
+}
+
+/// Whether Windows puts `a` in a lower power class than `b`: after it when
+/// asked for performance and before it when asked to save power, as an
+/// integrated GPU against a discrete one or a discrete one against an
+/// external one. Adapters Windows does not classify keep one order in both
+/// lists and are never ranked against each other this way.
+fn lower_class(a: &Ranked, b: &Ranked) -> bool {
+    match (a.preference, b.preference) {
+        (Some((a_fast, a_frugal)), Some((b_fast, b_frugal))) => {
+            a_fast > b_fast && a_frugal < b_frugal
+        }
+        _ => false,
+    }
+}
+
+/// The adapter a stream pins to when no GPU is chosen, by index among the
+/// PC's hardware `adapters`. Not when the display's own GPU (`display_vendor`)
+/// is already AMD or NVIDIA, which capture then uses as it is with that
+/// vendor's encoder, and not on a PC with a single adapter, which Windows
+/// picks anyway. Otherwise it is the AMD or NVIDIA adapter that is discrete
+/// rather than integrated (or external rather than discrete) as Windows ranks
+/// them, and among those the one with the most video memory, the first on a
+/// tie: on a PC that mixes vendors, where Windows would otherwise render and
+/// capture on the wrong one, and on one with an iGPU beside a card of the same
+/// vendor, where it would render a virtual display and probe on the iGPU.
+/// None leaves the choice alone.
+pub fn pinned(adapters: &[Ranked], display_vendor: Option<u32>) -> Option<usize> {
+    if display_vendor.is_some_and(encodes) || adapters.len() < 2 {
         return None;
     }
+    let encoding: Vec<usize> = (0..adapters.len())
+        .filter(|&index| encodes(adapters[index].vendor))
+        .collect();
     let mut best: Option<usize> = None;
-    for (index, (vendor, memory)) in adapters.iter().enumerate() {
-        if encodes(*vendor) && best.is_none_or(|b| *memory > adapters[b].1) {
+    for &index in &encoding {
+        let candidate = &adapters[index];
+        let outranked = encoding
+            .iter()
+            .any(|&other| lower_class(candidate, &adapters[other]));
+        if !outranked
+            && best.is_none_or(|b| candidate.dedicated_memory > adapters[b].dedicated_memory)
+        {
             best = Some(index);
         }
     }
@@ -176,13 +225,13 @@ pub fn pinned(adapters: &[(u32, u64)], display_vendor: Option<u32>) -> Option<us
 }
 
 /// The adapter that probes the encoders when no display gives one, by index
-/// among `adapters` (PCI vendor, dedicated video memory): the one a stream
-/// with no GPU chosen pins to ([`pinned`] with no display), so the codecs the
-/// host reports are those of the GPU that encodes. Otherwise, as on a PC whose
-/// adapters are all one vendor's, AMD first, then NVIDIA ([`preferred`]).
-pub fn headless(adapters: &[(u32, u64)]) -> usize {
+/// among `adapters`: the one a stream with no GPU chosen pins to ([`pinned`]
+/// with no display), so the codecs the host reports in `/serverinfo` are those
+/// of the GPU that encodes. Otherwise, as on a PC with a single adapter, AMD
+/// first, then NVIDIA ([`preferred`]).
+pub fn headless(adapters: &[Ranked]) -> usize {
     pinned(adapters, None).unwrap_or_else(|| {
-        let vendors: Vec<u32> = adapters.iter().map(|(vendor, _)| *vendor).collect();
+        let vendors: Vec<u32> = adapters.iter().map(|adapter| adapter.vendor).collect();
         preferred(&vendors)
     })
 }
@@ -194,37 +243,121 @@ mod tests {
     const GB: u64 = 1 << 30;
     const INTEL: u32 = 0x8086;
 
+    /// Adapters ranked by memory alone, as `(vendor, dedicated memory)`.
+    fn plain(adapters: &[(u32, u64)]) -> Vec<Ranked> {
+        adapters
+            .iter()
+            .map(|&(vendor, memory)| Ranked::new(vendor, memory))
+            .collect()
+    }
+    /// Adapters with Windows' preference orders, as `(vendor, dedicated
+    /// memory, high-performance position, minimum-power position)`.
+    fn ordered(adapters: &[(u32, u64, u32, u32)]) -> Vec<Ranked> {
+        adapters
+            .iter()
+            .map(|&(vendor, dedicated_memory, fast, frugal)| Ranked {
+                vendor,
+                dedicated_memory,
+                preference: Some((fast, frugal)),
+            })
+            .collect()
+    }
+    fn pin(adapters: &[(u32, u64)], display: Option<u32>) -> Option<usize> {
+        pinned(&plain(adapters), display)
+    }
+
     #[test]
     fn a_mixed_pc_pins_the_stream_to_an_encoding_adapter() {
         let (nvidia, amd) = (NVIDIA_VENDOR, AMD_VENDOR);
-        assert_eq!(pinned(&[(INTEL, 0), (amd, GB)], None), Some(1));
-        assert_eq!(pinned(&[(amd, GB), (INTEL, 0)], None), Some(0));
-        assert_eq!(pinned(&[(INTEL, 0), (nvidia, 8 * GB)], None), Some(1));
+        assert_eq!(pin(&[(INTEL, 0), (amd, GB)], None), Some(1));
+        assert_eq!(pin(&[(amd, GB), (INTEL, 0)], None), Some(0));
+        assert_eq!(pin(&[(INTEL, 0), (nvidia, 8 * GB)], None), Some(1));
         // Several Radeons: the one with the most video memory, not the first.
         assert_eq!(
-            pinned(
+            pin(
                 &[(INTEL, 0), (amd, GB), (amd, 12 * GB), (amd, 12 * GB)],
                 None
             ),
             Some(2)
         );
         // An AMD iGPU beside an NVIDIA card: the one with the most memory.
-        assert_eq!(pinned(&[(nvidia, 8 * GB), (amd, GB)], None), Some(0));
-        assert_eq!(pinned(&[(amd, 16 * GB), (nvidia, 8 * GB)], None), Some(0));
+        assert_eq!(pin(&[(nvidia, 8 * GB), (amd, GB)], None), Some(0));
+        assert_eq!(pin(&[(amd, 16 * GB), (nvidia, 8 * GB)], None), Some(0));
         // A display already on an AMD or NVIDIA GPU is left where it is.
         assert_eq!(
-            pinned(&[(nvidia, 8 * GB), (amd, GB), (amd, 12 * GB)], Some(amd)),
+            pin(&[(nvidia, 8 * GB), (amd, GB), (amd, 12 * GB)], Some(amd)),
             None
         );
-        assert_eq!(pinned(&[(nvidia, 8 * GB), (amd, GB)], Some(nvidia)), None);
+        assert_eq!(pin(&[(nvidia, 8 * GB), (amd, GB)], Some(nvidia)), None);
         // A display on an Intel GPU moves to the encoding one.
-        assert_eq!(pinned(&[(INTEL, 0), (amd, GB)], Some(INTEL)), Some(1));
-        assert_eq!(pinned(&[(INTEL, 0), (nvidia, GB)], Some(INTEL)), Some(1));
-        // Nothing to pin on a one-vendor PC, or one with no encoding adapter.
-        assert_eq!(pinned(&[(amd, GB), (amd, 12 * GB)], None), None);
-        assert_eq!(pinned(&[(nvidia, GB), (nvidia, 12 * GB)], None), None);
-        assert_eq!(pinned(&[(INTEL, GB)], None), None);
-        assert_eq!(pinned(&[], None), None);
+        assert_eq!(pin(&[(INTEL, 0), (amd, GB)], Some(INTEL)), Some(1));
+        assert_eq!(pin(&[(INTEL, 0), (nvidia, GB)], Some(INTEL)), Some(1));
+        // Nothing to pin with no encoding adapter.
+        assert_eq!(pin(&[(INTEL, GB)], None), None);
+        assert_eq!(pin(&[(INTEL, GB), (INTEL, 0)], None), None);
+        assert_eq!(pin(&[], None), None);
+    }
+
+    #[test]
+    fn a_lone_gpu_is_left_to_windows() {
+        // The default single-GPU path: nothing pinned, whatever its memory.
+        for vendor in [AMD_VENDOR, NVIDIA_VENDOR, INTEL] {
+            assert_eq!(pin(&[(vendor, 16 * GB)], None), None);
+            assert_eq!(pinned(&ordered(&[(vendor, GB, 0, 0)]), None), None);
+            assert_eq!(headless(&plain(&[(vendor, GB)])), 0);
+        }
+    }
+
+    #[test]
+    fn an_igpu_beside_a_card_of_the_same_vendor_pins_the_card() {
+        let (nvidia, amd) = (NVIDIA_VENDOR, AMD_VENDOR);
+        // A Ryzen desktop's 512 MB iGPU listed before an RX 7900 XT: before,
+        // one vendor pinned nothing and the iGPU rendered and probed.
+        let desktop = [(amd, 512 << 20), (amd, 20 * GB)];
+        assert_eq!(pin(&desktop, None), Some(1));
+        assert_eq!(pin(&[(amd, 20 * GB), (amd, 512 << 20)], None), Some(0));
+        // A Radeon 780M laptop with an RX 7700S, whose firmware gives the
+        // iGPU as much memory as the card: Windows' order decides.
+        let laptop = ordered(&[(amd, 8 * GB, 1, 0), (amd, 8 * GB, 0, 1)]);
+        assert_eq!(pinned(&laptop, None), Some(1));
+        // Even when the iGPU has more memory than the card.
+        let laptop = ordered(&[(amd, 16 * GB, 1, 0), (amd, 8 * GB, 0, 1)]);
+        assert_eq!(pinned(&laptop, None), Some(1));
+        // The NVIDIA shapes: two NVIDIA adapters Windows ranks, and an AMD
+        // iGPU beside an NVIDIA card (MUXless).
+        let nvidia_pair = ordered(&[(nvidia, GB, 1, 0), (nvidia, 8 * GB, 0, 1)]);
+        assert_eq!(pinned(&nvidia_pair, None), Some(1));
+        let muxless = ordered(&[(amd, 16 * GB, 1, 0), (nvidia, 8 * GB, 0, 1)]);
+        assert_eq!(pinned(&muxless, None), Some(1));
+        assert_eq!(pin(&[(nvidia, GB), (nvidia, 8 * GB)], None), Some(1));
+        // A display already on either GPU stays there.
+        assert_eq!(pin(&desktop, Some(amd)), None);
+        assert_eq!(pinned(&muxless, Some(amd)), None);
+    }
+
+    #[test]
+    fn two_cards_pin_the_one_with_more_memory_unless_windows_ranks_them() {
+        let (nvidia, amd) = (NVIDIA_VENDOR, AMD_VENDOR);
+        // Two discrete cards Windows lists in one order for both requests.
+        let pair = ordered(&[(amd, 4 * GB, 0, 0), (amd, 20 * GB, 1, 1)]);
+        assert_eq!(pinned(&pair, None), Some(1));
+        assert_eq!(pin(&[(nvidia, 12 * GB), (nvidia, 24 * GB)], None), Some(1));
+        // Two identical cards: the first.
+        assert_eq!(pin(&[(amd, 20 * GB), (amd, 20 * GB)], None), Some(0));
+        // An external GPU outranks the internal card it was plugged in for.
+        let egpu = ordered(&[
+            (amd, 512 << 20, 2, 0),
+            (amd, 8 * GB, 1, 1),
+            (nvidia, 8 * GB, 0, 2),
+        ]);
+        assert_eq!(pinned(&egpu, None), Some(2));
+        // An Intel adapter's rank never counts: it cannot encode.
+        let intel_first = ordered(&[(INTEL, 0, 0, 1), (amd, 512 << 20, 1, 0)]);
+        assert_eq!(pinned(&intel_first, None), Some(1));
+        // Part of the list without an order: memory alone among those.
+        let mut mixed = ordered(&[(amd, 512 << 20, 1, 0), (amd, 8 * GB, 0, 1)]);
+        mixed[1].preference = None;
+        assert_eq!(pinned(&mixed, None), Some(1));
     }
 
     fn adapter(name: &str, vendor: u32) -> Adapter {
@@ -408,17 +541,22 @@ mod tests {
         let (nvidia, amd) = (NVIDIA_VENDOR, AMD_VENDOR);
         // Issue 134: an AMD iGPU listed before an RTX 5090. The stream encodes
         // on the NVIDIA card, so the probe must not take the first AMD one.
-        let hybrid = [(amd, 512 << 20), (nvidia, 32 * GB)];
+        let hybrid = plain(&[(amd, 512 << 20), (nvidia, 32 * GB)]);
         assert_eq!(headless(&hybrid), 1);
         assert_eq!(Some(headless(&hybrid)), pinned(&hybrid, None));
         // A bigger Radeon beside a small NVIDIA card stays the Radeon.
-        assert_eq!(headless(&[(nvidia, 4 * GB), (amd, 16 * GB)]), 1);
+        assert_eq!(headless(&plain(&[(nvidia, 4 * GB), (amd, 16 * GB)])), 1);
         // An Intel GPU first: the encoding one.
-        assert_eq!(headless(&[(INTEL, 0), (nvidia, 8 * GB)]), 1);
-        // Nothing pinned: AMD first, then NVIDIA, else the first adapter.
-        assert_eq!(headless(&[(amd, GB), (amd, 12 * GB)]), 0);
-        assert_eq!(headless(&[(nvidia, GB), (nvidia, 12 * GB)]), 0);
-        assert_eq!(headless(&[(INTEL, GB)]), 0);
+        assert_eq!(headless(&plain(&[(INTEL, 0), (nvidia, 8 * GB)])), 1);
+        // One vendor's iGPU before its card: the card, whose codecs
+        // `/serverinfo` then reports (AV1 on an RX 7900 XT, which a Ryzen
+        // desktop's iGPU lacks).
+        assert_eq!(headless(&plain(&[(amd, 512 << 20), (amd, 20 * GB)])), 1);
+        assert_eq!(headless(&plain(&[(nvidia, GB), (nvidia, 12 * GB)])), 1);
+        let laptop = ordered(&[(amd, 16 * GB, 1, 0), (amd, 8 * GB, 0, 1)]);
+        assert_eq!(headless(&laptop), 1);
+        // Nothing pinned: the only encoding adapter, else the first.
+        assert_eq!(headless(&plain(&[(INTEL, GB)])), 0);
         assert_eq!(headless(&[]), 0);
     }
 

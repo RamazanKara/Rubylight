@@ -3,7 +3,7 @@
 
 use super::{
     Display, adapter_pnp_id, displays, gpus, hardware_adapter, headless_candidate, output,
-    probe_skips_display, select_display,
+    preference_orders, probe_skips_display, select_display,
 };
 use crate::text::from_wide;
 use anyhow::{Context, Result, bail};
@@ -227,12 +227,18 @@ impl Device {
                 }
                 bail!("{}", encoder_gpu::Refusal::NoGpu);
             }
-            // With no GPU chosen, the adapter a stream pins to (on a PC that
-            // mixes vendors the AMD or NVIDIA one with the most video memory),
-            // else AMD first, then NVIDIA. Neither leaves the first one, which
-            // the encoder refuses.
+            // With no GPU chosen, the adapter a stream pins to (on a PC with
+            // several GPUs the discrete AMD or NVIDIA one), else AMD first,
+            // then NVIDIA. Neither leaves the first one, which the encoder
+            // refuses.
             let descs: Vec<DXGI_ADAPTER_DESC1> = candidates.iter().map(|c| c.2).collect();
-            let (index, adapter, _, description) = candidates.remove(headless_candidate(&descs));
+            let orders = if descs.len() > 1 {
+                preference_orders()
+            } else {
+                Vec::new()
+            };
+            let (index, adapter, _, description) =
+                candidates.remove(headless_candidate(&descs, &orders));
             let display = Display {
                 device_id: String::new(),
                 display_name: String::new(),

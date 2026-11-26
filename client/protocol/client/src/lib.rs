@@ -10,6 +10,7 @@ pub mod control;
 pub mod crypto;
 pub mod fec;
 pub mod frame_warp;
+pub mod frame_warp_v2;
 pub use nightjar_policy::full_chroma;
 pub mod host_loss;
 pub mod hosts;

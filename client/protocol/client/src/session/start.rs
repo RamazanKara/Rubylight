@@ -314,9 +314,17 @@ pub(super) fn start(
         )?;
     parts.control = Some(control.clone());
     if let Some(warp) = config.frame_warp.as_ref().filter(|_| !config.remote_monitor) {
-        let request = warp.request(true);
-        match control.send(ClientMessage::FrameWarpRequest(request)) {
-            Ok(()) => listener.log("Frame Warp: asked the host for its model, tags and HUD mask"),
+        // Frame Warp 2 when the host announced its meta (0x5549); a host that runs Frame Warp 1
+        // gets version 1's request, and the log and the statistics say so.
+        let v2 = control.send(ClientMessage::FrameWarpRequestV2(warp.request_v2(true)));
+        let sent = match v2 {
+            Ok(()) => Ok("Frame Warp 2: asked the host for its model, tags, HUD mask and meta"),
+            Err(_) => control
+                .send(ClientMessage::FrameWarpRequest(warp.request(true)))
+                .map(|()| "Frame Warp: the host runs Frame Warp 1, so Frame Warp 2 is off"),
+        };
+        match sent {
+            Ok(text) => listener.log(text),
             Err(error) => listener.log(&format!("Frame Warp: the host does not offer it ({error:?})")),
         }
     }

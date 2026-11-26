@@ -161,8 +161,16 @@ impl RequestV2 {
         out[0] = VERSION;
         out[3] = u8::from(self.base.lens)
             | if self.gyro { request_flags::GYRO } else { 0 }
-            | if self.edge_v2 { request_flags::EDGE_V2 } else { 0 }
-            | if self.confidence_v2 { request_flags::CONFIDENCE_V2 } else { 0 };
+            | if self.edge_v2 {
+                request_flags::EDGE_V2
+            } else {
+                0
+            }
+            | if self.confidence_v2 {
+                request_flags::CONFIDENCE_V2
+            } else {
+                0
+            };
         out[8] = match self.gyro_controller {
             Some(number) if number < MAX_CONTROLLERS => number,
             _ => NO_CONTROLLER,

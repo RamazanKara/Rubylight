@@ -331,10 +331,10 @@ fn the_warp_row_is_zero_without_a_shift_and_names_the_mask_only_when_bound() {
     assert_eq!(draw.row(true), [0.01, -0.02, 64.0, 36.0]);
     assert_eq!(draw.row(false), [0.01, -0.02, 0.0, 0.0], "a mask that could not be bound is none");
     assert_eq!(draw.lens_row(), FLAT, "a flat picture");
-    let inactive = Warp { pixels: [0.001, 0.0], uv: [0.000_001, 0.0], lens: [0.1, 0.0, 1.0, 1.01], active: false, mask_generation: None };
+    let inactive = Warp { pixels: [0.001, 0.0], uv: [0.000_001, 0.0], lens: [0.1, 0.0, 1.0, 1.01], active: false, mask_generation: None , ..Warp::default() };
     assert!(WarpDraw::of(&inactive, None).is_identity());
     assert_eq!(WarpDraw::of(&inactive, None).lens, FLAT);
-    let without_mask = Warp { pixels: [5.0, 0.0], uv: [0.005, 0.0], lens: [0.02, 0.0, 1.0, 1.0001], active: true, mask_generation: None };
+    let without_mask = Warp { pixels: [5.0, 0.0], uv: [0.005, 0.0], lens: [0.02, 0.0, 1.0, 1.0001], active: true, mask_generation: None , ..Warp::default() };
     assert_eq!(WarpDraw::of(&without_mask, None).lens_row(), [0.02, 0.0, 1.0, 1.0001], "the lens goes to the shaders");
     let held = Arc::new(Hud::new(Arc::new(Mask::new(1, 1, 1))));
     assert!(WarpDraw::of(&without_mask, Some(&held)).hud.is_none(), "the predictor knows no mask");

@@ -272,6 +272,13 @@ pub(super) fn note_sent(frame_warp: Option<&crate::frame_warp::FrameWarp>, event
             right_stick,
             ..
         } => frame_warp.note_controller(number, right_stick),
+        InputEvent::ControllerMotion {
+            number,
+            motion_type,
+            x,
+            y,
+            z,
+        } => frame_warp.note_motion(number, motion_type, [x, y, z]),
         _ => {}
     }
 }

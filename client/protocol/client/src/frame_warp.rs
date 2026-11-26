@@ -24,6 +24,7 @@ pub use rubylight_protocol::frame_warp::{
     FRAME_WARP_MODEL_MESSAGE_TYPE, FRAME_WARP_REQUEST_MESSAGE_TYPE, FRAME_WARP_TAGS_MESSAGE_TYPE,
     SERVERINFO_FIELD,
 };
+use crate::frame_warp_v2::{FrameWarpV2Meta, GyroAxes, RequestV2, YawSource, V1_ROW, V2};
 use rubylight_protocol::frame_warp::{stick_curve, HELD_NONE};
 
 /// Input idle this long has reached the picture: the next tag rebases the sums.
@@ -147,11 +148,15 @@ pub struct Warp {
     pub active: bool,
     /// The HUD mask to keep unshifted, by generation; `None` for none.
     pub mask_generation: Option<u16>,
+    /// Frame Warp 2's shader row ([`crate::frame_warp_v2::V2::row`]): the edge fill's strength,
+    /// the HUD probe's reach in mask cells, the confidence and the flags. [`V1_ROW`] draws
+    /// exactly as Frame Warp 1.
+    pub v2: [f32; 4],
 }
 
 impl Default for Warp {
     fn default() -> Self {
-        Self { pixels: [0.0; 2], uv: [0.0; 2], lens: FLAT, active: false, mask_generation: None }
+        Self { pixels: [0.0; 2], uv: [0.0; 2], lens: FLAT, active: false, mask_generation: None, v2: V1_ROW }
     }
 }
 
@@ -170,6 +175,8 @@ pub struct Status {
     pub untagged: u64,
     /// Cells set in the HUD mask.
     pub mask_cells: usize,
+    /// Frame Warp 2's state, when the stream runs it (the host announced 0x5549).
+    pub v2: Option<crate::frame_warp_v2::Status>,
 }
 
 /// Frame Warp for one stream (see the module documentation).
@@ -188,6 +195,8 @@ pub struct FrameWarp {
     stick: AtomicU32,
     /// The stick dead zone of the host's latest model (`f32` bits; 0 before one).
     stick_deadzone: AtomicU32,
+    /// The stream runs Frame Warp 2 ([`FrameWarp::request_v2`]): motion packets are counted.
+    v2: AtomicBool,
 }
 
 impl FrameWarp {
@@ -205,6 +214,7 @@ impl FrameWarp {
             input_seq: AtomicU32::new(0),
             stick: AtomicU32::new(0),
             stick_deadzone: AtomicU32::new(0.0f32.to_bits()),
+            v2: AtomicBool::new(false),
         })
     }
 
@@ -218,12 +228,37 @@ impl FrameWarp {
             *self.mask.lock().unwrap_or_else(|e| e.into_inner()) = None;
             self.stick_deadzone.store(0.0f32.to_bits(), Ordering::Release);
         }
+        self.v2.store(false, Ordering::Release);
+        self.predictor().set_v2(None);
         FrameWarpRequest {
             enabled,
             controller: self.controller,
             mask_max_width: self.mask_max_width,
             lens: true,
         }
+    }
+
+    /// [`FrameWarp::request`] as version 2, for a host that announced 0x5549: the tracked pad's
+    /// gyro turns the camera too (the host finds its yaw axis), the edge fill and HUD probe are
+    /// Frame Warp 2's, and the shift fades with the host's confidence. A host that turns the
+    /// request down gets [`FrameWarp::request`] next, which runs Frame Warp 1.
+    pub fn request_v2(&self, enabled: bool) -> RequestV2 {
+        let base = self.request(enabled);
+        let request = RequestV2 {
+            gyro: self.controller.is_some(),
+            edge_v2: true,
+            confidence_v2: true,
+            axes: GyroAxes { yaw: YawSource::Auto, ..GyroAxes::default() },
+            ..RequestV2::new(base)
+        };
+        self.predictor().set_v2(Some(request));
+        self.v2.store(true, Ordering::Release);
+        request
+    }
+
+    /// Whether the stream runs Frame Warp 2.
+    pub fn is_v2(&self) -> bool {
+        self.v2.load(Ordering::Acquire)
     }
 
     fn us(&self, at: Instant) -> u64 {
@@ -284,6 +319,23 @@ impl FrameWarp {
     pub fn on_tags(&self, tags: &Tags) {
         let now = self.us(Instant::now());
         self.predictor().on_tags(tags, now);
+    }
+
+    /// A motion packet as it goes on the wire (x, y, z as sent): the gyro of Frame Warp 2.
+    pub fn note_motion(&self, number: u8, kind: u8, xyz: [f32; 3]) {
+        if !self.is_v2() {
+            return;
+        }
+        let now = self.us(Instant::now());
+        if self.predictor().note_motion(number, kind, xyz, now) {
+            self.input_seq.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
+    /// A Frame Warp 2 meta from the host (0x5549).
+    pub fn on_meta(&self, meta: FrameWarpV2Meta) {
+        let now = self.us(Instant::now());
+        self.predictor().on_meta(meta, now);
     }
 
     pub fn on_mask(&self, mask: Mask) {
@@ -369,6 +421,7 @@ pub struct Predictor {
     stick: VecDeque<StickSample>,
     mask_generation: Option<u16>,
     mask_cells: usize,
+    v2: Option<V2>,
     last: [f32; 2],
     peaks: VecDeque<(u64, f32)>,
     warped: u64,
@@ -405,6 +458,7 @@ impl Predictor {
             warped: 0,
             extrapolated: 0,
             untagged: 0,
+            v2: None,
         }
     }
 
@@ -444,6 +498,23 @@ impl Predictor {
             self.fading = Some(model);
         }
         self.model = Some(model);
+    }
+
+    /// Runs Frame Warp 2 for `request`, or Frame Warp 1 for `None`.
+    pub fn set_v2(&mut self, request: Option<RequestV2>) {
+        if self.v2.as_ref().map(V2::request) != request.as_ref() {
+            self.v2 = request.map(V2::new);
+        }
+    }
+
+    pub fn note_motion(&mut self, number: u8, kind: u8, xyz: [f32; 3], now_us: u64) -> bool {
+        self.v2.as_mut().is_some_and(|v2| v2.note_motion(number, kind, xyz, now_us))
+    }
+
+    pub fn on_meta(&mut self, meta: FrameWarpV2Meta, now_us: u64) {
+        if let Some(v2) = self.v2.as_mut() {
+            v2.on_meta(meta, now_us);
+        }
     }
 
     pub fn on_mask(&mut self, generation: Option<u16>, cells: usize) {
@@ -588,7 +659,9 @@ impl Predictor {
     }
 
     fn shift(&mut self, frame: u32, now_us: u64, drawn: bool) -> Warp {
-        let locked = self.model.is_some_and(|m| m.locked());
+        // The gyro alone locks a stream too: a player who aims by it may not touch the mouse.
+        let gyro = self.v2.as_ref().is_some_and(V2::gyro_locked) && self.model.is_some();
+        let locked = gyro || self.model.is_some_and(|m| m.locked());
         self.update_weight(locked, now_us);
         let model = if locked { self.model } else { self.fading };
         let Some(model) = model.filter(|_| self.weight > 0.0) else {
@@ -631,8 +704,15 @@ impl Predictor {
             shift[0] += model.stick_gain[0] * seconds[0];
             shift[1] += model.stick_gain[1] * seconds[1];
         }
+        let (mut confidence, mut row) = (1.0, V1_ROW);
+        if let Some(v2) = self.v2.as_mut() {
+            let turn = v2.gyro_shift(frame, now_us);
+            shift = [shift[0] + turn[0], shift[1] + turn[1]];
+            confidence = v2.confidence(now_us);
+            row = v2.row(frame);
+        }
         for (value, limit) in shift.iter_mut().zip(model.max_offset) {
-            *value = value.clamp(-limit, limit) * self.weight;
+            *value = value.clamp(-limit, limit) * self.weight * confidence;
         }
         // Under a lens the picture turns rather than slides, and its centre moves by the tangent.
         let (shift, lens) = match model.lens() {
@@ -653,6 +733,7 @@ impl Predictor {
             lens: if active { lens } else { FLAT },
             active,
             mask_generation: self.mask_generation.filter(|_| active),
+            v2: if active { row } else { V1_ROW },
         }
     }
 
@@ -689,6 +770,7 @@ impl Predictor {
             extrapolated: self.extrapolated,
             untagged: self.untagged,
             mask_cells: self.mask_cells,
+            v2: self.v2.as_ref().map(V2::status),
         }
     }
 }

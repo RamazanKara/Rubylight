@@ -82,10 +82,7 @@ fn request_v2_rejects_bad_fields() {
     assert_eq!(none.gyro_pad(), None, "no gyro without the flag");
     assert_eq!(none.max_offset(), DEFAULT_MAX_OFFSET);
     // The gyro falls back to the stick's pad.
-    let same = RequestV2 {
-        gyro: true,
-        ..none
-    };
+    let same = RequestV2 { gyro: true, ..none };
     assert_eq!(same.gyro_pad(), Some(3));
 }
 
@@ -204,7 +201,10 @@ fn gyro_rate_maps_axes_to_yaw_and_pitch() {
     };
     assert_eq!(gyro_rate(deg, auto, true), [-30.0 * r, -10.0 * r]);
     assert_eq!(gyro_rate(deg, auto, false), [-20.0 * r, -10.0 * r]);
-    assert_eq!(gyro_rate([f32::NAN, f32::INFINITY, 0.0], level, false), [0.0, 0.0]);
+    assert_eq!(
+        gyro_rate([f32::NAN, f32::INFINITY, 0.0], level, false),
+        [0.0, 0.0]
+    );
 }
 
 #[test]
@@ -215,8 +215,16 @@ fn gyro_bias_learns_only_while_still_and_alike_on_both_ends() {
     for _ in 0..2000 {
         assert_eq!(host.observe(drift), client.observe(drift));
     }
-    assert!((host.bias()[0] - drift[0]).abs() < 1e-4, "{:?}", host.bias());
-    assert!((host.bias()[1] - drift[1]).abs() < 1e-4, "{:?}", host.bias());
+    assert!(
+        (host.bias()[0] - drift[0]).abs() < 1e-4,
+        "{:?}",
+        host.bias()
+    );
+    assert!(
+        (host.bias()[1] - drift[1]).abs() < 1e-4,
+        "{:?}",
+        host.bias()
+    );
     // A turn is not still: the bias holds through it.
     let before = host.bias();
     for _ in 0..100 {

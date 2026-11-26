@@ -57,6 +57,7 @@ fn warps_encode_their_mask_and_inactive_draws_as_is() {
         lens: [0.05, -0.02, 1.001, 1.004],
         active: false,
         mask_generation: Some(3),
+        ..Warp::default()
     };
     assert_eq!(WARP_STILL, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0], "no shift, a flat picture");
     assert_eq!(encode_warp(&inactive), (WARP_INACTIVE, WARP_STILL));

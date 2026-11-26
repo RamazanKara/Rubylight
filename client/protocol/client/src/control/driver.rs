@@ -252,11 +252,18 @@ pub fn connect(
     if config.input_disabled {
         input.disable();
     }
+    let speaker_owners = config
+        .ps_speaker
+        .then(|| Arc::new(super::ps_speaker::Owners::default()));
+    input.set_ps_speaker(speaker_owners.clone());
     let shared = Arc::new(Shared {
         input: Mutex::new(input),
         session: Mutex::new({
             let mut session = ControlSession::new(caps, key, options);
             session.set_frame_warp(config.frame_warp.clone());
+            if let Some(owners) = speaker_owners {
+                session.set_ps_speaker(owners);
+            }
             session
         }),
         stop: AtomicBool::new(false),

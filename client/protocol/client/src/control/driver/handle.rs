@@ -59,6 +59,9 @@ pub struct DriverConfig {
     pub unbatched_input: bool,
     /// Never send input ([`InputQueue::disable`]), for remote monitor sessions.
     pub input_disabled: bool,
+    /// The ANNOUNCE asked for controller speaker PCM (0x5602): the input queue binds
+    /// PlayStation controllers and the session takes their blocks.
+    pub ps_speaker: bool,
     /// The client's roaming setting. Probes go out only when the host also advertised
     /// roaming ([`super::HostCapabilities::client_roaming`]).
     pub roaming: bool,
@@ -83,6 +86,7 @@ impl DriverConfig {
             linger: Duration::from_secs(2),
             unbatched_input: false,
             input_disabled: false,
+            ps_speaker: false,
             roaming: false,
             roam_seq: LaunchSeq::default(),
             warn: Warn::default(),

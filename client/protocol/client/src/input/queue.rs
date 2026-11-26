@@ -179,6 +179,8 @@ pub struct InputQueue {
     held: Held,
     /// Counts relative mouse motion and controller packets as they leave, for Frame Warp.
     frame_warp: Option<std::sync::Arc<crate::frame_warp::FrameWarp>>,
+    /// Where speaker bindings go, when the ANNOUNCE asked for speaker PCM (0x5602).
+    ps_speaker: Option<std::sync::Arc<crate::control::ps_speaker::Owners>>,
 }
 
 impl InputQueue {
@@ -212,6 +214,7 @@ impl InputQueue {
             holding: false,
             held: Held::default(),
             frame_warp: None,
+            ps_speaker: None,
         };
         if caps.version_at_least(7, 1, 0) {
             let _ = queue.offer(Entry::Event(Pending::new(InputEvent::EnableHaptics)));
@@ -286,6 +289,15 @@ impl InputQueue {
     /// Counts what leaves from now on for Frame Warp (`crate::frame_warp`).
     pub fn set_frame_warp(&mut self, frame_warp: Option<std::sync::Arc<crate::frame_warp::FrameWarp>>) {
         self.frame_warp = frame_warp;
+    }
+
+    /// Binds PlayStation controllers whose arrival asks for speaker PCM, noting owners in
+    /// `owners`; without it (the default) their arrival loses that capability.
+    pub fn set_ps_speaker(
+        &mut self,
+        owners: Option<std::sync::Arc<crate::control::ps_speaker::Owners>>,
+    ) {
+        self.ps_speaker = owners;
     }
 
     fn motion_interval(&self) -> Duration {

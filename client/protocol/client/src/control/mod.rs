@@ -17,6 +17,7 @@ pub mod events;
 pub mod haptics;
 pub mod messages;
 pub mod negotiation;
+pub mod ps_speaker;
 pub mod session;
 pub mod wire;
 

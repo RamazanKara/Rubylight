@@ -42,6 +42,8 @@ fn params<'a>(
         audio_codec_accept: None,
         video_fec_percentage: None,
         max_video_packet: 0,
+        host_control_messages: &[],
+        host_feature_flags: 0,
     }
 }
 
@@ -520,4 +522,40 @@ fn host_requested_encryption_overrides_the_client_opt_out_only_on_request() {
     assert_eq!(generate(&p).encryption_enabled, 1);
     p.mic_port = 48001;
     assert_eq!(generate(&p).encryption_enabled, 9);
+}
+
+#[test]
+fn speaker_pcm_is_asked_only_of_a_host_without_0x5533_or_touchpad_packets() {
+    let config = StreamConfig {
+        width: 1920,
+        height: 1080,
+        fps: 60,
+        bitrate_kbps: 20000,
+        packet_size: 1392,
+        encryption_flags: ENCFLG_ALL,
+        ps_speaker_pcm: true,
+        ..Default::default()
+    };
+    let ask = |config: &StreamConfig, messages: &[u16], features: u32, supported: u32| {
+        let mut p = params(config, SUNSHINE, "192.168.1.20", VIDEO_FORMAT_H265);
+        p.encryption_supported = supported;
+        p.host_control_messages = messages;
+        p.host_feature_flags = features;
+        let sdp = generate(&p);
+        let flag = sdp.text.contains("a=x-ml-general.featureFlags:11 ");
+        assert_eq!(flag, sdp.ps_speaker_pcm, "{}", sdp.text);
+        sdp.ps_speaker_pcm
+    };
+    assert!(ask(&config, &[], 3, SS_ENC_CONTROL_V2), "Vibepollo");
+    assert!(!ask(&config, &[0x5530, 0x5533], 3, SS_ENC_CONTROL_V2), "Rubylight");
+    assert!(!ask(&config, &[], 0x13, SS_ENC_CONTROL_V2), "Foundation touchpad");
+    assert!(!ask(&config, &[], 3, 0), "old control encryption");
+    let unasked = StreamConfig {
+        ps_speaker_pcm: false,
+        ..config.clone()
+    };
+    assert!(!ask(&unasked, &[], 3, SS_ENC_CONTROL_V2));
+    let mut gfe = params(&config, [7, 1, 431, 0], "192.168.1.20", VIDEO_FORMAT_H265);
+    gfe.encryption_supported = SS_ENC_CONTROL_V2;
+    assert!(!generate(&gfe).ps_speaker_pcm, "GameStream");
 }

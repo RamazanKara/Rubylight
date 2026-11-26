@@ -38,6 +38,8 @@ pub mod ptype {
     pub const CONTROLLER_SPEAKER: u16 = 0x5533;
     pub const CONTROLLER_MICROPHONE: u16 = 0x5534;
     pub const CONTROLLER_AUDIO_CONTROL: u16 = 0x5535;
+    /// Nonary's PlayStation controller speaker PCM (host to client), for a bound controller.
+    pub const PS_SPEAKER_PCM: u16 = rubylight_protocol::ps_speaker_pcm::PS_SPEAKER_PCM_MESSAGE_TYPE;
     pub const PHASE_LOCK_REPORT: u16 = rubylight_protocol::phase_lock::REPORT_MESSAGE_TYPE;
     pub const DISPLAY_CAPS: u16 = rubylight_protocol::control::DISPLAY_CAPS_MESSAGE_TYPE;
     pub const RECONFIGURE: u16 = rubylight_protocol::control::RECONFIGURE_MESSAGE_TYPE;

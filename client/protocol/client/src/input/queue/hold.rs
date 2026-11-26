@@ -19,6 +19,7 @@ pub(super) struct Held {
     controllers: [Option<Pending>; MAX_CONTROLLERS as usize],
     arrivals: [Option<Pending>; MAX_CONTROLLERS as usize],
     identities: [Option<Pending>; MAX_CONTROLLERS as usize],
+    speaker_bindings: [Option<Pending>; MAX_CONTROLLERS as usize],
     motion: [[Option<Pending>; MAX_MOTION_TYPES]; MAX_CONTROLLERS as usize],
     batteries: [Option<Pending>; MAX_CONTROLLERS as usize],
     touch: Option<Pending>,
@@ -35,6 +36,7 @@ impl Default for Held {
             controllers: Default::default(),
             arrivals: Default::default(),
             identities: Default::default(),
+            speaker_bindings: Default::default(),
             motion: Default::default(),
             batteries: Default::default(),
             touch: None,
@@ -81,6 +83,11 @@ impl InputQueue {
             }
             InputEvent::ControllerIdentity { number, .. } => {
                 if let Some(slot) = held.identities.get_mut(usize::from(number)) {
+                    *slot = Some(pending);
+                }
+            }
+            InputEvent::SpeakerBinding { number, .. } => {
+                if let Some(slot) = held.speaker_bindings.get_mut(usize::from(number)) {
                     *slot = Some(pending);
                 }
             }
@@ -195,8 +202,14 @@ impl InputQueue {
                 })
             )
         };
-        // Each identity goes before the arrivals: the host picks the pad on arrival.
-        for slot in held.identities.iter().chain(&held.arrivals) {
+        // Each identity and speaker binding goes before the arrivals: the host picks the pad
+        // and takes the binding on arrival.
+        for slot in held
+            .identities
+            .iter()
+            .chain(&held.speaker_bindings)
+            .chain(&held.arrivals)
+        {
             send(slot, out);
         }
         for slot in held

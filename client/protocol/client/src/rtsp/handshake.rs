@@ -201,6 +201,7 @@ impl Handshake {
                 host_control_messages: Vec::new(),
                 host_roaming: false,
                 host_pen_barrel_roll: false,
+                ps_speaker_pcm: false,
                 microphone: mic,
                 opus: OpusConfigs::default(),
                 high_quality_surround_enabled: false,
@@ -415,7 +416,10 @@ impl Handshake {
                 .fec_summaries
                 .then(|| self.out.config.video_fec.summary_percentage()),
             max_video_packet: describe.max_video_packet,
+            host_control_messages: &describe.control_messages,
+            host_feature_flags: describe.sunshine_feature_flags,
         });
+        self.out.ps_speaker_pcm = sdp.ps_speaker_pcm;
         self.out.audio_codec = audio_codec;
         self.out.encryption_enabled = sdp.encryption_enabled;
         self.out.audio_encryption_enabled = sdp.audio_encryption_enabled;

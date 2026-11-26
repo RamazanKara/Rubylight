@@ -251,6 +251,7 @@ pub(super) fn start(
     driver_config.connect_data = outcome.control_connect_data;
     driver_config.network_grace = config.network_grace;
     driver_config.unbatched_input = config.unbatched_input;
+    driver_config.ps_speaker = outcome.ps_speaker_pcm;
     driver_config.input_disabled = config.remote_monitor;
     driver_config.frame_warp = config.frame_warp.clone().filter(|_| !config.remote_monitor);
     driver_config.warn = driver::Warn::new({

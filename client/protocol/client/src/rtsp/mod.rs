@@ -195,6 +195,8 @@ pub struct RtspOutcome {
     /// The stream takes pen barrel roll (`a=x-ss-general.penBarrelRoll:1`); send it only
     /// with `Feature::PenBarrelRoll` too.
     pub host_pen_barrel_roll: bool,
+    /// The ANNOUNCE asked for controller speaker PCM (0x5602): bind PlayStation controllers.
+    pub ps_speaker_pcm: bool,
     pub microphone: MicrophoneState,
     pub opus: OpusConfigs,
     pub high_quality_surround_enabled: bool,

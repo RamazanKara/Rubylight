@@ -137,6 +137,8 @@ pub struct ControlSession {
     /// Frame Warp's shared state, fed the host's model, tags and mask while requested.
     frame_warp: Option<std::sync::Arc<crate::frame_warp::FrameWarp>>,
     frame_warp_on: bool,
+    /// Speaker PCM (0x5602) for the controllers the input queue bound, when the ANNOUNCE asked.
+    ps_speaker: Option<super::ps_speaker::Receiver>,
 }
 
 impl ControlSession {
@@ -175,6 +177,7 @@ impl ControlSession {
             clock_sync_sequence: 0,
             frame_warp: None,
             frame_warp_on: false,
+            ps_speaker: None,
         }
     }
 
@@ -186,6 +189,11 @@ impl ControlSession {
     /// enables them.
     pub fn set_frame_warp(&mut self, frame_warp: Option<std::sync::Arc<crate::frame_warp::FrameWarp>>) {
         self.frame_warp = frame_warp;
+    }
+
+    /// Takes speaker PCM for the controllers bound in `owners` (the ANNOUNCE asked for it).
+    pub fn set_ps_speaker(&mut self, owners: std::sync::Arc<super::ps_speaker::Owners>) {
+        self.ps_speaker = Some(super::ps_speaker::Receiver::new(owners));
     }
 
     /// Queues Start A and Start B; the periodic ping starts with the next [`Self::poll`].
@@ -670,6 +678,11 @@ impl ControlSession {
             ptype::STEAM_SETTINGS if extensions => Some(events::steam_settings(p)),
             ptype::CONTROLLER_HAPTICS if extensions => events::controller_haptics(p),
             ptype::CONTROLLER_SPEAKER if extensions => events::controller_speaker(p),
+            ptype::PS_SPEAKER_PCM if extensions => self
+                .ps_speaker
+                .as_mut()
+                .and_then(|speaker| speaker.admit(p))
+                .map(ControlEvent::ControllerSpeaker),
             ptype::CONTROLLER_AUDIO_CONTROL if extensions => events::controller_audio_control(p),
             ptype::HOST_TIMING if extensions => events::host_timing(p),
             ptype::CLOCK_SYNC if extensions => events::clock_sync(p, now),

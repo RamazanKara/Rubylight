@@ -178,6 +178,9 @@ pub struct StreamConfig {
     pub audio_passthrough: u8,
     /// Ask for PCM controller haptics (Nightjar's USB DualSense setting).
     pub haptics_pcm: bool,
+    /// Ask for Nonary's controller speaker PCM (0x5602) where `control::ps_speaker::offer`
+    /// allows it: the app plays a controller speaker.
+    pub ps_speaker_pcm: bool,
     /// The user turned the microphone on.
     pub microphone: bool,
     /// The host frames PyroWave records (HostCapabilities PyroWaveRecords).
@@ -224,6 +227,7 @@ impl Default for StreamConfig {
             audio_capabilities: 0,
             audio_passthrough: 0,
             haptics_pcm: false,
+            ps_speaker_pcm: false,
             microphone: false,
             pyrowave_records_supported: false,
             pyrowave_row_order: false,
@@ -288,6 +292,10 @@ pub struct SdpParams<'a> {
     /// for, including the 32-byte encryption header. 0 sends stock packets, whatever
     /// [`StreamConfig::packet_size`] says.
     pub max_video_packet: u16,
+    /// The DESCRIBE answer's `a=x-rl-control` ids, which decide speaker PCM with the next.
+    pub host_control_messages: &'a [u16],
+    /// The DESCRIBE answer's `x-ss-general.featureFlags`.
+    pub host_feature_flags: u32,
 }
 
 /// `asked` when it is exactly one bit of `offered`.
@@ -362,6 +370,8 @@ pub struct Sdp {
     pub color_range: i32,
     /// The description asks for a full-range Dolby Vision 8.1 stream.
     pub dolby_vision_full_range: bool,
+    /// The description asks for controller speaker PCM (0x5602).
+    pub ps_speaker_pcm: bool,
 }
 
 /// The URL form of an address: IPv6 in brackets.
@@ -394,11 +404,19 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
     let mut a = Attributes(String::new());
     let mut enabled = 0u32;
     let mut audio_encryption = false;
+    let ps_speaker_pcm = crate::control::ps_speaker::offer(
+        c.ps_speaker_pcm,
+        sunshine,
+        p.encryption_supported & SS_ENC_CONTROL_V2 != 0,
+        p.host_control_messages,
+        p.host_feature_flags,
+    );
 
     if sunshine {
         let flags = ML_FF_FEC_STATUS
             | ML_FF_SESSION_ID_V1
-            | if c.haptics_pcm { ML_FF_HAPTICS_PCM } else { 0 };
+            | if c.haptics_pcm { ML_FF_HAPTICS_PCM } else { 0 }
+            | if ps_speaker_pcm { crate::control::ps_speaker::FEATURE } else { 0 };
         a.add("x-ml-general.featureFlags", flags);
         // New-style control encryption is cheap, so it is on whenever supported.
         if p.encryption_supported & SS_ENC_CONTROL_V2 != 0 {
@@ -692,6 +710,7 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
         hdr_format: hdr_format.unwrap_or(0),
         color_range,
         dolby_vision_full_range,
+        ps_speaker_pcm,
     }
 }
 

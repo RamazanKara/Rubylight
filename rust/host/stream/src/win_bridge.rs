@@ -212,7 +212,7 @@ pub(crate) fn render_resolver(
         if let Some(warnings) = &warnings {
             match &resolved {
                 Ok(_) => warnings.clear(RENDER_GPU_WARNING),
-                Err(error) => warnings.set(RENDER_GPU_WARNING, format!("{error:#}")),
+                Err(error) => warnings.set(RENDER_GPU_WARNING, &format!("{error:#}")),
             }
         }
         resolved

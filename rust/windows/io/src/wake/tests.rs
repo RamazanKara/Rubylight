@@ -356,3 +356,50 @@ fn a_child_past_its_timeout_is_stopped() {
     assert!(status.success());
     assert_eq!(stdout.trim(), "x marks it");
 }
+
+#[test]
+fn a_streams_display_request_keeps_the_display_on_while_held() -> Result<()> {
+    use windows::Win32::System::Power::{ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED};
+    let wanted = ES_DISPLAY_REQUIRED.0 | ES_SYSTEM_REQUIRED.0;
+    let request = PowerRequest::display_required("Rubylight wake test")?;
+    let held = execution_state()?;
+    assert_eq!(held & wanted, wanted, "execution state {held:#x}");
+    drop(request);
+    Ok(())
+}
+
+const HOLD_DISPLAY: &str = "BUTTERPOLLO_TEST_HOLD_DISPLAY_REQUEST";
+
+/// Issue #117: a stream's display request ends with the stream's process,
+/// even when it is killed rather than dropping its leases.
+#[test]
+#[ignore = "run on an idle PC whose display nothing else keeps on: see powercfg /requests"]
+fn a_killed_processs_display_request_ends_with_it() -> Result<()> {
+    use windows::Win32::System::Power::ES_DISPLAY_REQUIRED;
+    const NAME: &str = "wake::tests::a_killed_processs_display_request_ends_with_it";
+    if std::env::var_os(HOLD_DISPLAY).is_some() {
+        let _request = PowerRequest::display_required("Rubylight wake test")?;
+        std::thread::sleep(Duration::from_secs(60));
+        return Ok(());
+    }
+    let required = ES_DISPLAY_REQUIRED.0;
+    let before = execution_state()?;
+    anyhow::ensure!(
+        before & required == 0,
+        "inconclusive: ES_DISPLAY_REQUIRED is already set ({before:#x}); see powercfg /requests"
+    );
+    let mut child = std::process::Command::new(std::env::current_exe()?)
+        .args([NAME, "--exact", "--ignored", "--nocapture"])
+        .env(HOLD_DISPLAY, "1")
+        .spawn()?;
+    std::thread::sleep(Duration::from_secs(4));
+    let held = execution_state()?;
+    child.kill()?;
+    child.wait()?;
+    std::thread::sleep(Duration::from_millis(500));
+    let after = execution_state()?;
+    println!("execution state: before {before:#x}, held {held:#x}, after {after:#x}");
+    assert_ne!(held & required, 0, "the child's request is not visible");
+    assert_eq!(after & required, 0, "the request outlived the killed child");
+    Ok(())
+}

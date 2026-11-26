@@ -137,6 +137,7 @@ pub mod bitstream;
 pub mod capture_policy;
 pub mod clock_sync;
 pub mod codec_support;
+pub mod cold_launch;
 pub mod congestion;
 pub mod display_caps;
 pub mod display_policy;

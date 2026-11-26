@@ -64,13 +64,13 @@
         <td class="numeric num">{size(clip.size_bytes)}</td>
         <td class="row-actions">
           <Button size="sm" variant="ghost" icon="play" onclick={() => onpreview(clip)}>
-            Preview<span class="visually-hidden"> {clipName(clip)}</span>
+            Preview<span class="visually-hidden">{` ${clipName(clip)}`}</span>
           </Button>
           <Button size="sm" variant="ghost" icon="download" href={clipDownloadUrl(clip.id)}>
-            Download<span class="visually-hidden"> {clipName(clip)}</span>
+            Download<span class="visually-hidden">{` ${clipName(clip)}`}</span>
           </Button>
           <Button size="sm" variant="ghost" icon="trash" busy={deleting === clip.id} onclick={() => ondelete(clip)}>
-            Delete<span class="visually-hidden"> {clipName(clip)}</span>
+            Delete<span class="visually-hidden">{` ${clipName(clip)}`}</span>
           </Button>
         </td>
       </tr>

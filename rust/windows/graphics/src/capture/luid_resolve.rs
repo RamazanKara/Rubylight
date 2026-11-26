@@ -143,7 +143,9 @@ mod tests {
         // A chosen GPU that is gone: the reason, never another GPU.
         let text = format!(
             "{:#}",
-            render_gpu(&gpus, "", r"PCI\VEN_10DE&DEV_2684\9").unwrap_err()
+            render_gpu(&gpus, "", r"PCI\VEN_10DE&DEV_2684\9")
+                .map(|gpu| gpu.map(|gpu| gpu.luid))
+                .unwrap_err()
         );
         assert!(
             text.contains(r"(PCI\VEN_10DE&DEV_2684\9) is not available"),

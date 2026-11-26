@@ -175,12 +175,15 @@ impl Gpu {
         }
     }
 }
+/// An adapter LUID with its place in Windows' high-performance and
+/// minimum-power orders.
+pub(super) type Ranking = ((u32, i32), (u32, u32));
 /// Where Windows lists each adapter, by LUID, when asked for the
 /// highest-performance GPU and when asked for the lowest-power one: external
 /// GPUs, then discrete, then integrated, and the reverse, as
 /// `IDXGIFactory6::EnumAdapterByGpuPreference` documents. Empty where Windows
 /// has no such order (before Windows 10 1803). Listing creates no device.
-pub(super) fn preference_orders() -> Vec<((u32, i32), (u32, u32))> {
+pub(super) fn preference_orders() -> Vec<Ranking> {
     // SAFETY: The factory and adapters are live COM objects returned by these calls, and
     // GetDesc1 returns an owned struct.
     unsafe {
@@ -207,10 +210,7 @@ pub(super) fn preference_orders() -> Vec<((u32, i32), (u32, u32))> {
     }
 }
 /// Each LUID of both lists with its position in each.
-pub(super) fn orders_by_luid(
-    fast: &[(u32, i32)],
-    frugal: &[(u32, i32)],
-) -> Vec<((u32, i32), (u32, u32))> {
+pub(super) fn orders_by_luid(fast: &[(u32, i32)], frugal: &[(u32, i32)]) -> Vec<Ranking> {
     fast.iter()
         .enumerate()
         .filter_map(|(position, luid)| {
@@ -219,7 +219,7 @@ pub(super) fn orders_by_luid(
         })
         .collect()
 }
-fn preference_of(orders: &[((u32, i32), (u32, u32))], luid: (u32, i32)) -> Option<(u32, u32)> {
+fn preference_of(orders: &[Ranking], luid: (u32, i32)) -> Option<(u32, u32)> {
     orders
         .iter()
         .find(|(l, _)| *l == luid)
@@ -235,10 +235,7 @@ pub(super) fn hardware_adapter(desc: &DXGI_ADAPTER_DESC1) -> bool {
 /// when no display gives one: [`encoder_gpu::headless`] over their vendors,
 /// dedicated video memory and Windows' preference `orders`, as the stream pins
 /// with no GPU chosen. Its encoders give the codecs `/serverinfo` reports.
-pub(super) fn headless_candidate(
-    candidates: &[DXGI_ADAPTER_DESC1],
-    orders: &[((u32, i32), (u32, u32))],
-) -> usize {
+pub(super) fn headless_candidate(candidates: &[DXGI_ADAPTER_DESC1], orders: &[Ranking]) -> usize {
     let adapters: Vec<encoder_gpu::Ranked> = candidates
         .iter()
         .map(|desc| encoder_gpu::Ranked {

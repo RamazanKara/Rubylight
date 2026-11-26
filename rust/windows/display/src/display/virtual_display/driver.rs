@@ -155,7 +155,8 @@ pub fn configured_render_adapter_with(
 /// Windows may list that GPU under another LUID, and the frozen one would
 /// name no GPU.
 #[derive(Clone)]
-pub struct RenderResolver(std::sync::Arc<dyn Fn() -> Result<Option<RenderAdapter>> + Send + Sync>);
+pub struct RenderResolver(std::sync::Arc<Resolve>);
+type Resolve = dyn Fn() -> Result<Option<RenderAdapter>> + Send + Sync;
 impl RenderResolver {
     pub fn new(
         resolve: impl Fn() -> Result<Option<RenderAdapter>> + Send + Sync + 'static,

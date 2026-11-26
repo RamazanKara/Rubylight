@@ -1,7 +1,7 @@
 {
   "state": "refused",
   "reason": "anti_cheat_detected",
-  "message": "This game uses anti-cheat protection and cannot be paused safely.",
+  "message": "Anti-cheat protection (Easy Anti-Cheat) runs on this PC, so no game is paused while it does.",
   "app_title": "Arena Shooter",
   "suspended_count": 0,
   "suspended_since_unix_ms": null,

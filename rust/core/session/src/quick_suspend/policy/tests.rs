@@ -64,7 +64,7 @@ fn a_reused_id_is_neither_a_root_nor_a_child() {
 }
 
 #[test]
-fn an_anti_cheat_in_the_tree_or_started_with_the_game_refuses_everything() {
+fn an_anti_cheat_in_the_tree_or_anywhere_on_the_pc_refuses_everything() {
     let mut all = table();
     all.push(process(3500, 3000, 34 * MINUTE, "EasyAntiCheat_EOS.exe"));
     let refused = plan(&owned(&[(3000, 30 * MINUTE)]), &all, HOST).unwrap_err();
@@ -79,10 +79,18 @@ fn an_anti_cheat_in_the_tree_or_started_with_the_game_refuses_everything() {
             .reason,
         Reason::AntiCheatDetected
     );
-    // One that has run since long before the game belongs to another game.
-    let mut all = table();
-    all.push(process(7000, 650, 2, "vgc.exe"));
-    assert!(plan(&owned(&[(3000, 30 * MINUTE)]), &all, HOST).is_ok());
+    // One that has run since the PC started, or whose start is unknown, may
+    // watch this game too.
+    for started in [2, 0] {
+        let mut all = table();
+        all.push(process(7000, 650, started, "vgc.exe"));
+        let refused = plan(&owned(&[(3000, 30 * MINUTE)]), &all, HOST).unwrap_err();
+        assert_eq!(
+            (refused.reason, refused.program.as_deref()),
+            (Reason::AntiCheatDetected, Some("Riot Vanguard")),
+            "{started}"
+        );
+    }
     for name in [
         "EAAntiCheat.GameService.exe",
         "vgc.exe",
@@ -120,13 +128,15 @@ fn system_processes_and_the_host_are_never_suspended() {
 fn launchers_and_console_hosts_keep_running() {
     let mut all = table();
     all.push(process(3700, 3000, 36 * MINUTE, "conhost.exe"));
+    all.push(process(2200, 2000, 22 * MINUTE, "UnrealCEFSubProcess.exe"));
     let plan = plan(&owned(&[(2000, 20 * MINUTE)]), &all, HOST).unwrap();
     // Steam is the tracked root here: it and its helper stay, the game goes.
     assert!(!pids(&plan).contains(&2000));
     assert!(!pids(&plan).contains(&2100));
     assert!(!pids(&plan).contains(&3700));
+    assert!(!pids(&plan).contains(&2200));
     assert!(pids(&plan).contains(&3000));
-    assert_eq!(plan.left_running.len(), 3);
+    assert_eq!(plan.left_running.len(), 4);
     // Only a launcher runs: nothing to pause.
     let refused = super::plan(&owned(&[(2100, 21 * MINUTE)]), &all, HOST).unwrap_err();
     assert_eq!(refused.reason, Reason::NoOwnedProcess);

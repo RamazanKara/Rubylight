@@ -81,11 +81,13 @@ const HELPERS: &[&str] = &[
     "gameoverlayui64.exe",
     "epicwebhelper.exe",
     "socialclubhelper.exe",
+    // A launcher's own browser and helper processes: its window hangs without them.
+    "unrealcefsubprocess.exe",
+    "qtwebengineprocess.exe",
+    "galaxyclient helper.exe",
+    "battle.net helper.exe",
+    "uplaywebcore.exe",
 ];
-
-/// How long before the game an anti-cheat that started still counts as the
-/// game's (100 ns units): five minutes.
-pub const ANTI_CHEAT_LEAD: u64 = 5 * 60 * 10_000_000;
 
 /// The anti-cheat `name` belongs to, if any.
 pub fn anti_cheat(name: &str) -> Option<&'static str> {
@@ -154,16 +156,10 @@ pub fn plan(owned: &BTreeMap<u32, u64>, all: &[Process], host_pid: u32) -> Resul
             return Err(Refused::new(Reason::DenylistedProcess, Some(&process.name)));
         }
     }
-    // An anti-cheat started with the game, shortly before it or after it,
-    // anywhere on the PC (a service runs in another session and descends from
-    // no game; a protected launcher starts it before the game).
-    let game_started = tree.iter().map(|(_, p)| p.started).min().unwrap_or(0);
-    let since = game_started.saturating_sub(ANTI_CHEAT_LEAD);
-    if let Some(name) = all
-        .iter()
-        .filter(|p| p.started != 0 && p.started >= since)
-        .find_map(|p| anti_cheat(&p.name))
-    {
+    // An anti-cheat anywhere on the PC, whenever it started: a service runs in
+    // another session and descends from no game, and a launcher or the PC's
+    // start may have started it long before the game it watches.
+    if let Some(name) = all.iter().find_map(|p| anti_cheat(&p.name)) {
         return Err(Refused::new(Reason::AntiCheatDetected, Some(name)));
     }
     let (kept, mut targets): (Vec<_>, Vec<_>) = tree
@@ -176,7 +172,7 @@ pub fn plan(owned: &BTreeMap<u32, u64>, all: &[Process], host_pid: u32) -> Resul
         ));
     }
     // Deepest first; a stable sort keeps siblings in the order found.
-    targets.sort_by(|a, b| b.0.cmp(&a.0));
+    targets.sort_by_key(|target| std::cmp::Reverse(target.0));
     Ok(Plan {
         targets: targets
             .into_iter()
@@ -195,12 +191,12 @@ pub fn message(refused: &Refused) -> String {
     let program = refused.program.as_deref().unwrap_or("a process");
     match refused.reason {
         Reason::None => String::new(),
-        Reason::DisabledForApp => "Quick Suspend is off for this game. Turn it on in the host's settings to pause it between sessions.".into(),
+        Reason::DisabledForApp => "Quick Suspend is off on this PC. Turn it on in the host's settings, under App behavior, to pause games.".into(),
         Reason::NoOwnedProcess => match &refused.program {
             Some(launcher) => format!("Only {launcher} runs for this app, and Quick Suspend never pauses a launcher."),
             None => "Quick Suspend works only for games Rubylight launched, not Desktop sessions.".into(),
         },
-        Reason::AntiCheatDetected => format!("This game uses anti-cheat protection ({program}) and cannot be paused safely."),
+        Reason::AntiCheatDetected => format!("Anti-cheat protection ({program}) runs on this PC, so no game is paused while it does."),
         Reason::ProtectedProcess => format!("Windows blocked pausing {program}, so the game was left running."),
         Reason::DenylistedProcess => format!("The game's processes include {program}, which Quick Suspend never pauses."),
         Reason::GuestsActive => "The game cannot be suspended while guests are watching or playing.".into(),
@@ -208,7 +204,7 @@ pub fn message(refused: &Refused) -> String {
         Reason::NotOwner => "Only the device that started the game, or one with host control, can suspend or resume it.".into(),
         Reason::SessionBusy => "A launch or a session end is under way; try again in a moment.".into(),
         Reason::NoSession => "No game is running.".into(),
-        Reason::IoOrOsError => format!("Windows could not pause {program}; everything paused was resumed."),
+        Reason::IoOrOsError => format!("Windows could not pause or resume {program}. Rubylight resumes whatever it paused as soon as it can."),
     }
 }
 

@@ -127,7 +127,7 @@ The host says what it offers in three places: serverinfo fields ([`serverinfo_fi
 
 1. The route and its methods in [`token_catalog`](../rust/host/web/src/web.rs) when an API token may call it, then the arm in [`api`](../rust/host/web/src/web.rs). [`guard`](../rust/host/web/src/web.rs) does sign-in, CSRF and token scope for every route.
 2. The handler in `rust/host/web/src/web/`, with tests beside it. `docs/api.md` lists the route.
-3. A typed call in `rust/web/src/lib/api.ts`, a component under `rust/web/src/components/`, a page in `rust/web/src/pages/` routed from `rust/web/src/App.svelte`.
+3. A typed call in `rust/web/src/lib/api.ts` (an area with several routes binds its own module, such as `rust/web/src/lib/api/dvr.ts` for Stream DVR's Clips page), a component under `rust/web/src/components/`, a page in `rust/web/src/pages/` routed from `rust/web/src/App.svelte`.
 4. A `*.test.mjs` beside `rust/web/package.json`; a reply in `rust/web/scripts/screenshots.cjs` when a screenshot shows the page.
 
 ## The narrowest test

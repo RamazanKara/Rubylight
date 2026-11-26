@@ -42,6 +42,12 @@ export const advanced: NavItem[] = [
     icon: 'logs',
     keywords: 'history past streams stats device game fps bitrate loss duration ended failed',
   },
+  {
+    path: '/clips',
+    label: 'Clips',
+    icon: 'film',
+    keywords: 'stream dvr instant replay save clip recording record video mp4 highlights',
+  },
   { path: '/logs', label: 'Logs', icon: 'logs', keywords: 'log file' },
   { path: '/stream', label: 'Stream in the browser', icon: 'play', keywords: 'webrtc browser play' },
   { path: '/tokens', label: 'API tokens', icon: 'key', keywords: 'api token automation' },

@@ -45,6 +45,9 @@
     mute: 'M4 9.5h3.5L12 6v12l-4.5-3.5H4zM16 9.5l5 5M21 9.5l-5 5',
     fullscreen: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
     stats: 'M5 20v-9M12 20V4M19 20v-6',
+    // Stream DVR: a saved clip (a film strip) and recording (a ring around a dot).
+    film: 'M4 4h16v16H4zM8 4v16M16 4v16M4 8h4M4 12h4M4 16h4M16 8h4M16 12h4M16 16h4',
+    record: 'M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
   } as const;
   export type IconName = keyof typeof paths;
 </script>

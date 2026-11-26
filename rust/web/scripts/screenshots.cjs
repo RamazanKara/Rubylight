@@ -18,6 +18,8 @@
 // host (scripts/fake-stream.cjs lists the states); SHOT_PAD=xbox, playstation or nintendo holds that pad,
 // and SHOT_HOLD=Escape holds a key for the second that opens the play dock, after the clicks.
 // SHOT_SETTLE=ms waits once more right before the shot (the stats capsule's second look).
+// SHOT_CLIPS sets the Clips page (SHOT_PAGES=/clips): full (saved clips, replay armed), empty, near-full (quota),
+// recording, off (Instant replay turned off) or pyrowave (a PyroWave stream cannot be clipped).
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -184,6 +186,29 @@ const sessionHistory = [
 ];
 replies['/api/sessions/history'] = { status: true, limit: 200, days: 90, bytes: 262_144, sessions: sessionsState === 'empty' ? [] : sessionHistory };
 if (sessionsState === 'live') replies['/api/rtsp/sessions'] = { status: true, sessions: [liveStream()] };
+// SHOT_CLIPS: Stream DVR on the Clips page (/api/dvr and /api/dvr/clips).
+const clipsState = process.env.SHOT_CLIPS || 'full';
+const CLIPS = ['full', 'empty', 'near-full', 'recording', 'off', 'pyrowave'];
+if (!CLIPS.includes(clipsState)) throw new Error(`SHOT_CLIPS is one of ${CLIPS.join(', ')}, not ${clipsState}`);
+const GiB = 1024 ** 3;
+const clipUsed = { 'near-full': 19.2 * GiB, empty: 0 }[clipsState] ?? 4.2 * GiB;
+const savedAgo = (minutes) => Date.now() - minutes * 60_000;
+const clipFixture = [
+  ['clip_portal2_01', 'Portal 2', 4, 60_000, 2400, 1080, 120, 'hevc', false, 92 * 1024 ** 2, 'replay', false],
+  ['clip_forza5_rec', 'Forza Horizon 5', 95, 754_000, 3840, 2160, 60, 'av1', true, 2.4 * GiB, 'manual', false],
+  ['clip_hades2_002', 'Hades II', 1_500, 30_000, 1920, 1080, 60, 'h264', false, 41 * 1024 ** 2, 'replay', false],
+  ['clip_mirage_rec', 'Assassin’s Creed Mirage', 4_400, 1_312_000, 2560, 1440, 60, 'hevc', true, 1.7 * GiB, 'manual', true],
+].map(([id, app_title, minutes, duration_ms, width, height, fps, codec, hdr, size_bytes, kind, recovered]) => ({
+  id, app_title, created_unix_ms: savedAgo(minutes), duration_ms, width, height, fps, codec, hdr, container: 'mp4', size_bytes, kind, recovered }));
+replies['/api/dvr'] = {
+  state: { recording: 'recording', off: 'off', pyrowave: 'unsupported' }[clipsState] ?? 'armed',
+  reason: { off: 'disabled', pyrowave: 'pyrowave' }[clipsState] ?? 'none',
+  ring_buffered_secs: clipsState === 'off' ? 0 : 48, ring_capacity_secs: 60, recording: clipsState === 'recording',
+  recording_elapsed_secs: clipsState === 'recording' ? 134 : 0, quota_used_bytes: clipUsed, quota_limit_bytes: 20 * GiB,
+  clips_dir_available: true, container: 'mp4', enabled: clipsState !== 'off', clips_dir: 'D:\\Clips\\Rubylight',
+};
+replies['/api/dvr/clips'] = { clips: clipsState === 'empty' ? [] : clipFixture, next_cursor: null,
+  quota_used_bytes: clipUsed, quota_limit_bytes: 20 * GiB };
 /** Requests for the device list so far: paired-now pairs Pixel 9 after the first. */
 let clientLists = 0;
 const pixel = { uuid: 'phone', name: 'Pixel 9', enabled: true, connected: false, perm: 0x071f1f00 };

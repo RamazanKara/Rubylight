@@ -184,7 +184,7 @@ pub fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Res
         || matches!(control, Some(Control::Resume | Control::RunningGame))
         || (control == Some(Control::Monitor) && owner == remote::Owner::Monitor)
         || guest.is_some();
-    let result = (|| -> Result<(String, String)> {
+    let result = (|| -> Result<Started> {
         if let Some(id) = guest
             && !h.device_guests.guest_live(&h, id)
         {
@@ -276,11 +276,8 @@ pub fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Res
                 .unplug(&crate::controller_sessions::key(&launch));
             return Err(LaunchFailure(403, butterpollo_session::multiclient::REVOKED).into());
         }
-        let host = match connection.local.ip() {
-            std::net::IpAddr::V4(ip) => ip.to_string(),
-            std::net::IpAddr::V6(ip) => format!("[{ip}]"),
-        };
-        Ok((reply.into(), format!("{scheme}://{host}:{rtsp_port}")))
+        let url = rtsp_url(scheme, connection.local.ip(), rtsp_port);
+        Ok(started(&launch, control, reply, url))
     })();
     if result.is_ok() {
         attempt.succeeded();

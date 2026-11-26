@@ -681,23 +681,55 @@ pub(super) fn retain_launch_app(
         }
     }
 }
+/// The setup fallback a successful launch reports to the client, if any; a control tile's
+/// launch (Resume, Running Game) reports none.
+pub(super) fn launch_warning(
+    launch: &Launch,
+    control: Option<Control>,
+) -> Option<(String, String)> {
+    if control.is_some() {
+        return None;
+    }
+    butterpollo_session::launch_warning::pick(&launch.warnings.snapshot())
+}
+/// A started session's reply key (`gamesession` or `resume`), RTSP URL and launch warning.
+pub type Started = (String, String, Option<(String, String)>);
+/// The session URL a launch reply names, on the address the client reached.
+pub(super) fn rtsp_url(scheme: &str, local: std::net::IpAddr, port: u16) -> String {
+    match local {
+        std::net::IpAddr::V4(ip) => format!("{scheme}://{ip}:{port}"),
+        std::net::IpAddr::V6(ip) => format!("{scheme}://[{ip}]:{port}"),
+    }
+}
+pub(super) fn started(
+    launch: &Launch,
+    control: Option<Control>,
+    reply: &str,
+    url: String,
+) -> Started {
+    (reply.into(), url, launch_warning(launch, control))
+}
 pub fn launch_response(
-    result: Result<(String, String)>,
+    result: Result<Started>,
     requested: u32,
     reply: &str,
     resume: bool,
     driver_ready: bool,
 ) -> Response {
     match result {
-        Ok((key, url)) => xml(
-            200,
-            &[
+        Ok((key, url, warning)) => {
+            let mut fields = vec![
                 (key.as_str(), "1".into()),
                 ("sessionUrl0", url),
                 ("VirtualDisplayDriverReady", driver_ready.to_string()),
-            ],
-            None,
-        ),
+            ];
+            // Additive: clients that do not know these tags ignore them.
+            if let Some((code, message)) = warning {
+                fields.push(("clientWarning", code));
+                fields.push(("clientWarningMessage", message));
+            }
+            xml(200, &fields, None)
+        }
         Err(error) => {
             tracing::warn!(
                 error = %format!("{error:#}"),

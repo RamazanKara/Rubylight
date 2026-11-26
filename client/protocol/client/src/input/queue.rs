@@ -181,6 +181,9 @@ pub struct InputQueue {
     frame_warp: Option<std::sync::Arc<crate::frame_warp::FrameWarp>>,
     /// Where speaker bindings go, when the ANNOUNCE asked for speaker PCM (0x5602).
     ps_speaker: Option<std::sync::Arc<crate::control::ps_speaker::Owners>>,
+    /// The slots the host has a controller in, as the last arrival and controller packet told
+    /// it: it ignores a speaker binding for one of them.
+    speaker_slots: u16,
 }
 
 impl InputQueue {
@@ -215,6 +218,7 @@ impl InputQueue {
             held: Held::default(),
             frame_warp: None,
             ps_speaker: None,
+            speaker_slots: 0,
         };
         if caps.version_at_least(7, 1, 0) {
             let _ = queue.offer(Entry::Event(Pending::new(InputEvent::EnableHaptics)));

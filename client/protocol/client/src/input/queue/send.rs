@@ -154,6 +154,7 @@ impl InputQueue {
             }
             number % u16::from(GFE_CONTROLLERS)
         };
+        self.speaker_slots = active_mask;
         let event = InputEvent::Controller {
             number,
             active_mask,
@@ -275,10 +276,22 @@ impl InputQueue {
         let Some(owners) = self.ps_speaker.clone() else {
             return capabilities & !PS_SPEAKER_CAPABILITY;
         };
-        owners.set(number, 0);
+        let present = self.speaker_slots & (1 << number) != 0;
+        self.speaker_slots |= 1 << number;
         if capabilities & PS_SPEAKER_CAPABILITY == 0 {
+            owners.set(number, 0);
             return capabilities;
         }
+        if present {
+            // The same controller announced again (its audio changed): the host ignores a
+            // binding for its slot, and one that keeps the binding it took plays on.
+            return if owners.get(u16::from(number)) != 0 {
+                capabilities
+            } else {
+                capabilities & !PS_SPEAKER_CAPABILITY
+            };
+        }
+        owners.set(number, 0);
         let bound = crate::control::ps_speaker::next_owner().filter(|owner| {
             self.offer_event(InputEvent::SpeakerBinding {
                 number,

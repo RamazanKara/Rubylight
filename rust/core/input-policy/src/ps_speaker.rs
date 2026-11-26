@@ -89,8 +89,10 @@ impl Speakers {
 
     /// Controller `id`'s arrival: whether it takes the speaker, and the capabilities the rest of
     /// the host sees. A PlayStation arrival without a pending binding on a negotiated session
-    /// loses [`PS_SPEAKER_CAPABILITY`], so nothing reads it as asking for speaker sound; every
-    /// other type keeps its 0x4000 (a Steam Controller's attributes).
+    /// loses [`PS_SPEAKER_CAPABILITY`], so nothing reads it as asking for speaker sound, unless
+    /// it announces a bound controller that never left again (a binding for its slot would have
+    /// been ignored): that one keeps its binding. Every other type keeps its 0x4000 (a Steam
+    /// Controller's attributes).
     pub fn arrival(
         &mut self,
         id: u8,
@@ -101,8 +103,17 @@ impl Speakers {
         let Some(slot) = (id < 16).then_some(usize::from(id)) else {
             return (capabilities, false);
         };
+        let present = self.active & (1 << id) != 0;
         self.active |= 1 << id;
         let owner = std::mem::take(&mut self.pending[slot]);
+        if owner == 0
+            && present
+            && self.owners[slot] != 0
+            && negotiated
+            && speaker_capable(kind, capabilities)
+        {
+            return (capabilities, true);
+        }
         self.reset(slot);
         if negotiated && owner != 0 && speaker_capable(kind, capabilities) {
             self.owners[slot] = owner;
@@ -234,6 +245,13 @@ mod tests {
         assert_eq!(s.bound_mask(), 1 << 2);
         // The slot is taken now: a second binding for it is refused.
         assert_eq!(s.bind(&binding(2, 78), true), Err(Refused::SlotInUse));
+        // Announced again without leaving, it keeps the binding; without 0x4000 it loses it.
+        assert_eq!(s.arrival(2, CTYPE_PS, 0x4000, true), (0x4000, true));
+        assert_eq!(s.owners[2], 77);
+        assert_eq!(s.arrival(2, CTYPE_PS, 0x8000, true), (0x8000, false));
+        assert!(!s.bound(2));
+        assert_eq!(s.arrival(2, CTYPE_PS, 0x4000, true), (0, false));
+        assert_eq!(s.bind(&binding(2, 79), true), Err(Refused::SlotInUse));
         // Leaving frees it; the next arrival without a binding has no speaker.
         s.controllers(0);
         assert!(!s.bound(2));

@@ -58,12 +58,40 @@ fn a_playstation_arrival_is_bound_first_on_its_own_channel() {
         (channel, *kind, *capabilities),
         (arrival_channel, CTYPE_PS, 0xC000)
     );
-    // A later arrival in the slot binds a new owner.
+    // Once it has left, a later arrival in the slot binds a new owner.
     let first = owners.get(3);
+    q.send_controller(3, 0, 0, 0, 0, (0, 0), (0, 0)).unwrap();
+    sent(&mut q);
     q.send_controller_arrival(3, 1 << 3, CTYPE_PS, 0, PS_SPEAKER_CAPABILITY)
         .unwrap();
     let packets = sent(&mut q);
     assert!(matches!(&packets[0], (_, Ok(b)) if b.owner == owners.get(3) && b.owner != first));
+}
+
+#[test]
+fn a_controller_announced_again_keeps_its_binding() {
+    let owners = Arc::new(Owners::default());
+    let mut q = queue(&sunshine());
+    q.set_ps_speaker(Some(owners.clone()));
+    q.send_controller_arrival(1, 0b10, CTYPE_PS, 0, PS_SPEAKER_CAPABILITY)
+        .unwrap();
+    let owner = owners.get(1);
+    sent(&mut q);
+    // Its audio changed: the host has it and would ignore a second binding.
+    q.send_controller_arrival(1, 0b10, CTYPE_PS, 0, PS_SPEAKER_CAPABILITY | 0x8000)
+        .unwrap();
+    let packets = sent(&mut q);
+    assert!(packets.iter().all(|(_, read)| read.is_err()), "{packets:?}");
+    assert_eq!(arrival_caps(&packets), [0xC000]);
+    assert_eq!(owners.get(1), owner);
+    // A slot the host has without a binding gets none either, nor 0x4000.
+    q.send_controller_arrival(1, 0b10, CTYPE_PS, 0, 0).unwrap();
+    q.send_controller_arrival(1, 0b10, CTYPE_PS, 0, PS_SPEAKER_CAPABILITY)
+        .unwrap();
+    let packets = sent(&mut q);
+    assert!(packets.iter().all(|(_, read)| read.is_err()), "{packets:?}");
+    assert_eq!(arrival_caps(&packets), [0, 0]);
+    assert_eq!(owners.get(1), 0);
 }
 
 #[test]

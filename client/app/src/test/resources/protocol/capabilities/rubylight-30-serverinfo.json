@@ -62,6 +62,7 @@
     "pc_restart": "unsupported",
     "pc_shutdown": "unsupported",
     "host_update": "unsupported",
-    "pairing_approve": "unsupported"
+    "pairing_approve": "unsupported",
+    "quick_suspend": "unsupported"
   }
 }

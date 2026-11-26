@@ -453,3 +453,38 @@ fn frame_warp_needs_frame_warp_protocol_2() {
         stored
     );
 }
+
+#[test]
+fn quick_suspend_needs_the_serverinfo_field_the_native_feature_and_launch_or_host_control() {
+    let xml =
+        include_str!("../../../../app/src/test/resources/protocol/rubylight-30-serverinfo.xml");
+    let native = |features: &str, launch: bool, host_control: bool| {
+        serde_json::from_str::<NativeCapabilities>(&format!(
+            r#"{{"api_version":1,"host":{{"name":"RL","version":"7.0.0","unique_id":"rl"}},"features":[{features}],"permissions":{{"list":true,"view":true,"launch":{launch},"host_control":{host_control}}}}}"#
+        ))
+        .unwrap()
+    };
+    // The setting off: neither the field nor the feature.
+    let off = HostCapabilities::from_server_info_xml(xml).unwrap();
+    assert_eq!(
+        off.availability(Feature::QuickSuspend),
+        Availability::Unsupported(None)
+    );
+    let listed = r#""session.quick_suspend""#;
+    assert!(!off.with_native(&native(listed, true, false)).has(Feature::QuickSuspend));
+    // On: known once the native capabilities answer.
+    let on_xml = xml.replace("</root>", "<QuickSuspendVersion>1</QuickSuspendVersion></root>");
+    let on = HostCapabilities::from_server_info_xml(&on_xml).unwrap();
+    assert_eq!(
+        on.availability(Feature::QuickSuspend),
+        Availability::Unknown
+    );
+    assert!(on.with_native(&native(listed, true, false)).has(Feature::QuickSuspend));
+    assert!(on.with_native(&native(listed, false, true)).has(Feature::QuickSuspend));
+    assert!(!on.with_native(&native(listed, false, false)).has(Feature::QuickSuspend));
+    assert!(!on.with_native(&native("", true, true)).has(Feature::QuickSuspend));
+    // The cache keeps it.
+    let cached = on.with_native(&native(listed, true, false));
+    let json = cached.to_versioned_json().unwrap();
+    assert!(HostCapabilities::from_versioned_json(&json).has(Feature::QuickSuspend));
+}

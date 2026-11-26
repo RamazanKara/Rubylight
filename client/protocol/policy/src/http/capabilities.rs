@@ -471,6 +471,16 @@ impl Evidence {
                 self.pairing_offered,
                 (!self.pairing_permission).then_some(Reason::PairingApprovePermission),
             ),
+            // Serverinfo first: a host with the setting off lists neither, and says so before
+            // its native capabilities are read.
+            Feature::QuickSuspend => {
+                let version = self.serverinfo_version(self.quick_suspend_version);
+                if version.is_supported() {
+                    self.native_feature(self.quick_suspend_offered, None)
+                } else {
+                    version
+                }
+            }
         }
     }
 
@@ -564,6 +574,9 @@ impl HostCapabilities {
         evidence.update_offered = listed("update") && permissions.host_control;
         evidence.pairing_offered = listed("pairing.approve");
         evidence.pairing_permission = native.files.pairing_approve || permissions.host_control;
+        // Pausing or resuming takes Launch or Host control.
+        evidence.quick_suspend_offered = listed(rubylight_native_api::feature::QUICK_SUSPEND)
+            && (permissions.launch || permissions.host_control);
         Self::from_evidence(evidence)
     }
 

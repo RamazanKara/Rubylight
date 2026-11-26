@@ -84,6 +84,7 @@ fn feature_key(feature: Feature) -> &'static str {
         Feature::MicOnly => "mic_only",
         Feature::ContinueHere => "continue_here",
         Feature::InternetPlay => "internet_play",
+        Feature::QuickSuspend => "quick_suspend",
     }
 }
 

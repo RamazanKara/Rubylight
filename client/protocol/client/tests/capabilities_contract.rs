@@ -114,6 +114,7 @@ fn feature_name(feature: Feature) -> &'static str {
         Feature::PcShutdown => "pc_shutdown",
         Feature::HostUpdate => "host_update",
         Feature::PairingApprove => "pairing_approve",
+        Feature::QuickSuspend => "quick_suspend",
     }
 }
 

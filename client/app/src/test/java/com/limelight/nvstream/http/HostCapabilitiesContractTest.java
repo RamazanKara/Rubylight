@@ -95,6 +95,7 @@ public class HostCapabilitiesContractTest {
             case PC_SHUTDOWN: return "pc_shutdown";
             case HOST_UPDATE: return "host_update";
             case PAIRING_APPROVE: return "pairing_approve";
+            case QUICK_SUSPEND: return "quick_suspend";
             default: return null;
         }
     }

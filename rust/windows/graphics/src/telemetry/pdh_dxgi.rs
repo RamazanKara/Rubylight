@@ -361,9 +361,11 @@ fn values(counter: PDH_HCOUNTER) -> Vec<(String, f64)> {
             )
         })
         .filter_map(|item| {
-            // SAFETY: PDH wrote a NUL-terminated name inside `buffer` and a double value.
+            // SAFETY: PDH wrote a NUL-terminated name inside `buffer`, which outlives this read.
             let name = unsafe { item.szName.to_string() }.ok()?;
-            Some((name, unsafe { item.FmtValue.Anonymous.doubleValue }))
+            // SAFETY: PDH_FMT_DOUBLE was asked for, so the union holds `doubleValue`.
+            let value = unsafe { item.FmtValue.Anonymous.doubleValue };
+            Some((name, value))
         })
         .collect()
 }

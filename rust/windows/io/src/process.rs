@@ -27,6 +27,8 @@ mod listing;
 mod security;
 mod session;
 mod spawn;
+pub mod suspend;
+pub mod suspend_watch;
 mod tokens;
 
 use control::HostStop;

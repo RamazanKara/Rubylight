@@ -94,7 +94,7 @@ fn every_desktop_offer_is_a_tile_the_model_knows_with_a_label() {
     let layout = layout(&everything(), 1);
     let ids: Vec<_> = layout.grid.iter().filter_map(|cell| match cell { Cell::Tile { id, .. } => Some(*id), _ => None }).collect();
     assert_eq!(ids, ["controller_mouse", "overlay", "shortcuts", "microphone", "bitrate", "clipboard_send", "clipboard_receive",
-        "server_commands", "native_page", "more"]);
+        "server_commands", "native_page", "suspend_game", "more"]);
     for id in ids {
         assert!(!label(id).is_empty());
     }

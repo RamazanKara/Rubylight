@@ -2,11 +2,11 @@
 <resources>
     <string name="quick_suspend_paused">Oyun bilgisayarda duraklatıldı. Devam etmek için yayın menüsünü açın.</string>
     <string name="quick_suspend_resumed">Oyuna devam edildi.</string>
-    <string name="quick_suspend_refused_anti_cheat">Bu oyun hile önleyici kullanıyor, bu yüzden bilgisayar onu duraklatmaz.</string>
+    <string name="quick_suspend_refused_anti_cheat">Bilgisayarda hile önleyici çalışıyor, bu yüzden oyunu duraklatmaz.</string>
     <string name="quick_suspend_refused_protected">Bu oyunla birlikte korumalı veya sistem programı çalışıyor, bu yüzden bilgisayar onu duraklatmaz.</string>
     <string name="quick_suspend_refused_others">Başkaları oynuyor veya izliyor, bu yüzden bilgisayar oyunu duraklatmaz.</string>
     <string name="quick_suspend_refused_not_owner">Oyunu yalnızca onu başlatan cihaz veya ana makine denetimi olan bir cihaz duraklatabilir.</string>
     <string name="quick_suspend_refused_busy">Oyun başlıyor veya kapanıyor. Birazdan tekrar deneyin.</string>
     <string name="quick_suspend_refused_nothing">Şu anda bilgisayarın duraklatabileceği bir oyun yok.</string>
-    <string name="quick_suspend_refused_failed">Bilgisayar oyunu duraklatamadı, bu yüzden hiçbir şey duraklatılmış kalmadı.</string>
+    <string name="quick_suspend_refused_failed">Bilgisayar oyunu duraklatamadı veya sürdüremedi. Duraklattığını en kısa sürede sürdürür.</string>
 </resources>

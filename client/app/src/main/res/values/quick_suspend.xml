@@ -3,11 +3,11 @@
     <!-- Quick Suspend in the stream (protocol/policy/src/quick_suspend.rs holds this English). -->
     <string name="quick_suspend_paused">The game is paused on the PC. Open the stream menu to resume it.</string>
     <string name="quick_suspend_resumed">Game resumed.</string>
-    <string name="quick_suspend_refused_anti_cheat">This game runs anti-cheat, so the PC won’t pause it.</string>
+    <string name="quick_suspend_refused_anti_cheat">Anti-cheat runs on the PC, so it won’t pause the game.</string>
     <string name="quick_suspend_refused_protected">A protected or system program runs with this game, so the PC won’t pause it.</string>
     <string name="quick_suspend_refused_others">Others are playing or watching, so the PC won’t pause the game.</string>
     <string name="quick_suspend_refused_not_owner">Only the device that started the game, or one with host control, can pause it.</string>
     <string name="quick_suspend_refused_busy">The game is starting or stopping. Try again in a moment.</string>
     <string name="quick_suspend_refused_nothing">There is no game the PC can pause right now.</string>
-    <string name="quick_suspend_refused_failed">The PC couldn’t pause the game, so nothing stays paused.</string>
+    <string name="quick_suspend_refused_failed">The PC couldn’t pause or resume the game. It resumes what it paused as soon as it can.</string>
 </resources>

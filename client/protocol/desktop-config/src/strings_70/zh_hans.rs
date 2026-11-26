@@ -35,11 +35,11 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Resume game", "继续游戏"),
     ("The game is paused on the PC. Open the stream menu to resume it.", "游戏已在电脑上暂停。打开串流菜单即可继续。"),
     ("Game resumed.", "游戏已继续。"),
-    ("This game runs anti-cheat, so the PC won’t pause it.", "此游戏运行着反作弊程序，因此电脑不会暂停它。"),
+    ("Anti-cheat runs on the PC, so it won’t pause the game.", "电脑上正在运行反作弊程序，因此不会暂停游戏。"),
     ("A protected or system program runs with this game, so the PC won’t pause it.", "有受保护的程序或系统程序与此游戏一同运行，因此电脑不会暂停它。"),
     ("Others are playing or watching, so the PC won’t pause the game.", "有其他人正在游玩或观看，因此电脑不会暂停游戏。"),
     ("Only the device that started the game, or one with host control, can pause it.", "只有启动游戏的设备，或拥有“主机控制”的设备，才能暂停游戏。"),
     ("The game is starting or stopping. Try again in a moment.", "游戏正在启动或退出。请稍后再试。"),
     ("There is no game the PC can pause right now.", "现在没有电脑可以暂停的游戏。"),
-    ("The PC couldn’t pause the game, so nothing stays paused.", "电脑未能暂停游戏，因此没有任何内容保持暂停。"),
+    ("The PC couldn’t pause or resume the game. It resumes what it paused as soon as it can.", "电脑未能暂停或恢复游戏。它会尽快恢复已暂停的内容。"),
 ];

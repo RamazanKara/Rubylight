@@ -35,11 +35,11 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Resume game", "Retomar jogo"),
     ("The game is paused on the PC. Open the stream menu to resume it.", "O jogo está pausado no PC. Abra o menu da transmissão para retomá-lo."),
     ("Game resumed.", "Jogo retomado."),
-    ("This game runs anti-cheat, so the PC won’t pause it.", "Este jogo usa um sistema anti-cheat, então o PC não vai pausá-lo."),
+    ("Anti-cheat runs on the PC, so it won’t pause the game.", "Um anti-cheat está em execução no PC, então ele não vai pausar o jogo."),
     ("A protected or system program runs with this game, so the PC won’t pause it.", "Um programa protegido ou do sistema roda com este jogo, então o PC não vai pausá-lo."),
     ("Others are playing or watching, so the PC won’t pause the game.", "Outras pessoas estão jogando ou assistindo, então o PC não vai pausar o jogo."),
     ("Only the device that started the game, or one with host control, can pause it.", "Só o dispositivo que iniciou o jogo, ou um com controle do host, pode pausá-lo."),
     ("The game is starting or stopping. Try again in a moment.", "O jogo está iniciando ou fechando. Tente novamente em instantes."),
     ("There is no game the PC can pause right now.", "No momento não há nenhum jogo que o PC possa pausar."),
-    ("The PC couldn’t pause the game, so nothing stays paused.", "O PC não conseguiu pausar o jogo, então nada fica pausado."),
+    ("The PC couldn’t pause or resume the game. It resumes what it paused as soon as it can.", "O PC não conseguiu pausar nem retomar o jogo. Ele retoma o que pausou assim que puder."),
 ];

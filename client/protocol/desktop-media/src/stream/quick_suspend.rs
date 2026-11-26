@@ -117,7 +117,7 @@ fn say(words: Words) -> &'static str {
     match words.key {
         "paused" => tr("The game is paused on the PC. Open the stream menu to resume it."),
         "resumed" => tr("Game resumed."),
-        "refused_anti_cheat" => tr("This game runs anti-cheat, so the PC won’t pause it."),
+        "refused_anti_cheat" => tr("Anti-cheat runs on the PC, so it won’t pause the game."),
         "refused_protected" => {
             tr("A protected or system program runs with this game, so the PC won’t pause it.")
         }
@@ -127,7 +127,7 @@ fn say(words: Words) -> &'static str {
         }
         "refused_busy" => tr("The game is starting or stopping. Try again in a moment."),
         "refused_nothing" => tr("There is no game the PC can pause right now."),
-        _ => tr("The PC couldn’t pause the game, so nothing stays paused."),
+        _ => tr("The PC couldn’t pause or resume the game. It resumes what it paused as soon as it can."),
     }
 }
 

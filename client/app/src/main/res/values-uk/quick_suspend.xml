@@ -2,11 +2,11 @@
 <resources>
     <string name="quick_suspend_paused">Гру призупинено на ПК. Відкрийте меню трансляції, щоб продовжити її.</string>
     <string name="quick_suspend_resumed">Гру продовжено.</string>
-    <string name="quick_suspend_refused_anti_cheat">У цій грі працює античит, тому ПК не призупинить її.</string>
+    <string name="quick_suspend_refused_anti_cheat">На ПК працює античит, тому він не призупинить гру.</string>
     <string name="quick_suspend_refused_protected">Разом із цією грою працює захищена або системна програма, тому ПК не призупинить її.</string>
     <string name="quick_suspend_refused_others">Інші грають або дивляться, тому ПК не призупинить гру.</string>
     <string name="quick_suspend_refused_not_owner">Призупинити гру може лише пристрій, який її запустив, або пристрій із керуванням хостом.</string>
     <string name="quick_suspend_refused_busy">Гра запускається або закривається. Спробуйте ще раз трохи згодом.</string>
     <string name="quick_suspend_refused_nothing">Зараз немає гри, яку ПК може призупинити.</string>
-    <string name="quick_suspend_refused_failed">ПК не вдалося призупинити гру, тому нічого не залишилося призупиненим.</string>
+    <string name="quick_suspend_refused_failed">ПК не вдалося призупинити або відновити гру. Він відновить призупинене, щойно зможе.</string>
 </resources>

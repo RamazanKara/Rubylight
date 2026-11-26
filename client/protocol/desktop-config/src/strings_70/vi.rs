@@ -35,11 +35,11 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Resume game", "Tiếp tục trò chơi"),
     ("The game is paused on the PC. Open the stream menu to resume it.", "Trò chơi đang tạm dừng trên PC. Mở menu stream để tiếp tục."),
     ("Game resumed.", "Đã tiếp tục trò chơi."),
-    ("This game runs anti-cheat, so the PC won’t pause it.", "Trò chơi này dùng phần mềm chống gian lận nên PC sẽ không tạm dừng nó."),
+    ("Anti-cheat runs on the PC, so it won’t pause the game.", "PC đang chạy phần mềm chống gian lận nên sẽ không tạm dừng trò chơi."),
     ("A protected or system program runs with this game, so the PC won’t pause it.", "Một chương trình được bảo vệ hoặc chương trình hệ thống đang chạy cùng trò chơi này nên PC sẽ không tạm dừng nó."),
     ("Others are playing or watching, so the PC won’t pause the game.", "Người khác đang chơi hoặc đang xem nên PC sẽ không tạm dừng trò chơi."),
     ("Only the device that started the game, or one with host control, can pause it.", "Chỉ thiết bị đã khởi động trò chơi, hoặc thiết bị có quyền điều khiển máy chủ, mới có thể tạm dừng nó."),
     ("The game is starting or stopping. Try again in a moment.", "Trò chơi đang khởi động hoặc đang dừng. Hãy thử lại sau giây lát."),
     ("There is no game the PC can pause right now.", "Hiện không có trò chơi nào mà PC có thể tạm dừng."),
-    ("The PC couldn’t pause the game, so nothing stays paused.", "PC không thể tạm dừng trò chơi nên không có gì bị tạm dừng."),
+    ("The PC couldn’t pause or resume the game. It resumes what it paused as soon as it can.", "PC không thể tạm dừng hoặc tiếp tục trò chơi. PC sẽ tiếp tục những gì đã tạm dừng ngay khi có thể."),
 ];

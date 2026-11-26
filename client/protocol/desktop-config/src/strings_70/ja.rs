@@ -35,11 +35,11 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Resume game", "ゲームを再開"),
     ("The game is paused on the PC. Open the stream menu to resume it.", "PC でゲームが一時停止中です。再開するにはストリームメニューを開いてください。"),
     ("Game resumed.", "ゲームを再開しました。"),
-    ("This game runs anti-cheat, so the PC won’t pause it.", "このゲームはチート対策ソフトを使用しているため、PC は一時停止しません。"),
+    ("Anti-cheat runs on the PC, so it won’t pause the game.", "PC でチート対策ソフトが動作しているため、ゲームを一時停止しません。"),
     ("A protected or system program runs with this game, so the PC won’t pause it.", "保護されたプログラムまたはシステムプログラムがこのゲームと一緒に動作しているため、PC は一時停止しません。"),
     ("Others are playing or watching, so the PC won’t pause the game.", "ほかの人がプレイまたは視聴しているため、PC はゲームを一時停止しません。"),
     ("Only the device that started the game, or one with host control, can pause it.", "ゲームを起動した端末か、ホスト制御を持つ端末だけが一時停止できます。"),
     ("The game is starting or stopping. Try again in a moment.", "ゲームの起動中または終了中です。しばらくしてからもう一度お試しください。"),
     ("There is no game the PC can pause right now.", "いま PC が一時停止できるゲームはありません。"),
-    ("The PC couldn’t pause the game, so nothing stays paused.", "PC はゲームを一時停止できなかったため、一時停止したままのものはありません。"),
+    ("The PC couldn’t pause or resume the game. It resumes what it paused as soon as it can.", "PC はゲームを一時停止または再開できませんでした。一時停止したものはできるだけ早く再開します。"),
 ];

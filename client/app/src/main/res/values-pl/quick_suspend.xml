@@ -2,11 +2,11 @@
 <resources>
     <string name="quick_suspend_paused">Gra jest wstrzymana na komputerze. Otwórz menu strumienia, aby ją wznowić.</string>
     <string name="quick_suspend_resumed">Gra wznowiona.</string>
-    <string name="quick_suspend_refused_anti_cheat">Ta gra korzysta z systemu anti-cheat, więc komputer jej nie wstrzyma.</string>
+    <string name="quick_suspend_refused_anti_cheat">Na komputerze działa system anti-cheat, więc nie wstrzyma gry.</string>
     <string name="quick_suspend_refused_protected">Razem z tą grą działa chroniony lub systemowy program, więc komputer jej nie wstrzyma.</string>
     <string name="quick_suspend_refused_others">Inni grają lub oglądają, więc komputer nie wstrzyma gry.</string>
     <string name="quick_suspend_refused_not_owner">Grę może wstrzymać tylko urządzenie, które ją uruchomiło, lub urządzenie ze sterowaniem hostem.</string>
     <string name="quick_suspend_refused_busy">Gra się uruchamia lub zamyka. Spróbuj ponownie za chwilę.</string>
     <string name="quick_suspend_refused_nothing">Teraz nie ma gry, którą komputer mógłby wstrzymać.</string>
-    <string name="quick_suspend_refused_failed">Komputer nie mógł wstrzymać gry, więc nic nie pozostaje wstrzymane.</string>
+    <string name="quick_suspend_refused_failed">Komputer nie mógł wstrzymać ani wznowić gry. Wznowi to, co wstrzymał, gdy tylko będzie mógł.</string>
 </resources>

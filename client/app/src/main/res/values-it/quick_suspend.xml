@@ -2,11 +2,11 @@
 <resources>
     <string name="quick_suspend_paused">Il gioco è in pausa sul PC. Apri il menu dello stream per riprenderlo.</string>
     <string name="quick_suspend_resumed">Gioco ripreso.</string>
-    <string name="quick_suspend_refused_anti_cheat">Questo gioco usa un anti-cheat, quindi il PC non lo metterà in pausa.</string>
+    <string name="quick_suspend_refused_anti_cheat">Sul PC è in esecuzione un anti-cheat, quindi non metterà in pausa il gioco.</string>
     <string name="quick_suspend_refused_protected">Con questo gioco è in esecuzione un programma protetto o di sistema, quindi il PC non lo metterà in pausa.</string>
     <string name="quick_suspend_refused_others">Altri stanno giocando o guardando, quindi il PC non metterà in pausa il gioco.</string>
     <string name="quick_suspend_refused_not_owner">Solo il dispositivo che ha avviato il gioco, o uno con il controllo dell’host, può metterlo in pausa.</string>
     <string name="quick_suspend_refused_busy">Il gioco si sta avviando o chiudendo. Riprova tra un momento.</string>
     <string name="quick_suspend_refused_nothing">Al momento non c’è nessun gioco che il PC possa mettere in pausa.</string>
-    <string name="quick_suspend_refused_failed">Il PC non è riuscito a mettere in pausa il gioco, quindi nulla resta in pausa.</string>
+    <string name="quick_suspend_refused_failed">Il PC non è riuscito a mettere in pausa o a riprendere il gioco. Riprenderà ciò che ha messo in pausa appena possibile.</string>
 </resources>

@@ -32,7 +32,7 @@ pub const RESUMED: Words = w("resumed", "Game resumed.");
 pub const REFUSALS: [Words; 7] = [
     w(
         "refused_anti_cheat",
-        "This game runs anti-cheat, so the PC won’t pause it.",
+        "Anti-cheat runs on the PC, so it won’t pause the game.",
     ),
     w(
         "refused_protected",
@@ -56,7 +56,7 @@ pub const REFUSALS: [Words; 7] = [
     ),
     w(
         "refused_failed",
-        "The PC couldn’t pause the game, so nothing stays paused.",
+        "The PC couldn’t pause or resume the game. It resumes what it paused as soon as it can.",
     ),
 ];
 

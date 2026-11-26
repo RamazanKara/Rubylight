@@ -35,11 +35,11 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Resume game", "繼續遊戲"),
     ("The game is paused on the PC. Open the stream menu to resume it.", "遊戲已在電腦上暫停。開啟串流選單即可繼續。"),
     ("Game resumed.", "遊戲已繼續。"),
-    ("This game runs anti-cheat, so the PC won’t pause it.", "此遊戲執行著反作弊程式，因此電腦不會暫停它。"),
+    ("Anti-cheat runs on the PC, so it won’t pause the game.", "電腦上正在執行反作弊程式，因此不會暫停遊戲。"),
     ("A protected or system program runs with this game, so the PC won’t pause it.", "有受保護的程式或系統程式與此遊戲一起執行，因此電腦不會暫停它。"),
     ("Others are playing or watching, so the PC won’t pause the game.", "有其他人正在遊玩或觀看，因此電腦不會暫停遊戲。"),
     ("Only the device that started the game, or one with host control, can pause it.", "只有啟動遊戲的裝置，或擁有「主機控制」的裝置，才能暫停遊戲。"),
     ("The game is starting or stopping. Try again in a moment.", "遊戲正在啟動或結束。請稍後再試。"),
     ("There is no game the PC can pause right now.", "目前沒有電腦可以暫停的遊戲。"),
-    ("The PC couldn’t pause the game, so nothing stays paused.", "電腦未能暫停遊戲，因此沒有任何項目保持暫停。"),
+    ("The PC couldn’t pause or resume the game. It resumes what it paused as soon as it can.", "電腦未能暫停或恢復遊戲。它會盡快恢復已暫停的內容。"),
 ];

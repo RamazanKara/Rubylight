@@ -35,11 +35,11 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Resume game", "Продовжити гру"),
     ("The game is paused on the PC. Open the stream menu to resume it.", "Гру призупинено на ПК. Відкрийте меню трансляції, щоб продовжити її."),
     ("Game resumed.", "Гру продовжено."),
-    ("This game runs anti-cheat, so the PC won’t pause it.", "У цій грі працює античит, тому ПК не призупинить її."),
+    ("Anti-cheat runs on the PC, so it won’t pause the game.", "На ПК працює античит, тому він не призупинить гру."),
     ("A protected or system program runs with this game, so the PC won’t pause it.", "Разом із цією грою працює захищена або системна програма, тому ПК не призупинить її."),
     ("Others are playing or watching, so the PC won’t pause the game.", "Інші грають або дивляться, тому ПК не призупинить гру."),
     ("Only the device that started the game, or one with host control, can pause it.", "Призупинити гру може лише пристрій, який її запустив, або пристрій із керуванням хостом."),
     ("The game is starting or stopping. Try again in a moment.", "Гра запускається або закривається. Спробуйте ще раз трохи згодом."),
     ("There is no game the PC can pause right now.", "Зараз немає гри, яку ПК може призупинити."),
-    ("The PC couldn’t pause the game, so nothing stays paused.", "ПК не вдалося призупинити гру, тому нічого не залишилося призупиненим."),
+    ("The PC couldn’t pause or resume the game. It resumes what it paused as soon as it can.", "ПК не вдалося призупинити або відновити гру. Він відновить призупинене, щойно зможе."),
 ];

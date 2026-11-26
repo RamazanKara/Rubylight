@@ -1,6 +1,7 @@
 package com.limelight.binding.audio;
 
 import android.annotation.SuppressLint;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
@@ -84,8 +85,8 @@ public class MicrophoneCapture {
         synchronized (lock) {
             running = true;
         }
-        // Only automatic echo cancellation depends on the route.
-        if (route != null && processing.echo == MicProcessing.Echo.AUTO) {
+        // Automatic echo cancellation and the microphone choice depend on the route.
+        if (route != null) {
             route.watch(() -> routeChanged = true);
         }
         thread = new Thread(this::run, "Microphone");
@@ -192,6 +193,18 @@ public class MicrophoneCapture {
         return route != null && route.privateOutput();
     }
 
+    /**
+     * Records from the microphone the route picks (the built-in one under classic Bluetooth
+     * headphones, so they stay in stereo), or from Android's choice when it picks none.
+     */
+    private void preferInput(AudioRecord record) {
+        if (route == null) return;
+        AudioDeviceInfo device = route.preferredInput();
+        if (record.setPreferredDevice(device) && device != null) {
+            LimeLog.info("Microphone: recording from the built-in microphone so Bluetooth headphones stay in stereo");
+        }
+    }
+
     /** The effects that should be on but are not: missing from the device, or failed to attach. */
     /**
      * What the settings ask for that is not on: the plan's missing effects and the ones Android
@@ -291,6 +304,7 @@ public class MicrophoneCapture {
                 fail("could not open the microphone");
                 return null;
             }
+            preferInput(record);
             List<MicProcessing.Effect> failed = effects.attach(record.getAudioSessionId(), plan);
             if (plan.ownEchoCanceller) canceller = EchoCanceller.open();
             List<MicProcessing.Effect> missing = notOn(plan, failed, canceller != null);
@@ -311,6 +325,7 @@ public class MicrophoneCapture {
             while (awaitUnmuted(record)) {
                 if (routeChanged) {
                     routeChanged = false;
+                    preferInput(record);
                     boolean now = privateOutput();
                     if (processing.wantsEchoCancellation(now) != processing.wantsEchoCancellation(privateOutput)) {
                         return now;

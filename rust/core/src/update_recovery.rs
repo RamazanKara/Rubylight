@@ -1,29 +1,52 @@
-//! Rolling back an in-place update that power loss or a crash interrupted,
-//! when the service starts. Setup (rust/setup/src/update.rs) writes the
-//! backup and the record read here, and rolls back the same way when it
-//! starts; keep the two in step. The service (rust/service) compiles this file
-//! itself: a change here needs a new service version (rust/release/README.md).
+//! Ending an in-place update that power loss or a crash interrupted, when the
+//! service starts: an update whose setup had backed up the files is rolled
+//! back, one that stopped before the backup (so no file changed) is recorded
+//! as failed. Setup (rust/setup/src/update.rs) writes the backup and the
+//! record read here, and rolls back the same way when it starts; keep the two
+//! in step. The service (rust/service) compiles this file itself: a change
+//! here needs a new service version (rust/release/README.md).
 use crate::state;
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use std::path::{Component, Path, PathBuf};
 
-/// If the last update of `install` says "installing" or "recovery_failed" in the
-/// profile's update-result.json after setup backed up the files, and no
-/// setup holds update.lock, that setup never finished: put back the files
-/// the backup holds. Returns what it recorded, if it did anything.
+/// What the update record says of an update of this installation that
+/// never finished.
+#[derive(Debug, PartialEq, Eq)]
+enum Interrupted {
+    /// "installing" without a backup: setup stopped before it changed a file.
+    BeforeBackup,
+    /// "installing" or "recovery_failed" with a backup: files may have
+    /// changed, and the backup holds the previous ones.
+    AfterBackup,
+}
+/// The error an update that stopped before its backup ends with. The console
+/// shows it, and the host reports it for an automatic update.
+pub const STOPPED_BEFORE_BACKUP: &str = "Setup stopped before it changed any file (Windows may have restarted or setup was closed), so the installed version still runs. Start the update again from Updates in the console's settings.";
+
+/// If the last update of `install` still says "installing" or
+/// "recovery_failed" in the profile's update-result.json and no setup holds
+/// update.lock, that setup never finished: put back the files its backup
+/// holds or, when it stopped before making one, record the update as failed.
+/// Returns what it recorded, if it did anything.
 pub fn recover(profile: &Path, install: &Path) -> Result<Option<String>> {
     let path = profile.join("update-result.json");
-    if !interrupted(&state::load_json(&path, Value::Null)?, install) {
+    if interrupted(&state::load_json(&path, Value::Null)?, install).is_none() {
         return Ok(None);
     }
     let Some(_lock) = lock(&profile.join("update.lock"))? else {
         return Ok(None);
     };
     // Setup may have finished before the lock was free.
-    let record = state::load_json(&path, Value::Null)?;
-    if !interrupted(&record, install) {
+    let mut record = state::load_json(&path, Value::Null)?;
+    let Some(interrupted) = interrupted(&record, install) else {
         return Ok(None);
+    };
+    if interrupted == Interrupted::BeforeBackup {
+        record["phase"] = json!("failed");
+        record["error"] = json!(STOPPED_BEFORE_BACKUP);
+        state::write_json(&path, &record)?;
+        return Ok(Some(STOPPED_BEFORE_BACKUP.to_owned()));
     }
     let backup = PathBuf::from(record["backup"].as_str().unwrap_or_default());
     let restored = restore(&backup, install);
@@ -40,23 +63,27 @@ pub fn recover(profile: &Path, install: &Path) -> Result<Option<String>> {
             ),
         ),
     };
-    let mut record = record;
     record["phase"] = json!(phase);
     record["error"] = json!(message);
     state::write_json(&path, &record)?;
     restored.map(|()| Some(message))
 }
-fn interrupted(record: &Value, install: &Path) -> bool {
-    matches!(
-        record["phase"].as_str(),
-        Some("installing" | "recovery_failed")
-    ) && record["backup"].is_string()
-        && record["install"].as_str().is_some_and(|recorded| {
-            std::fs::canonicalize(recorded)
-                .ok()
-                .zip(std::fs::canonicalize(install).ok())
-                .is_some_and(|(a, b)| a == b)
-        })
+/// Only a record that names this installation counts. The one the host
+/// writes before it starts setup names none; setup replaces it with its own,
+/// which does, once it holds update.lock and before it stops the service.
+fn interrupted(record: &Value, install: &Path) -> Option<Interrupted> {
+    let this_install = record["install"].as_str().is_some_and(|recorded| {
+        std::fs::canonicalize(recorded)
+            .ok()
+            .zip(std::fs::canonicalize(install).ok())
+            .is_some_and(|(a, b)| a == b)
+    });
+    match (record["phase"].as_str(), record["backup"].is_string()) {
+        _ if !this_install => None,
+        (Some("installing" | "recovery_failed"), true) => Some(Interrupted::AfterBackup),
+        (Some("installing"), false) => Some(Interrupted::BeforeBackup),
+        _ => None,
+    }
 }
 /// update.lock, which keeps a setup from starting meanwhile; None while
 /// one holds it.
@@ -181,14 +208,19 @@ mod tests {
         std::fs::write(install.join("butterpollo.exe"), "later")?;
         assert_eq!(recover(&profile, &install)?, None);
         assert_eq!(std::fs::read(install.join("butterpollo.exe"))?, b"later");
-        // An update that ended, or whose setup had not changed any file
-        // yet, has nothing to roll back.
+        // An update that ended has nothing to roll back. The record the host
+        // writes before it starts setup names no installation: setup puts
+        // its own in its place before it changes anything (the next test).
         for record in [
             json!({"version":"2.0.1","phase":"installed","error":null,"backup":backup,"install":install}),
             json!({"version":"2.0.1","phase":"installing","started_at":1}),
         ] {
             state::write_json(&profile.join("update-result.json"), &record)?;
             assert_eq!(recover(&profile, &install)?, None);
+            assert_eq!(
+                state::load_json(&profile.join("update-result.json"), Value::Null)?,
+                record
+            );
         }
         // A backup with a file missing restores nothing.
         installing()?;
@@ -202,6 +234,60 @@ mod tests {
         std::fs::write(backup.join("assets/web.js"), "previous web")?;
         assert!(recover(&profile, &install)?.is_some());
         assert_eq!(std::fs::read(install.join("butterpollo.exe"))?, b"previous");
+        Ok(())
+    }
+    #[cfg(windows)]
+    #[test]
+    fn an_update_that_stopped_before_its_backup_is_recorded_as_failed() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let profile = root.path().join("config");
+        let install = root.path().join("Butterpollo");
+        let other = root.path().join("Other");
+        std::fs::create_dir_all(&profile)?;
+        std::fs::create_dir(&install)?;
+        std::fs::create_dir(&other)?;
+        std::fs::write(install.join("butterpollo.exe"), "installed")?;
+        let path = profile.join("update-result.json");
+        // What setup writes once it holds update.lock, before the backup.
+        let started = |install: &Path| json!({"version":"2.0.1","phase":"installing","error":null,"install":install});
+        let read = || state::load_json(&path, Value::Null);
+        state::write_json(&path, &started(&install))?;
+        // A setup that holds the lock is still at work.
+        let held = lock(&profile.join("update.lock"))?.unwrap();
+        assert_eq!(recover(&profile, &install)?, None);
+        assert_eq!(read()?, started(&install));
+        drop(held);
+        // Another installation's update is not this service's to end.
+        assert_eq!(recover(&profile, &other)?, None);
+        assert_eq!(read()?, started(&install));
+        // Setup stopped (power loss, a crash) before it changed a file.
+        assert_eq!(
+            recover(&profile, &install)?.as_deref(),
+            Some(STOPPED_BEFORE_BACKUP)
+        );
+        let record = read()?;
+        assert_eq!(record["phase"], "failed");
+        assert_eq!(record["error"], STOPPED_BEFORE_BACKUP);
+        assert_eq!(record["version"], "2.0.1");
+        assert_eq!(
+            std::fs::read(install.join("butterpollo.exe"))?,
+            b"installed"
+        );
+        // Done once: the next start leaves it alone.
+        assert_eq!(recover(&profile, &install)?, None);
+        assert_eq!(read()?, record);
+        // Records of updates that ended are left as they are, and so is a
+        // record of another installation's.
+        for record in [
+            json!({"version":"2.0.1","phase":"installed","error":null,"install":install}),
+            json!({"version":"2.0.1","phase":"failed","error":"Disconnect all streams","install":install}),
+            json!({"version":"2.0.1","phase":"rolled_back","error":"restored","install":install}),
+            started(&other),
+        ] {
+            state::write_json(&path, &record)?;
+            assert_eq!(recover(&profile, &install)?, None);
+            assert_eq!(read()?, record);
+        }
         Ok(())
     }
     #[test]

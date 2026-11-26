@@ -286,6 +286,47 @@ fn an_interrupted_update_is_rolled_back_when_setup_starts() -> Result<()> {
     assert_eq!(std::fs::read(installed.join("host.exe"))?, b"later");
     Ok(())
 }
+/// The record setup writes before its backup is the one the service ends as
+/// failed when setup stopped there; keep the two in step.
+#[test]
+fn the_service_records_an_update_that_stopped_before_its_backup_as_failed() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let install = root.path().join("installed");
+    let other = root.path().join("other");
+    std::fs::create_dir(&install)?;
+    std::fs::create_dir(&other)?;
+    std::fs::write(install.join("host.exe"), b"installed")?;
+    let result = root.path().join("update-result.json");
+    let read =
+        || -> Result<serde_json::Value> { Ok(serde_json::from_slice(&std::fs::read(&result)?)?) };
+    write_record(&result, &started(&install))?;
+    // Setup's own recovery leaves it: setup writes its own record next.
+    recover(root.path())?;
+    assert_eq!(read()?, started(&install));
+    // The service of another installation leaves it too.
+    assert_eq!(
+        butterpollo_session::update_recovery::recover(root.path(), &other)?,
+        None
+    );
+    assert_eq!(
+        butterpollo_session::update_recovery::recover(root.path(), &install)?.as_deref(),
+        Some(butterpollo_session::update_recovery::STOPPED_BEFORE_BACKUP)
+    );
+    let record = read()?;
+    assert_eq!(record["phase"], "failed");
+    assert_eq!(record["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(std::fs::read(install.join("host.exe"))?, b"installed");
+    // The console shows the error; the host reports it as a failed install,
+    // and a new update may start (no backup is named).
+    assert!(
+        record["error"]
+            .as_str()
+            .unwrap()
+            .contains("Start the update again")
+    );
+    assert!(record["backup"].is_null());
+    Ok(())
+}
 #[test]
 fn failed_recovery_keeps_the_backup_and_retries() -> Result<()> {
     let root = tempfile::tempdir()?;

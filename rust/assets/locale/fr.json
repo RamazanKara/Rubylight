@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "Pour les mappages mixtes, indiquez au moins un champ final.",
     "dd_validation_resolution": "Format invalide. Utilisez LARGEURxHAUTEUR, p. ex. {example} (x ou ×).",
     "dd_validation_refresh_rate": "Fréquence de rafraîchissement invalide. Utilisez un nombre positif, p. ex. 60 ou 59.94.",
-    "dd_manual_enforcement_notice": "Les substitutions ci-dessous sont désactivées lorsqu’une résolution ou une fréquence de rafraîchissement manuelle est imposée. Les fréquences manuelles sont appliquées de force et remplacent le changement de fréquence adapté au jeu sur les écrans virtuels."
+    "dd_manual_enforcement_notice": "Les substitutions ci-dessous sont désactivées lorsqu’une résolution ou une fréquence de rafraîchissement manuelle est imposée. Les fréquences manuelles sont appliquées de force et remplacent le changement de fréquence adapté au jeu sur les écrans virtuels.",
+    "background_stream": "Diffuser en arrière-plan (séparateur coopératif, manettes uniquement)"
   },
   "index": {
     "description": "Rubylight est un serveur de streaming auto-hébergé pour Moonlight.",
@@ -1414,5 +1415,17 @@
       "files": "Fichiers",
       "advanced": "Avancé"
     }
+  },
+  "console": {
+    "streaming_now": "Diffusion en cours",
+    "frame_rate": "Fréquence d'images",
+    "codec": "Codec",
+    "bitrate": "Débit",
+    "target_bitrate": "Débit cible",
+    "encoding_p95": "Temps d'encodage (p95)",
+    "encoder": "Encodeur",
+    "connection": "Connexion",
+    "remote_input": "Saisie à distance",
+    "remote_monitor": "Écran distant"
   }
 }

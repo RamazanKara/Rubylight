@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "Para asignaciones mixtas, especifica al menos un campo final.",
     "dd_validation_resolution": "Formato no válido. Usa ANCHOxALTO, p. ej., {example} (x o ×).",
     "dd_validation_refresh_rate": "Frecuencia de actualización no válida. Usa un número positivo, p. ej., 60 o 59.94.",
-    "dd_manual_enforcement_notice": "Las anulaciones siguientes están deshabilitadas mientras se fuerce una resolución o frecuencia de actualización manual. Las frecuencias de actualización manuales se aplican de forma forzada y prevalecen sobre el cambio de frecuencia según el juego en pantallas virtuales."
+    "dd_manual_enforcement_notice": "Las anulaciones siguientes están deshabilitadas mientras se fuerce una resolución o frecuencia de actualización manual. Las frecuencias de actualización manuales se aplican de forma forzada y prevalecen sobre el cambio de frecuencia según el juego en pantallas virtuales.",
+    "background_stream": "Transmitir en segundo plano (divisor cooperativo, solo mandos)"
   },
   "index": {
     "description": "Rubylight es un servidor de transmisión de juego autoalojado para Moonlight.",
@@ -1414,5 +1415,17 @@
       "files": "Archivos",
       "advanced": "Avanzado"
     }
+  },
+  "console": {
+    "streaming_now": "Transmitiendo ahora",
+    "frame_rate": "Velocidad de fotogramas",
+    "codec": "Códec",
+    "bitrate": "Tasa de bits",
+    "target_bitrate": "Tasa de bits objetivo",
+    "encoding_p95": "Tiempo de codificación (p95)",
+    "encoder": "Codificador",
+    "connection": "Conexión",
+    "remote_input": "Entrada remota",
+    "remote_monitor": "Monitor remoto"
   }
 }

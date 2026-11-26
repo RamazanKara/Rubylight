@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "Dla mapowań mieszanych podaj co najmniej jedno pole końcowe.",
     "dd_validation_resolution": "Nieprawidłowy format. Użyj SZEROKOŚĆxWYSOKOŚĆ, np. {example} (x lub ×).",
     "dd_validation_refresh_rate": "Nieprawidłowa częstotliwość odświeżania. Użyj liczby dodatniej, np. 60 lub 59.94.",
-    "dd_manual_enforcement_notice": "Poniższe nadpisania są wyłączone, gdy wymuszona jest ręczna rozdzielczość lub częstotliwość odświeżania. Ręczne częstotliwości odświeżania są stosowane wymuszenie i zastępują zależne od gry przełączanie odświeżania na ekranach wirtualnych."
+    "dd_manual_enforcement_notice": "Poniższe nadpisania są wyłączone, gdy wymuszona jest ręczna rozdzielczość lub częstotliwość odświeżania. Ręczne częstotliwości odświeżania są stosowane wymuszenie i zastępują zależne od gry przełączanie odświeżania na ekranach wirtualnych.",
+    "background_stream": "Strumieniuj w tle (podział kooperacji, tylko kontrolery)"
   },
   "index": {
     "description": "Rubylight jest samodzielnym hostem strumienia gry dla Moonlight.",
@@ -1414,5 +1415,17 @@
       "files": "Pliki",
       "advanced": "Zaawansowane"
     }
+  },
+  "console": {
+    "streaming_now": "Trwa strumieniowanie",
+    "frame_rate": "Liczba klatek",
+    "codec": "Kodek",
+    "bitrate": "Przepływność",
+    "target_bitrate": "Docelowa przepływność",
+    "encoding_p95": "Czas kodowania (p95)",
+    "encoder": "Koder",
+    "connection": "Połączenie",
+    "remote_input": "Zdalne sterowanie",
+    "remote_monitor": "Zdalny monitor"
   }
 }

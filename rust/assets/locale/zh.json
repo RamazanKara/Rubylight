@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "对于混合映射，请至少指定一个最终字段。",
     "dd_validation_resolution": "格式无效。请使用“宽度x高度”，例如 {example}（x 或 ×）。",
     "dd_validation_refresh_rate": "刷新率无效。请输入正数，例如 60 或 59.94。",
-    "dd_manual_enforcement_notice": "强制使用手动分辨率或刷新率时，以下覆盖设置将被禁用。手动刷新率会被强制应用，并覆盖虚拟显示器上根据游戏切换刷新率的行为。"
+    "dd_manual_enforcement_notice": "强制使用手动分辨率或刷新率时，以下覆盖设置将被禁用。手动刷新率会被强制应用，并覆盖虚拟显示器上根据游戏切换刷新率的行为。",
+    "background_stream": "后台串流（合作分屏组件，仅限手柄）"
   },
   "index": {
     "description": "Rubylight 是供 Moonlight 使用的自建游戏串流服务。",
@@ -1414,5 +1415,17 @@
       "files": "文件",
       "advanced": "高级"
     }
+  },
+  "console": {
+    "streaming_now": "正在串流",
+    "frame_rate": "帧率",
+    "codec": "编解码器",
+    "bitrate": "码率",
+    "target_bitrate": "目标码率",
+    "encoding_p95": "编码时间 (p95)",
+    "encoder": "编码器",
+    "connection": "连接",
+    "remote_input": "远程输入",
+    "remote_monitor": "远程显示器"
   }
 }

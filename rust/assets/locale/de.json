@@ -783,7 +783,8 @@
     "dd_validation_mixed_final_required": "Geben Sie bei gemischten Zuordnungen mindestens ein Endfeld an.",
     "dd_validation_resolution": "Ungültiges Format. Verwenden Sie BREITExHÖHE, z. B. {example} (x oder ×).",
     "dd_validation_refresh_rate": "Ungültige Bildwiederholrate. Verwenden Sie eine positive Zahl, z. B. 60 oder 59.94.",
-    "dd_manual_enforcement_notice": "Die unten aufgeführten Überschreibungen sind deaktiviert, solange eine manuelle Auflösung oder Bildwiederholrate erzwungen wird. Manuelle Bildwiederholraten werden erzwungen angewendet und überschreiben die spielabhängige Umschaltung der Bildwiederholrate auf virtuellen Bildschirmen."
+    "dd_manual_enforcement_notice": "Die unten aufgeführten Überschreibungen sind deaktiviert, solange eine manuelle Auflösung oder Bildwiederholrate erzwungen wird. Manuelle Bildwiederholraten werden erzwungen angewendet und überschreiben die spielabhängige Umschaltung der Bildwiederholrate auf virtuellen Bildschirmen.",
+    "background_stream": "Im Hintergrund streamen (Koop-Aufteilung, nur Controller)"
   },
   "index": {
     "description": "Rubylight ist ein selbst gehosteter Game-Stream-Host für Moonlight.",
@@ -1443,5 +1444,17 @@
       "encoder_focus": "Encoder-Fokus",
       "sleep_after_idle_minutes": "Ruhezustand bei Inaktivität"
     }
+  },
+  "console": {
+    "streaming_now": "Läuft gerade",
+    "frame_rate": "Bildrate",
+    "codec": "Codec",
+    "bitrate": "Bitrate",
+    "target_bitrate": "Ziel-Bitrate",
+    "encoding_p95": "Kodierzeit (p95)",
+    "encoder": "Encoder",
+    "connection": "Verbindung",
+    "remote_input": "Ferneingabe",
+    "remote_monitor": "Fernmonitor"
   }
 }

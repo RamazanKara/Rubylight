@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "Para mapeamentos mistos, especifique pelo menos um campo final.",
     "dd_validation_resolution": "Formato inválido. Use LARGURAxALTURA, por ex., {example} (x ou ×).",
     "dd_validation_refresh_rate": "Taxa de atualização inválida. Use um número positivo, por ex., 60 ou 59.94.",
-    "dd_manual_enforcement_notice": "As substituições abaixo ficam desativadas enquanto estiver a ser imposta uma resolução ou taxa de atualização manual. As taxas manuais são aplicadas à força e sobrepõem-se à mudança de taxa baseada no jogo nos ecrãs virtuais."
+    "dd_manual_enforcement_notice": "As substituições abaixo ficam desativadas enquanto estiver a ser imposta uma resolução ou taxa de atualização manual. As taxas manuais são aplicadas à força e sobrepõem-se à mudança de taxa baseada no jogo nos ecrãs virtuais.",
+    "background_stream": "Transmitir em segundo plano (divisor cooperativo, só comandos)"
   },
   "index": {
     "description": "O sol é um anfitrião de jogos auto-hospedado para o Moonlight.",
@@ -1414,5 +1415,17 @@
       "files": "Ficheiros",
       "advanced": "Avançadas"
     }
+  },
+  "console": {
+    "streaming_now": "A transmitir agora",
+    "frame_rate": "Taxa de fotogramas",
+    "codec": "Codec",
+    "bitrate": "Taxa de bits",
+    "target_bitrate": "Taxa de bits alvo",
+    "encoding_p95": "Tempo de codificação (p95)",
+    "encoder": "Codificador",
+    "connection": "Ligação",
+    "remote_input": "Entrada remota",
+    "remote_monitor": "Monitor remoto"
   }
 }

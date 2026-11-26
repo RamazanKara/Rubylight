@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "Vegyes leképezésnél adjon meg legalább egy végső mezőt.",
     "dd_validation_resolution": "Érvénytelen formátum. Használja a SZÉLESSÉGxMAGASSÁG formátumot, pl. {example} (x vagy ×).",
     "dd_validation_refresh_rate": "Érvénytelen frissítési gyakoriság. Használjon pozitív számot, pl. 60 vagy 59.94.",
-    "dd_manual_enforcement_notice": "Az alábbi felülbírálások le vannak tiltva, amíg kézi felbontás vagy frissítési gyakoriság van kikényszerítve. A kézi frissítési gyakoriságok kényszerítve kerülnek alkalmazásra, és felülírják a játékhoz igazodó frissítésváltást a virtuális kijelzőkön."
+    "dd_manual_enforcement_notice": "Az alábbi felülbírálások le vannak tiltva, amíg kézi felbontás vagy frissítési gyakoriság van kikényszerítve. A kézi frissítési gyakoriságok kényszerítve kerülnek alkalmazásra, és felülírják a játékhoz igazodó frissítésváltást a virtuális kijelzőkön.",
+    "background_stream": "Streamelés a háttérben (kooperatív megosztó, csak kontrollerek)"
   },
   "index": {
     "description": "A Rubylight saját üzemeltetésű játékstream-host a Moonlight-hoz.",
@@ -1414,5 +1415,17 @@
       "files": "Fájlok",
       "advanced": "Speciális"
     }
+  },
+  "console": {
+    "streaming_now": "Most streamel",
+    "frame_rate": "Képkockasebesség",
+    "codec": "Kodek",
+    "bitrate": "Bitráta",
+    "target_bitrate": "Cél bitráta",
+    "encoding_p95": "Kódolási idő (p95)",
+    "encoder": "Kódoló",
+    "connection": "Kapcsolat",
+    "remote_input": "Távoli bevitel",
+    "remote_monitor": "Távoli monitor"
   }
 }

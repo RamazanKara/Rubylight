@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "Per le mappature miste, specifica almeno un campo finale.",
     "dd_validation_resolution": "Formato non valido. Usa LARGHEZZAxALTEZZA, ad es. {example} (x o ×).",
     "dd_validation_refresh_rate": "Frequenza di aggiornamento non valida. Usa un numero positivo, ad es. 60 o 59.94.",
-    "dd_manual_enforcement_notice": "Le sostituzioni riportate di seguito sono disabilitate quando viene imposta una risoluzione o una frequenza di aggiornamento manuale. Le frequenze manuali vengono applicate forzatamente e sostituiscono il cambio di frequenza basato sul gioco sui display virtuali."
+    "dd_manual_enforcement_notice": "Le sostituzioni riportate di seguito sono disabilitate quando viene imposta una risoluzione o una frequenza di aggiornamento manuale. Le frequenze manuali vengono applicate forzatamente e sostituiscono il cambio di frequenza basato sul gioco sui display virtuali.",
+    "background_stream": "Streaming in background (divisore cooperativo, solo controller)"
   },
   "index": {
     "description": "Rubylight è una piattaforma autonoma di game stream per Moonlight.",
@@ -1414,5 +1415,17 @@
       "files": "File",
       "advanced": "Avanzate"
     }
+  },
+  "console": {
+    "streaming_now": "In streaming ora",
+    "frame_rate": "Frequenza fotogrammi",
+    "codec": "Codec",
+    "bitrate": "Bitrate",
+    "target_bitrate": "Bitrate obiettivo",
+    "encoding_p95": "Tempo di codifica (p95)",
+    "encoder": "Encoder",
+    "connection": "Connessione",
+    "remote_input": "Input remoto",
+    "remote_monitor": "Monitor remoto"
   }
 }

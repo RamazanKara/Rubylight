@@ -82,7 +82,7 @@ pub(super) async fn apps(
             "<details><summary>Preparation commands and advanced options</summary><p>Edit these options as JSON. Use double quotes around text and matching brackets. Other saved options are kept when you save.</p>{}</details>",
             area("advanced", "App options (JSON)", &raw(&advanced))
         )
-        + "<button>Save app</button> <a href=\"/library\">Cancel</a>";
+        + "<button>Save app</button> <a class=\"button secondary\" href=\"/library\">Cancel</a>";
     content += &card(
         if text(&edit, "uuid").is_empty() {
             "Add app"

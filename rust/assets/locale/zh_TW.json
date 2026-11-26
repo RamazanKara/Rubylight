@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "對於混合對應，請至少指定一個最終欄位。",
     "dd_validation_resolution": "格式無效。請使用「寬度x高度」，例如 {example}（x 或 ×）。",
     "dd_validation_refresh_rate": "更新率無效。請輸入正數，例如 60 或 59.94。",
-    "dd_manual_enforcement_notice": "強制使用手動解析度或更新率時，以下覆寫設定將停用。手動更新率會被強制套用，並覆寫虛擬顯示器上依遊戲切換更新率的行為。"
+    "dd_manual_enforcement_notice": "強制使用手動解析度或更新率時，以下覆寫設定將停用。手動更新率會被強制套用，並覆寫虛擬顯示器上依遊戲切換更新率的行為。",
+    "background_stream": "背景串流（合作分割元件，僅限控制器）"
   },
   "index": {
     "description": "Rubylight 是 Moonlight 的自架遊戲串流主機。",
@@ -1414,5 +1415,17 @@
       "files": "檔案",
       "advanced": "進階"
     }
+  },
+  "console": {
+    "streaming_now": "正在串流",
+    "frame_rate": "影格率",
+    "codec": "編解碼器",
+    "bitrate": "位元率",
+    "target_bitrate": "目標位元率",
+    "encoding_p95": "編碼時間 (p95)",
+    "encoder": "編碼器",
+    "connection": "連線",
+    "remote_input": "遠端輸入",
+    "remote_monitor": "遠端顯示器"
   }
 }

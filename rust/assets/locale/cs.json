@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "U smíšeného mapování zadejte alespoň jedno konečné pole.",
     "dd_validation_resolution": "Neplatný formát. Použijte ŠÍŘKAxVÝŠKA, např. {example} (x nebo ×).",
     "dd_validation_refresh_rate": "Neplatná obnovovací frekvence. Použijte kladné číslo, např. 60 nebo 59.94.",
-    "dd_manual_enforcement_notice": "Níže uvedené přepisy jsou zakázány, dokud je vynuceno ruční rozlišení nebo obnovovací frekvence. Ruční obnovovací frekvence se použijí vynuceně a mají přednost před přepínáním obnovovací frekvence podle hry na virtuálních displejích."
+    "dd_manual_enforcement_notice": "Níže uvedené přepisy jsou zakázány, dokud je vynuceno ruční rozlišení nebo obnovovací frekvence. Ruční obnovovací frekvence se použijí vynuceně a mají přednost před přepínáním obnovovací frekvence podle hry na virtuálních displejích.",
+    "background_stream": "Streamovat na pozadí (rozdělovač pro kooperaci, jen ovladače)"
   },
   "index": {
     "description": "Sluneční stream je hostitelem pro Měsíční světlo.",
@@ -1414,5 +1415,17 @@
       "files": "Soubory",
       "advanced": "Pokročilé"
     }
+  },
+  "console": {
+    "streaming_now": "Právě se streamuje",
+    "frame_rate": "Snímková frekvence",
+    "codec": "Kodek",
+    "bitrate": "Datový tok",
+    "target_bitrate": "Cílový datový tok",
+    "encoding_p95": "Doba kódování (p95)",
+    "encoder": "Kodér",
+    "connection": "Připojení",
+    "remote_input": "Vzdálené ovládání",
+    "remote_monitor": "Vzdálený monitor"
   }
 }

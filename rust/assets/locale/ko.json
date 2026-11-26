@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "혼합 매핑에는 최종 필드를 하나 이상 지정하세요.",
     "dd_validation_resolution": "형식이 잘못되었습니다. 너비x높이를 사용하세요. 예: {example}(x 또는 ×).",
     "dd_validation_refresh_rate": "새로 고침 빈도가 잘못되었습니다. 60 또는 59.94 같은 양수를 사용하세요.",
-    "dd_manual_enforcement_notice": "수동 해상도 또는 새로 고침 빈도가 강제되는 동안 아래 재정의는 비활성화됩니다. 수동 새로 고침 빈도는 강제로 적용되며 가상 디스플레이의 게임 인식 새로 고침 전환보다 우선합니다."
+    "dd_manual_enforcement_notice": "수동 해상도 또는 새로 고침 빈도가 강제되는 동안 아래 재정의는 비활성화됩니다. 수동 새로 고침 빈도는 강제로 적용되며 가상 디스플레이의 게임 인식 새로 고침 전환보다 우선합니다.",
+    "background_stream": "백그라운드에서 스트리밍 (협동 분할, 컨트롤러만)"
   },
   "index": {
     "description": "Rubylight은 Moonlight의 게임 스트리밍 프로그램입니다.",
@@ -1414,5 +1415,17 @@
       "files": "파일",
       "advanced": "고급"
     }
+  },
+  "console": {
+    "streaming_now": "지금 스트리밍 중",
+    "frame_rate": "프레임 속도",
+    "codec": "코덱",
+    "bitrate": "비트레이트",
+    "target_bitrate": "목표 비트레이트",
+    "encoding_p95": "인코딩 시간 (p95)",
+    "encoder": "인코더",
+    "connection": "연결",
+    "remote_input": "원격 입력",
+    "remote_monitor": "원격 모니터"
   }
 }

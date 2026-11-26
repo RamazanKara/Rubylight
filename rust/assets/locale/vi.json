@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "Với ánh xạ hỗn hợp, hãy chỉ định ít nhất một trường cuối.",
     "dd_validation_resolution": "Định dạng không hợp lệ. Dùng RỘNGxCAO, ví dụ: {example} (x hoặc ×).",
     "dd_validation_refresh_rate": "Tần số quét không hợp lệ. Dùng số dương, ví dụ: 60 hoặc 59.94.",
-    "dd_manual_enforcement_notice": "Các tùy chọn ghi đè bên dưới bị vô hiệu hóa khi độ phân giải hoặc tần số quét thủ công đang được áp dụng bắt buộc. Tần số quét thủ công được áp dụng cưỡng chế và ghi đè việc chuyển tần số theo trò chơi trên màn hình ảo."
+    "dd_manual_enforcement_notice": "Các tùy chọn ghi đè bên dưới bị vô hiệu hóa khi độ phân giải hoặc tần số quét thủ công đang được áp dụng bắt buộc. Tần số quét thủ công được áp dụng cưỡng chế và ghi đè việc chuyển tần số theo trò chơi trên màn hình ảo.",
+    "background_stream": "Phát trực tuyến trong nền (bộ chia chơi chung, chỉ tay cầm)"
   },
   "index": {
     "description": "Rubylight là một nền tảng phát trực tiếp game tự chủ cho Moonlight.",
@@ -1414,5 +1415,17 @@
       "files": "Tệp",
       "advanced": "Nâng cao"
     }
+  },
+  "console": {
+    "streaming_now": "Đang phát trực tuyến",
+    "frame_rate": "Tốc độ khung hình",
+    "codec": "Codec",
+    "bitrate": "Tốc độ bit",
+    "target_bitrate": "Tốc độ bit mục tiêu",
+    "encoding_p95": "Thời gian mã hóa (p95)",
+    "encoder": "Bộ mã hóa",
+    "connection": "Kết nối",
+    "remote_input": "Nhập liệu từ xa",
+    "remote_monitor": "Màn hình từ xa"
   }
 }

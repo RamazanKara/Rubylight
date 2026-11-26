@@ -786,7 +786,7 @@
     "webrtc_media_port_desc": "The UDP port for WebRTC media once streaming over WebRTC is available",
     "webrtc_port": "WebRTC signalling port",
     "webrtc_port_desc": "The TCP port of the WebRTC server; discovery stays on UDP 8000",
-    "webrtc_server": "WebRTC server (Experimental)",
+    "webrtc_server": "WebRTC server",
     "webrtc_server_desc": "Let WebRTC TVs and browsers pair and sign in. Signalling is unencrypted ws:// on the local network",
     "dd_snapshot_exclude_devices": "Exclude devices from snapshots",
     "frame_limiter_enable": "Enable frame limiter",
@@ -850,7 +850,8 @@
     "keep_sink_default": "Keep audio sink as default",
     "limit_framerate": "Limit frame rate",
     "packet_pacing": "Packet pacing",
-    "packetsize": "Network packet size"
+    "packetsize": "Network packet size",
+    "background_stream": "Stream in the background (co-op splitter, controllers only)"
   },
   "index": {
     "description": "Rubylight is a self-hosted game stream host for Moonlight.",
@@ -1512,5 +1513,17 @@
       "encoder_focus": "Encoder focus",
       "sleep_after_idle_minutes": "Sleep when idle"
     }
+  },
+  "console": {
+    "streaming_now": "Streaming now",
+    "frame_rate": "Frame rate",
+    "codec": "Codec",
+    "bitrate": "Bitrate",
+    "target_bitrate": "Target bitrate",
+    "encoding_p95": "Encoding time (p95)",
+    "encoder": "Encoder",
+    "connection": "Connection",
+    "remote_input": "Remote input",
+    "remote_monitor": "Remote monitor"
   }
 }

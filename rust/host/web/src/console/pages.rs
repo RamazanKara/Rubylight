@@ -123,7 +123,13 @@ fn readiness(meta: &Value) -> String {
     ] {
         out += &format!(
             "<li><span class=\"badge{}\">{}</span><div><strong>{label}</strong><p>{detail}</p></div></li>",
-            if ready { " ready" } else { "" },
+            if ready {
+                " ready"
+            } else if label == "Video" && checking {
+                ""
+            } else {
+                " warn"
+            },
             if ready {
                 "Ready"
             } else if label == "Video" && checking {
@@ -245,7 +251,7 @@ fn login(csrf: &str) -> String {
             "/login",
             &(field("username", "Username", "", "text")
                 + &field("password", "Password", "", "password")
-                + "<label><input type=\"checkbox\" name=\"remember_me\" value=\"true\"> Keep me signed in on this browser</label>"
+                + "<label class=\"check\"><input type=\"checkbox\" name=\"remember_me\" value=\"true\"> Keep me signed in on this browser</label>"
                 + "<button>Sign in</button>"),
         ),
     )
@@ -266,7 +272,8 @@ async fn overview(
     let sessions = get(h, connection, headers, "/api/rtsp/sessions").await?;
     let active = rows(&sessions, "sessions");
     let mut content = format!(
-        "<p class=\"intro\">Manage your library, pair devices, and tune your stream.</p><div class=\"metrics\"><section class=\"card\"><span>Host</span><strong>{}</strong><small>Version {}</small></section><section class=\"card\"><span>Active streams</span><strong>{}</strong><small>Connected right now</small></section><section class=\"card\"><span>Encoder</span><strong>{}</strong><small>Capture: {}</small></section></div>",
+        "<p class=\"intro\">Manage your library, pair devices, and tune your stream.</p>{}<div class=\"metrics\"><section class=\"card\"><span>Host</span><strong>{}</strong><small>Version {}</small></section><section class=\"card\"><span>Active streams</span><strong>{}</strong><small>Connected right now</small></section><section class=\"card\"><span>Encoder</span><strong>{}</strong><small>Capture: {}</small></section></div>",
+        super::theme::telemetry_strip(active),
         i18n::data(text(&meta, "host_name")),
         i18n::data(text(&meta, "version")),
         active.len(),

@@ -1,0 +1,3 @@
+# Console without scripts in the 7.0 design
+- **The console without scripts matches the 7.0 look.** Its pages use the same Light and Dark themes and the same Rubylight mark as the main console, and System follows Windows. Buttons, fields and links are easier to hit on a phone (at least 44 pixels), and the menu wraps onto several lines instead of scrolling sideways. Every page, form and action works as before.
+- **Running streams at a glance.** While a device streams, the Overview page shows a dark strip with its resolution, frame rate, codec, bitrate and encoder. A figure the host has not measured yet is left out rather than shown as zero.

@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "Karma eşlemelerde en az bir Son alan belirtin.",
     "dd_validation_resolution": "Geçersiz biçim. GENİŞLİKxYÜKSEKLİK kullanın, örn. {example} (x veya ×).",
     "dd_validation_refresh_rate": "Geçersiz yenileme hızı. 60 veya 59.94 gibi pozitif bir sayı kullanın.",
-    "dd_manual_enforcement_notice": "El ile ayarlanan bir çözünürlük veya yenileme hızı zorlandığında aşağıdaki geçersiz kılmalar devre dışı bırakılır. El ile ayarlanan yenileme hızları zorla uygulanır ve sanal ekranlarda oyuna göre yenileme hızı geçişini geçersiz kılar."
+    "dd_manual_enforcement_notice": "El ile ayarlanan bir çözünürlük veya yenileme hızı zorlandığında aşağıdaki geçersiz kılmalar devre dışı bırakılır. El ile ayarlanan yenileme hızları zorla uygulanır ve sanal ekranlarda oyuna göre yenileme hızı geçişini geçersiz kılar.",
+    "background_stream": "Arka planda yayınla (ortak oyun bölücü, yalnızca oyun kumandaları)"
   },
   "index": {
     "description": "Rubylight, Moonlight için kendi kendine barındırılan bir oyun akışı sunucusudur.",
@@ -1414,5 +1415,17 @@
       "files": "Dosyalar",
       "advanced": "Gelişmiş"
     }
+  },
+  "console": {
+    "streaming_now": "Şu anda yayında",
+    "frame_rate": "Kare hızı",
+    "codec": "Codec",
+    "bitrate": "Bit hızı",
+    "target_bitrate": "Hedef bit hızı",
+    "encoding_p95": "Kodlama süresi (p95)",
+    "encoder": "Kodlayıcı",
+    "connection": "Bağlantı",
+    "remote_input": "Uzaktan giriş",
+    "remote_monitor": "Uzak monitör"
   }
 }

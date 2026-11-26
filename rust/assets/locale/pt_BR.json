@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "Para mapeamentos mistos, especifique pelo menos um campo final.",
     "dd_validation_resolution": "Formato inválido. Use LARGURAxALTURA, por exemplo, {example} (x ou ×).",
     "dd_validation_refresh_rate": "Taxa de atualização inválida. Use um número positivo, por exemplo, 60 ou 59.94.",
-    "dd_manual_enforcement_notice": "As substituições abaixo ficam desativadas enquanto uma resolução ou taxa de atualização manual estiver sendo forçada. As taxas manuais são aplicadas à força e substituem a mudança de taxa baseada no jogo em telas virtuais."
+    "dd_manual_enforcement_notice": "As substituições abaixo ficam desativadas enquanto uma resolução ou taxa de atualização manual estiver sendo forçada. As taxas manuais são aplicadas à força e substituem a mudança de taxa baseada no jogo em telas virtuais.",
+    "background_stream": "Transmitir em segundo plano (divisor cooperativo, apenas controles)"
   },
   "index": {
     "description": "O Rubylight é um host de fluxo de jogos auto-hospedado para o Moonlight.",
@@ -1414,5 +1415,17 @@
       "files": "Arquivos",
       "advanced": "Avançado"
     }
+  },
+  "console": {
+    "streaming_now": "Transmitindo agora",
+    "frame_rate": "Taxa de quadros",
+    "codec": "Codec",
+    "bitrate": "Taxa de bits",
+    "target_bitrate": "Taxa de bits alvo",
+    "encoding_p95": "Tempo de codificação (p95)",
+    "encoder": "Codificador",
+    "connection": "Conexão",
+    "remote_input": "Entrada remota",
+    "remote_monitor": "Monitor remoto"
   }
 }

@@ -3,6 +3,7 @@ mod actions;
 pub(crate) mod i18n;
 mod pages;
 mod settings;
+mod theme;
 
 use crate::web;
 pub(crate) use actions::{action, route};
@@ -171,7 +172,8 @@ pub(crate) fn button(
         back,
         &(hidden(key, value)
             + &format!(
-                "<button class=\"secondary\">{}</button>",
+                "<button class=\"{}\">{}</button>",
+                theme::button_class(op),
                 i18n::message(label)
             )),
     )
@@ -265,7 +267,9 @@ pub(crate) fn shell(
         i18n::message(title)
     );
     if signed_in {
-        html += "<aside><a class=\"brand\" href=\"/\"><span class=\"mark\">R</span>Rubylight</a><nav aria-label=\"Main navigation\">";
+        html += "<aside class=\"rail\">";
+        html += theme::BRAND;
+        html += "<nav aria-label=\"Main navigation\">";
         for &(url, label) in &NAV {
             html += &format!(
                 "<a href=\"{url}\"{}>{label}</a>",
@@ -276,7 +280,7 @@ pub(crate) fn shell(
                 }
             );
         }
-        html += "</nav><div class=\"sidebar-bottom\">";
+        html += "</nav><div class=\"rail-foot\">";
         html += &form(
             "theme",
             csrf,
@@ -289,12 +293,13 @@ pub(crate) fn shell(
             ) + "<button class=\"secondary\">Apply</button>"),
         );
         html += &button("logout", csrf, "/login", "", "", "Sign out");
-        html += "<small>Rubylight</small></div></aside><main>";
+        html += "</div></aside><main>";
     } else {
-        html += "<main class=\"auth\"><a class=\"brand\" href=\"/\"><span class=\"mark\">R</span>Rubylight</a>";
+        html += "<main class=\"auth\">";
+        html += theme::BRAND;
     }
     html += &format!(
-        "<header><p class=\"eyebrow\">Your streaming host</p><h1>{}</h1></header>{body}</main></body></html>",
+        "<header class=\"page-head\"><p class=\"eyebrow\">Your streaming host</p><h1>{}</h1></header>{body}</main></body></html>",
         i18n::message(title)
     );
     html

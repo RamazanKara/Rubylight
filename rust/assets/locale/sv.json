@@ -780,7 +780,8 @@
     "dd_validation_mixed_final_required": "För blandade mappningar måste minst ett slutfält anges.",
     "dd_validation_resolution": "Ogiltigt format. Använd BREDDxHÖJD, t.ex. {example} (x eller ×).",
     "dd_validation_refresh_rate": "Ogiltig uppdateringsfrekvens. Använd ett positivt tal, t.ex. 60 eller 59.94.",
-    "dd_manual_enforcement_notice": "Åsidosättningarna nedan är inaktiverade när en manuell upplösning eller uppdateringsfrekvens tvingas fram. Manuella uppdateringsfrekvenser tillämpas tvingande och åsidosätter spelanpassad frekvensväxling på virtuella bildskärmar."
+    "dd_manual_enforcement_notice": "Åsidosättningarna nedan är inaktiverade när en manuell upplösning eller uppdateringsfrekvens tvingas fram. Manuella uppdateringsfrekvenser tillämpas tvingande och åsidosätter spelanpassad frekvensväxling på virtuella bildskärmar.",
+    "background_stream": "Streama i bakgrunden (co-op-delning, endast handkontroller)"
   },
   "index": {
     "description": "Solsken är en själv-värd spel ström värd för Moonlight.",
@@ -1414,5 +1415,17 @@
       "files": "Filer",
       "advanced": "Avancerat"
     }
+  },
+  "console": {
+    "streaming_now": "Streamar nu",
+    "frame_rate": "Bildfrekvens",
+    "codec": "Codec",
+    "bitrate": "Bithastighet",
+    "target_bitrate": "Målbithastighet",
+    "encoding_p95": "Kodningstid (p95)",
+    "encoder": "Kodare",
+    "connection": "Anslutning",
+    "remote_input": "Fjärrinmatning",
+    "remote_monitor": "Fjärrskärm"
   }
 }

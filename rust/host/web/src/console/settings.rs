@@ -5,6 +5,18 @@ pub use butterpollo_config::config::console_catalog::{
     APP, CLIENT, Control, GLOBAL, Setting, choice_label,
 };
 
+/// The label this page shows: the catalog's, except that the co-op component is named by what it
+/// does (no third-party name in the console, GPL-3.0 section 7(e)). The key, and so the setting,
+/// stays the same.
+fn shown(setting: &Setting) -> &'static str {
+    match setting.key {
+        "background_stream" | "background-stream" => {
+            "Stream in the background (co-op splitter, controllers only)"
+        }
+        _ => setting.label,
+    }
+}
+
 pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
     let mut output = String::new();
     let mut previous = "";
@@ -51,10 +63,10 @@ pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
                 if !value.is_empty() && !choices.contains(&value.as_str()) {
                     options.push((&value, "Saved custom choice"));
                 }
-                select(&name, setting.label, &value, &options)
+                select(&name, shown(setting), &value, &options)
             }
-            Json => area(&name, setting.label, &value),
-            Number | Text => field(&name, setting.label, &value, "text"),
+            Json => area(&name, shown(setting), &value),
+            Number | Text => field(&name, shown(setting), &value, "text"),
         };
     }
     if !previous.is_empty() {
@@ -105,6 +117,29 @@ mod tests {
             .filter(|text| text.to_lowercase().contains("experiment"))
             .collect();
         assert!(labelled.is_empty(), "{labelled:?}");
+    }
+    #[test]
+    fn no_shown_label_or_group_names_a_mod() {
+        let named: Vec<&str> = [GLOBAL, APP, CLIENT]
+            .into_iter()
+            .flatten()
+            .flat_map(|setting| [shown(setting), setting.group])
+            .filter(|text| {
+                text.contains("Nucleus")
+                    || text
+                        .split(|c: char| !c.is_alphanumeric())
+                        .any(|word| word == "ANR")
+            })
+            .collect();
+        assert!(named.is_empty(), "{named:?}");
+        // The setting keeps its key, so saving still writes it.
+        let mut fields = Fields::new();
+        fields.insert("client_background_stream".into(), "true".into());
+        let mut values = serde_json::Map::new();
+        apply("client_", CLIENT, &fields, &mut values).unwrap();
+        assert_eq!(values["background_stream"], "true");
+        let de = i18n::render(&render("client_", CLIENT, &Value::Null), "de");
+        assert!(!de.contains("co-op splitter"), "untranslated: {de}");
     }
     #[test]
     fn hardware_metrics_settings_keep_their_typed_values() {

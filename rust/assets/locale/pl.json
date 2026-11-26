@@ -1434,5 +1434,30 @@
     "connection": "Połączenie",
     "remote_input": "Zdalne sterowanie",
     "remote_monitor": "Zdalny monitor"
+  },
+  "dvr": {
+    "title": "Klipy",
+    "instant_replay": "Natychmiastowa powtórka",
+    "save_clip": "Zapisz klip",
+    "start_recording": "Rozpocznij nagrywanie",
+    "stop_recording": "Zatrzymaj nagrywanie",
+    "open_folder": "Otwórz folder klipów",
+    "replay_ready": "Ostatnie {seconds} s gotowe do zapisu",
+    "recording_time": "Nagrywanie {time}",
+    "clip_saved": "Klip zapisany ({duration}, {size})",
+    "quota_used": "Użyto {used} z {limit}",
+    "no_clips": "Brak klipów",
+    "kind_replay": "Powtórka",
+    "kind_recording": "Nagranie",
+    "recovered": "Odzyskany",
+    "reason_disabled": "Natychmiastowa powtórka jest wyłączona na tym komputerze. Włącz Stream DVR w ustawieniach Rubylight, aby zapisywać klipy.",
+    "reason_pyrowave": "Podczas strumieniowania w PyroWave nie można zapisywać klipów. Przełącz na H.264, HEVC lub AV1, aby korzystać ze Stream DVR.",
+    "reason_disk_full": "Za mało wolnego miejsca na dysku komputera hosta, aby zapisać ten klip. Zwolnij miejsce lub usuń starsze klipy.",
+    "reason_no_keyframe_yet": "Oczekiwanie, aż strumień przechwyci pełną klatkę. Spróbuj zapisać ponownie za chwilę.",
+    "reason_audio_codec_unsupported": "Klipy wymagają dźwięku Opus. Zmień kodek audio z passthrough na Opus, aby nagrywać klipy.",
+    "reason_busy": "Trwa zapisywanie innego klipu. Spróbuj ponownie, gdy się zakończy.",
+    "reason_io_error": "Nie udało się zapisać klipu w folderze klipów. Sprawdź, czy folder istnieje i czy jego dysk jest podłączony.",
+    "reason_not_streaming": "Nic nie jest strumieniowane. Klipy można zapisywać, gdy urządzenie strumieniuje.",
+    "reason_unknown": "Klipy są teraz niedostępne."
   }
 }

@@ -1434,5 +1434,30 @@
     "connection": "Kapcsolat",
     "remote_input": "Távoli bevitel",
     "remote_monitor": "Távoli monitor"
+  },
+  "dvr": {
+    "title": "Klipek",
+    "instant_replay": "Azonnali visszajátszás",
+    "save_clip": "Klip mentése",
+    "start_recording": "Felvétel indítása",
+    "stop_recording": "Felvétel leállítása",
+    "open_folder": "Klipmappa megnyitása",
+    "replay_ready": "Az utolsó {seconds} mp menthető",
+    "recording_time": "Felvétel {time}",
+    "clip_saved": "Klip mentve ({duration}, {size})",
+    "quota_used": "{limit} tárhelyből {used} foglalt",
+    "no_clips": "Még nincsenek klipek",
+    "kind_replay": "Visszajátszás",
+    "kind_recording": "Felvétel",
+    "recovered": "Helyreállítva",
+    "reason_disabled": "Az azonnali visszajátszás ki van kapcsolva ezen a számítógépen. Klipek mentéséhez kapcsold be a Stream DVR-t a Rubylight beállításaiban.",
+    "reason_pyrowave": "PyroWave-vel történő streamelés közben nem menthetők klipek. A Stream DVR használatához válts H.264, HEVC vagy AV1 kodekre.",
+    "reason_disk_full": "Nincs elég szabad hely a gazdagép lemezén a klip mentéséhez. Szabadíts fel helyet, vagy törölj régebbi klipeket.",
+    "reason_no_keyframe_yet": "Várakozás arra, hogy a stream teljes képkockát rögzítsen. Próbáld meg újra a mentést egy pillanat múlva.",
+    "reason_audio_codec_unsupported": "A klipekhez Opus hang szükséges. Klipek rögzítéséhez állítsd át a hangkodeket passthrough-ról Opusra.",
+    "reason_busy": "Éppen egy másik klip mentése folyik. Próbáld újra, ha végzett.",
+    "reason_io_error": "A klipet nem sikerült a klipmappába írni. Ellenőrizd, hogy a mappa létezik-e, és a meghajtója csatlakoztatva van-e.",
+    "reason_not_streaming": "Jelenleg nincs stream. Klipeket akkor menthetsz, amikor egy eszköz streamel.",
+    "reason_unknown": "A klipek jelenleg nem érhetők el."
   }
 }

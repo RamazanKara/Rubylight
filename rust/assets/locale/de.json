@@ -1463,5 +1463,30 @@
     "connection": "Verbindung",
     "remote_input": "Ferneingabe",
     "remote_monitor": "Fernmonitor"
+  },
+  "dvr": {
+    "title": "Clips",
+    "instant_replay": "Sofortwiederholung",
+    "save_clip": "Clip speichern",
+    "start_recording": "Aufnahme starten",
+    "stop_recording": "Aufnahme beenden",
+    "open_folder": "Clip-Ordner öffnen",
+    "replay_ready": "Letzte {seconds} s bereit zum Speichern",
+    "recording_time": "Aufnahme {time}",
+    "clip_saved": "Clip gespeichert ({duration}, {size})",
+    "quota_used": "{used} von {limit} belegt",
+    "no_clips": "Noch keine Clips",
+    "kind_replay": "Wiederholung",
+    "kind_recording": "Aufnahme",
+    "recovered": "Wiederhergestellt",
+    "reason_disabled": "Die Sofortwiederholung ist auf diesem PC ausgeschaltet. Schalte Stream DVR in den Rubylight-Einstellungen ein, um Clips zu speichern.",
+    "reason_pyrowave": "Beim Streamen mit PyroWave können keine Clips gespeichert werden. Wechsle zu H.264, HEVC oder AV1, um Stream DVR zu nutzen.",
+    "reason_disk_full": "Auf dem Host-PC ist nicht genug Speicherplatz frei, um diesen Clip zu speichern. Gib Speicherplatz frei oder lösche ältere Clips.",
+    "reason_no_keyframe_yet": "Warte darauf, dass der Stream ein vollständiges Bild erfasst. Versuche es gleich noch einmal.",
+    "reason_audio_codec_unsupported": "Clips benötigen Opus-Audio. Stelle den Audio-Codec von Passthrough auf Opus um, um Clips aufzunehmen.",
+    "reason_busy": "Gerade wird ein anderer Clip gespeichert. Versuche es erneut, sobald er fertig ist.",
+    "reason_io_error": "Der Clip konnte nicht in den Clip-Ordner geschrieben werden. Prüfe, ob der Ordner existiert und sein Laufwerk verbunden ist.",
+    "reason_not_streaming": "Gerade läuft kein Stream. Clips lassen sich speichern, während ein Gerät streamt.",
+    "reason_unknown": "Clips sind gerade nicht verfügbar."
   }
 }

@@ -1437,5 +1437,30 @@
     "connection": "Connection",
     "remote_input": "Remote input",
     "remote_monitor": "Remote monitor"
+  },
+  "dvr": {
+    "title": "Clips",
+    "instant_replay": "Instant replay",
+    "save_clip": "Save clip",
+    "start_recording": "Start recording",
+    "stop_recording": "Stop recording",
+    "open_folder": "Open clips folder",
+    "replay_ready": "Last {seconds} s ready to save",
+    "recording_time": "Recording {time}",
+    "clip_saved": "Clip saved ({duration}, {size})",
+    "quota_used": "{used} of {limit} used",
+    "no_clips": "No clips yet",
+    "kind_replay": "Replay",
+    "kind_recording": "Recording",
+    "recovered": "Recovered",
+    "reason_disabled": "Instant Replay is turned off on this PC. Enable Stream DVR in Rubylight settings to save clips.",
+    "reason_pyrowave": "Clips cannot be saved while streaming with PyroWave. Switch to H.264, HEVC, or AV1 to use Stream DVR.",
+    "reason_disk_full": "Not enough free disk space on the host PC to save this clip. Free up space or delete older clips.",
+    "reason_no_keyframe_yet": "Waiting for the stream to capture a full frame. Try saving again in a moment.",
+    "reason_audio_codec_unsupported": "Clips require Opus audio. Switch audio codec from passthrough to Opus to record clips.",
+    "reason_busy": "Another clip is being saved. Try again once it is done.",
+    "reason_io_error": "The clip could not be written to the clips folder. Check that the folder exists and its drive is connected.",
+    "reason_not_streaming": "Nothing is streaming. Clips can be saved while a device streams.",
+    "reason_unknown": "Clips are not available right now."
   }
 }

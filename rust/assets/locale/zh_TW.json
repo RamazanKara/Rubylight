@@ -1434,5 +1434,30 @@
     "connection": "連線",
     "remote_input": "遠端輸入",
     "remote_monitor": "遠端顯示器"
+  },
+  "dvr": {
+    "title": "剪輯",
+    "instant_replay": "即時重播",
+    "save_clip": "儲存剪輯",
+    "start_recording": "開始錄製",
+    "stop_recording": "停止錄製",
+    "open_folder": "開啟剪輯資料夾",
+    "replay_ready": "最近 {seconds} 秒可儲存",
+    "recording_time": "正在錄製 {time}",
+    "clip_saved": "剪輯已儲存（{duration}，{size}）",
+    "quota_used": "已用 {used}，共 {limit}",
+    "no_clips": "尚無剪輯",
+    "kind_replay": "重播",
+    "kind_recording": "錄製",
+    "recovered": "已復原",
+    "reason_disabled": "此電腦上的即時重播已關閉。請在 Rubylight 設定中開啟 Stream DVR 以儲存剪輯。",
+    "reason_pyrowave": "使用 PyroWave 串流時無法儲存剪輯。請切換至 H.264、HEVC 或 AV1 以使用 Stream DVR。",
+    "reason_disk_full": "主機電腦的可用磁碟空間不足，無法儲存此剪輯。請釋放空間或刪除較舊的剪輯。",
+    "reason_no_keyframe_yet": "正在等待串流擷取完整畫面。請稍後再試著儲存。",
+    "reason_audio_codec_unsupported": "剪輯需要 Opus 音訊。請將音訊編解碼器從直通切換為 Opus 以錄製剪輯。",
+    "reason_busy": "正在儲存另一個剪輯。完成後請再試一次。",
+    "reason_io_error": "無法將剪輯寫入剪輯資料夾。請檢查該資料夾是否存在，以及其所在磁碟機是否已連接。",
+    "reason_not_streaming": "目前沒有串流。裝置串流時才能儲存剪輯。",
+    "reason_unknown": "剪輯目前無法使用。"
   }
 }

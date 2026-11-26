@@ -1434,5 +1434,30 @@
     "connection": "Ligação",
     "remote_input": "Entrada remota",
     "remote_monitor": "Monitor remoto"
+  },
+  "dvr": {
+    "title": "Clipes",
+    "instant_replay": "Repetição instantânea",
+    "save_clip": "Guardar clipe",
+    "start_recording": "Iniciar gravação",
+    "stop_recording": "Parar gravação",
+    "open_folder": "Abrir pasta de clipes",
+    "replay_ready": "Últimos {seconds} s prontos a guardar",
+    "recording_time": "A gravar {time}",
+    "clip_saved": "Clipe guardado ({duration}, {size})",
+    "quota_used": "{used} de {limit} usados",
+    "no_clips": "Ainda sem clipes",
+    "kind_replay": "Repetição",
+    "kind_recording": "Gravação",
+    "recovered": "Recuperado",
+    "reason_disabled": "A repetição instantânea está desligada neste PC. Ative o Stream DVR nas definições do Rubylight para guardar clipes.",
+    "reason_pyrowave": "Não é possível guardar clipes durante uma transmissão com PyroWave. Mude para H.264, HEVC ou AV1 para usar o Stream DVR.",
+    "reason_disk_full": "Não há espaço livre suficiente no disco do PC anfitrião para guardar este clipe. Liberte espaço ou elimine clipes antigos.",
+    "reason_no_keyframe_yet": "À espera de que a transmissão capture um fotograma completo. Tente guardar novamente daqui a pouco.",
+    "reason_audio_codec_unsupported": "Os clipes requerem áudio Opus. Mude o codec de áudio de passthrough para Opus para gravar clipes.",
+    "reason_busy": "Outro clipe está a ser guardado. Tente novamente quando terminar.",
+    "reason_io_error": "Não foi possível escrever o clipe na pasta de clipes. Verifique se a pasta existe e se a respetiva unidade está ligada.",
+    "reason_not_streaming": "Nada está a ser transmitido. Os clipes podem ser guardados enquanto um dispositivo transmite.",
+    "reason_unknown": "Os clipes não estão disponíveis neste momento."
   }
 }

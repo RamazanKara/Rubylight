@@ -1434,5 +1434,30 @@
     "connection": "Anslutning",
     "remote_input": "Fjärrinmatning",
     "remote_monitor": "Fjärrskärm"
+  },
+  "dvr": {
+    "title": "Klipp",
+    "instant_replay": "Direktrepris",
+    "save_clip": "Spara klipp",
+    "start_recording": "Starta inspelning",
+    "stop_recording": "Stoppa inspelning",
+    "open_folder": "Öppna klippmappen",
+    "replay_ready": "Senaste {seconds} s redo att sparas",
+    "recording_time": "Spelar in {time}",
+    "clip_saved": "Klipp sparat ({duration}, {size})",
+    "quota_used": "{used} av {limit} används",
+    "no_clips": "Inga klipp än",
+    "kind_replay": "Repris",
+    "kind_recording": "Inspelning",
+    "recovered": "Återställt",
+    "reason_disabled": "Direktrepris är avstängt på den här datorn. Slå på Stream DVR i Rubylights inställningar för att spara klipp.",
+    "reason_pyrowave": "Klipp kan inte sparas när du streamar med PyroWave. Byt till H.264, HEVC eller AV1 för att använda Stream DVR.",
+    "reason_disk_full": "Det finns inte tillräckligt med ledigt diskutrymme på värddatorn för att spara klippet. Frigör utrymme eller ta bort äldre klipp.",
+    "reason_no_keyframe_yet": "Väntar på att strömmen ska fånga en hel bildruta. Försök spara igen om en stund.",
+    "reason_audio_codec_unsupported": "Klipp kräver Opus-ljud. Byt ljudcodec från passthrough till Opus för att spela in klipp.",
+    "reason_busy": "Ett annat klipp sparas just nu. Försök igen när det är klart.",
+    "reason_io_error": "Klippet kunde inte skrivas till klippmappen. Kontrollera att mappen finns och att dess enhet är ansluten.",
+    "reason_not_streaming": "Inget streamas. Klipp kan sparas medan en enhet streamar.",
+    "reason_unknown": "Klipp är inte tillgängliga just nu."
   }
 }

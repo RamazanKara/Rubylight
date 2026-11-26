@@ -1434,5 +1434,30 @@
     "connection": "Kết nối",
     "remote_input": "Nhập liệu từ xa",
     "remote_monitor": "Màn hình từ xa"
+  },
+  "dvr": {
+    "title": "Clip",
+    "instant_replay": "Phát lại tức thì",
+    "save_clip": "Lưu clip",
+    "start_recording": "Bắt đầu ghi",
+    "stop_recording": "Dừng ghi",
+    "open_folder": "Mở thư mục clip",
+    "replay_ready": "{seconds} giây gần nhất sẵn sàng để lưu",
+    "recording_time": "Đang ghi {time}",
+    "clip_saved": "Đã lưu clip ({duration}, {size})",
+    "quota_used": "Đã dùng {used} trên {limit}",
+    "no_clips": "Chưa có clip nào",
+    "kind_replay": "Phát lại",
+    "kind_recording": "Bản ghi",
+    "recovered": "Đã khôi phục",
+    "reason_disabled": "Phát lại tức thì đang tắt trên PC này. Bật Stream DVR trong cài đặt Rubylight để lưu clip.",
+    "reason_pyrowave": "Không thể lưu clip khi đang stream bằng PyroWave. Hãy chuyển sang H.264, HEVC hoặc AV1 để dùng Stream DVR.",
+    "reason_disk_full": "Ổ đĩa trên PC chủ không đủ dung lượng trống để lưu clip này. Hãy giải phóng dung lượng hoặc xóa các clip cũ.",
+    "reason_no_keyframe_yet": "Đang chờ luồng ghi được một khung hình đầy đủ. Hãy thử lưu lại sau giây lát.",
+    "reason_audio_codec_unsupported": "Clip cần âm thanh Opus. Hãy chuyển codec âm thanh từ passthrough sang Opus để ghi clip.",
+    "reason_busy": "Đang lưu một clip khác. Hãy thử lại khi xong.",
+    "reason_io_error": "Không thể ghi clip vào thư mục clip. Hãy kiểm tra thư mục có tồn tại và ổ đĩa của nó đã được kết nối.",
+    "reason_not_streaming": "Không có gì đang stream. Có thể lưu clip khi một thiết bị đang stream.",
+    "reason_unknown": "Hiện không dùng được clip."
   }
 }

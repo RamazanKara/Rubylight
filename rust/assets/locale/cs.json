@@ -1434,5 +1434,30 @@
     "connection": "Připojení",
     "remote_input": "Vzdálené ovládání",
     "remote_monitor": "Vzdálený monitor"
+  },
+  "dvr": {
+    "title": "Klipy",
+    "instant_replay": "Okamžitý záznam",
+    "save_clip": "Uložit klip",
+    "start_recording": "Spustit nahrávání",
+    "stop_recording": "Zastavit nahrávání",
+    "open_folder": "Otevřít složku s klipy",
+    "replay_ready": "Posledních {seconds} s připraveno k uložení",
+    "recording_time": "Nahrávání {time}",
+    "clip_saved": "Klip uložen ({duration}, {size})",
+    "quota_used": "Využito {used} z {limit}",
+    "no_clips": "Zatím žádné klipy",
+    "kind_replay": "Záznam",
+    "kind_recording": "Nahrávka",
+    "recovered": "Obnoveno",
+    "reason_disabled": "Okamžitý záznam je na tomto počítači vypnutý. Chcete-li ukládat klipy, zapněte Stream DVR v nastavení Rubylight.",
+    "reason_pyrowave": "Při streamování s PyroWave nelze ukládat klipy. Pro Stream DVR přepněte na H.264, HEVC nebo AV1.",
+    "reason_disk_full": "Na disku hostitelského počítače není dost místa pro uložení tohoto klipu. Uvolněte místo nebo smažte starší klipy.",
+    "reason_no_keyframe_yet": "Čeká se, až stream zachytí celý snímek. Zkuste uložit znovu za chvíli.",
+    "reason_audio_codec_unsupported": "Klipy vyžadují zvuk Opus. Pro nahrávání klipů přepněte zvukový kodek z passthrough na Opus.",
+    "reason_busy": "Právě se ukládá jiný klip. Zkuste to znovu, až bude hotovo.",
+    "reason_io_error": "Klip se nepodařilo zapsat do složky s klipy. Zkontrolujte, že složka existuje a její disk je připojený.",
+    "reason_not_streaming": "Nic se nestreamuje. Klipy lze ukládat, když zařízení streamuje.",
+    "reason_unknown": "Klipy teď nejsou k dispozici."
   }
 }

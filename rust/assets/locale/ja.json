@@ -1434,5 +1434,30 @@
     "connection": "接続",
     "remote_input": "リモート入力",
     "remote_monitor": "リモートモニター"
+  },
+  "dvr": {
+    "title": "クリップ",
+    "instant_replay": "インスタントリプレイ",
+    "save_clip": "クリップを保存",
+    "start_recording": "録画を開始",
+    "stop_recording": "録画を停止",
+    "open_folder": "クリップフォルダーを開く",
+    "replay_ready": "直近 {seconds} 秒を保存できます",
+    "recording_time": "録画中 {time}",
+    "clip_saved": "クリップを保存しました（{duration}、{size}）",
+    "quota_used": "{limit} 中 {used} 使用",
+    "no_clips": "クリップはまだありません",
+    "kind_replay": "リプレイ",
+    "kind_recording": "録画",
+    "recovered": "復元済み",
+    "reason_disabled": "この PC ではインスタントリプレイがオフです。クリップを保存するには、Rubylight の設定で Stream DVR をオンにしてください。",
+    "reason_pyrowave": "PyroWave でストリーミング中はクリップを保存できません。Stream DVR を使うには H.264、HEVC、または AV1 に切り替えてください。",
+    "reason_disk_full": "ホスト PC のディスク空き容量が不足しているため、このクリップを保存できません。空き容量を増やすか、古いクリップを削除してください。",
+    "reason_no_keyframe_yet": "ストリームが完全なフレームを取得するのを待っています。少ししてからもう一度保存してください。",
+    "reason_audio_codec_unsupported": "クリップには Opus オーディオが必要です。クリップを録画するには、オーディオコーデックをパススルーから Opus に切り替えてください。",
+    "reason_busy": "別のクリップを保存中です。完了してからもう一度お試しください。",
+    "reason_io_error": "クリップをクリップフォルダーに書き込めませんでした。フォルダーが存在し、そのドライブが接続されていることを確認してください。",
+    "reason_not_streaming": "ストリーミング中ではありません。クリップはデバイスのストリーミング中に保存できます。",
+    "reason_unknown": "現在クリップは利用できません。"
   }
 }

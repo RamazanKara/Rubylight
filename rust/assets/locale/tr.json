@@ -1434,5 +1434,30 @@
     "connection": "Bağlantı",
     "remote_input": "Uzaktan giriş",
     "remote_monitor": "Uzak monitör"
+  },
+  "dvr": {
+    "title": "Klipler",
+    "instant_replay": "Anında tekrar",
+    "save_clip": "Klibi kaydet",
+    "start_recording": "Kaydı başlat",
+    "stop_recording": "Kaydı durdur",
+    "open_folder": "Klip klasörünü aç",
+    "replay_ready": "Son {seconds} sn kaydedilmeye hazır",
+    "recording_time": "Kaydediliyor {time}",
+    "clip_saved": "Klip kaydedildi ({duration}, {size})",
+    "quota_used": "{limit} alanın {used} kadarı kullanılıyor",
+    "no_clips": "Henüz klip yok",
+    "kind_replay": "Tekrar",
+    "kind_recording": "Kayıt",
+    "recovered": "Kurtarıldı",
+    "reason_disabled": "Anında tekrar bu bilgisayarda kapalı. Klip kaydetmek için Rubylight ayarlarında Stream DVR'ı açın.",
+    "reason_pyrowave": "PyroWave ile yayın yaparken klip kaydedilemez. Stream DVR'ı kullanmak için H.264, HEVC veya AV1'e geçin.",
+    "reason_disk_full": "Ana bilgisayarda bu klibi kaydetmek için yeterli boş disk alanı yok. Yer açın veya eski klipleri silin.",
+    "reason_no_keyframe_yet": "Yayının tam bir kare yakalaması bekleniyor. Birazdan yeniden kaydetmeyi deneyin.",
+    "reason_audio_codec_unsupported": "Klipler Opus ses gerektirir. Klip kaydetmek için ses codec'ini passthrough'dan Opus'a geçirin.",
+    "reason_busy": "Başka bir klip kaydediliyor. Bittiğinde yeniden deneyin.",
+    "reason_io_error": "Klip, klip klasörüne yazılamadı. Klasörün var olduğunu ve sürücüsünün bağlı olduğunu kontrol edin.",
+    "reason_not_streaming": "Şu anda yayın yok. Klipler bir cihaz yayın yaparken kaydedilebilir.",
+    "reason_unknown": "Klipler şu anda kullanılamıyor."
   }
 }

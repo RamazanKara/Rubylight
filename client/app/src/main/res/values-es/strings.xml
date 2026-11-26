@@ -577,4 +577,23 @@
     <string name="frame_warp_overlay_update_host">Frame Warp: necesita la versión actual en el PC</string>
     <string name="frame_warp_overlay_confidence">%1$s, confianza %2$s %%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, confianza %2$s %%, giroscopio fijado</string>
+    <string name="stream_dvr_title">Repetición instantánea</string>
+    <string name="stream_dvr_save">Guardar clip</string>
+    <string name="stream_dvr_record_start">Iniciar grabación</string>
+    <string name="stream_dvr_record_stop">Detener grabación</string>
+    <string name="stream_dvr_buffered">Últimos %1$d s listos</string>
+    <string name="stream_dvr_recording">Grabando %1$s</string>
+    <string name="stream_dvr_saving">Guardando clip…</string>
+    <string name="stream_dvr_clip_saved">Clip guardado (%1$d s, %2$s)</string>
+    <string name="stream_dvr_recording_saved">Grabación guardada (%1$s, %2$s)</string>
+    <string name="stream_dvr_reason_disabled">La repetición instantánea está desactivada en el PC anfitrión. Activa Stream DVR en los ajustes del PC anfitrión para guardar clips.</string>
+    <string name="stream_dvr_reason_pyrowave">No se pueden guardar clips mientras se transmite con PyroWave. Cambia a H.264, HEVC o AV1 para usar Stream DVR.</string>
+    <string name="stream_dvr_reason_disk">No hay suficiente espacio libre en el disco del PC anfitrión para guardar este clip. Libera espacio o elimina clips antiguos.</string>
+    <string name="stream_dvr_reason_no_keyframe">Esperando a que la transmisión capture un fotograma completo. Vuelve a intentarlo en un momento.</string>
+    <string name="stream_dvr_reason_audio">Los clips requieren audio Opus. Cambia el códec de audio de passthrough a Opus para grabar clips.</string>
+    <string name="stream_dvr_reason_busy">El PC anfitrión todavía está guardando el último clip. Vuelve a intentarlo en un momento.</string>
+    <string name="stream_dvr_reason_permission">Solo el dispositivo que inició esta transmisión puede guardar clips.</string>
+    <string name="stream_dvr_reason_io">El PC anfitrión no pudo escribir el clip en su disco.</string>
+    <string name="stream_dvr_reason_not_streaming">Los clips solo se pueden guardar mientras hay una transmisión en curso.</string>
+    <string name="stream_dvr_reason_unknown">El PC anfitrión no pudo guardar el clip.</string>
 </resources>

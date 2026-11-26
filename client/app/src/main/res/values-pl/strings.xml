@@ -577,4 +577,23 @@
     <string name="frame_warp_overlay_update_host">Frame Warp: wymaga aktualnej wersji na komputerze</string>
     <string name="frame_warp_overlay_confidence">%1$s, pewność %2$s%%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, pewność %2$s%%, żyroskop dopasowany</string>
+    <string name="stream_dvr_title">Natychmiastowa powtórka</string>
+    <string name="stream_dvr_save">Zapisz klip</string>
+    <string name="stream_dvr_record_start">Rozpocznij nagrywanie</string>
+    <string name="stream_dvr_record_stop">Zatrzymaj nagrywanie</string>
+    <string name="stream_dvr_buffered">Ostatnie %1$d s gotowe</string>
+    <string name="stream_dvr_recording">Nagrywanie %1$s</string>
+    <string name="stream_dvr_saving">Zapisywanie klipu…</string>
+    <string name="stream_dvr_clip_saved">Klip zapisany (%1$d s, %2$s)</string>
+    <string name="stream_dvr_recording_saved">Nagranie zapisane (%1$s, %2$s)</string>
+    <string name="stream_dvr_reason_disabled">Natychmiastowa powtórka jest wyłączona na komputerze hosta. Włącz Stream DVR w ustawieniach komputera hosta, aby zapisywać klipy.</string>
+    <string name="stream_dvr_reason_pyrowave">Podczas streamowania z PyroWave nie można zapisywać klipów. Przełącz na H.264, HEVC lub AV1, aby używać Stream DVR.</string>
+    <string name="stream_dvr_reason_disk">Na komputerze hosta brakuje wolnego miejsca na dysku, aby zapisać ten klip. Zwolnij miejsce lub usuń starsze klipy.</string>
+    <string name="stream_dvr_reason_no_keyframe">Oczekiwanie, aż stream przechwyci pełną klatkę. Spróbuj zapisać ponownie za chwilę.</string>
+    <string name="stream_dvr_reason_audio">Klipy wymagają dźwięku Opus. Zmień kodek audio z passthrough na Opus, aby nagrywać klipy.</string>
+    <string name="stream_dvr_reason_busy">Komputer hosta nadal zapisuje ostatni klip. Spróbuj ponownie za chwilę.</string>
+    <string name="stream_dvr_reason_permission">Tylko urządzenie, które uruchomiło ten stream, może zapisywać klipy.</string>
+    <string name="stream_dvr_reason_io">Komputer hosta nie mógł zapisać klipu na dysku.</string>
+    <string name="stream_dvr_reason_not_streaming">Klipy można zapisywać tylko podczas trwającego streamu.</string>
+    <string name="stream_dvr_reason_unknown">Komputer hosta nie mógł zapisać klipu.</string>
 </resources>

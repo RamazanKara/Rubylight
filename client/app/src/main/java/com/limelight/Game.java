@@ -303,6 +303,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     com.limelight.binding.usb.UsbForwarding usbForwarding;
     /** Join requests and guests of this device's game, on hosts that offer them. */
     StreamGuests streamGuests;
+    // Instant Replay over 0x554A, on a host that offers Stream DVR for this stream (GameConnection.startStreamDvr).
+    com.limelight.ui.StreamMenuDvrSection streamDvr;
     // Clipboard sync (0x5508) while this stream's PC runs it.
     com.limelight.utils.ClipboardSync clipboardSync;
     final Runnable showStreamMenuHint = overlays::showStreamMenuHint;
@@ -653,6 +655,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     @Override public void rateChange(RateChangeResult result) { runOnUiThread(() -> adaptation.onRateChange(result)); }
+    @Override public void dvrState(int requestId, int state, int reason, int bufferedSecs, int capacitySecs, int recordingSecs,
+                                   long quotaUsedBytes, long quotaLimitBytes) {
+        runOnUiThread(() -> { if (streamDvr != null) streamDvr.onState(requestId, state, reason, bufferedSecs, recordingSecs); });
+    }
+    @Override public void dvrClip(int requestId, int outcome, int reason, int durationSecs, long fileBytes) {
+        runOnUiThread(() -> { if (streamDvr != null) streamDvr.onClip(requestId, outcome, reason, durationSecs, fileBytes); });
+    }
     @Override public void textInput(int kind, int inputType, int flags, int element) { runOnUiThread(() -> keyboardInput.onHostTextField(kind, inputType, flags, element)); }
     @Override public void clipboardSync(String text) { runOnUiThread(() -> { if (clipboardSync != null) clipboardSync.received(text); }); }
     @Override public void clipboardSyncRefused(int reason) { runOnUiThread(() -> { if (clipboardSync != null) clipboardSync.refused(reason); }); }

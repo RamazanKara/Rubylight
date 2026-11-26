@@ -577,4 +577,23 @@
     <string name="frame_warp_overlay_update_host">Frame Warp：電腦需要最新版本</string>
     <string name="frame_warp_overlay_confidence">%1$s，信賴度 %2$s%%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s，信賴度 %2$s%%，陀螺儀已鎖定</string>
+    <string name="stream_dvr_title">即時重播</string>
+    <string name="stream_dvr_save">儲存片段</string>
+    <string name="stream_dvr_record_start">開始錄製</string>
+    <string name="stream_dvr_record_stop">停止錄製</string>
+    <string name="stream_dvr_buffered">最近 %1$d 秒已就緒</string>
+    <string name="stream_dvr_recording">正在錄製 %1$s</string>
+    <string name="stream_dvr_saving">正在儲存片段…</string>
+    <string name="stream_dvr_clip_saved">片段已儲存（%1$d 秒，%2$s）</string>
+    <string name="stream_dvr_recording_saved">錄製已儲存（%1$s，%2$s）</string>
+    <string name="stream_dvr_reason_disabled">主機 PC 上的即時重播已關閉。請在主機 PC 的設定中開啟 Stream DVR 以儲存片段。</string>
+    <string name="stream_dvr_reason_pyrowave">使用 PyroWave 串流時無法儲存片段。請切換為 H.264、HEVC 或 AV1 以使用 Stream DVR。</string>
+    <string name="stream_dvr_reason_disk">主機 PC 的可用磁碟空間不足，無法儲存此片段。請釋放空間或刪除較舊的片段。</string>
+    <string name="stream_dvr_reason_no_keyframe">正在等待串流擷取完整畫面。請稍後再試一次儲存。</string>
+    <string name="stream_dvr_reason_audio">片段需要 Opus 音訊。請將音訊編解碼器從直通切換為 Opus 以錄製片段。</string>
+    <string name="stream_dvr_reason_busy">主機 PC 仍在儲存上一個片段。請稍後再試。</string>
+    <string name="stream_dvr_reason_permission">只有啟動此串流的裝置才能儲存片段。</string>
+    <string name="stream_dvr_reason_io">主機 PC 無法將片段寫入其磁碟。</string>
+    <string name="stream_dvr_reason_not_streaming">只有在串流進行中才能儲存片段。</string>
+    <string name="stream_dvr_reason_unknown">主機 PC 無法儲存片段。</string>
 </resources>

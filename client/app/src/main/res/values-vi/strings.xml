@@ -577,4 +577,23 @@
     <string name="frame_warp_overlay_update_host">Frame Warp: cần phiên bản hiện tại trên PC</string>
     <string name="frame_warp_overlay_confidence">%1$s, độ tin cậy %2$s%%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, độ tin cậy %2$s%%, con quay đã khóa</string>
+    <string name="stream_dvr_title">Phát lại tức thì</string>
+    <string name="stream_dvr_save">Lưu clip</string>
+    <string name="stream_dvr_record_start">Bắt đầu ghi</string>
+    <string name="stream_dvr_record_stop">Dừng ghi</string>
+    <string name="stream_dvr_buffered">Đã sẵn sàng %1$d giây gần nhất</string>
+    <string name="stream_dvr_recording">Đang ghi %1$s</string>
+    <string name="stream_dvr_saving">Đang lưu clip…</string>
+    <string name="stream_dvr_clip_saved">Đã lưu clip (%1$d giây, %2$s)</string>
+    <string name="stream_dvr_recording_saved">Đã lưu bản ghi (%1$s, %2$s)</string>
+    <string name="stream_dvr_reason_disabled">Phát lại tức thì đang tắt trên PC chủ. Bật Stream DVR trong cài đặt của PC chủ để lưu clip.</string>
+    <string name="stream_dvr_reason_pyrowave">Không thể lưu clip khi đang stream bằng PyroWave. Chuyển sang H.264, HEVC hoặc AV1 để dùng Stream DVR.</string>
+    <string name="stream_dvr_reason_disk">PC chủ không đủ dung lượng đĩa trống để lưu clip này. Hãy giải phóng dung lượng hoặc xóa các clip cũ.</string>
+    <string name="stream_dvr_reason_no_keyframe">Đang chờ luồng chụp được một khung hình đầy đủ. Hãy thử lưu lại sau giây lát.</string>
+    <string name="stream_dvr_reason_audio">Clip cần âm thanh Opus. Hãy đổi codec âm thanh từ passthrough sang Opus để ghi clip.</string>
+    <string name="stream_dvr_reason_busy">PC chủ vẫn đang lưu clip trước. Hãy thử lại sau giây lát.</string>
+    <string name="stream_dvr_reason_permission">Chỉ thiết bị đã bắt đầu luồng này mới có thể lưu clip.</string>
+    <string name="stream_dvr_reason_io">PC chủ không thể ghi clip vào ổ đĩa.</string>
+    <string name="stream_dvr_reason_not_streaming">Chỉ có thể lưu clip khi luồng đang chạy.</string>
+    <string name="stream_dvr_reason_unknown">PC chủ không thể lưu clip.</string>
 </resources>

@@ -577,4 +577,23 @@
     <string name="frame_warp_overlay_update_host">Frame Warp: нужна текущая версия на ПК</string>
     <string name="frame_warp_overlay_confidence">%1$s, уверенность %2$s%%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, уверенность %2$s%%, гироскоп зафиксирован</string>
+    <string name="stream_dvr_title">Мгновенный повтор</string>
+    <string name="stream_dvr_save">Сохранить клип</string>
+    <string name="stream_dvr_record_start">Начать запись</string>
+    <string name="stream_dvr_record_stop">Остановить запись</string>
+    <string name="stream_dvr_buffered">Готово: последние %1$d с</string>
+    <string name="stream_dvr_recording">Запись %1$s</string>
+    <string name="stream_dvr_saving">Сохранение клипа…</string>
+    <string name="stream_dvr_clip_saved">Клип сохранён (%1$d с, %2$s)</string>
+    <string name="stream_dvr_recording_saved">Запись сохранена (%1$s, %2$s)</string>
+    <string name="stream_dvr_reason_disabled">Мгновенный повтор выключен на хост-ПК. Включите Stream DVR в настройках хост-ПК, чтобы сохранять клипы.</string>
+    <string name="stream_dvr_reason_pyrowave">Во время стриминга с PyroWave клипы сохранить нельзя. Переключитесь на H.264, HEVC или AV1, чтобы использовать Stream DVR.</string>
+    <string name="stream_dvr_reason_disk">На диске хост-ПК недостаточно свободного места, чтобы сохранить этот клип. Освободите место или удалите старые клипы.</string>
+    <string name="stream_dvr_reason_no_keyframe">Ожидание, пока поток захватит полный кадр. Попробуйте сохранить ещё раз через мгновение.</string>
+    <string name="stream_dvr_reason_audio">Для клипов нужен звук Opus. Переключите аудиокодек с passthrough на Opus, чтобы записывать клипы.</string>
+    <string name="stream_dvr_reason_busy">Хост-ПК ещё сохраняет предыдущий клип. Попробуйте ещё раз через мгновение.</string>
+    <string name="stream_dvr_reason_permission">Сохранять клипы может только устройство, которое запустило этот поток.</string>
+    <string name="stream_dvr_reason_io">Хост-ПК не смог записать клип на свой диск.</string>
+    <string name="stream_dvr_reason_not_streaming">Клипы можно сохранять только во время работающего потока.</string>
+    <string name="stream_dvr_reason_unknown">Хост-ПК не смог сохранить клип.</string>
 </resources>

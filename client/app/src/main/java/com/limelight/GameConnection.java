@@ -192,6 +192,18 @@ final class GameConnection {
         }
     }
 
+    // Instant Replay on the menu's first page, once the native capabilities say the host offers it. UI thread.
+    private void startStreamDvr() {
+        if (!game.connected || game.isFinishing()) return;
+        game.streamDvr = null;
+        boolean announced = MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_STREAM_DVR);
+        if (!com.limelight.ui.StreamMenuDvrSection.offered(
+                com.limelight.ui.StreamMenuDvrSection.hostOffers(game.conn.getHostDetails()), announced, game.app.getRole())) return;
+        game.streamDvr = new com.limelight.ui.StreamMenuDvrSection(game, MoonBridge::sendStreamDvr,
+                text -> game.messages.alert(text, Toast.LENGTH_LONG), SystemClock::elapsedRealtime);
+        game.streamDvr.start();
+    }
+
     private void startStreamGuests() {
         if (!game.connected || game.isFinishing() || game.streamGuests != null
                 || !game.conn.offersSessionGuests() || game.app.getRole() != NvApp.Role.STREAM) {
@@ -392,6 +404,7 @@ final class GameConnection {
             game.conn.refreshNativeHostControl(() -> game.runOnUiThread(() -> {
                 game.menuActions.startUsbAutoForwarding();
                 startStreamGuests();
+                startStreamDvr();
             }));
             game.getIntent().removeExtra(Game.EXTRA_RECOVERY_MEDIA_FAILURE);
             game.bitrateHandler.removeCallbacks(game.adaptation.sampleStreamHealth);

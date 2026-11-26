@@ -622,4 +622,23 @@
     <string name="frame_warp_overlay_update_host">Frame Warp: needs the current version on the PC</string>
     <string name="frame_warp_overlay_confidence">%1$s, confidence %2$s%%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, confidence %2$s%%, gyro locked</string>
+    <string name="stream_dvr_title">Instant Replay</string>
+    <string name="stream_dvr_save">Save clip</string>
+    <string name="stream_dvr_record_start">Start recording</string>
+    <string name="stream_dvr_record_stop">Stop recording</string>
+    <string name="stream_dvr_buffered">Last %1$d s ready</string>
+    <string name="stream_dvr_recording">Recording %1$s</string>
+    <string name="stream_dvr_saving">Saving clip…</string>
+    <string name="stream_dvr_clip_saved">Clip saved (%1$d s, %2$s)</string>
+    <string name="stream_dvr_recording_saved">Recording saved (%1$s, %2$s)</string>
+    <string name="stream_dvr_reason_disabled">Instant Replay is turned off on the host PC. Turn on Stream DVR in the host PC’s settings to save clips.</string>
+    <string name="stream_dvr_reason_pyrowave">Clips cannot be saved while streaming with PyroWave. Switch to H.264, HEVC, or AV1 to use Stream DVR.</string>
+    <string name="stream_dvr_reason_disk">Not enough free disk space on the host PC to save this clip. Free up space or delete older clips.</string>
+    <string name="stream_dvr_reason_no_keyframe">Waiting for the stream to capture a full frame. Try saving again in a moment.</string>
+    <string name="stream_dvr_reason_audio">Clips require Opus audio. Switch audio codec from passthrough to Opus to record clips.</string>
+    <string name="stream_dvr_reason_busy">The host PC is still saving the last clip. Try again in a moment.</string>
+    <string name="stream_dvr_reason_permission">Only the device that started this stream can save clips.</string>
+    <string name="stream_dvr_reason_io">The host PC could not write the clip to its disk.</string>
+    <string name="stream_dvr_reason_not_streaming">Clips can be saved only while a stream is running.</string>
+    <string name="stream_dvr_reason_unknown">The host PC could not save the clip.</string>
 </resources>

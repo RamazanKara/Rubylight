@@ -577,4 +577,23 @@
     <string name="frame_warp_overlay_update_host">Frame Warp: PC에 최신 버전이 필요합니다</string>
     <string name="frame_warp_overlay_confidence">%1$s, 신뢰도 %2$s%%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, 신뢰도 %2$s%%, 자이로 고정</string>
+    <string name="stream_dvr_title">인스턴트 리플레이</string>
+    <string name="stream_dvr_save">클립 저장</string>
+    <string name="stream_dvr_record_start">녹화 시작</string>
+    <string name="stream_dvr_record_stop">녹화 중지</string>
+    <string name="stream_dvr_buffered">최근 %1$d초 준비됨</string>
+    <string name="stream_dvr_recording">녹화 중 %1$s</string>
+    <string name="stream_dvr_saving">클립 저장 중…</string>
+    <string name="stream_dvr_clip_saved">클립 저장됨(%1$d초, %2$s)</string>
+    <string name="stream_dvr_recording_saved">녹화 저장됨(%1$s, %2$s)</string>
+    <string name="stream_dvr_reason_disabled">호스트 PC에서 인스턴트 리플레이가 꺼져 있습니다. 클립을 저장하려면 호스트 PC 설정에서 Stream DVR을 켜세요.</string>
+    <string name="stream_dvr_reason_pyrowave">PyroWave로 스트리밍하는 동안에는 클립을 저장할 수 없습니다. Stream DVR을 사용하려면 H.264, HEVC 또는 AV1로 전환하세요.</string>
+    <string name="stream_dvr_reason_disk">호스트 PC의 디스크 여유 공간이 부족해 이 클립을 저장할 수 없습니다. 공간을 확보하거나 오래된 클립을 삭제하세요.</string>
+    <string name="stream_dvr_reason_no_keyframe">스트림이 전체 프레임을 캡처하기를 기다리는 중입니다. 잠시 후 다시 저장해 보세요.</string>
+    <string name="stream_dvr_reason_audio">클립에는 Opus 오디오가 필요합니다. 클립을 녹화하려면 오디오 코덱을 패스스루에서 Opus로 바꾸세요.</string>
+    <string name="stream_dvr_reason_busy">호스트 PC가 아직 이전 클립을 저장하고 있습니다. 잠시 후 다시 시도하세요.</string>
+    <string name="stream_dvr_reason_permission">이 스트림을 시작한 기기만 클립을 저장할 수 있습니다.</string>
+    <string name="stream_dvr_reason_io">호스트 PC가 클립을 디스크에 쓰지 못했습니다.</string>
+    <string name="stream_dvr_reason_not_streaming">클립은 스트림이 실행 중일 때만 저장할 수 있습니다.</string>
+    <string name="stream_dvr_reason_unknown">호스트 PC가 클립을 저장하지 못했습니다.</string>
 </resources>

@@ -127,6 +127,8 @@ public final class StreamMenu {
         public boolean hostAudioUnread;
         /** Host, codec, size, bitrate and link for the native page; null leaves the connection facts out. */
         public ConnectionInfo connection;
+        /** Instant Replay on a host that offers Stream DVR for this stream; null leaves it out. */
+        public StreamMenuDvrSection dvr;
 
         public Options(NvApp.Role role, ComputerDetails host) {
             this.role = role;
@@ -450,6 +452,7 @@ public final class StreamMenu {
             if (grid.getChildCount() == 1) sheet.setFirstAction(tile);
         }
         addStatus(o, offered, statusCells, labels);
+        if (o.dvr != null) o.dvr.render(sheet);
         addFooter(offered, layout.footer, labels);
     }
 

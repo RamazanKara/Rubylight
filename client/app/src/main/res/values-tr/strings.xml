@@ -577,4 +577,23 @@
     <string name="frame_warp_overlay_update_host">Frame Warp: bilgisayarda güncel sürüm gerekiyor</string>
     <string name="frame_warp_overlay_confidence">%1$s, güven %%%2$s</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, güven %%%2$s, jiroskop kilitli</string>
+    <string name="stream_dvr_title">Anında Tekrar</string>
+    <string name="stream_dvr_save">Klibi kaydet</string>
+    <string name="stream_dvr_record_start">Kaydı başlat</string>
+    <string name="stream_dvr_record_stop">Kaydı durdur</string>
+    <string name="stream_dvr_buffered">Son %1$d sn hazır</string>
+    <string name="stream_dvr_recording">Kaydediliyor %1$s</string>
+    <string name="stream_dvr_saving">Klip kaydediliyor…</string>
+    <string name="stream_dvr_clip_saved">Klip kaydedildi (%1$d sn, %2$s)</string>
+    <string name="stream_dvr_recording_saved">Kayıt kaydedildi (%1$s, %2$s)</string>
+    <string name="stream_dvr_reason_disabled">Anında Tekrar ana bilgisayarda kapalı. Klip kaydetmek için ana bilgisayarın ayarlarında Stream DVR’ı açın.</string>
+    <string name="stream_dvr_reason_pyrowave">PyroWave ile yayın yaparken klip kaydedilemez. Stream DVR’ı kullanmak için H.264, HEVC veya AV1’e geçin.</string>
+    <string name="stream_dvr_reason_disk">Ana bilgisayarda bu klibi kaydetmek için yeterli boş disk alanı yok. Yer açın veya eski klipleri silin.</string>
+    <string name="stream_dvr_reason_no_keyframe">Yayının tam bir kare yakalaması bekleniyor. Birazdan yeniden kaydetmeyi deneyin.</string>
+    <string name="stream_dvr_reason_audio">Klipler Opus ses gerektirir. Klip kaydetmek için ses codec’ini passthrough’dan Opus’a değiştirin.</string>
+    <string name="stream_dvr_reason_busy">Ana bilgisayar hâlâ son klibi kaydediyor. Birazdan yeniden deneyin.</string>
+    <string name="stream_dvr_reason_permission">Yalnızca bu yayını başlatan cihaz klip kaydedebilir.</string>
+    <string name="stream_dvr_reason_io">Ana bilgisayar klibi diskine yazamadı.</string>
+    <string name="stream_dvr_reason_not_streaming">Klipler yalnızca bir yayın sürerken kaydedilebilir.</string>
+    <string name="stream_dvr_reason_unknown">Ana bilgisayar klibi kaydedemedi.</string>
 </resources>

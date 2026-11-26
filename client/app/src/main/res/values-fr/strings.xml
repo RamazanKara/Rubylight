@@ -577,4 +577,23 @@
     <string name="frame_warp_overlay_update_host">Frame Warp : nécessite la version actuelle sur le PC</string>
     <string name="frame_warp_overlay_confidence">%1$s, confiance %2$s %%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, confiance %2$s %%, gyroscope calé</string>
+    <string name="stream_dvr_title">Relecture instantanée</string>
+    <string name="stream_dvr_save">Enregistrer le clip</string>
+    <string name="stream_dvr_record_start">Démarrer l’enregistrement</string>
+    <string name="stream_dvr_record_stop">Arrêter l’enregistrement</string>
+    <string name="stream_dvr_buffered">Dernières %1$d s prêtes</string>
+    <string name="stream_dvr_recording">Enregistrement %1$s</string>
+    <string name="stream_dvr_saving">Enregistrement du clip…</string>
+    <string name="stream_dvr_clip_saved">Clip enregistré (%1$d s, %2$s)</string>
+    <string name="stream_dvr_recording_saved">Enregistrement sauvegardé (%1$s, %2$s)</string>
+    <string name="stream_dvr_reason_disabled">La relecture instantanée est désactivée sur le PC hôte. Activez Stream DVR dans les paramètres du PC hôte pour enregistrer des clips.</string>
+    <string name="stream_dvr_reason_pyrowave">Impossible d’enregistrer des clips pendant un stream avec PyroWave. Passez à H.264, HEVC ou AV1 pour utiliser Stream DVR.</string>
+    <string name="stream_dvr_reason_disk">Espace disque insuffisant sur le PC hôte pour enregistrer ce clip. Libérez de l’espace ou supprimez d’anciens clips.</string>
+    <string name="stream_dvr_reason_no_keyframe">En attente d’une image complète du stream. Réessayez d’enregistrer dans un instant.</string>
+    <string name="stream_dvr_reason_audio">Les clips nécessitent l’audio Opus. Passez le codec audio de passthrough à Opus pour enregistrer des clips.</string>
+    <string name="stream_dvr_reason_busy">Le PC hôte enregistre encore le dernier clip. Réessayez dans un instant.</string>
+    <string name="stream_dvr_reason_permission">Seul l’appareil qui a lancé ce stream peut enregistrer des clips.</string>
+    <string name="stream_dvr_reason_io">Le PC hôte n’a pas pu écrire le clip sur son disque.</string>
+    <string name="stream_dvr_reason_not_streaming">Les clips ne peuvent être enregistrés que pendant un stream en cours.</string>
+    <string name="stream_dvr_reason_unknown">Le PC hôte n’a pas pu enregistrer le clip.</string>
 </resources>

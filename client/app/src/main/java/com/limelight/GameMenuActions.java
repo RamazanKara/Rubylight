@@ -231,6 +231,7 @@ final class GameMenuActions {
         options.rateChangeBitrate = game.rateChanges != null && game.prefConfig.rateChangeBitrate;
         options.webUiAddress = hostActions.hostWebUiUrl() != null;
         options.connection = connectionInfo();
+        options.dvr = game.streamDvr;
         return options;
     }
 

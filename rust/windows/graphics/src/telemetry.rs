@@ -10,6 +10,8 @@ use windows::Win32::{Foundation::FILETIME, System::Threading::GetSystemTimes};
 
 pub use butterpollo_config::config::HARDWARE_METRICS as METRICS;
 
+mod pdh_dxgi;
+
 /// A driver DLL from System32 only, so no DLL earlier in the search order
 /// stands in for it.
 pub(crate) fn system_library(name: &str) -> Result<libloading::Library> {
@@ -47,6 +49,8 @@ pub struct Collector {
     selected: Vec<String>,
     cpu: Option<[u64; 3]>,
     amd: Option<Adlx>,
+    adapters: Vec<pdh_dxgi::Adapter>,
+    pdh: Option<pdh_dxgi::Pdh>,
 }
 impl Collector {
     /// Construct, sample and drop on the host's single telemetry worker.
@@ -62,12 +66,15 @@ impl Collector {
         } else {
             None
         };
+        let (adapters, pdh) = engine_counters(selected, amd.as_ref());
         Self {
             selected: selected.to_vec(),
             cpu: wanted(selected, "cpu_usage_percent")
                 .then(cpu_times)
                 .flatten(),
             amd,
+            adapters,
+            pdh,
         }
     }
     pub fn sample(&mut self) -> Sample {
@@ -86,8 +93,38 @@ impl Collector {
         if let Some(amd) = &self.amd {
             sample.gpus = amd.sample(&self.selected);
         }
+        if let Some(loads) = self.pdh.as_mut().and_then(pdh_dxgi::Pdh::sample) {
+            pdh_dxgi::merge(&mut sample.gpus, &self.adapters, &loads, &self.selected);
+        }
         sample
     }
+}
+/// Opens the GPU performance counters only when a reading needs them: the encoder load, or
+/// usage and memory for an adapter ADLX does not cover. PDH runs on this worker, at the
+/// client's request cadence, never on a stream thread.
+fn engine_counters(
+    selected: &[String],
+    amd: Option<&Adlx>,
+) -> (Vec<pdh_dxgi::Adapter>, Option<pdh_dxgi::Pdh>) {
+    if !(selected.is_empty() || selected.iter().any(|s| s.starts_with("gpu_"))) {
+        return (vec![], None);
+    }
+    let adapters = pdh_dxgi::adapters();
+    let names: Vec<&str> = amd
+        .map(|amd| amd.gpus.iter().map(|gpu| gpu.name.as_str()).collect())
+        .unwrap_or_default();
+    let uncovered = pdh_dxgi::pair(&adapters, &names).contains(&None);
+    let needed = wanted(selected, pdh_dxgi::ENCODER)
+        || (uncovered
+            && [
+                "gpu_usage_percent",
+                "gpu_vram_used_mb",
+                "gpu_vram_usage_percent",
+            ]
+            .iter()
+            .any(|metric| wanted(selected, metric)));
+    let pdh = needed.then(pdh_dxgi::Pdh::open).flatten();
+    (adapters, pdh)
 }
 fn wanted(selected: &[String], metric: &str) -> bool {
     selected.is_empty() || selected.iter().any(|name| name == metric)
@@ -575,6 +612,7 @@ mod tests {
     fn cpu_only_selection_does_not_initialize_adlx() {
         let collector = Collector::new(&["cpu_usage_percent".into()]);
         assert!(collector.amd.is_none());
+        assert!(collector.pdh.is_none() && collector.adapters.is_empty());
     }
     #[test]
     fn cpu_usage_subtracts_idle_from_kernel_and_skips_unusable_deltas() {

@@ -14,7 +14,7 @@ Rubylight can send host CPU usage and AMD GPU readings to a streaming client for
 | `hardware_metrics_interval` | `1000` | Minimum time between fresh samples, in milliseconds; configurable from `500` to `10000`. |
 | `hardware_metrics_selection` | `[]` | All supported readings when empty, or a list of metric identifiers from the table below. |
 
-These are host-wide settings. GPU readings require an AMD driver with ADLX support, so an NVIDIA GPU has no readings in version 1; CPU usage comes from Windows and can be available without ADLX. CPU temperature and CPU clock readings are not provided by version 1.
+These are host-wide settings. AMD GPUs report their full set of readings through the driver's ADLX interface. Other GPUs, such as NVIDIA and Intel, report usage, video encoder load and VRAM from Windows' GPU performance counters; their other readings are not available. CPU usage comes from Windows and can be available without ADLX. CPU temperature and CPU clock readings are not provided by version 1.
 
 ## Discover and authenticate
 
@@ -89,7 +89,8 @@ Only `cpu_usage_percent` appears in `cpu`; every `gpu_` metric appears in each G
 | Identifier | Unit | Reading |
 | --- | --- | --- |
 | `cpu_usage_percent` | Percent | Windows CPU busy time over the interval between CPU samples. |
-| `gpu_usage_percent` | Percent | GPU utilization reported by ADLX. |
+| `gpu_usage_percent` | Percent | GPU utilization reported by ADLX; on other GPUs, the busiest 3D engine from Windows' GPU performance counters. |
+| `gpu_encoder_percent` | Percent | Video encoder engine load from Windows' GPU performance counters, for each GPU separately. On GPUs whose driver reports one combined video codec engine (such as recent AMD GPUs), it includes any video decoding on the host. Omitted where the driver reports no encode engine (such as Intel GPUs that report their media engines as video decode), and in the first sample after a stream starts. |
 | `gpu_clock_mhz` | MHz | GPU clock. |
 | `gpu_memory_clock_mhz` | MHz | GPU memory clock as reported by the driver. |
 | `gpu_temperature_c` | °C | GPU temperature. |

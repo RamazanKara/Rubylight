@@ -13,6 +13,7 @@ use std::path::PathBuf;
 pub const HARDWARE_METRICS: &[&str] = &[
     "cpu_usage_percent",
     "gpu_usage_percent",
+    "gpu_encoder_percent",
     "gpu_clock_mhz",
     "gpu_memory_clock_mhz",
     "gpu_temperature_c",

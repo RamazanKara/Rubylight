@@ -97,7 +97,7 @@ fn generated_tables_match_settings_toml_counts_and_uniqueness() {
     assert_eq!(generated_restarts, toml_restarts);
     assert_eq!(generated_restarts.len(), 33);
 
-    assert_eq!(HARDWARE_METRICS.len(), 14);
+    assert_eq!(HARDWARE_METRICS.len(), 15);
     assert_eq!(SETTINGS_30.len(), 12);
     assert_eq!(RETIRED_VALUES.len(), 2);
     assert_eq!(RENAMED_KEYS.len(), 5);

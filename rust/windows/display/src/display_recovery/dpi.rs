@@ -263,14 +263,15 @@ mod tests {
         assert_eq!(entry.scale, Some((150, 100)));
         assert!(!entry.scale_requested);
         assert_eq!(entry.dpi_baseline, None);
-        // And the new fields survive a round trip.
+        // And the new fields survive a round trip; the display a stream
+        // leases stays out of the baseline.
         let mut journal = journal;
-        merge(&mut journal, scales(&[("primary", 125)]));
+        merge(&mut journal, scales(&[("primary", 100), ("side", 125)]));
         let text = serde_json::to_string(&journal).unwrap();
         let back: Journal = serde_json::from_str(&text).unwrap();
         assert_eq!(
             back.entries[ID].dpi_baseline,
-            Some(scales(&[("primary", 125)]))
+            Some(scales(&[("side", 125)]))
         );
     }
 }

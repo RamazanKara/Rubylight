@@ -4,6 +4,7 @@
   // device always gets Everything, so the access choice shows from the second device on and
   // is sent with every code and PIN. While pairing is off the code stays in its place,
   // faded behind the one click that allows it. When a device pairs, the QR tile becomes its card.
+  // The pairing cinema frames it all: a rail of three steps and what to do now.
   import { onMount, tick, untrack } from 'svelte';
   import Button from '../Button.svelte';
   import CopyButton from '../CopyButton.svelte';
@@ -11,6 +12,7 @@
   import Panel from '../Panel.svelte';
   import AccessChoice from './AccessChoice.svelte';
   import OtpPairing from './OtpPairing.svelte';
+  import PairingCinema from './PairingCinema.svelte';
   import PendingRequest from './PendingRequest.svelte';
   import QrPairing from './QrPairing.svelte';
   import { accessLabel, type Access } from './access';
@@ -108,18 +110,24 @@
 {/snippet}
 
 {#snippet body()}
+  <PairingCinema facts={{ welcome: welcome?.name, pending: session.pending.map((request) => request.name), off: pairingOff, qr }}>
   <!-- The choice is for the next device, so it waits while the new one's card shows. -->
   {#if choosing && !welcome}
     <div class="access">
       <AccessChoice legend="This device can" recommend value={access} onchange={(next) => { if (next !== 'custom') access = next; }} />
     </div>
   {/if}
-  <div class="ways">
+  <div class="ways" class:asking={session.pending.length > 0 && !pairingOff}>
     {#if welcome}
       <section class="way welcome" aria-labelledby="pair-welcome">
-        <span class="mark" aria-hidden="true"><Icon name="check" size={28} /></span>
-        <h3 id="pair-welcome">{welcome.name} is ready</h3>
-        <p class="muted">Paired just now · Access: {accessLabel(welcome.perm)}</p>
+        <div class="device">
+          <span class="mark" aria-hidden="true"><Icon name="check" size={28} /></span>
+          <div class="who-paired">
+            <h3 id="pair-welcome">{welcome.name} is ready</h3>
+            <p class="muted">Paired just now · Access: {accessLabel(welcome.perm)}</p>
+          </div>
+        </div>
+        <p class="next">Pick a game on the device to start playing.</p>
         <div><Button onclick={() => (welcome = null)}>Pair another device</Button></div>
       </section>
     {:else}
@@ -129,7 +137,7 @@
           lockNote={!pairingOff ? 'Pairing with a QR code is off.' : (session.metadata?.paired_devices ?? 0) > 0 ? 'Devices already paired keep working.' : 'Pairing is off.'} />
       </section>
     {/if}
-    <section class="way" aria-labelledby="pair-pin">
+    <section class="way pin" aria-labelledby="pair-pin">
       <h3 id="pair-pin"><Icon name="key" size={18} />Moonlight and other apps</h3>
       {#if session.metadata}
         <div class="host-address"><Icon name="monitor" size={20} /><span class="who"><strong>{session.metadata.host_name}</strong><span class="num">{session.metadata.pc_address}</span></span><span class="copy"><CopyButton value={session.metadata.pc_address} label="Copy address" what="the address" /></span></div>
@@ -140,7 +148,10 @@
       {:else if session.pending.length}
         <ul class="requests" aria-label="Waiting for a PIN">{#each session.pending as request (request.uniqueid)}<PendingRequest {request} {access} />{/each}</ul>
       {:else}
-        <p class="waiting muted"><span class="pulse" aria-hidden="true"></span>Waiting for a device. Its PIN request shows here.</p>
+        <div class="waiting muted">
+          <span class="slots" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <p><span class="pulse" aria-hidden="true"></span>Waiting for a device. Its PIN request shows here.</p>
+        </div>
       {/if}
     </section>
   </div>
@@ -148,6 +159,7 @@
   {#if !pairingOff}
     <details class="alternatives"><summary>Other ways to pair</summary><p class="muted">A one-time PIN for Artemis.</p><OtpPairing {access} /></details>
   {/if}
+  </PairingCinema>
 {/snippet}
 
 {#if bare}
@@ -157,15 +169,18 @@
 {/if}
 
 <style>
-  .access { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); }
+  .access { display: grid; gap: var(--space-2); }
   .ways { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); }
-  .way { display: grid; gap: var(--space-3); align-content: start; padding: var(--space-4) var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); }
+  .way { display: grid; gap: var(--space-3); align-content: start; padding: var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--edge); }
   .way h3 { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-md); font-weight: var(--weight-semibold); }
   .way h3 :global(svg) { color: var(--accent-text); }
-  .welcome { justify-items: start; align-content: center; gap: var(--space-2); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: linear-gradient(160deg, var(--ok-soft), var(--panel) 70%); animation: welcome var(--duration-slow) var(--ease-enter); }
-  .welcome h3 { font-family: var(--font-display); font-size: var(--text-lg); }
-  .welcome > div { margin-top: var(--space-2); }
-  .mark { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; background: var(--ok); color: var(--panel); }
+  .welcome { justify-items: start; align-content: center; gap: var(--space-3); border-color: var(--ok-line); background: linear-gradient(160deg, var(--ok-soft), var(--panel) 70%); animation: welcome var(--duration-slow) var(--ease-enter); }
+  .welcome h3 { font-family: var(--font-display); font-size: var(--text-lg); letter-spacing: var(--tracking-tight); }
+  .device { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
+  .who-paired { display: grid; gap: var(--space-1); min-width: 0; overflow-wrap: anywhere; }
+  .next { color: var(--ink-2); font-size: var(--text-sm); }
+  .mark { display: grid; flex: none; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--ok); color: var(--panel); animation: mark var(--duration-slow) var(--ease-spring) backwards; }
+  @keyframes mark { from { transform: scale(0.6); opacity: 0; } }
   @keyframes welcome { from { opacity: 0; transform: scale(0.97); } }
   .host-address { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--sunken); border: 1px solid var(--line); border-radius: var(--radius); }
   .host-address > :global(svg) { flex: none; }
@@ -174,12 +189,18 @@
   .host-address .num { color: var(--ink-2); font-size: var(--text-sm); }
   .copy { display: inline-flex; flex: none; align-items: center; }
   .requests { display: grid; gap: var(--space-3); list-style: none; padding: 0; margin: 0; }
-  .waiting { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); background: var(--sunken); border: 1px dashed var(--line-strong); border-radius: var(--radius); font-size: var(--text-sm); }
+  .waiting { display: grid; gap: var(--space-3); justify-items: start; padding: var(--space-4); background: var(--sunken); border: 1px dashed var(--line-strong); border-radius: var(--radius); font-size: var(--text-sm); }
+  p.waiting { display: block; }
+  .waiting p { display: flex; align-items: center; gap: var(--space-3); }
+  /* The PIN's four places, empty until a device asks. */
+  .slots { display: flex; gap: var(--space-2); }
+  .slots i { width: 34px; height: 44px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--field); }
   .pulse { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse var(--pulse-duration) ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: 0.25; } }
-  .alternatives { margin-top: var(--space-4); }
+  .alternatives { font-size: var(--text-sm); }
   .alternatives > p { margin: var(--space-3) 0; font-size: var(--text-sm); }
   .addresses { font-size: var(--text-sm); }
-  @media (max-width: 900px) { .ways { grid-template-columns: minmax(0, 1fr); } }
+  /* One column: a device that asks to pair is answered first, above the code. */
+  @media (max-width: 900px) { .ways { grid-template-columns: minmax(0, 1fr); } .asking .pin { order: -1; } }
   @media (max-width: 600px) { .way { padding: var(--space-4); } }
 </style>

@@ -17,9 +17,9 @@
   import ConnectionList from '../components/overview/ConnectionList.svelte';
   import HostReadiness from '../components/overview/HostReadiness.svelte';
   import RunningApp from '../components/overview/RunningApp.svelte';
-  import Sparkline from '../components/overview/Sparkline.svelte';
+  import LiveCommandStage from '../components/overview/LiveCommandStage.svelte';
   import StreamCard from '../components/overview/StreamCard.svelte';
-  import { heroGame, liveFigures, pairedCopy, readyCopy } from '../components/overview/now-playing';
+  import { heroGame, pairedCopy, readyCopy } from '../components/overview/now-playing';
   import {
     api, ApiError, type App, type Client, type CoopSessions, type GuestInvites, type PowerStatus, type SessionGuestsStatus, type SessionStatus,
     type StreamSession,
@@ -28,7 +28,7 @@
   import { endedTitle, endedTone, endText, homeSessions, lastEnded, liveCoop } from '../lib/coop-view';
   import Banner from '../components/Banner.svelte';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
-  import { duration, marked, poll } from '../lib/format';
+  import { marked, poll } from '../lib/format';
   import { checkPowerStatus } from '../lib/power';
   import { link } from '../lib/router.svelte';
   import { refreshMetadata, session } from '../lib/session.svelte';
@@ -121,7 +121,6 @@
     const current = paired ? heroGame(apps, status) : null;
     return lead === 'live' && current?.state === 'last' ? null : current;
   });
-  const figures = $derived(lead === 'live' ? liveFigures(streams) : null);
   const addresses = $derived(
     metadata ? (metadata.pc_addresses ?? []).filter((address) => address !== metadata.pc_address) : [],
   );
@@ -132,23 +131,21 @@
   const heading = $derived.by(() => {
     if (lead === 'unavailable') return 'Can’t reach this PC';
     if (lead === 'checking') return 'Checking this PC…';
-    if (lead === 'live') return figures ? `Streaming to ${figures.device}` : 'Streaming now';
     if (heroProblem) return heroProblem.headline;
     return 'Ready to play';
   });
   const copy = $derived.by(() => {
     if (lead === 'unavailable') return 'Its latest state is unavailable.';
     if (lead === 'checking') return 'Checking streaming, displays and audio…';
-    if (lead === 'live') return figures?.more ? `And to ${devices(figures.more)} more.` : '';
     if (heroProblem) return heroProblem.text;
     if (game && game.state !== 'last') return `${game.name} is ${game.state === 'paused' ? 'paused' : 'running'} on this PC.`;
     // Paired and idle: the next step is on the device, so name it.
     if (paired) return readyCopy(metadata?.host_name);
     return '';
   });
-  const gameLabel = $derived(
-    !game ? '' : lead === 'live' ? 'Now playing' : game.state === 'paused' ? 'Paused' : game.state === 'running' ? 'Running' : 'Last played',
-  );
+  const gameLabel = $derived(!game ? '' : game.state === 'paused' ? 'Paused' : game.state === 'running' ? 'Running' : 'Last played');
+  /** A device streams: the live command stage is the top of Home, with every stream's row and Quit game in it. */
+  const staged = $derived(lead === 'live' && streams.length > 0);
   /** The hero's art: the game's cover, blurred behind the text, or its tint without one; the landscape without a game. */
   const art = $derived.by(() => {
     if (!game) return { image: landscape, blur: false, hue: 0 };
@@ -275,6 +272,14 @@
   <button class="text-action" onclick={() => (helpOpen = !helpOpen)} aria-expanded={helpOpen}>Connection help</button>
 {/snippet}
 
+{#snippet foot()}
+  <div class="hero-foot">
+    <span class="fact"><Icon name="monitor" />{metadata?.host_name ?? 'This PC'}</span>
+    <a class="fact" href="/devices" use:link><Icon name="devices" />{metadata ? `${devices(metadata.paired_devices)} paired` : 'Checking devices…'}</a>
+    <button class="text-action details-link" class:open={detailsOpen} onclick={() => (detailsOpen = !detailsOpen)} aria-expanded={detailsOpen}>{detailsOpen ? 'Hide PC details' : 'PC details'}<Icon name="chevron" size={16} /></button>
+  </div>
+{/snippet}
+
 {#if firstRun}
   <!-- Nothing paired: the top is pairing, its two ways side by side. -->
   <section class="hero first" aria-label="PC status">
@@ -291,6 +296,10 @@
     </div>
     <div class="pair"><PairPanel bare onpaired={(client) => (welcomed = client)} /></div>
   </section>
+{:else if staged}
+  <LiveCommandStage label="PC status" {streams} {game} {status} stale={Boolean(sessionsError)} {disconnecting} ondisconnect={disconnect} onchange={refreshSessions}>
+    {@render foot()}
+  </LiveCommandStage>
 {:else}
   <section class="hero" class:art={!art.blur} aria-label="PC status">
     <div class="backdrop" class:blur={art.blur} class:tint={art.blur && !art.image} style:--hue={art.hue}
@@ -299,16 +308,7 @@
       <div class="hero-body">
         <h2><span class="status-dot" class:ready={lead === 'ready' || lead === 'live'} class:warn={heroProblem || lead === 'unavailable'}></span>{heading}</h2>
         {#if copy}<p class="hero-copy" role="status">{copy}</p>{/if}
-        {#if figures}
-          <div class="live" role="group" aria-label="Live stream">
-            <span class="stat"><strong class="num">{figures.fps ?? '–'}</strong> fps</span>
-            <span class="stat"><strong class="num">{figures.mbps == null ? '–' : figures.mbps.toFixed(1)}</strong> Mbps</span>
-            {#if figures.trend.length > 1}
-              <span class="spark"><Sparkline values={figures.trend} label="Bitrate over the last {duration(figures.trend.length)}" /></span>
-            {/if}
-          </div>
-        {/if}
-        {#if lead !== 'live'}<div class="hero-actions">
+        <div class="hero-actions">
           {#if lead === 'unavailable'}
             <Button variant="primary" busy={rechecking} onclick={() => { void recheck(); void refreshSessions(); }}>Retry</Button>
           {:else if heroProblem?.fix}
@@ -323,7 +323,7 @@
             <Button variant="primary" href="/library">See your games</Button>
           {/if}
           {@render helpToggle()}
-        </div>{/if}
+        </div>
       </div>
       {#if game}
         <a class="now" href={game.app?.uuid ? `/library/${encodeURIComponent(game.app.uuid)}` : '/library'} use:link>
@@ -332,11 +332,7 @@
         </a>
       {/if}
     </div>
-    <div class="hero-foot">
-      <span class="fact"><Icon name="monitor" />{metadata?.host_name ?? 'This PC'}</span>
-      <a class="fact" href="/devices" use:link><Icon name="devices" />{metadata ? `${devices(metadata.paired_devices)} paired` : 'Checking devices…'}</a>
-      <button class="text-action details-link" class:open={detailsOpen} onclick={() => (detailsOpen = !detailsOpen)} aria-expanded={detailsOpen}>{detailsOpen ? 'Hide PC details' : 'PC details'}<Icon name="chevron" size={16} /></button>
-    </div>
+    {@render foot()}
   </section>
 {/if}
 
@@ -370,13 +366,13 @@
 {#if invites && paired}
   <InviteCard {invites} onchange={(next) => (invites = next)} />
 {/if}
-{#if streams.length}
+{#if streams.length && !staged}
   <Panel title="Connected streams" flush>
     {#each streams as stream}<StreamCard {stream} busy={disconnecting === stream.uuid} ondisconnect={disconnect} />{/each}
   </Panel>
 {/if}
 {#if others.length}<Panel title="Other connections" flush><ConnectionList sessions={others} busy={disconnecting} ondisconnect={disconnect} /></Panel>{/if}
-{#if status?.appRunning}<RunningApp {status} error={statusError} onchange={refreshSessions} />{/if}
+{#if status?.appRunning && !staged}<RunningApp {status} error={statusError} onchange={refreshSessions} />{/if}
 
 <section class="games" aria-labelledby="games-title">
   <header><h2 id="games-title">Your games</h2><a href="/library" use:link>All games <Icon name="chevron" /></a></header>
@@ -396,8 +392,8 @@
   .anchor { display: grid; scroll-margin-top: var(--space-4); }
 
   /* The top: status over art, dark in both themes like game art. */
-  .hero { position: relative; isolation: isolate; overflow: hidden; border: 1px solid var(--media-line); border-radius: var(--radius-lg); background: var(--media-bg); color: var(--media-ink); box-shadow: var(--shadow); }
-  .hero-main :focus-visible, .hero-foot :focus-visible { outline-color: var(--media-ink); }
+  .hero { position: relative; isolation: isolate; overflow: hidden; border: 1px solid var(--media-line); border-radius: var(--radius-xl); background: var(--media-bg); color: var(--media-ink); box-shadow: var(--media-edge), var(--shadow); }
+  .hero-main :focus-visible, .hero-foot :focus-visible { outline-color: var(--media-focus); }
   .backdrop { position: absolute; inset: 0; z-index: var(--z-below); background-color: var(--media-bg); background-size: cover; background-position: center; }
   /* A cover is a poster: blurred to a wash of its colours behind the text, sharp in its frame. */
   .backdrop.blur { inset: -48px; filter: blur(32px) saturate(1.3); opacity: 0.9; }
@@ -411,7 +407,7 @@
   /* The landscape is the picture itself: the scrim only holds the text. */
   .hero.art .hero-main, .first .hero-main { background: linear-gradient(90deg, color-mix(in srgb, var(--media-bg) 93%, transparent) 0%, color-mix(in srgb, var(--media-bg) 65%, transparent) 45%, transparent 78%); }
   .hero-body { display: grid; align-content: center; justify-items: start; gap: var(--space-3); min-width: 0; }
-  .hero h2 { display: flex; align-items: center; gap: var(--space-3); font-size: clamp(26px, 3vw, 36px); letter-spacing: -0.01em; max-width: 680px; }
+  .hero h2 { display: flex; align-items: center; gap: var(--space-3); font-size: clamp(var(--text-xl), 3vw, var(--text-2xl)); letter-spacing: var(--tracking-display); max-width: 680px; }
   .status-dot { width: 12px; height: 12px; flex: none; border-radius: 50%; --dot: var(--media-idle); --halo: var(--media-halo-idle); background: var(--dot); box-shadow: var(--halo); }
   .status-dot.ready { --dot: var(--media-ok); --halo: var(--media-halo-ok); }
   .status-dot.warn { --dot: var(--media-warn); --halo: var(--media-halo-warn); }
@@ -421,11 +417,6 @@
   .text-action { display: inline-flex; gap: var(--space-1); align-items: center; padding: 10px 2px; min-height: var(--control-height); border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font-weight: var(--weight-medium); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 4px; cursor: pointer; transition: text-decoration-color var(--duration-fast); }
   .text-action:hover { text-decoration-color: currentColor; }
 
-  /* While streaming: the device's live rate and bitrate. */
-  .live { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-5); color: var(--media-ink-2); }
-  .stat strong { font-family: var(--font-display); font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--media-ink); }
-  .spark { width: 200px; --ink-2: var(--media-ink); --line: var(--media-line); }
-
   /* The game: its cover, like the library's, with what it is to Home. */
   .now { display: grid; gap: var(--space-2); width: 148px; color: inherit; text-decoration: none; border-radius: var(--radius); }
   .art-frame { display: block; border-radius: var(--radius); transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
@@ -433,7 +424,7 @@
   .now:hover .art-frame, .game:hover .art-frame { transform: translateY(-2px); box-shadow: var(--shadow-raised); }
   .now:hover .art-frame { box-shadow: var(--media-shadow); }
   .now-text { display: grid; gap: 2px; min-width: 0; }
-  .now-label { font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: 0.04em; text-transform: uppercase; color: var(--media-ink-2); }
+  .now-label { font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--media-ink-2); }
   .now strong { font-size: var(--text-sm); font-weight: var(--weight-semibold); line-height: var(--leading-snug); overflow-wrap: anywhere; }
   .now:hover strong { text-decoration: underline; text-underline-offset: 3px; }
 
@@ -442,7 +433,7 @@
   .fact :global(svg) { color: var(--media-idle); }
   a.fact { text-decoration: none; border-radius: var(--radius-sm); }
   a.fact:hover { color: var(--media-ink); text-decoration: underline; text-underline-offset: 4px; }
-  .details-link { margin-left: auto; color: var(--media-ink); }
+  .details-link { margin-inline-start: auto; color: var(--media-ink); }
   .details-link :global(svg) { transition: transform var(--duration-fast) var(--ease-standard); }
   .details-link.open :global(svg) { transform: rotate(90deg); }
 
@@ -453,7 +444,7 @@
   .games-error { align-items: center; justify-content: space-between; flex-wrap: wrap; }
   .games { display: grid; gap: var(--space-4); }
   .games header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
-  .games h2 { font-size: var(--text-xl); }
+  .games h2 { font-size: var(--text-xl); letter-spacing: var(--tracking-tight); }
   .games header a { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-height); text-decoration: none; }
   /* The library's covers: 2:3, lifted on hover, the name in the accent. */
   .game-shelf { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-5) var(--space-4); }
@@ -473,7 +464,7 @@
     .hero-actions .text-action { align-self: flex-start; }
     .now { width: auto; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: var(--space-3); }
     .hero-foot { padding: var(--space-1) var(--space-5); gap: 0 var(--space-4); }
-    .details-link { margin-left: 0; }
+    .details-link { margin-inline-start: 0; }
     .pair { padding: var(--space-4); }
   }
   @media (max-width: 520px) {

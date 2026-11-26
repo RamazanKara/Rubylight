@@ -9,7 +9,7 @@ import { categoriesOf, placeOf, placeText, schema, settingGroups } from './setti
 import type { Setting } from './settings-types';
 
 /** What an action does when chosen; QuickSwitcher.svelte runs it. */
-export type ActionId = 'sync' | 'restart' | 'bundle';
+export type ActionId = 'sync' | 'restart' | 'bundle' | 'stop' | 'theme-light' | 'theme-dark' | 'theme-system';
 
 export interface Entry {
   /** Unique among all results. */
@@ -27,16 +27,18 @@ export interface Entry {
   cover?: { uuid: string; path: string };
   /** A device: its row on the Devices page is brought into view. */
   reveal?: string;
+  /** A device's state as a dot beside its name. */
+  status?: 'connected' | 'idle' | 'disabled';
 }
 
 export interface Group {
-  id: 'pages' | 'actions' | 'games' | 'devices' | 'settings';
+  id: 'pages' | 'actions' | 'diagnostics' | 'games' | 'devices' | 'settings';
   title: string;
   entries: Entry[];
 }
 
 /** How many of each the list shows, so one long group never hides the others. */
-export const LIMITS = { pages: 6, actions: 4, games: 6, devices: 4, settings: 6 } as const;
+export const LIMITS = { pages: 6, actions: 4, diagnostics: 4, games: 6, devices: 4, settings: 6 } as const;
 
 export const ACTIONS: readonly Entry[] = [
   { id: 'action:pair', label: 'Pair a device', icon: 'link', href: '/devices?pair=qr', keywords: 'add phone tablet tv qr code pin new' },
@@ -110,6 +112,7 @@ export function deviceEntry(client: Client): Entry {
     icon: 'devices',
     href: '/devices',
     reveal: client.name,
+    status: !client.enabled ? 'disabled' : client.connected ? 'connected' : 'idle',
   };
 }
 
@@ -181,7 +184,7 @@ export function results(query: string, found: { apps: App[] | null; clients: Cli
 }
 
 /** The best settings, and when there are more, one entry that opens All settings' search for all of them. */
-function rankedSettings(settings: Entry[], words: readonly string[], query: string): Entry[] {
+export function rankedSettings(settings: Entry[], words: readonly string[], query: string): Entry[] {
   const sorted = settings
     .map((entry, at) => ({ entry, at, rank: score(entry, words) }))
     .sort((a, b) => a.rank - b.rank || a.at - b.at)

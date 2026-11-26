@@ -252,7 +252,7 @@
       </main>
     </div>
   </div>
-  <QuickSwitcher bind:open={switcherOpen} onlibrarychanged={() => route.path === '/library' && pageKey++} />
+  <QuickSwitcher bind:open={switcherOpen} {theme} ontheme={setTheme} onlibrarychanged={() => route.path === '/library' && pageKey++} />
 {/if}
 
 <ConfirmHost />
@@ -663,6 +663,7 @@
     .find {
       flex: none;
       justify-content: center;
+      min-width: var(--control-height);
       padding: 0;
       border-color: transparent;
       border-radius: var(--radius);

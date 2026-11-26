@@ -171,6 +171,7 @@
   --media-halo-ok: 0 0 0 4px rgb(69 224 160 / 22%);
   --media-halo-idle: 0 0 0 4px rgb(155 164 181 / 22%);
   --media-halo-warn: 0 0 0 4px rgb(245 176 65 / 22%);
+  --media-halo-danger: 0 0 0 4px rgb(255 112 112 / 22%);
   /* A QR code is black on white in both themes, with its quiet zone. */
   --qr-paper: #ffffff;
   --qr-ink: #000000;

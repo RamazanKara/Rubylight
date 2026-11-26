@@ -6,7 +6,7 @@ import { createTestServer } from './test-server.mjs';
 globalThis.location = new URL('http://localhost/');
 globalThis.window = new EventTarget();
 const server = await createTestServer();
-const { heroGame, lastPlayed, liveFigures, readyCopy, pairedCopy } = await server.ssrLoadModule('/src/components/overview/now-playing.ts');
+const { heroGame, lastPlayed, readyCopy, pairedCopy } = await server.ssrLoadModule('/src/components/overview/now-playing.ts');
 const { knownDevices, newlyPaired } = await server.ssrLoadModule('/src/components/devices/paired.ts');
 const { applyFix, fixes } = await server.ssrLoadModule('/src/lib/host-fixes.svelte.ts');
 const { problems } = await server.ssrLoadModule('/src/lib/host-readiness.ts');
@@ -48,22 +48,14 @@ test('a paired Home says where a game starts: the device, and this PC by name', 
   assert.match(overview, /welcomed \? pairedCopy\(welcomed\.name, metadata\?\.host_name\)/);
 });
 
-test('the live figures are the first running stream’s, measured or a dash', () => {
-  const stream = (name, state, sample_frames = 240) => ({
-    device_name: name, state, performance: { fps: 119.6, bitrate_mbps: 47.62, sample_frames,
-      history: [{ bitrate_mbps: 40 }, { bitrate_mbps: 48 }] },
-  });
-  assert.equal(liveFigures([]), null);
-  assert.equal(liveFigures([stream('TV', 'STOPPING')]), null);
-  assert.deepEqual(liveFigures([stream('TV', 'STOPPING'), stream('Pixel 9', 'RUNNING'), stream('Deck', 'RUNNING')]),
-    { device: 'Pixel 9', more: 1, fps: 120, mbps: 47.62, trend: [40, 48] });
-  const quiet = liveFigures([stream('Pixel 9', 'RUNNING', 0)]);
-  assert.equal(quiet.fps, null);
-  assert.equal(quiet.mbps, null);
-  // The bitrate line comes from the stream poll Home already runs every 2 s.
+test('while a device streams, Home’s top is the live command stage, fed by the poll Home already runs', () => {
   const overview = source('pages/Overview.svelte');
   assert.match(overview, /poll\(refreshSessions, 2000\)/);
-  assert.match(overview, /<Sparkline values=\{figures\.trend\}/);
+  assert.match(overview, /const staged = \$derived\(lead === 'live' && streams\.length > 0\);/);
+  assert.match(overview, /\{:else if staged\}\s*<LiveCommandStage label="PC status" \{streams\} \{game\} \{status\} stale=\{Boolean\(sessionsError\)\}/);
+  // The stage holds every stream's row and Quit game, so Home shows neither a second time.
+  assert.match(overview, /\{#if streams\.length && !staged\}/);
+  assert.match(overview, /\{#if status\?\.appRunning && !staged\}<RunningApp/);
 });
 
 test('a device that pairs while the panel is open is the new one, never one already there', () => {

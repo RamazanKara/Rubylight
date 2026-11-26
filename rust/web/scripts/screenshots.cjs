@@ -129,9 +129,13 @@ const sessionsState = process.env.SHOT_SESSIONS || 'full';
 if (!['full', 'live', 'empty'].includes(sessionsState)) throw new Error(`SHOT_SESSIONS is full, live or empty, not ${sessionsState}`);
 /** One running stream, as `/api/rtsp/sessions` reports it. */
 function liveStream() {
-  const history = Array.from({ length: 90 }, (_, second) => ({ fps: 119 + (second % 3 === 0 ? 1 : 0),
+  const history = Array.from({ length: 90 }, (_, second) => ({ fps: 119 + (second % 3 === 0 ? 1 : 0) - (second % 29 === 0 ? 3 : 0),
     bitrate_mbps: 44 + 6 * Math.sin(second / 7) + (second % 11 === 0 ? 5 : 0), encode_mean_ms: 2.9, encode_max_ms: 4.1,
-    host_processing_mean_ms: 3.2, host_processing_max_ms: 4.4, frame_age_mean_ms: 0.8 }));
+    host_processing_mean_ms: 3.2 + 0.3 * Math.sin(second / 4) + (second % 17 === 0 ? 0.6 : 0), host_processing_max_ms: 4.4, frame_age_mean_ms: 0.8 }));
+  const timed = (mean_ms) => ({ mean_ms, p95_ms: mean_ms * 1.3, p99_ms: mean_ms * 1.6 });
+  const stages = { frames: 1190, window_seconds: 10, capture: timed(0.42), hold: timed(0.08), claim: timed(0.05), convert: timed(0.31),
+    encode: timed(1.84), queue: timed(0.06), packetize: timed(0.12), send_queue: timed(0.09), send: timed(0.23),
+    present_to_sent: timed(3.2), moonlight_host: timed(2.9) };
   return {
     uuid: 'phone', device_name: 'Pixel 9', role: 'stream', state: 'RUNNING', width: 2400, height: 1080, fps: 120,
     video_format: 1, hdr: false, vrr: false, encoder: 'amf', encoder_bitrate_kbps: 50_000, pyrowave_minimum_kbps: null,
@@ -139,7 +143,7 @@ function liveStream() {
     uptime_seconds: 754, warnings: [],
     performance: { fps: 120, bitrate_mbps: 47.6, encode_mean_ms: 2.9, encode_p95_ms: 3.4, encode_p99_ms: 3.8,
       host_processing_mean_ms: 3.2, host_processing_p95_ms: 3.7, host_processing_p99_ms: 4.1, host_processing_max_ms: 4.4,
-      frame_age_mean_ms: 0.8, frame_age_p95_ms: 1.2, present_to_send_mean_ms: 4.1, send_interval_p99_ms: 9, sample_frames: 240, history },
+      frame_age_mean_ms: 0.8, frame_age_p95_ms: 1.2, present_to_send_mean_ms: 4.1, send_interval_p99_ms: 9, sample_frames: 240, history, stages },
   };
 }
 /** The ended sessions `/api/sessions/history` lists, newest first. */
@@ -187,11 +191,29 @@ if (home === 'streaming') {
     app: { name: 'Portal 2', id: 3, uuid: 'steam-620' } };
   replies['/api/rtsp/sessions'] = { status: true, sessions: [liveStream()] };
 }
+// SHOT_PAIR: pairing on /devices, with two devices paired already: on (a code shows), pin (a device
+// waits for its PIN) or now (a third device pairs a few seconds in; with SHOT_WAIT=7000).
+const pair = process.env.SHOT_PAIR || '';
+if (pair && !['on', 'pin', 'now'].includes(pair)) throw new Error(`SHOT_PAIR is on, pin or now, not ${pair}`);
+if (pair) {
+  metadata.enable_pairing = true;
+  replies['/api/config'].enable_pairing = true;
+}
+if (pair === 'pin') {
+  replies['/api/clients/pending'] = { requests: [{ uniqueid: 'deck', name: 'Steam Deck', address: '192.168.4.31', age_seconds: 12 }] };
+}
 /** Answers that change while a page is open. */
 // Home polls the co-op sessions alone.
 replies['/api/coop/sessions'] = { sessions: replies['/api/coop'].sessions };
 
 function dynamic(pathname) {
+  if (pair === 'now') {
+    const deck = { uuid: 'deck', name: 'Steam Deck', enabled: true, connected: false, perm: 0x07001f00 };
+    const before = replies['/api/clients/list'].clients;
+    if (pathname === '/api/clients/list') return { clients: ++clientLists > 1 ? [...before, deck] : before };
+    if (pathname === '/api/metadata') return { ...metadata, paired_devices: before.length + (clientLists > 1 ? 1 : 0) };
+    return undefined;
+  }
   if (home !== 'paired-now') return undefined;
   if (pathname === '/api/clients/list') return { clients: ++clientLists > 1 ? [pixel] : [] };
   if (pathname === '/api/metadata') return { ...metadata, paired_devices: clientLists > 1 ? 1 : 0 };

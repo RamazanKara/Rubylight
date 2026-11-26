@@ -1,22 +1,31 @@
 <script lang="ts">
-  // The quick switcher (Ctrl+K or ⌘K, and Search in the sidebar): one search over pages, actions, games,
-  // devices and settings, on the console's Dialog. A combobox: the field keeps focus, the arrows move
-  // through the results, Enter opens one. Games and devices load each time it opens; nothing polls.
+  // The command palette (Ctrl+K or ⌘K, and Search in the bar): one search over pages, host actions,
+  // diagnostics, games, devices and settings, on the console's Dialog. A combobox: the field keeps focus,
+  // the arrows move through the results, Enter opens or runs one. Games and devices load each time it
+  // opens; nothing polls. What it lists is quick-switch-70.ts's.
   import { onDestroy, tick, untrack } from 'svelte';
   import Dialog from './Dialog.svelte';
   import Icon from './Icon.svelte';
   import AppCover from './library/AppCover.svelte';
   import { backAfterRestart, confirmRestart } from './maintenance/host';
   import { api, type App, type Client } from '../lib/api';
-  import { failed, notify } from '../lib/feedback.svelte';
-  import { results, type ActionId, type Entry } from '../lib/quick-switch';
+  import { confirm, failed, notify } from '../lib/feedback.svelte';
+  import type { ActionId, Entry } from '../lib/quick-switch';
+  import { enterVerb, palette } from '../lib/quick-switch-70';
   import { navigate, route } from '../lib/router.svelte';
+  import { refreshLive, session } from '../lib/session.svelte';
+  import type { Theme } from '../lib/theme';
 
   let {
     open = $bindable(false),
+    theme = 'system',
+    ontheme,
     onlibrarychanged,
   }: {
     open?: boolean;
+    /** The console's theme: the palette offers the others. */
+    theme?: Theme;
+    ontheme?: (theme: Theme) => void;
     /** A sync from here changed what the Games page lists. */
     onlibrarychanged?: () => void;
   } = $props();
@@ -29,7 +38,7 @@
   let input = $state<HTMLInputElement>();
   let list = $state<HTMLElement>();
 
-  const groups = $derived(results(query, { apps, clients }));
+  const groups = $derived(palette(query, { apps, clients }, { theme, streams: session.live?.streams ?? 0 }));
   const entries = $derived(groups.flatMap((group) => group.entries));
   const optionId = (at: number) => `${id}-option-${at}`;
 
@@ -116,7 +125,37 @@
       else notify('Rubylight is taking longer than usual to restart. Refresh if it does not come back.', 'danger');
     } else if (action === 'sync') {
       await sync();
+    } else if (action === 'stop') {
+      await stopStreams();
+    } else if (action === 'theme-light' || action === 'theme-dark' || action === 'theme-system') {
+      ontheme?.(action === 'theme-light' ? 'light' : action === 'theme-dark' ? 'dark' : 'system');
     }
+  }
+
+  /** Disconnects every device that streams, after one question. The running game stays open. */
+  async function stopStreams() {
+    let streams;
+    try {
+      streams = (await api.sessions.streams()).sessions;
+    } catch (error) {
+      failed('Reading the streams failed', error);
+      return;
+    }
+    if (!streams.length) {
+      notify('No device is streaming.');
+      return;
+    }
+    const names = streams.map((stream) => stream.device_name || 'a device').join(', ');
+    const ok = await confirm({
+      title: streams.length === 1 ? `Disconnect ${names}?` : `Disconnect ${streams.length} devices?`,
+      message: `${streams.length === 1 ? 'Every connection from this device ends.' : `${names}: every connection from them ends.`} The running app stays open, and a device can connect again.`,
+      confirm: 'Disconnect',
+    });
+    if (!ok) return;
+    const failures = (await Promise.allSettled(streams.map((stream) => api.clients.disconnect(stream.uuid)))).filter((result) => result.status === 'rejected');
+    if (failures.length) failed('Disconnecting failed', (failures[0] as PromiseRejectedResult).reason);
+    else notify(streams.length === 1 ? `Disconnected ${names}.` : `Disconnected ${streams.length} devices.`, 'ok');
+    await refreshLive();
   }
 
   /** The Games page's Sync now, from anywhere: every launcher that is on, and Playnite when it runs. */
@@ -221,7 +260,7 @@
                   </span>
                   <span class="text">
                     <span class="label">{entry.label}</span>
-                    {#if entry.detail}<span class="detail">{entry.detail}</span>{/if}
+                    {#if entry.detail}<span class="detail">{#if entry.status}<span class="dot {entry.status}" aria-hidden="true"></span>{/if}{entry.detail}</span>{/if}
                   </span>
                   {#if at === active}<kbd class="enter" aria-hidden="true">Enter</kbd>{/if}
                 </div>
@@ -238,7 +277,7 @@
     </p>
     <div class="keys" aria-hidden="true">
       <span><kbd>↑</kbd><kbd>↓</kbd> Move</span>
-      <span><kbd>Enter</kbd> Open</span>
+      <span><kbd>Enter</kbd> {enterVerb(entries[active])}</span>
       <span><kbd>Esc</kbd> Close</span>
     </div>
   </div>
@@ -279,6 +318,8 @@
     padding: var(--space-2) var(--space-3) var(--space-1);
     font-size: var(--text-xs);
     font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
     color: var(--muted);
   }
   .option {
@@ -300,7 +341,7 @@
     flex: none;
     display: grid;
     place-items: center;
-    width: 28px;
+    width: 32px;
     color: var(--muted);
   }
   .active .lead {
@@ -308,7 +349,9 @@
   }
   .thumb {
     display: block;
-    width: 24px;
+    width: 28px;
+    border-radius: var(--radius-sm);
+    box-shadow: var(--edge);
   }
   .thumb :global(.cover) {
     border-radius: var(--radius-sm);
@@ -329,9 +372,27 @@
     overflow-wrap: anywhere;
   }
   .detail {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
     font-size: var(--text-xs);
     color: var(--muted);
     overflow-wrap: anywhere;
+  }
+  /* A device's state: filled while it is connected, hollow while it is away. */
+  .dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border: 1px solid var(--muted);
+    border-radius: 50%;
+  }
+  .dot.connected {
+    border-color: var(--ok);
+    background: var(--ok);
+  }
+  .dot.disabled {
+    border-style: dashed;
   }
   .enter {
     flex: none;

@@ -3,11 +3,13 @@
   import Badge from '../components/Badge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import Icon from '../components/Icon.svelte';
+  import LiveCommandStage from '../components/overview/LiveCommandStage.svelte';
   import LoadState from '../components/LoadState.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import Panel from '../components/Panel.svelte';
   import Table from '../components/Table.svelte';
   import { api, CODEC_NAMES, type SessionHistoryEntry, type StreamSession } from '../lib/api';
+  import { confirm, failed, notify } from '../lib/feedback.svelte';
   import { ago, duration, marked, poll, when } from '../lib/format';
   import {
     aStreamEnded,
@@ -32,6 +34,31 @@
   let query = $state('');
 
   const shown = $derived(history ? history.filter((entry) => matches(entry, query)) : []);
+  /** The streams to devices: they get the live command stage, as on Home. */
+  const staged = $derived((streams ?? []).filter((stream) => stream.role === 'stream'));
+  const others = $derived((streams ?? []).filter((stream) => stream.role !== 'stream'));
+  /** uuid of the device being disconnected. */
+  let disconnecting = $state<string | null>(null);
+
+  async function disconnect(target: StreamSession) {
+    const name = target.device_name || 'this device';
+    const ok = await confirm({
+      title: `Disconnect ${name}?`,
+      message: 'Every connection from this device ends. The running app stays open, and the device can connect again.',
+      confirm: 'Disconnect',
+    });
+    if (!ok) return;
+    disconnecting = target.uuid;
+    try {
+      await api.clients.disconnect(target.uuid);
+      notify(`Disconnected ${name}.`, 'ok');
+      await refreshStreams();
+    } catch (failure) {
+      failed(`Disconnecting ${name} failed`, failure);
+    } finally {
+      disconnecting = null;
+    }
+  }
 
   function reason(value: unknown) {
     return value instanceof Error ? value.message : String(value);
@@ -88,7 +115,11 @@
       : 'Every stream this PC ran, with how it went, newest first.'}
   />
 
-  <Panel title="Live now" description={streams?.length ? `${streams.length} streaming` : undefined} flush>
+  {#if staged.length}
+    <LiveCommandStage label="Live now" streams={staged} stale={Boolean(streamsError)} {disconnecting} ondisconnect={disconnect} />
+  {/if}
+  {#if !staged.length || others.length}
+  <Panel title={staged.length ? 'Other connections' : 'Live now'} description={!staged.length && streams?.length ? `${streams.length} streaming` : undefined} flush>
     {#if streams === null}
       <div class="pad"><LoadState error={streamsError} what="the live streams" onretry={refreshStreams} /></div>
     {:else if streamsError}
@@ -97,7 +128,7 @@
       <p class="pad muted">Nothing is streaming. A stream shows here while it runs, then in the history below.</p>
     {:else}
       <ul class="live">
-        {#each streams as stream, index (index)}
+        {#each staged.length ? others : streams as stream, index (index)}
           <li>
             <div class="who">
               <span class="name">{stream.device_name || 'Unnamed device'}</span>
@@ -120,6 +151,7 @@
       </ul>
     {/if}
   </Panel>
+  {/if}
 
   <Panel
     title="History"

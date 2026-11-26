@@ -63,7 +63,7 @@ test('a device goes to Devices and is brought into view there', () => {
   const [devices] = results('pixel', found);
   assert.equal(devices.title, 'Devices');
   assert.deepEqual(devices.entries[0], {
-    id: 'device:phone', label: 'Pixel 9', detail: 'Connected', icon: 'devices', href: '/devices', reveal: 'Pixel 9',
+    id: 'device:phone', label: 'Pixel 9', detail: 'Connected', icon: 'devices', href: '/devices', reveal: 'Pixel 9', status: 'connected',
   });
   assert.equal(results('living', found)[0].entries[0].detail, 'Disabled');
   // Not loaded yet: no games and no devices, the rest still answers.
@@ -145,7 +145,8 @@ test('the switcher is a combobox over a listbox, its first result marked, on the
   assert.match(out, /aria-label="Search games, devices, settings and actions"/);
   assert.match(out, /aria-autocomplete="list"/);
   assert.match(out, /role="listbox"/);
-  assert.equal((out.match(/role="option"/g) ?? []).length, 9);
+  // Five pages, six host actions and four diagnostics (QuickSwitch70.test.mjs has the palette's own tests).
+  assert.equal((out.match(/role="option"/g) ?? []).length, 15);
   assert.equal((out.match(/aria-selected="true"/g) ?? []).length, 1);
   assert.match(out, /role="status"/);
 });

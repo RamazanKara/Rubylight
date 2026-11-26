@@ -1,5 +1,5 @@
 // The game Home's top shows: the one that runs, else the one the stores last saw played.
-import type { App, SessionStatus, StreamSession } from '../../lib/api';
+import type { App, SessionStatus } from '../../lib/api';
 import { isRunningApp } from '../library/app';
 
 export interface HeroGame {
@@ -47,29 +47,4 @@ export function pairedCopy(deviceName: string, hostName: string | undefined): st
 /** The PC's name as the client lists it: never broken between its own words. */
 function listedAs(hostName: string | undefined): string {
   return (hostName?.trim() || 'this PC').replace(/ /g, '\u00A0');
-}
-
-/** The live figures of the first running stream, for the hero; null when none runs. */
-export function liveFigures(streams: StreamSession[]): {
-  device: string;
-  /** Other devices streaming at the same time. */
-  more: number;
-  /** Null until a frame was measured. */
-  fps: number | null;
-  mbps: number | null;
-  /** One bitrate a second, the oldest first. */
-  trend: number[];
-} | null {
-  const running = streams.filter((stream) => stream.state === 'RUNNING');
-  const first = running[0];
-  if (!first) return null;
-  const perf = first.performance;
-  const measured = perf.sample_frames > 0;
-  return {
-    device: first.device_name || 'a device',
-    more: running.length - 1,
-    fps: measured ? Math.round(perf.fps) : null,
-    mbps: measured ? perf.bitrate_mbps : null,
-    trend: perf.history.map((sample) => sample.bitrate_mbps),
-  };
 }

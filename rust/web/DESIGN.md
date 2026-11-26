@@ -73,6 +73,11 @@ The console is a rail and a page column. The rail (`--nav-width`) holds the bran
 | `Icon` | The console's 24-pixel stroke icons. | |
 | `CopyButton` | Copies a value such as an address or a path and confirms it with a toast. `label` is read out and shown as the tooltip. | |
 | `PathPicker` | Browses the host's folders for a program, a file or a folder and fills the text field it wraps. | Escape closes it, like a menu. |
+| `overview/LiveCommandStage` | What streams now, on one media plane: health in a word and a sentence, title, format pills, the three traces, the pipeline and the action deck; every stream's row below. Home and Sessions show it while a device streams. | Dark in both themes: it points the theme tokens at the `--media-*` palette, so `Button`, `Badge` and `StreamCard` inside need no variant. Shows only what the host reports. |
+| `overview/TelemetrySparklines`, `overview/PipelineTimeline` | The stage's traces (frame rate, bitrate, host frame time) and the time a new picture spends in capture, convert, encode, and pace and send. | `Sparkline` takes `fit` (the values' own range, never narrower than a fifth of the top) and `area`. The viz colours are `--media-viz-1..4`. |
+| `devices/PairingCinema` | The pairing flow's frame: a rail of three steps and one sentence for the current one, around `PairPanel`. | The step follows the host (`pairing-steps.ts`): a waiting PIN request, a device that paired. Never timed. |
+| `devices/AccessChoice` | What a device may do, as tier cards: one radio group, the whole card is the radio. | The first device gets Everything, so the choice shows from the second on. |
+| `QuickSwitcher` | The command palette (`Ctrl+K`, `⌘K`, Search in the bar): pages, host actions, diagnostics, games with covers, devices with their state, settings. | What it lists is `lib/quick-switch-70.ts`. An action that writes asks first (`confirm()`), or leads to the panel that does. |
 
 ## Rules
 

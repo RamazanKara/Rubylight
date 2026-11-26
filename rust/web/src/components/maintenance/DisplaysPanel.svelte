@@ -86,7 +86,7 @@
   onMount(load);
 </script>
 
-<Panel title="Displays" level={3} description="After each stream, Rubylight restores the saved layout if all of its displays are connected.">
+<Panel id="displays" title="Displays" level={3} description="After each stream, Rubylight restores the saved layout if all of its displays are connected.">
   {#snippet actions()}
     {#if golden?.exists}
       {#if golden.comparison_available && golden.current_mismatch_reason}

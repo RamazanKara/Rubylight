@@ -21,6 +21,8 @@
     lockNote?: string;
   } = $props();
 
+  /** Seconds a code lasts: the time line under it is full at this. */
+  const LIFETIME = 180;
   const uid = $props.id();
   let root = $state<HTMLElement>();
   let inView = $state(false);
@@ -109,6 +111,8 @@
     {#if expired && !lock}
       <div class="again"><Button variant="primary" size="sm" {busy} onclick={create}>Show a new code</Button></div>
     {/if}
+    <!-- The code's time, as a line that runs out under it. The words beside it say the same. -->
+    {#if code && !expired && !lock}<span class="time" aria-hidden="true"><span style:inline-size="{Math.min(100, (left / LIFETIME) * 100)}%"></span></span>{/if}
   </div>
   <div class="details" aria-live="polite">
     {#if lock}
@@ -140,18 +144,35 @@
   .qr {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-4);
+    gap: var(--space-4) var(--space-5);
     align-items: center;
   }
+  /* The code on its own paper in both themes, with a quiet zone a camera needs around it. */
   .frame {
     position: relative;
     flex: none;
-    width: 216px;
-    height: 216px;
-    padding: var(--space-1);
+    width: 232px;
+    height: 232px;
+    padding: calc(var(--space-4) - 1px);
     border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
     background: var(--qr-paper);
+    box-shadow: var(--shadow-raised);
+  }
+  .time {
+    position: absolute;
+    inset: auto var(--space-4) var(--space-1);
+    height: 3px;
+    overflow: hidden;
+    border-radius: var(--radius-pill);
+  }
+  .time span {
+    display: block;
+    height: 100%;
+    border-radius: var(--radius-pill);
+    background: var(--qr-ink);
+    opacity: 0.55;
+    transition: inline-size var(--duration-slow) linear;
   }
   img,
   .blank {

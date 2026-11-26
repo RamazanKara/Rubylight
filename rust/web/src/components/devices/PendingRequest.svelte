@@ -74,10 +74,18 @@
     align-items: center;
     gap: var(--space-2) var(--space-3);
     flex-wrap: wrap;
-    padding: 20px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--sunken);
+    padding: var(--space-4);
+    border: 1px solid var(--accent-line);
+    border-radius: var(--radius-lg);
+    background: var(--accent-soft);
+    animation: arrive var(--duration-slow) var(--ease-enter);
+  }
+  /* A device arrives: its request slides into place once. */
+  @keyframes arrive {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
   }
   .who {
     display: grid;
@@ -106,11 +114,27 @@
     max-width: 100%;
     gap: var(--space-2);
   }
+  /* The PIN's slot: four digits, large and evenly spaced, so a typo shows at a glance. */
   .pin {
-    width: 140px;
+    width: 152px;
     min-width: 0;
+    height: 52px;
+    border-color: var(--line-strong);
+    background: var(--field);
+    font-size: var(--text-xl);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.32em;
     text-align: center;
-    letter-spacing: 0.3em;
-    font-size: 24px;
+    text-indent: 0.32em;
+  }
+  .pin::placeholder {
+    color: var(--muted);
+    font-family: var(--font);
+    font-size: var(--text-md);
+    font-weight: var(--weight-regular);
+    letter-spacing: var(--tracking-label);
+  }
+  .entry :global(.button) {
+    min-height: 52px;
   }
 </style>

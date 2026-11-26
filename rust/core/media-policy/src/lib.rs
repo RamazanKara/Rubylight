@@ -178,6 +178,7 @@ pub mod radeon_profile;
 pub mod rate_change;
 pub mod reconfigure;
 pub mod rtsp;
+pub mod send_gaps;
 pub mod stall_watch;
 pub mod statistical_fec;
 pub mod stream_policy;

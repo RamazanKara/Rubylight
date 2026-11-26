@@ -112,7 +112,7 @@ pub fn watch(profile: &Path) -> Result<()> {
     // access denied; the helper then stays in it and still covers a crash.
     let child = spawn(CREATE_BREAKAWAY_FROM_JOB.0 | CREATE_NO_WINDOW.0)
         .or_else(|error| {
-            tracing::debug!(%error, "the Quick Suspend watchdog cannot leave the host's job");
+            tracing::warn!(%error, "the Quick Suspend watchdog cannot leave the host's job; a stop of the whole job ends it too, and the next start resumes the game");
             spawn(CREATE_NO_WINDOW.0)
         })
         .context("starting the Quick Suspend watchdog")?;

@@ -5,7 +5,10 @@
 //! another program since is never touched. Suspending uses ntdll's
 //! `NtSuspendProcess` / `NtResumeProcess` (loaded from System32), which raise
 //! and lower every thread's suspend count by one: a resume undoes exactly one
-//! suspend, and one of a process that was not suspended changes nothing.
+//! suspend. A resume of a process this host did not suspend (the journal is
+//! written before the first suspend, so a crash in between leaves such a
+//! record) lowers the count of a thread the game suspended itself; a thread
+//! that runs stays running.
 use super::{inspect::created_at, owned, raw};
 use butterpollo_session::quick_suspend::{self, Resumed};
 use std::{os::windows::io::OwnedHandle, sync::OnceLock};
@@ -80,14 +83,23 @@ fn open(pid: u32, started: u64) -> Result<Option<OwnedHandle>, SuspendError> {
         Ok(process) => owned(process),
         Err(error) if error.code() == ERROR_ACCESS_DENIED.to_hresult() => {
             // It may run under another identity we may not open either; only
-            // a process we can see as ours counts as protected.
-            return if super::creation_time(pid) == started {
-                Err(SuspendError::Protected)
-            } else {
-                Ok(None)
+            // a process we can see as ours counts as protected, and one whose
+            // creation time we cannot read is no proof it is gone.
+            return match super::creation_time(pid) {
+                created if created == started => Err(SuspendError::Protected),
+                0 => Err(SuspendError::Os(format!(
+                    "process {pid} cannot be opened or identified: {error}"
+                ))),
+                _ => Ok(None),
             };
         }
-        Err(_) => return Ok(None),
+        // No process has this id any more.
+        Err(error) if error.code() == ERROR_INVALID_PARAMETER.to_hresult() => return Ok(None),
+        Err(error) => {
+            return Err(SuspendError::Os(format!(
+                "process {pid} cannot be opened: {error}"
+            )));
+        }
     };
     Ok((created_at(raw(&process)) == started).then_some(process))
 }

@@ -111,6 +111,10 @@ pub const GLOBAL: &[Setting] = console_settings! {
         "adapter_name", "Encoding graphics adapter", Text;
         "adapter_pnp_id", "Encoding adapter device ID", Text;
         "encoder_focus", "Encoder focus (more bits for still areas such as text and HUDs)", Choice(&["off", "static", "centre"]);
+        "dvr_enabled", "Instant replay and recording (Stream DVR)", Bool;
+        "dvr_ring_seconds", "Replay length in seconds (30, 60, 90 or 120)", Number;
+        "dvr_quota_gb", "Space for clips (GB, 5 to 500; default 20)", Number;
+        "dvr_directory", "Clips folder (leave empty for clips beside the settings)", Text;
         "hevc_mode", "HEVC support (0 auto, 1 disabled, 2 SDR, 3 HDR)", Number;
         "av1_mode", "AV1 support (0 auto, 1 disabled, 2 SDR, 3 HDR)", Number;
         "packed_444", "Full chroma for Nightjar", Bool;

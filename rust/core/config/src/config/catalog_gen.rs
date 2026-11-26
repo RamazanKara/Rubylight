@@ -476,6 +476,34 @@ impl Config {
             }
         }
     }
+    /// Stream DVR: keep a replay buffer and save clips (`dvr_enabled`, off by default).
+    pub fn dvr_enabled(&self) -> bool {
+        self.boolean("dvr_enabled", false)
+    }
+    /// `dvr_ring_seconds`: 30, 60 (the default), 90 or 120 seconds of replay buffer.
+    pub fn dvr_ring_seconds(&self) -> u16 {
+        let value = self.integer("dvr_ring_seconds", 60);
+        if matches!(value, 30 | 60 | 90 | 120) {
+            value as u16
+        } else {
+            invalid("dvr_ring_seconds", self.get("dvr_ring_seconds", ""));
+            60
+        }
+    }
+    /// The clips quota in GiB (`dvr_quota_gb`, 5 to 500, 20 by default).
+    pub fn dvr_quota_gb(&self) -> u32 {
+        self.check_range(
+            "dvr_quota_gb",
+            self.integer("dvr_quota_gb", 20),
+            20,
+            5..=500,
+        ) as u32
+    }
+    /// The clips folder; `None` (empty) is `clips` in the configuration folder.
+    pub fn dvr_directory(&self) -> Option<PathBuf> {
+        let value = unquote(self.get("dvr_directory", "").trim()).trim();
+        (!value.is_empty()).then(|| PathBuf::from(value))
+    }
     /// When a remote monitor is removed from Windows: `never` (default), `stream_end` or `disconnect`.
     pub fn remove_remote_monitor(&self) -> RemoveRemoteMonitor {
         let value = self.get("remove_remote_monitor", "never");
@@ -579,6 +607,10 @@ impl Config {
     /// Video datagrams the WebRTC media thread drops per thousand (`webrtc_loss_permille`, 0 to 1000, 0 by default).
     pub fn webrtc_loss_permille(&self) -> u32 {
         self.integer("webrtc_loss_permille", 0).clamp(0, 1000) as u32
+    }
+    /// The replay buffer's memory ceiling in MiB (`dvr_max_ram_mb`, clamped to 128..=2048, 512 by default).
+    pub fn dvr_max_ram_mb(&self) -> u32 {
+        self.integer("dvr_max_ram_mb", 512).clamp(128, 2048) as u32
     }
     /// Whether the AMF encoder skips an output query while its oldest frame cannot be finished yet (`amd_output_prediction`, off by default).
     pub fn amd_output_prediction(&self) -> bool {

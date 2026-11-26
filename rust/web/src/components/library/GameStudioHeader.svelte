@@ -185,29 +185,29 @@
       max-width: none;
     }
   }
-  /* On a phone the cover keeps the name company, and the actions take the full width below. */
+  /* On a phone a small cover sits beside the launcher, and the name takes the full width below it:
+     a long title keeps whole words. The actions follow under the name. */
   @media (max-width: 600px) {
     .studio {
-      grid-template-columns: 84px minmax(0, 1fr);
-      align-items: start;
-      gap: var(--space-2) var(--space-4);
+      grid-template-columns: 64px minmax(0, 1fr);
+      align-items: center;
+      gap: var(--space-3) var(--space-4);
       padding: var(--space-4);
     }
     .what {
       display: contents;
     }
     .art {
-      grid-row: 1 / span 3;
-      align-self: start;
+      grid-row: 1;
     }
-    .eyebrow,
-    h1,
-    .facts {
+    .eyebrow {
+      grid-row: 1;
       grid-column: 2;
     }
+    h1,
+    .facts,
     .actions {
       grid-column: 1 / -1;
-      margin-top: var(--space-2);
     }
     h1 {
       font-size: var(--text-xl);

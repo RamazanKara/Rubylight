@@ -533,7 +533,7 @@ test('on a phone a long game title in the editor keeps whole words above its act
     });
     assert.ok(fit.width > 300, `${app.name}: title ${fit.width}px wide`);
     assert.ok(fit.lines < fit.words, `${app.name}: ${fit.lines} lines for ${fit.words} words`);
-    const [box, actions] = await Promise.all([title.boundingBox(), page.locator('.page-header .actions').boundingBox()]);
+    const [box, actions] = await Promise.all([title.boundingBox(), page.locator('.studio .actions').boundingBox()]);
     assert.ok(actions.y >= box.y + box.height, `${app.name}: actions under the title`);
   }
 });

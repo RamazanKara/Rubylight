@@ -67,6 +67,8 @@ pub mod ptype {
         rubylight_protocol::frame_warp_v2::FRAME_WARP_V2_META_MESSAGE_TYPE;
     /// Rubylight's USB forwarding (both ways).
     pub const USB: u16 = rubylight_protocol::usb::USB_MESSAGE_TYPE;
+    /// Rubylight's Quick Suspend: the client's request, the host's state (both ways).
+    pub const QUICK_SUSPEND: u16 = rubylight_protocol::quick_suspend::QUICK_SUSPEND_MESSAGE_TYPE;
 }
 
 /// ENet channels of the control stream (`CTRL_CHANNEL_*`).

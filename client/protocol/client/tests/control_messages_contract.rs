@@ -86,3 +86,24 @@ fn moonbridge_names_the_3_0_control_messages_as_rubylight_protocol_defines_them(
     defined.sort_unstable();
     assert_eq!(listed, defined);
 }
+
+/// Quick Suspend (0x554B) is a 7.0 message the Rust engine sends and reads itself; MoonBridge
+/// does not name it, so it stays out of the file above. Its id is the one the host announces.
+#[test]
+fn the_engine_sends_quick_suspend_under_its_registered_id() {
+    use nightjar_core::control::messages::ClientMessage;
+    use rubylight_protocol::ids::RUBYLIGHT_7_CONTROL_IDS;
+    use rubylight_protocol::quick_suspend::{ClientRequest, Op, QUICK_SUSPEND_MESSAGE_TYPE};
+    assert!(RUBYLIGHT_7_CONTROL_IDS.contains(&QUICK_SUSPEND_MESSAGE_TYPE));
+    assert!(CONTROL_IDS
+        .iter()
+        .any(|(id, name)| *id == QUICK_SUSPEND_MESSAGE_TYPE && *name == "quick suspend"));
+    let message = ClientMessage::QuickSuspend(ClientRequest {
+        flags: 0,
+        request_id: 1,
+        op: Op::QueryState,
+    });
+    assert_eq!(message.message_type(), QUICK_SUSPEND_MESSAGE_TYPE);
+    assert_eq!(message.announcement(), Some(QUICK_SUSPEND_MESSAGE_TYPE));
+    assert!(!named().values().any(|id| *id == QUICK_SUSPEND_MESSAGE_TYPE));
+}

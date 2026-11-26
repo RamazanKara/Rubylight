@@ -695,6 +695,11 @@ impl ControlSession {
             ptype::USB if extensions && self.caps.supports_control_message(ptype::USB) => {
                 events::usb(p)
             }
+            ptype::QUICK_SUSPEND
+                if extensions && self.caps.supports_control_message(ptype::QUICK_SUSPEND) =>
+            {
+                events::quick_suspend(p)
+            }
             ptype::CLIPBOARD_SYNC
                 if extensions && self.caps.supports_control_message(ptype::CLIPBOARD_SYNC) =>
             {

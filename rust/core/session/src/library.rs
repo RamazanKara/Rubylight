@@ -84,6 +84,16 @@ impl Source {
             Self::Local => &[],
         }
     }
+    /// The launcher whose library a Playnite library plugin (`playnite-plugin-name`) reads.
+    pub fn of_playnite_plugin(plugin: &str) -> Option<Self> {
+        let plugin = name_key(plugin);
+        Self::ALL.into_iter().find(|source| {
+            source
+                .playnite_plugins()
+                .iter()
+                .any(|launcher| plugin.starts_with(launcher))
+        })
+    }
 }
 
 /// The sources the launcher sync keeps in step, each with Steam's options from the shared
@@ -291,7 +301,7 @@ impl Settings {
 }
 
 /// Letters and digits only, in lower case: "DOOM Eternal™" and "Doom Eternal" are one name.
-fn name_key(name: &str) -> String {
+pub(crate) fn name_key(name: &str) -> String {
     name.chars()
         .filter(|c| c.is_alphanumeric())
         .flat_map(char::to_lowercase)

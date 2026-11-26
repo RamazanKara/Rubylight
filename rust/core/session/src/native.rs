@@ -58,6 +58,9 @@ pub struct Scan {
     collections_cut: usize,
     /// What the names in `collections` take in JSON, against [`MAX_COLLECTIONS_JSON_BYTES`].
     collections_bytes: usize,
+    /// The installed games by source key and title in [`crate::library::name_key`] form, for
+    /// [`Self::playnite_store`]: each title's `game_id`, or None for a title two games share.
+    titles: BTreeMap<(String, String), Option<String>>,
 }
 impl Scan {
     pub fn new(game_ids: impl IntoIterator<Item = String>) -> Self {
@@ -70,7 +73,54 @@ impl Scan {
             collections: BTreeMap::new(),
             collections_cut: 0,
             collections_bytes: 0,
+            titles: BTreeMap::new(),
         }
+    }
+    /// Also known by title: these installed games, each its source, title and `game_id`.
+    pub fn titled(mut self, games: impl IntoIterator<Item = (Source, String, String)>) -> Self {
+        for (source, title, game_id) in games {
+            let title = crate::library::name_key(&title);
+            if title.is_empty() {
+                continue;
+            }
+            self.titles
+                .entry((source.key().to_owned(), title))
+                .and_modify(|known| {
+                    if known.as_deref() != Some(game_id.as_str()) {
+                        *known = None;
+                    }
+                })
+                .or_insert(Some(game_id));
+        }
+        self
+    }
+    /// The store game a Playnite app stands for: the installed game of the launcher its library
+    /// plugin names (`playnite-plugin-name`) with the same title, when exactly one game has it.
+    /// Playnite's connector sends no store ids, so this is how a Playnite copy gets the
+    /// `game_id` another PC's own copy of the game has, and clients show the two as one game.
+    pub fn playnite_store(&self, app: &App) -> Option<(Store, String)> {
+        let text = |key: &str| {
+            app.extra
+                .get(key)
+                .and_then(Value::as_str)
+                .filter(|text| !text.is_empty())
+        };
+        text("playnite-id")?;
+        let source = Source::of_playnite_plugin(text("playnite-plugin-name")?)?;
+        let title = crate::library::name_key(&app.name);
+        let game_id = self
+            .titles
+            .get(&(source.key().to_owned(), title))?
+            .clone()?;
+        let (_, id) = game_id.split_once(':')?;
+        Some((
+            Store {
+                source: source.key().into(),
+                id: id.into(),
+                name: source.name().into(),
+            },
+            game_id,
+        ))
     }
     /// The collections these games are in, by `game_id` or [`playnite_key`], up to
     /// [`MAX_COLLECTIONS_PER_GAME`] a game, [`MAX_COLLECTION_NAME_BYTES`] a name and
@@ -192,6 +242,10 @@ impl Scan {
                 .iter()
                 .map(|game| format!("{}:{}", game.source.key(), game.id)),
         )
+        .titled(games.iter().map(|game| {
+            let game_id = format!("{}:{}", game.source.key(), game.id);
+            (game.source, game.name.clone(), game_id)
+        }))
     }
     pub fn contains(&self, game_id: &str) -> bool {
         self.installed.contains(game_id)
@@ -233,7 +287,9 @@ pub const NOT_INSTALLED: &str = "not-installed";
 /// Whether the app's launcher game is installed: `None` for an app without a launcher
 /// id, or one whose source or folder the scan did not read.
 pub fn installed(app: &App, scan: &Scan) -> Option<bool> {
-    store_of(app).and_then(|(_, game_id)| scan.installed(&game_id))
+    store_of(app)
+        .or_else(|| scan.playnite_store(app))
+        .and_then(|(_, game_id)| scan.installed(&game_id))
 }
 
 /// The store an app belongs to and its `<source>:<id>` key, from
@@ -326,7 +382,8 @@ pub fn library_with(
         if remote::identify(id, &install_id).is_some() {
             continue;
         }
-        let (store, game_id) = match store_of(app) {
+        let known = store_of(app).or_else(|| scan.and_then(|scan| scan.playnite_store(app)));
+        let (store, game_id) = match known {
             Some((store, game_id)) => (Some(store), Some(game_id)),
             None => (None, None),
         };
@@ -574,5 +631,7 @@ pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
     }
 }
 
+#[cfg(test)]
+mod store_tests;
 #[cfg(test)]
 mod tests;

@@ -78,6 +78,11 @@ fn scan_installed(settings: library::Settings) -> Scan {
                 .filter(|game| game.installed)
                 .map(|game| format!("steam:{}", game.appid)),
         )
+        // A Playnite game of Steam's library takes its Steam id by title (`Scan::playnite_store`).
+        .titled(steam.iter().filter(|game| game.installed).map(|game| {
+            let game_id = format!("steam:{}", game.appid);
+            (library::Source::Steam, game.name.clone(), game_id)
+        }))
         // Steam's installs are read above with its library off too, so its apps still say
         // whether their game is installed.
         .skipping(

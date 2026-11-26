@@ -156,7 +156,7 @@ The entries are the host's configured apps (`h.apps`), in console order. The syn
 | Field | Stable across | Source | Use |
 |---|---|---|---|
 | `install_id` | renames, reorders, host restarts | the app's `uuid` in `apps.json`. Imports set it to `library::Game::uuid()`: Steam's canonical UUID, otherwise UUIDv5 of `rubylight:library:<source>:<id>` | The client's primary key per host. Launch with `/launch?appuuid=` |
-| `game_id` | hosts | `<source>:<store id>` from `launcher-source`/`launcher-id` (or `steam-id`), `null` for manual apps | Merges one title across paired hosts in the client's library, and keys favourites and per-game profiles |
+| `game_id` | hosts | `<source>:<store id>` from `launcher-source`/`launcher-id` (or `steam-id`); a Playnite game takes the id of the one installed game of its library plugin's launcher with the same title; `null` for manual apps | Merges one title across paired hosts in the client's library, and keys favourites and per-game profiles |
 | `app_id` | nothing (it is CRC32 of the name unless pinned) | `App::id()` | Only for `/appasset` and old GameStream calls |
 
 - `store.source` is a string, not a closed enum, so stores added later don't break v1 clients. In 3.0 it is one of `steam`, `epic`, `battlenet`, `ea`, `ubisoft`, `gog`, `microsoft` (`library::Source::key`; `microsoft` covers Microsoft Store and Xbox PC games), and `name` is `Source::name()`.

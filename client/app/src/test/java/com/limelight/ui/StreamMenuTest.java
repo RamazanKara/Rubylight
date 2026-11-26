@@ -430,8 +430,12 @@ public class StreamMenuTest {
             withControl.sessionGuests = true;
             withControl.nightModeOffered = withControl.headphoneSurroundOffered = true;
             withControl.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(true, false));
+            withControl.quickSuspendOffered = true;
             reachable.addAll(items(StreamMenu.mainPage(withControl)));
             reachable.addAll(items(StreamMenu.nativePage(withControl)));
+            // Resume game replaces Suspend game while the game is paused.
+            withControl.quickSuspendPaused = true;
+            reachable.addAll(items(StreamMenu.mainPage(withControl)));
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);
             options.automaticQuality = true;
             options.microphoneOffered = options.micButtonAvailable = options.mouseConnected = options.onscreenControls = options.gameControls = true;

@@ -167,6 +167,12 @@ def main():
             if evidence:
                 print('HANG', evidence, flush=True)
                 return EXIT_GPU_HANG
+            # Windows can move a scale again as the virtual display leaves,
+            # which after a kill may be a little after the host is gone.
+            started = time.monotonic()
+            while any(d['virtual'] for d in scales().values()) and time.monotonic() - started < 30:
+                time.sleep(.5)
+            gone_after = round(time.monotonic() - started, 2)
             started = time.monotonic()
             while True:
                 now = physical(scales())
@@ -176,6 +182,7 @@ def main():
                     break
                 time.sleep(.25)
             result = dict(cycle=cycle, crashed=crashed, stream_exit=stream.returncode,
+                          virtual_display_gone_after_s=gone_after,
                           restored_after_s=round(time.monotonic() - started, 2),
                           wrong={p: {'before': b, 'now': n} for p, (b, n) in wrong.items()},
                           journal_entries=journal_entries(), primary_scale=now.get(primary))

@@ -199,7 +199,7 @@ By default (`bitrate_adaptation`, [configuration](configuration.md#lower-bitrate
 These are defined for 3.0, in the same crate. A host that takes some of them adds a second `a=x-rl-control` line to its `DESCRIBE` answer, after the first, the packed 4:4:4 lines and before the microphone's `m=audio`. With the default settings it is:
 
 ```
-a=x-rl-control:0x5539,0x553b,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546,0x5549
+a=x-rl-control:0x5539,0x553b,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546,0x5549,0x554a
 ```
 
 The second line appears only when the host offers something, and stock clients ignore it. Each message is also announced in serverinfo or asked for in the launch; send it only when both say so.
@@ -219,6 +219,7 @@ The second line appears only when the host offers something, and stock clients i
 | `0x5545` | Frame Warp tags | `frame_warp::Tags` | host to client | with `0x5543` | `FrameWarpProtocol` |
 | `0x5546` | Frame Warp HUD mask | `frame_warp::Mask` | host to client | with `0x5543` | `FrameWarpProtocol` |
 | `0x5549` | Frame Warp meta | `frame_warp_v2::FrameWarpV2Meta` | host to client | with `0x5543` | `FrameWarpProtocol` |
+| `0x554A` | Stream DVR | `stream_dvr::Message` (`Request`, `HostState`, `ClipResult`) | both | always (whether the replay buffer runs is in `HostState`) | `StreamDvrVersion` |
 | `0x5547` | Transport feedback | `transport_feedback::TransportFeedback` | client to host | while `bitrate_adaptation` is `delay` (not the default) | none |
 
 `0x5508` (clipboard sync, above) goes on the same second line. `0x5542` is reserved. `0x5506`-`0x5510` belong to other clients and hosts: Rubylight takes `0x5508` with Moonlight V+'s frame unchanged and defines nothing else there. Nightjar sends `0x5510` (FEC summary, Moonlight V+'s format) only to a host whose `DESCRIBE` has `x-ss-video[0].fecControlVersion`, which Rubylight does not send.
@@ -327,6 +328,18 @@ As [Frame Warp](frame-warp.md) and Nightjar's [protocol document](../client/docs
 
 [Protocol](../client/docs/protocol/frame-warp.md#0x5549-meta-host-to-client-40-bytes-unreliable). The host lists `FrameWarpProtocol` 2 and `0x5549` beside `0x5543` to `0x5546`; the client's request names the gyro's controller and axes, and the host then sends one meta per tagged frame after its tags, unreliable and unsequenced: the camera confidence, HUD stability, the gyro packet the frame reflects and the gyro's gain, the measured turn rate and the fill hints. Versions do not mix: a host ignores an older client's 8-byte version 1 request and sends nothing for it, and no longer lists `FrameWarpVersion`, so an older client sees no Frame Warp; a current client sends nothing to a host without `0x5549`. The id is the first of the 7.0 range `0x5548` to `0x554F`.
 
+### 0x554A stream DVR (8-byte header and a body)
+
+Instant replay and recording on the host ([configuration](configuration.md#stream-dvr-and-clips)). The host lists `StreamDvrVersion` `1` and `0x554A` whether or not `dvr_enabled` is on; the state says whether the replay buffer runs for this stream, so a client can explain why a clip cannot be saved. Reliable, both ways. Header: version `1`, kind (`1` request, `2` host state, `3` clip result), flags u16 (0), request id u32 (the client's, echoed; 0 when the host sends a state on its own).
+
+| Kind | Body |
+| --- | --- |
+| `1` request, client to host | op u8 (`1` query state, `2` save clip, `3` start recording, `4` stop recording), clip seconds u16 (0 = the whole buffer; clamped to 5 and the buffer) |
+| `2` host state | state u8 (`0` off, `1` armed, `2` recording, `3` saving, `4` unsupported, `5` error), reason u8, buffered seconds u16, buffer seconds u16, recording seconds u32, quota used u64, quota limit u64 |
+| `3` clip result | outcome u8 (`0` saved, `1` refused, `2` failed), reason u8, clip seconds u16, file bytes u64, clip id length u16 (at most 64), clip id UTF-8 |
+
+Reasons: `0` none, `1` disabled, `2` pyrowave, `3` disk full, `4` quota exceeded, `5` no keyframe yet, `6` busy, `7` permission denied, `8` audio codec unsupported (passthrough audio), `9` I/O error, `10` not streaming; a value the client does not know reads as unknown. The host answers a query and a start with a state, a save and a stop with a clip result, and sends a state when it changes. Only the stream's owner with Launch apps may save or record; a guest gets `refused`, `permission denied`. A PyroWave stream is `unsupported`, `pyrowave`. Unknown ops, kinds and versions are dropped.
+
 ### 0x5547 transport feedback (20 bytes and the entries)
 
 Per-packet arrival times of the video stream, for the host's congestion control ([configuration](configuration.md#adapt-to-network-congestion)). The client sends them only to a host that lists `0x5547` in `a=x-rl-control`, unreliable and unsequenced, about every 50 ms while video arrives, and drops a report rather than queue it behind a backlog.
@@ -395,6 +408,7 @@ Each is absent until the host offers it.
 | serverinfo | `RustHostInternetPlayVersion` | paired only: `1` while `internet_play` is on (else `0`): the host serves `GET /internet-play/v1` on the paired port and answers hole punches ([Play over the internet](internet-play.md)) |
 | serverinfo | `ExternalIP` | paired only: the router's public IPv4 address, while `upnp` or `internet_play` is on and the host knows it (Moonlight's remote address) |
 | serverinfo | `FrameWarpProtocol` | `2` while `frame_warp` is on: the host takes the 12-byte `0x5543` and sends `0x5544` to `0x5546` and `0x5549`. Hosts before 7.0 listed `FrameWarpVersion` `1` instead, which a current host no longer sends |
+| serverinfo | `StreamDvrVersion` | `1`: the host keeps instant-replay clips and takes `0x554A` (listed in `a=x-rl-control`); the native API lists `stream.dvr`. Whether the replay buffer runs is in `0x554A`'s host state and `GET /api/native/v1/dvr` |
 | every HTTPS request | `rlSecondScreen` | `1` marks a request of a paired device's second screen (Nightjar's Dual screen mode). On `/launch` and `/resume` it starts or resumes that screen's stream, which the host keeps beside the device's first stream as a device of its own under the same pairing, and lays the two displays out as the user left them. The second screen always has a display of its own: a virtual display beside the first screen's, also when it resumes the game the first screen plays (it never joins the game's display), or, when the device's streams show physical displays, the PC's other monitor (the same one only when there is no other). The second screen's process sends it on every other request too (`/bitrate`, `/api/abr/capabilities`, `/api/network-path`, `/api/hardware-metrics`, `/actions/clipboard`, the native API), so each reaches its own stream; without it a request is the device's first screen's. Permissions, the enabled switch and the device's settings are the device's for both screens, except the resolution and scale kept from a stream, which each screen keeps for itself; a second screen takes no Nucleus Co-op seat. Unpairing or turning the device off ends both and releases what both held. Any other value is the device itself |
 | `/launch` | `rlDisplayScale` | the Windows scale (text and interface size) of the stream's virtual display in percent, one of 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450 or 500; anything else is refused. Sent with or without `virtualDisplay=1`, since the host may make a virtual display of its own; ignored for a stream on a physical display. It comes before the device, app and host `dd_virtual_display_scale`, is lowered, with a warning, to the largest the display's resolution allows, and a scale Windows refuses is a warning, not a failed stream. `scaleFactor` is the render size, not this |
 | `/launch`, `/resume` | `rlFecPercentage` | `host` or absent keeps the host's settings, `auto` follows the `0x5539` reports, 0-255 fixes the share; anything else is refused |

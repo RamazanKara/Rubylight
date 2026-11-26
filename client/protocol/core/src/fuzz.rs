@@ -78,6 +78,7 @@ fn raw(len: usize) -> impl Strategy<Value = Vec<u8>> {
 
 
 mod extended;
+mod stream_dvr;
 
 round_trip!(
     clock_sync_request,

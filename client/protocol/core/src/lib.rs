@@ -39,6 +39,7 @@ pub mod pyrowave;
 pub mod rate_change;
 pub mod roaming;
 pub mod steam_controller;
+pub mod stream_dvr;
 pub mod text_input;
 pub mod transport_feedback;
 pub mod usb;

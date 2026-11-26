@@ -64,6 +64,7 @@ GET /api/native/v1/capabilities
 | `usb` | while `usb_forwarding` is on and the USB/IP driver is installed | [USB forwarding](#usb-forwarding) |
 | `clipboard.image` | while `clipboard_image` is on (the default) | [Image clipboard](#image-clipboard) |
 | `folders` | while the host shares at least one folder | [Shared folders](#shared-folders) |
+| `stream.dvr` | always on a host with Stream DVR (whether the replay buffer runs is in `GET /dvr`) | [Stream DVR](#stream-dvr-streamdvr) |
 
 - `permissions` belongs to the calling device. `list`, `view` and `launch` are the List apps, View streams and Launch apps bits. `host_control` is the device's **Host control** grant (see [The host control permission](#the-host-control-permission)), and `usb` and `shared_folders` are described with their features. `file_upload` and `file_download` (bits `1 << 18` and `1 << 19`) are missing from hosts before file transfer and decode as `false`. `coop_join` is whether the device may join co-op games (Launch apps and its **Can join co-op games** setting, which follows Launch apps until set), never a permission bit; hosts before 3.0 leave it out, which decodes as `false`. `restart_shutdown` is the device's **Restart and shut down PC** grant (see Power and update); older hosts leave it out. `pairing_approve` is the device's **Approve new devices** grant (see Approve a device), which is not implied by Host control and is reported apart from it; older hosts leave it out. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
 
@@ -655,6 +656,26 @@ Feature `usb` is listed while the host's USB forwarding setting (`usb_forwarding
 | 403 | `usb_disabled` | The host's USB forwarding setting is off, or the device has no `usb` permission |
 | 409 | `usb_limit` | The host already forwards as many devices as it allows |
 
+## Stream DVR (`stream.dvr`)
+
+Instant replay and recording on the host, without re-encoding: while `dvr_enabled` is on, the host keeps the last `dvr_ring_seconds` of the stream's encoded video and Opus audio in memory and writes clips as MP4 files to the clips folder ([configuration](configuration.md#stream-dvr-and-clips)). The same actions travel in the stream as control message `0x554A` ([control messages](control-messages.md#0x554a-stream-dvr-8-byte-header-and-a-body)); this API serves companions, the console and clients outside a stream. The feature is listed whenever the host has Stream DVR, even with `dvr_enabled` off, so a client can say why clips are unavailable.
+
+| Method | Path | Needs | Result |
+|---|---|---|---|
+| GET | `/dvr` | View or Launch | `DvrStatus` |
+| POST | `/dvr/clip` | Launch, the stream's owner | `{}` or `{"duration_secs": 60}`; 200 `ClipSaved` once the file is written, or 409 `dvr_refused` |
+| POST | `/dvr/record` | Launch, the stream's owner | `{"action": "start"}` or `{"action": "stop"}`; 200 `RecordResult` (with `clip` after a stop), or 409 `dvr_refused` |
+| GET | `/dvr/clips?limit=50&cursor=` | View or Launch | `ClipList`, newest first |
+| DELETE | `/dvr/clips/{id}` | Host control | 204; 404 `not_found` for an unknown id |
+
+```json
+{ "state": "armed", "reason": "none", "ring_buffered_secs": 58, "ring_capacity_secs": 60,
+  "recording": false, "recording_elapsed_secs": 0, "quota_used_bytes": 4509715660,
+  "quota_limit_bytes": 21474836480, "clips_dir_available": true, "container": "mp4" }
+```
+
+`state` is `off` (the feature is off: `reason` `disabled`; nothing streams: `not_streaming`), `armed`, `recording`, `saving`, `unsupported` (`pyrowave`: PyroWave streams cannot be remuxed; `audio_codec_unsupported`: the stream's audio is PCM, AC3 or E-AC3 passthrough) or `error` (`disk_full`, `quota_exceeded`, `io_error`). Clients treat an unknown state as `unsupported` and an unknown reason as `unknown`. A clip a client asks for while another is being written is refused with `busy`, and one asked for before the first keyframe with `no_keyframe_yet` (the host asks the encoder for one). A clip summary (`ClipSummary`) has `id` (`[A-Za-z0-9_-]{8,64}`), `app_title`, `created_unix_ms`, `duration_ms`, `width`, `height`, `fps`, `codec` (`h264`, `hevc`, `av1`), `hdr`, `container` (`mp4`), `size_bytes`, `kind` (`replay` or `manual`) and `recovered` (kept from a recording the host could not finish). When the quota is full the host deletes the oldest replay clips, never recordings.
+
 ## Reserved features
 
 These are defined in `rubylight-native-api` but no host serves them yet, so none lists their features. Until one does, the routes below answer 404 `not_found` like any unknown path under `/api/native/v1`.
@@ -697,6 +718,7 @@ Every non-2xx answer has the same body:
 | 422 | `wrong_pin` | Approving a device: the handshake failed, and the device starts over with a new PIN |
 | 409 | `host_in_use` / `token_expired` / `update_unavailable` | Power and update: the PC is in use, and `message` names the device or what runs / the power token expired or was used, so confirm again / no update to install, `message` says why. Continue here also answers `host_in_use` |
 | 409 | `coop_refused` | Co-op: the session is full or ended, or the device was removed from it; `message` says which |
+| 409 | `dvr_refused` | Stream DVR: the feature is off, a PyroWave stream or passthrough audio, no keyframe yet, another clip is being written, or the disk or quota is full; `message` says which, `GET /dvr` names the reason |
 | 403 | `usb_disabled` / 409 `usb_limit` | USB forwarding: the setting is off or the device has no `usb` permission / the host forwards as many devices as it allows |
 | 403 | `folders_disabled` / `folder_unreadable` | Shared folders: the host shares none / Windows denies the signed-in user reading it |
 | 503 | `temporarily_unavailable` | ADLX is busy or reinitialising, with `retry_after_ms`; Nucleus Co-op cannot run (`/coop`); the stream can't show the couch menu |
@@ -735,6 +757,7 @@ Modules (serde shapes as in the examples above, all `snake_case`; the source is 
 | `files` | `FileList`, `FileEntry`, `Uploaded` |
 | `folders` | `FolderList`, `SharedFolder`, `FolderAccess`, `FolderEntries`, `FolderEntry`, `EntryKind` |
 | `coop` | `Coop`, `Game`, `Session`, `Player`, `Phase`, `End`, `EndReason`, `JoinRequest`, `Joined` |
+| `dvr` | `DvrStatus`, `DvrState`, `DvrReason`, `ClipRequest`, `ClipSaved`, `RecordRequest`, `RecordAction`, `RecordResult`, `ClipSummary`, `ClipKind`, `ClipList` |
 | `power` | `Power`, `Availability`, `PowerRequest`, `PowerAccepted`, `Update` |
 | `pairing` | `PairingRequests`, `PairingRequest`, `PairingApprove`, `PairingDeny`, `PairingApproved` |
 | `usb` | `TUNNEL_PATH`, `UPGRADE`, `TOKEN_HEADER`, `TOKEN_BYTES`, `TOKEN_TTL_SECS` |

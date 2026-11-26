@@ -10,6 +10,7 @@
 pub mod audio;
 pub mod capabilities;
 pub mod coop;
+pub mod dvr;
 pub mod error;
 pub mod files;
 pub mod folders;
@@ -99,4 +100,8 @@ pub mod feature {
     /// [`crate::guests::InviteCreate`]: `GET /session/guests/invites` and its actions answer,
     /// while pairing new devices is on: invites to play over the internet.
     pub const GUEST_INVITES: &str = "session.guest-invites";
+    /// [`crate::dvr`]: `GET /dvr`, `POST /dvr/clip`, `POST /dvr/record`, `GET /dvr/clips` and
+    /// `DELETE /dvr/clips/{id}` answer: the host keeps instant-replay clips. Whether the
+    /// replay buffer runs for this stream is in `GET /dvr`.
+    pub const STREAM_DVR: &str = "stream.dvr";
 }

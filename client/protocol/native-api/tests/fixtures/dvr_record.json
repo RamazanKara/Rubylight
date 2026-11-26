@@ -1,0 +1,29 @@
+{
+  "status": {
+    "state": "armed",
+    "reason": "none",
+    "ring_buffered_secs": 60,
+    "ring_capacity_secs": 60,
+    "recording": false,
+    "recording_elapsed_secs": 0,
+    "quota_used_bytes": 1923088384,
+    "quota_limit_bytes": 21474836480,
+    "clips_dir_available": true,
+    "container": "mp4"
+  },
+  "clip": {
+    "id": "20261125-210455-manual-9c01",
+    "app_title": "Desktop",
+    "created_unix_ms": 1795655095000,
+    "duration_ms": 734000,
+    "width": 1920,
+    "height": 1080,
+    "fps": 59.94,
+    "codec": "h264",
+    "hdr": false,
+    "container": "mp4",
+    "size_bytes": 1835008000,
+    "kind": "manual",
+    "recovered": false
+  }
+}

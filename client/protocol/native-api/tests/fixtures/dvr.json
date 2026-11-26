@@ -1,0 +1,12 @@
+{
+  "state": "armed",
+  "reason": "none",
+  "ring_buffered_secs": 58,
+  "ring_capacity_secs": 60,
+  "recording": false,
+  "recording_elapsed_secs": 0,
+  "quota_used_bytes": 4509715660,
+  "quota_limit_bytes": 21474836480,
+  "clips_dir_available": true,
+  "container": "mp4"
+}

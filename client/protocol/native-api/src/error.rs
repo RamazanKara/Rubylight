@@ -71,6 +71,10 @@ pub enum ErrorCode {
     /// A wrong PIN just came from this address: it can be approved again in
     /// seconds, and the message says how many.
     PairingCooldown,
+    /// Stream DVR refused a clip or recording (the feature is off, a PyroWave stream, no
+    /// keyframe yet, another clip is being written, the disk or quota is full); the
+    /// message says why in plain English and `GET /dvr` names the reason.
+    DvrRefused,
     /// A code from a newer host. Clients treat it by its HTTP status.
     #[serde(other)]
     Unknown,
@@ -109,7 +113,8 @@ impl ErrorCode {
             | Self::UpdateUnavailable
             | Self::PairingUnconfirmed
             | Self::PairingEnded
-            | Self::PairingCooldown => 409,
+            | Self::PairingCooldown
+            | Self::DvrRefused => 409,
             Self::InsufficientStorage => 507,
             Self::TemporarilyUnavailable => 503,
             Self::Internal | Self::Unknown => 500,

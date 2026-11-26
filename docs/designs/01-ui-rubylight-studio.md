@@ -33,11 +33,12 @@ Rubylight 7.0 is completely unshackled from the old `rust/web/DESIGN.md` gray-pa
      - **Instant Session Controls (`>= 44×44 px`):** Calm, outcome-labelled action deck — **Stream details**, **Copy diagnostics**, **Disconnect** (confirmation dialog), and **Quit game** (sole danger control) — plus per-stream rows below when multiple concurrent/guest streams are active.
      - **Stream Doctor Health Banner:** Live status banner directly integrated into the stage header (`Healthy`, `Attention`, or `Action needed`) surfacing plain-English cause + one-click navigation/action slot ready for Wave 2 Item 11 (`stream.doctor_v2`).
 
-2. **Interactive Display Topology Visualizer (`DisplayTopologyCanvas.svelte`):**
-   - A spatial, drag-and-arrange visual canvas for **physical monitors + Rubylight virtual displays (`rubylight-vdisplay`)** embedded on the Display / Devices configuration views:
-     - Renders each monitor at proportional physical aspect ratio and desktop coordinates with clear visual pills: **Resolution & Refresh (`3840×2160 · 120 Hz`)**, **DPI Scale (`150%`)**, **HDR** badge, **Primary ★** star, **Virtual / Physical** tag, and active stream target highlight.
-     - Supports **pointer drag with magnetic edge snapping** and live `(x, y)` readout **AND** 100% **keyboard & screen-reader parity**: `Tab` selects a display tile, `Space`/`Enter` grabs/drops, arrow keys nudge by 16 px (`Shift+Arrow` snaps edge-to-edge against neighbors), `P` sets primary, and an ARIA live region announces relative placement ("Virtual Display placed right of Monitor 1 at 2560, 0").
-     - Persists exclusively through existing arrangement/config endpoints (`rust/windows/display/src/display_arrangement.rs` + `/api/config`), respecting `RecoveryJournalV2` (`recovery-journal.json`) safety invariants.
+2. **Display Map (`DisplayTopologyCanvas.svelte`), read-only in 7.0:**
+   - **7.0 ships the map read-only: no drag arranging, no keyboard arranging and nothing saved from it.** Arranging displays stays in Windows' display settings, and the map says so under it. An arranging canvas (pointer drag with edge snapping, its keyboard and screen-reader form, and saving through the display arrangement code under its recovery journal) is not part of 7.0; it needs its own design and a hardware pass.
+   - A spatial map of **physical monitors + Rubylight virtual displays (`rubylight-vdisplay`)** on Troubleshoot and in each device's Display overrides:
+     - Draws each display to scale where Windows puts it, numbered, with a list beside it that carries **Resolution & Refresh (`3840×2160 · 120 Hz`)**, **DPI Scale (`150%`)**, the **HDR** badge, **Primary ★**, the **Virtual / Physical** tag, relative placement ("Left of ...") and the display a device streams.
+     - The list is the accessible form; the drawing is `aria-hidden`. A host that reports no places gets a row of equal tiles and a note.
+     - Reads `/api/display-devices` only. It calls no arrangement or config endpoint and never touches `RecoveryJournalV2` (`recovery-journal.json`).
 
 3. **Cover-Lit Per-Game Studio (`Library.svelte`, `AppEditor.svelte`, `GameStudioHeader.svelte`, `OverrideCascadeCards.svelte`):**
    - Full-bleed cover-lit app header showcasing high-res box art, ambient color wash, launcher badge, quick **Edit cover**, **Launch / Test**, and effective stream profile badges.
@@ -147,8 +148,8 @@ All new modules comply with `tools/arch_check.py`: `<= 800` LOC ceiling and mand
 | `rust/web/src/components/devices/PairingCinema.svelte` | New | ~240 | Guided QR Onboarding & Pairing Cinema (high-contrast QR, live 4-digit PIN, permission tier cards, connected celebration). |
 | `rust/web/src/components/devices/QrPairing.svelte` & `pages/Setup.svelte` | Modify | ~190 / ~280 | Wire `PairingCinema.svelte` into first-run Setup and Devices pairing flow. |
 | `rust/web/src/components/QuickSwitcher.svelte` & `lib/quick-switch-70.ts` | Modify / New | ~390 / ~190 | Upgraded `Ctrl+K` / `⌘K` Command Palette covering Apps (with covers), Devices, Settings, Diagnostics, and Host Actions. |
-| `rust/web/src/components/devices/DisplayTopologyCanvas.svelte` | New | ~340 | Interactive drag-and-arrange visual canvas for physical + virtual displays with magnetic snapping, HDR/Primary/DPI badges, and full keyboard/ARIA parity. |
-| `rust/web/src/components/devices/display-topology.ts` | New | ~220 | Pure coordinate geometry, magnetic edge-snap solver, overlap prevention, and ARIA relative-position formatter. |
+| `rust/web/src/components/devices/DisplayTopologyCanvas.svelte` | New | ~340 | Read-only display map in 7.0 (no drag arranging): physical + virtual displays to scale where Windows puts them, with a list that carries mode, scale, HDR, Primary and Virtual/Physical. |
+| `rust/web/src/components/devices/display-topology.ts` | New | ~220 | Pure coordinate geometry for the read-only map: scaling to the canvas, the fallback row and the relative-position text. No snap solver in 7.0. |
 | `rust/web/src/components/library/GameStudioHeader.svelte` | New | ~190 | Full-bleed cover-lit per-game studio header with ambient wash, launcher badge, and quick actions. |
 | `rust/web/src/components/library/OverrideCascadeCards.svelte` | New | ~240 | Visual `App × Device → App → Device → Host` inheritance cards with layer ownership tags and one-click Reset to inherited. |
 | `rust/web/src/components/library/AppEditor.svelte`, `DeviceOverrides.svelte`, `pages/Library.svelte` | Modify | ~560 / ~240 / ~260 | Integrate Cover-Lit Per-Game Studio header and Override Cascade Cards; zero raw CSS literals. |
@@ -193,7 +194,7 @@ stateDiagram-v2
 | --- | --- |
 | **Host restarts after saving settings or topology** | `App.svelte` enters `reconnecting` overlay (`inert` on shell), preserves unsaved draft state, polls heartbeat every 3 s, and reloads `/api/metadata` + `/api/config` cleanly with monotonic `latestLoad` ordering (zero stale-poll overwrite). |
 | **Network drop while viewing Live Command Stage** | Retains last valid sparklines and pipeline bars, shows quiet amber `Stale` pill ("Showing last known figures") + danger banner with **Retry**; never wipes active **Disconnect** / **Quit game** controls. |
-| **Display Topology drag creates overlap or detached island** | `display-topology.ts` snap solver enforces contiguous edges (adjacent displays must share at least 64 px edge overlap, mirroring Windows `SetDisplayConfig` constraints) and blocks invalid apply with plain-English guidance before touching host config. |
+| **Display map and arranging** | Cannot happen in 7.0: the map is read-only and saves nothing, so it cannot create an overlap or a detached display. Arranging stays in Windows' display settings. |
 | **Browser `/play` active stream vs Play Dock** | While streaming with dock closed: zero overlay blur, full pointer/gamepad passthrough, stats capsule uses blur-0 tinted fill. Opening dock pauses pointer capture cleanly; closing restores video focus immediately. |
 | **Browser `/guest` link expired or host not streaming** | `GuestJoinCard.svelte` shows clear plain-English status ("Waiting for host to start a game…" or "This invite link has expired") with zero raw WebRTC/SDP errors; auto-polls cleanly while waiting and releases media tracks on `pagehide`. |
 | **Couch Menu closed vs open during 4K120 stream** | Closed (`overlay.is_none()`): `compute_menu.rs` executes **0** shader dispatches and **0** texture copies (exact zero overhead). Open: interpolates focus frame only while open; closes instantaneously on L3+R3 or B/Esc and releases active overlay reference. |
@@ -204,7 +205,7 @@ stateDiagram-v2
 ### 4.3 Crash-Restore Journal Alignment
 
 Wave 0 Item 01 mutates zero display, audio, driver, or process state directly at runtime:
-- All host settings and Display Topology arrangements saved from the console flow strictly through `rust/host/web/src/web/config.rs::save_setting` (validation + atomic temp-file rename), never partially truncating `sunshine.conf`.
+- All host settings saved from the console (the read-only display map saves nothing) flow strictly through `rust/host/web/src/web/config.rs::save_setting` (validation + atomic temp-file rename), never partially truncating `sunshine.conf`.
 - Runtime display/DPI switches triggered during subsequent streams continue to be protected by the single canonical **`RecoveryJournalV2`** (`rust/core/session/src/recovery_journal.rs`, persisted atomically to `recovery-journal.json` with the `--recover-session` service hook unified across Items 08 and 17).
 - `rust/setup/` preserves its transactional install/uninstall rollback unchanged; `finish_qr.rs` is strictly read-only after install commit completes.
 
@@ -262,7 +263,7 @@ Designed for Phase 3 `parallel()` execution with **strictly non-overlapping file
 1. Run `node rust/web/Design.browser.cjs` verifying:
    - Every visible interactive control (`a, button, input, select, summary`) satisfies `>= 44×44 px` hit target at `1280×900` and `390×844`.
    - `document.documentElement.scrollWidth <= window.innerWidth` at `390×844` across `/`, `/sessions`, `/devices`, `/library`, `/settings`, `/settings/advanced`, `/setup`, `/login`, `/design.html`, `/play/`, and `/guest/`.
-   - Keyboard-only Display Topology dragging/snapping + ARIA live announcements, `Ctrl+K` Command Palette focus trap/restore, and zero `backdrop-filter` blur on `/play/` and `/guest/` active `<video>` layers.
+   - The display map's list as its accessible form (the map itself is read-only and `aria-hidden`; no dragging in 7.0), `Ctrl+K` Command Palette focus trap/restore, and zero `backdrop-filter` blur on `/play/` and `/guest/` active `<video>` layers.
    - `reducedMotion: 'reduce'` stops all pulses, skeleton shimmers, and transitions (`0ms`).
 2. Capture full Light + Dark × Desktop (`1440×900`) + Phone (`390×844`) visual diff artifacts via `node rust/web/scripts/screenshots.cjs <out-dir> rubylight-7` covering Live Command Stage (`SHOT_SESSIONS=live`), Display Topology Canvas, Cover-Lit Per-Game Studio + Override Cascade Cards, Guided QR Pairing Cinema (`SHOT_AUTH=setup`), `Ctrl+K` Command Palette, `/play/`, `/guest/`, and no-script HTML console routes — plus visual PPM dumps of Couch Menu 7.0 (`cargo test -p butterpollo-core couch_menu_render_dump -- --ignored`). Manually inspect every artifact for visual hierarchy, contrast, German/Russian string fit, and zero clipping.
 

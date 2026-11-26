@@ -24,6 +24,7 @@ fn plugged(busid: &str, vid: u16, pid: u16, blocked: Option<Blocked>) -> Local {
 #[test]
 fn automatic_devices_attach_once_per_plug_in_on_any_port_and_retry_failures() {
     use std::time::{Duration, Instant};
+    use super::auto::auto_due;
 
     assert_eq!(auto_key(0x28de, 0x1304), "28de:1304");
     let auto = vec![auto_key(0x28de, 0x1304), auto_key(0x045e, 0x0719)];
@@ -34,20 +35,54 @@ fn automatic_devices_attach_once_per_plug_in_on_any_port_and_retry_failures() {
     let local = [puck.clone(), receiver, tablet];
     let t0 = Instant::now();
     // Only the listed one that can be forwarded; not the unlisted tablet or the blocked receiver.
-    assert_eq!(auto_due(&local, &auto, |_| false, &mut tried, t0), vec![puck.clone()]);
+    assert_eq!(auto_due(&local, &auto, &[], |_| false, &mut tried, t0), vec![puck.clone()]);
     // Not again while it stays plugged in and attach succeeded / was user-detached.
-    assert!(auto_due(&local, &auto, |_| false, &mut tried, t0 + Duration::from_secs(30)).is_empty());
+    assert!(auto_due(&local, &auto, &[], |_| false, &mut tried, t0 + Duration::from_secs(30)).is_empty());
     // Failed automatic attach retries after cooldown while staying plugged in.
     tried.insert("1-2".into(), Some(t0 + Duration::from_secs(10)));
-    assert!(auto_due(&local, &auto, |_| false, &mut tried, t0 + Duration::from_secs(5)).is_empty());
-    assert_eq!(auto_due(&local, &auto, |_| false, &mut tried, t0 + Duration::from_secs(10)), vec![puck]);
+    assert!(auto_due(&local, &auto, &[], |_| false, &mut tried, t0 + Duration::from_secs(5)).is_empty());
+    assert_eq!(auto_due(&local, &auto, &[], |_| false, &mut tried, t0 + Duration::from_secs(10)), vec![puck]);
     // Unplugged, then plugged into another port: attached again immediately.
-    assert!(auto_due(&[], &auto, |_| false, &mut tried, t0).is_empty());
+    assert!(auto_due(&[], &auto, &[], |_| false, &mut tried, t0).is_empty());
     let moved = plugged("2-1", 0x28de, 0x1304, None);
-    assert_eq!(auto_due(std::slice::from_ref(&moved), &auto, |_| false, &mut tried, t0), std::slice::from_ref(&moved));
+    assert_eq!(auto_due(std::slice::from_ref(&moved), &auto, &[], |_| false, &mut tried, t0), std::slice::from_ref(&moved));
     // One the user attached already is left alone.
     let mut fresh = HashMap::new();
-    assert!(auto_due(&[moved], &auto, |busid| busid == "2-1", &mut fresh, t0).is_empty());
+    assert!(auto_due(&[moved], &auto, &[], |busid| busid == "2-1", &mut fresh, t0).is_empty());
+}
+
+#[test]
+fn a_cancelled_password_prompt_stops_the_automatic_attach_until_the_user_acts() {
+    use std::time::Instant;
+    use super::auto::{auto_due, hushed_on_refusal, note_password_refused};
+
+    let quiet = Mutex::new(Vec::new());
+    let deck = plugged("3-1", 0x28de, 0x1205, None);
+    // Another failure leaves it to the retry cooldown, as before.
+    assert!(hushed_on_refusal::<()>(&quiet, &deck, || Err("busy".into())).is_err());
+    assert!(quiet.lock().unwrap().is_empty());
+    assert!(hushed_on_refusal(&quiet, &deck, || Ok(())).is_ok());
+    assert!(quiet.lock().unwrap().is_empty());
+    // pkexec's prompt was cancelled during the open: hushed, once.
+    for _ in 0..2 {
+        let cancelled = hushed_on_refusal::<()>(&quiet, &deck, || {
+            note_password_refused();
+            Err("cancelled".into())
+        });
+        assert_eq!(cancelled.unwrap_err(), "cancelled", "the user still hears why");
+    }
+    assert_eq!(*quiet.lock().unwrap(), vec![auto_key(0x28de, 0x1205)]);
+    // The automatic attach leaves it alone, also after the cooldown or another plug-in.
+    let hushed = quiet.lock().unwrap().clone();
+    let auto = vec![auto_key(0x28de, 0x1205), auto_key(0x28de, 0x1304)];
+    let puck = plugged("1-2", 0x28de, 0x1304, None);
+    let mut tried = HashMap::new();
+    let local = [deck.clone(), puck.clone()];
+    assert_eq!(auto_due(&local, &auto, &hushed, |_| false, &mut tried, Instant::now()), vec![puck], "other devices still attach");
+    assert!(auto_due(&[plugged("4-2", 0x28de, 0x1205, None)], &auto, &hushed, |_| false, &mut HashMap::new(), Instant::now()).is_empty());
+    // A user action (Attach, or Automatic ticked again) takes it off the list.
+    quiet.lock().unwrap().retain(|k| *k != auto_key(deck.vid, deck.pid));
+    assert_eq!(auto_due(&[deck.clone()], &auto, &quiet.lock().unwrap(), |_| false, &mut HashMap::new(), Instant::now()), vec![deck]);
 }
 
 /// The native answer with these features and the usb permission.

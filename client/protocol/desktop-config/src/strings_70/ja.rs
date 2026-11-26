@@ -21,4 +21,12 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Two identical devices are on the same port number of different USB controllers, so Nightjar can’t tell them apart for usbipd-win. Plug one into another port, then press Refresh.", "異なる USB コントローラーの同じ番号のポートに同じデバイスが 2 台あるため、Nightjar は usbipd-win 用に区別できません。1 台を別のポートに挿してから「更新」を押してください。"),
     ("A program on this computer holds the device, so usbipd-win can’t take it. Close that program, then retry.", "このコンピューターのプログラムがデバイスを使用中のため、usbipd-win が取得できません。そのプログラムを閉じてから再試行してください。"),
     ("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", "このデバイスは別のドライバー ({}) が使用しています。そのドライバーのまま usbipd-win で転送するか、WinUSB をインストールしてください。"),
+    ("usbipd-win ran without administrator rights, so Windows refused the change. Use an account with administrator rights, then try again.", "usbipd-win が管理者権限なしで実行されたため、Windows が変更を拒否しました。管理者権限のあるアカウントを使ってから、もう一度お試しください。"),
+    ("Give USB devices back to Windows?", "USB デバイスを Windows に戻しますか？"),
+    ("When Nightjar closed, it was still sharing USB devices through usbipd-win ({}). Windows asks for administrator rights to give them back to their own drivers. Not now leaves them shared; the stream menu’s USB devices section offers this again.", "Nightjar が終了したとき、まだ usbipd-win で USB デバイスを共有していました ({})。元のドライバーに戻すには、Windows が管理者権限を求めます。「後で」を選ぶと共有されたままになり、ストリームメニューの USB デバイスからあとで同じ操作ができます。"),
+    ("Give back", "戻す"),
+    ("USB devices given back to Windows: {}", "Windows に戻した USB デバイス: {}"),
+    ("Still shared through usbipd-win since Nightjar closed: {}", "Nightjar の終了後も usbipd-win で共有中: {}"),
+    ("Giving back…", "戻しています…"),
+    ("Give back to Windows", "Windows に戻す"),
 ];

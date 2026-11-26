@@ -636,3 +636,19 @@ fn opening_files_or_host_settings_from_settings_saves_edits_first() {
     assert!(matches!(settings_commands[0], Command::SaveSettings));
     assert!(matches!(settings_commands[1], Command::HostSettings(h) if h == id));
 }
+
+#[test]
+fn the_usbipd_notice_gives_devices_back_only_when_asked() {
+    let mut f = every_state().into_iter().find(|s| s.name == "paired").unwrap().frames();
+    f.l.ask_after(Dialog::ConfirmUsbGiveBack { count: 2 });
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t.contains("usbipd-win (2)")), "{:?}", f.drawn);
+    let not_now = f.placed.iter().find(|(t, ..)| t == "Not now").map(|p| p.1).expect("Not now");
+    let commands = f.click_at(not_now.center(), egui::PointerButton::Primary);
+    assert!(!commands.iter().any(|c| matches!(c, Command::GiveUsbDevicesBack)) && f.no_dialog(), "Not now leaves them shared");
+    f.l.ask(Dialog::ConfirmUsbGiveBack { count: 1 });
+    f.settle();
+    let give = f.placed.iter().find(|(t, ..)| t == "Give back").map(|p| p.1).expect("Give back");
+    let commands = f.click_at(give.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::GiveUsbDevicesBack)) && f.no_dialog());
+}

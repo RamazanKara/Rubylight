@@ -87,6 +87,7 @@ fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
                 offer: Some(("t".into(), Handed::now(), false)),
             },
             Dialog::ConfirmUpdate { host: id, name: "A long name for a gaming PC".into(), version: "3.4.0".into() },
+            Dialog::ConfirmUsbGiveBack { count: 2 },
             Dialog::PairRequests { only: Some(id) },
             approving("A long name for a television set", false),
             approving("A long name for a television set", true),

@@ -10,10 +10,9 @@
 //! (`usb_windows`). A controller being forwarded pauses as a gamepad
 //! ([`usb_arbitration`](crate::usb_arbitration)).
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use nightjar_core::control::SendError;
 use nightjar_core::http::{Availability, Feature, HostCapabilities, NativeCapabilities, Reason};
@@ -24,9 +23,14 @@ use rusb::UsbContext;
 
 use crate::strings::{en, tr, trf};
 
+mod auto;
 mod iso;
 mod libusb;
 mod winusb;
+
+pub use auto::auto_key;
+#[cfg(target_os = "linux")]
+pub(crate) use auto::note_password_refused;
 
 const CLASS_HUB: u8 = 9;
 
@@ -362,9 +366,14 @@ pub struct Panel {
     auto_changed: bool,
     /// Dropped with the panel, which ends the thread that attaches `auto`'s devices.
     auto_thread: Option<std::sync::mpsc::Sender<()>>,
+    /// The devices (by [`auto_key`]) whose password prompt was cancelled: the automatic attach
+    /// leaves them alone until the user attaches one by hand or ticks Automatic again.
+    quiet: Arc<Mutex<Vec<String>>>,
     /// What this stream's forwarded devices are claimed as ([`crate::usb_arbitration`]), so
     /// the panel's end gives every controller among them back.
     owner: u64,
+    /// The shares Nightjar left in usbipd-win when it stopped, as the last list found them.
+    usbipd_left: Arc<AtomicUsize>,
 }
 
 #[derive(Default)]
@@ -400,48 +409,12 @@ impl Drop for OpeningGuard<'_> {
     }
 }
 
-/// How often the automatic attach looks for newly plugged-in devices.
-const AUTO_POLL: Duration = Duration::from_secs(2);
-/// Wait before retrying an automatic attach that failed while still plugged in.
-const AUTO_RETRY_COOLDOWN: Duration = Duration::from_secs(10);
-
-/// What the automatic list remembers a device by: its vendor and product id, so that it
-/// matches on any port (Android's UsbForwarding.autoKey writes the same).
-pub fn auto_key(vid: u16, pid: u16) -> String {
-    format!("{vid:04x}:{pid:04x}")
-}
-
-/// The devices of `local` to attach automatically now: on the list, forwardable, not attached
-/// or being opened, and either unseen since plug-in (`tried` has no entry) or past their failed
-/// retry cooldown (`Some(retry_at) <= now`). `tried` forgets unplugged devices.
-fn auto_due(
-    local: &[Local],
-    auto: &[String],
-    busy: impl Fn(&str) -> bool,
-    tried: &mut HashMap<String, Option<Instant>>,
-    now: Instant,
-) -> Vec<Local> {
-    tried.retain(|busid, _| local.iter().any(|l| l.busid == *busid));
-    let mut due = Vec::new();
-    for device in local {
-        if device.blocked.is_some() || !auto.contains(&auto_key(device.vid, device.pid)) { continue; }
-        if busy(&device.busid) { continue; }
-        match tried.get(&device.busid) {
-            Some(None) => continue,
-            Some(Some(retry_at)) if now < *retry_at => continue,
-            _ => {}
-        }
-        tried.insert(device.busid.clone(), None);
-        due.push(device.clone());
-    }
-    due
-}
-
 /// Opens and attaches `local`, which the caller marked as being opened; returns whether attach
-/// succeeded, and records any failure on the panel.
-fn attach_tracked(forwarder: &Forwarder, owner: u64, route: Route, opening: &Mutex<Opening>, local: &Local) -> bool {
+/// succeeded, and records any failure on the panel. A cancelled password prompt puts `local` on
+/// `quiet` ([`auto::hushed_on_refusal`]).
+fn attach_tracked(forwarder: &Forwarder, owner: u64, route: Route, opening: &Mutex<Opening>, quiet: &Mutex<Vec<String>>, local: &Local) -> bool {
     let _guard = OpeningGuard { opening, busid: local.busid.clone() };
-    match attach_now(forwarder, owner, route, local) {
+    match auto::hushed_on_refusal(quiet, local, || attach_now(forwarder, owner, route, local)) {
         Ok(_) => true,
         Err(e) => {
             opening.lock().unwrap_or_else(PoisonError::into_inner).failed = Some(e);
@@ -456,87 +429,11 @@ impl Panel {
         let mut panel = Self {
             forwarder: Arc::new(forwarder), local: None, error: None, opening: Arc::default(),
             listing: Arc::new(AtomicBool::new(false)), listed: Arc::default(),
-            auto: Arc::new(Mutex::new(auto)), auto_changed: false, auto_thread: None,
-            owner: crate::usb_arbitration::Registry::global().owner(),
+            auto: Arc::new(Mutex::new(auto)), auto_changed: false, auto_thread: None, quiet: Arc::default(),
+            owner: crate::usb_arbitration::Registry::global().owner(), usbipd_left: Arc::default(),
         };
         panel.start_auto();
         panel
-    }
-
-    fn auto(&self) -> MutexGuard<'_, Vec<String>> {
-        self.auto.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Whether `local` is attached automatically when it is plugged in.
-    pub fn is_auto(&self, local: &Local) -> bool {
-        self.auto().contains(&auto_key(local.vid, local.pid))
-    }
-
-    /// Adds `local` to the automatic list or takes it off; the thread attaches an added one.
-    pub fn set_auto(&mut self, local: &Local, on: bool) {
-        let key = auto_key(local.vid, local.pid);
-        {
-            let mut auto = self.auto();
-            if on == auto.contains(&key) { return; }
-            if on { auto.push(key); } else { auto.retain(|k| *k != key); }
-        }
-        self.auto_changed = true;
-        if on { self.start_auto(); }
-    }
-
-    /// The automatic list after the user changed it, once, for saving.
-    pub fn take_auto_change(&mut self) -> Option<Vec<String>> {
-        std::mem::take(&mut self.auto_changed).then(|| self.auto().clone())
-    }
-
-    /// Starts the thread that attaches the automatic list's devices, while the list has any.
-    fn start_auto(&mut self) {
-        if self.auto_thread.is_some() || self.auto().is_empty() { return; }
-        let (stop, stopped) = std::sync::mpsc::channel::<()>();
-        let (forwarder, opening, auto, owner) = (self.forwarder.clone(), self.opening.clone(), self.auto.clone(), self.owner);
-        let spawned = std::thread::Builder::new().name("usb-auto".into()).spawn(move || {
-            let mut tried = HashMap::new();
-            let mut context: Option<rusb::Context> = None;
-            loop {
-                let wanted = auto.lock().unwrap_or_else(PoisonError::into_inner).clone();
-                if context.is_none() {
-                    match rusb::Context::new() {
-                        Ok(c) => context = Some(c),
-                        Err(e) => eprintln!("nightjar: USB: {}", trf("USB devices could not be listed: {}", &[&e])),
-                    }
-                }
-                if let Some(ctx) = context.as_ref() {
-                    match list_with(ctx) {
-                        Ok(local) => {
-                            let busy = |busid: &str| {
-                                opening.lock().unwrap_or_else(PoisonError::into_inner).busids.iter().any(|b| b == busid)
-                                    || forwarder.list().iter().any(|a| a.is_active() && a.busid == busid)
-                            };
-                            let now = Instant::now();
-                            for device in auto_due(&local, &wanted, busy, &mut tried, now) {
-                                if !opening.lock().unwrap_or_else(PoisonError::into_inner).try_start(&device.busid) {
-                                    continue;
-                                }
-                                eprintln!("nightjar: USB {}: attaching {} automatically", device.busid, device.name);
-                                if !attach_tracked(&forwarder, owner, Route::Direct, &opening, &device) {
-                                    tried.insert(device.busid, Some(Instant::now() + AUTO_RETRY_COOLDOWN));
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("nightjar: USB: {e}");
-                            context = None;
-                        }
-                    }
-                }
-                // The channel closes with the panel: the stream ended.
-                if !matches!(stopped.recv_timeout(AUTO_POLL), Err(std::sync::mpsc::RecvTimeoutError::Timeout)) { return; }
-            }
-        });
-        match spawned {
-            Ok(_) => self.auto_thread = Some(stop),
-            Err(e) => self.error = Some(trf("USB devices can't be attached automatically: {}", &[&e])),
-        }
     }
 
     fn opening(&self) -> MutexGuard<'_, Opening> {
@@ -574,8 +471,7 @@ impl Panel {
         if self.listing.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
             return;
         }
-        let listing = self.listing.clone();
-        let listed = self.listed.clone();
+        let (listing, listed, usbipd_left) = (self.listing.clone(), self.listed.clone(), self.usbipd_left.clone());
         let spawned = std::thread::Builder::new().name("usb-list".into()).spawn(move || {
             struct Clear<'a>(&'a AtomicBool);
             impl Drop for Clear<'_> {
@@ -584,6 +480,11 @@ impl Panel {
             let _clear = Clear(&listing);
             let result = list();
             *listed.lock().unwrap_or_else(PoisonError::into_inner) = Some(result);
+            // After the list, which shouldn't wait for usbipd-win's answer.
+            #[cfg(windows)]
+            usbipd_left.store(crate::usb_windows::leftovers(), Ordering::Relaxed);
+            #[cfg(not(windows))]
+            let _ = &usbipd_left;
         });
         if let Err(e) = spawned {
             self.listing.store(false, Ordering::Release);
@@ -630,8 +531,34 @@ impl Panel {
         }
     }
 
+    /// Attaches `local`, as the user asked: its password may be asked for again.
     pub fn attach(&mut self, local: &Local) {
+        self.unhush(local);
         self.start_attach(local, Route::Direct);
+    }
+
+    /// The shares Nightjar left in usbipd-win when it stopped (as the last list found them), and
+    /// whether they are being given back. Picks up how the last giving back went: a failure is
+    /// the panel's error, and the list is read again.
+    pub fn usbipd_left(&mut self) -> (usize, bool) {
+        #[cfg(windows)]
+        if let Some(given) = crate::usb_windows::take_given_back() {
+            if let Err(e) = given { self.error = Some(e); }
+            self.refresh();
+        }
+        #[cfg(windows)]
+        let giving = crate::usb_windows::giving_back();
+        #[cfg(not(windows))]
+        let giving = false;
+        (self.usbipd_left.load(Ordering::Relaxed), giving)
+    }
+
+    /// Gives back what Nightjar left shared in usbipd-win, as the user asked (Windows asks for
+    /// administrator rights).
+    pub fn give_back_usbipd(&mut self) {
+        self.error = None;
+        #[cfg(windows)]
+        crate::usb_windows::give_back_in_background();
     }
 
     fn start_attach(&mut self, local: &Local, route: Route) {
@@ -639,9 +566,9 @@ impl Panel {
         if !self.opening().try_start(&local.busid) { return; }
         // Opening devices (SetupAPI/libusb string reads, WinUSB handles, usbip-host bind) runs off the drawing thread.
         let busid = local.busid.clone();
-        let (forwarder, opening, local, owner) = (self.forwarder.clone(), self.opening.clone(), local.clone(), self.owner);
+        let (forwarder, opening, quiet, local, owner) = (self.forwarder.clone(), self.opening.clone(), self.quiet.clone(), local.clone(), self.owner);
         let spawned = std::thread::Builder::new().name("usb-open".into()).spawn(move || {
-            let _ = attach_tracked(&forwarder, owner, route, &opening, &local);
+            let _ = attach_tracked(&forwarder, owner, route, &opening, &quiet, &local);
         });
         if let Err(e) = spawned {
             self.opening().finish(&busid);

@@ -21,4 +21,12 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Two identical devices are on the same port number of different USB controllers, so Nightjar can’t tell them apart for usbipd-win. Plug one into another port, then press Refresh.", "Два однакові пристрої під’єднано до порту з однаковим номером на різних USB-контролерах, тому Nightjar не може розрізнити їх для usbipd-win. Під’єднайте один до іншого порту, потім натисніть «Оновити»."),
     ("A program on this computer holds the device, so usbipd-win can’t take it. Close that program, then retry.", "Програма на цьому комп’ютері займає пристрій, тому usbipd-win не може його взяти. Закрийте цю програму, потім спробуйте ще раз."),
     ("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", "Цим пристроєм керує інший драйвер ({}). Переспрямуйте його через usbipd-win, який залишає цей драйвер, або встановіть для нього WinUSB."),
+    ("usbipd-win ran without administrator rights, so Windows refused the change. Use an account with administrator rights, then try again.", "usbipd-win запустився без прав адміністратора, тому Windows відхилила зміну. Скористайтеся обліковим записом із правами адміністратора й спробуйте ще раз."),
+    ("Give USB devices back to Windows?", "Повернути USB-пристрої Windows?"),
+    ("When Nightjar closed, it was still sharing USB devices through usbipd-win ({}). Windows asks for administrator rights to give them back to their own drivers. Not now leaves them shared; the stream menu’s USB devices section offers this again.", "Коли Nightjar закрився, він ще надавав спільний доступ до USB-пристроїв через usbipd-win ({}). Щоб повернути їх власним драйверам, Windows попросить права адміністратора. «Не зараз» залишає спільний доступ; розділ USB-пристрої в меню трансляції запропонує це знову."),
+    ("Give back", "Повернути"),
+    ("USB devices given back to Windows: {}", "USB-пристроїв повернуто Windows: {}"),
+    ("Still shared through usbipd-win since Nightjar closed: {}", "Досі у спільному доступі через usbipd-win після закриття Nightjar: {}"),
+    ("Giving back…", "Повертаємо…"),
+    ("Give back to Windows", "Повернути Windows"),
 ];

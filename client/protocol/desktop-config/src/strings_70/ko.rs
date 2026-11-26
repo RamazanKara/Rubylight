@@ -21,4 +21,12 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Two identical devices are on the same port number of different USB controllers, so Nightjar can’t tell them apart for usbipd-win. Plug one into another port, then press Refresh.", "서로 다른 USB 컨트롤러의 같은 번호 포트에 동일한 장치가 두 개 있어 Nightjar가 usbipd-win용으로 구분할 수 없습니다. 하나를 다른 포트에 꽂은 다음 새로 고침을 누르세요."),
     ("A program on this computer holds the device, so usbipd-win can’t take it. Close that program, then retry.", "이 컴퓨터의 프로그램이 장치를 사용 중이라 usbipd-win이 가져올 수 없습니다. 그 프로그램을 닫은 다음 다시 시도하세요."),
     ("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", "다른 드라이버가 이 장치를 사용 중입니다({}). 그 드라이버를 유지하는 usbipd-win으로 전달하거나 WinUSB를 설치하세요."),
+    ("usbipd-win ran without administrator rights, so Windows refused the change. Use an account with administrator rights, then try again.", "usbipd-win이 관리자 권한 없이 실행되어 Windows가 변경을 거부했습니다. 관리자 권한이 있는 계정을 사용한 다음 다시 시도하세요."),
+    ("Give USB devices back to Windows?", "USB 장치를 Windows에 돌려줄까요?"),
+    ("When Nightjar closed, it was still sharing USB devices through usbipd-win ({}). Windows asks for administrator rights to give them back to their own drivers. Not now leaves them shared; the stream menu’s USB devices section offers this again.", "Nightjar가 종료될 때 usbipd-win으로 USB 장치를 아직 공유하고 있었습니다({}). 원래 드라이버로 돌려주려면 Windows에서 관리자 권한을 요청합니다. '나중에'를 선택하면 공유된 상태로 남으며, 스트림 메뉴의 USB 장치 섹션에서 다시 할 수 있습니다."),
+    ("Give back", "돌려주기"),
+    ("USB devices given back to Windows: {}", "Windows에 돌려준 USB 장치: {}"),
+    ("Still shared through usbipd-win since Nightjar closed: {}", "Nightjar 종료 후에도 usbipd-win으로 공유 중: {}"),
+    ("Giving back…", "돌려주는 중…"),
+    ("Give back to Windows", "Windows에 돌려주기"),
 ];

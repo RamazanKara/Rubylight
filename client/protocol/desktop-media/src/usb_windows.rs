@@ -13,8 +13,9 @@
 //! Only what Nightjar shared is ever unshared: a device the user had shared already stays as it
 //! was. Before `usbipd bind` the device goes into a journal in Nightjar's config directory
 //! ([`Journal`]), and the share's GUID follows once bound. The attachment's end unshares it by
-//! that GUID (`usbipd unbind --guid`, a second prompt) and forgets it; after a crash, the next
-//! start unshares what the journal still lists ([`recover`]).
+//! that GUID (`usbipd unbind --guid`, a second prompt) and forgets it. After a crash, the next
+//! start finds what the journal still lists without a prompt ([`check`]), and the launcher asks
+//! once whether to give it back ([`recover`]); the USB devices section offers it after that.
 
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
@@ -31,7 +32,7 @@ use crate::strings::{tr, trf};
 #[cfg(windows)]
 mod cli;
 #[cfg(windows)]
-pub use cli::{recover_in_background, Cli};
+pub use cli::{check_in_background, give_back_in_background, giving_back, leftovers, set_prompt_window, take_given_back, take_start_notice, Cli};
 
 /// usbipd-win's USB/IP port, on this computer only.
 pub const LOOPBACK: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 3240));
@@ -137,6 +138,10 @@ pub struct Entry {
     pub busid: String,
     #[serde(default)]
     pub guid: Option<String>,
+    /// The launcher asked the user to give it back after Nightjar stopped ([`check`]): a start
+    /// asks no more, and the USB devices section offers it instead.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub asked: bool,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -215,6 +220,16 @@ impl Journal {
         self.write(&entries)
     }
 
+    /// Marks these devices' entries asked about ([`Entry::asked`]).
+    pub fn mark_asked(&self, instance_ids: &[String]) -> Result<(), String> {
+        let _held = JOURNAL.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut entries = self.read()?;
+        for entry in &mut entries {
+            entry.asked |= instance_ids.iter().any(|id| id.eq_ignore_ascii_case(&entry.instance_id));
+        }
+        self.write(&entries)
+    }
+
     /// Forgets the device: Nightjar shares it no longer.
     pub fn forget(&self, instance_id: &str) -> Result<(), String> {
         let _held = JOURNAL.lock().unwrap_or_else(PoisonError::into_inner);
@@ -281,7 +296,7 @@ pub fn share(usbipd: &dyn Usbipd, journal: &Journal, device: &StateDevice) -> Re
     if device.attached() { return Err(tr("Another computer has this device attached through usbipd-win.").to_owned()); }
     if device.shared() { return Ok(Share::Theirs); }
     let instance_id = device.instance_id.clone();
-    let entry = |guid: Option<String>| Entry { instance_id: instance_id.clone(), busid: busid.to_owned(), guid };
+    let entry = |guid: Option<String>| Entry { instance_id: instance_id.clone(), busid: busid.to_owned(), guid, asked: false };
     journal.record(entry(None))?;
     let (bound, mut guid) = std::thread::scope(|scope| {
         let bind = scope.spawn(|| usbipd.bind(busid));
@@ -340,39 +355,93 @@ pub fn unshare(usbipd: &dyn Usbipd, journal: &Journal, instance_id: &str, guid: 
     journal.forget(instance_id)
 }
 
-/// After a crash: unshares every share the journal lists by its GUID, unless it is forced
-/// (never Nightjar's) or attached (another client uses it; it stays journaled for the next
-/// start). An entry without a GUID is forgotten without unbinding anything: Nightjar can't tell
-/// its share from one the user made since. An entry whose unbind fails stays for the next
-/// start. The number unshared, or why the journal or usbipd-win's list could not be read.
+/// What a journal entry needs, by usbipd-win's list.
+#[derive(Debug, PartialEq, Eq)]
+enum Needs {
+    /// Nothing more: its share is gone or forced (never Nightjar's), or it has no GUID, and
+    /// Nightjar can't tell its share from one the user made since.
+    Forget,
+    /// Another client has it attached: it waits for a later start.
+    Wait,
+    /// Unbinding this GUID gives it back.
+    Unbind(String),
+}
+
+fn needs(state: &[StateDevice], entry: &Entry) -> Needs {
+    let Some(guid) = entry.guid.as_deref().filter(|guid| valid_guid(guid)) else {
+        if find(state, &entry.instance_id).is_some_and(StateDevice::shared) {
+            eprintln!("nightjar: USB: {} is shared, but Nightjar never learnt whether that share is its own; leaving it", entry.instance_id);
+        }
+        return Needs::Forget;
+    };
+    match state.iter().find(|d| d.persisted_guid.as_deref().is_some_and(|g| g.eq_ignore_ascii_case(guid))) {
+        None => Needs::Forget,
+        Some(device) if device.is_forced => Needs::Forget,
+        Some(device) if device.attached() => Needs::Wait,
+        Some(_) => Needs::Unbind(guid.to_owned()),
+    }
+}
+
+/// The shares Nightjar left behind when it stopped (a crash, a cancelled prompt), as a start
+/// finds them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Leftovers {
+    /// To give back, and not asked about yet.
+    pub unasked: usize,
+    /// To give back, asked about or not.
+    pub all: usize,
+}
+
+/// Reads the journal against usbipd-win's list, without administrator rights: forgets the
+/// entries that need nothing more ([`Needs`]) and counts the shares to give back. With `mark`,
+/// those not asked about yet are marked asked ([`Entry::asked`]).
+pub fn check(usbipd: &dyn Usbipd, journal: &Journal, mark: bool) -> Result<Leftovers, String> {
+    let entries = journal.entries()?;
+    if entries.is_empty() { return Ok(Leftovers::default()); }
+    let state = usbipd.state()?;
+    let (mut found, mut unasked) = (Leftovers::default(), Vec::new());
+    for entry in entries {
+        match needs(&state, &entry) {
+            Needs::Forget => journal.forget(&entry.instance_id)?,
+            Needs::Wait => {}
+            Needs::Unbind(_) => {
+                found.all += 1;
+                if !entry.asked { unasked.push(entry.instance_id); }
+            }
+        }
+    }
+    found.unasked = unasked.len();
+    if mark && !unasked.is_empty() { journal.mark_asked(&unasked)?; }
+    Ok(found)
+}
+
+/// Gives back what Nightjar left shared (the user asked): unbinds each share the journal lists
+/// by its GUID, as [`check`] sorts them; one attached elsewhere stays journaled. An entry whose
+/// unbind fails stays too, and the first such failure is the answer. The number unshared, or
+/// why the journal or usbipd-win's list could not be read.
 pub fn recover(usbipd: &dyn Usbipd, journal: &Journal) -> Result<usize, String> {
     let entries = journal.entries()?;
     if entries.is_empty() { return Ok(0); }
     let state = usbipd.state()?;
-    let mut unshared = 0;
+    let (mut unshared, mut failed) = (0, None);
     for entry in entries {
-        let Some(guid) = entry.guid.as_deref().filter(|guid| valid_guid(guid)) else {
-            if find(&state, &entry.instance_id).is_some_and(StateDevice::shared) {
-                eprintln!("nightjar: USB: {} is shared, but Nightjar never learnt whether that share is its own; leaving it", entry.instance_id);
-            }
-            journal.forget(&entry.instance_id)?;
-            continue;
-        };
-        match state.iter().find(|d| d.persisted_guid.as_deref().is_some_and(|g| g.eq_ignore_ascii_case(guid))) {
-            None => journal.forget(&entry.instance_id)?,
-            Some(device) if device.is_forced => journal.forget(&entry.instance_id)?,
-            Some(device) if device.attached() => eprintln!("nightjar: USB: {} is attached elsewhere; unsharing it at a later start", entry.instance_id),
-            Some(_) => match usbipd.unbind(guid) {
+        match needs(&state, &entry) {
+            Needs::Forget => journal.forget(&entry.instance_id)?,
+            Needs::Wait => eprintln!("nightjar: USB: {} is attached elsewhere; giving it back later", entry.instance_id),
+            Needs::Unbind(guid) => match usbipd.unbind(&guid) {
                 Ok(()) => {
                     eprintln!("nightjar: USB: unshared {} ({guid}), left shared by Nightjar before it stopped", entry.instance_id);
                     journal.forget(&entry.instance_id)?;
                     unshared += 1;
                 }
-                Err(why) => eprintln!("nightjar: USB: {} stays shared through usbipd-win until the next start: {why}", entry.instance_id),
+                Err(why) => {
+                    eprintln!("nightjar: USB: {} stays shared through usbipd-win: {why}", entry.instance_id);
+                    failed.get_or_insert(why);
+                }
             },
         }
     }
-    Ok(unshared)
+    failed.map_or(Ok(unshared), Err)
 }
 
 fn not_listed() -> String {

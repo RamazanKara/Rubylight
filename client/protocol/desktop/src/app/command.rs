@@ -155,6 +155,10 @@ impl App {
                 self.hosts.pc_power(host, ask, action, token, at);
             }
             Command::InstallUpdate { host } => self.hosts.install_update(host),
+            Command::GiveUsbDevicesBack => {
+                #[cfg(windows)]
+                nightjar_desktop_media::usb_windows::give_back_in_background();
+            }
             Command::Rename { host, alias } => {
                 if rename_host(&mut self.hosts, &self.store, host, &alias).is_err() {
                     self.save_failed();

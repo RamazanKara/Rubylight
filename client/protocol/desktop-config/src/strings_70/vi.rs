@@ -21,4 +21,12 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Two identical devices are on the same port number of different USB controllers, so Nightjar can’t tell them apart for usbipd-win. Plug one into another port, then press Refresh.", "Có hai thiết bị giống hệt nhau trên cùng số cổng của các bộ điều khiển USB khác nhau nên Nightjar không phân biệt được chúng cho usbipd-win. Hãy cắm một thiết bị vào cổng khác rồi nhấn Làm mới."),
     ("A program on this computer holds the device, so usbipd-win can’t take it. Close that program, then retry.", "Một chương trình trên máy tính này đang giữ thiết bị nên usbipd-win không thể lấy nó. Hãy đóng chương trình đó rồi thử lại."),
     ("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", "Một trình điều khiển khác đang giữ thiết bị này ({}). Hãy chuyển tiếp bằng usbipd-win, vốn giữ nguyên trình điều khiển đó, hoặc cài WinUSB cho nó."),
+    ("usbipd-win ran without administrator rights, so Windows refused the change. Use an account with administrator rights, then try again.", "usbipd-win đã chạy mà không có quyền quản trị, nên Windows đã từ chối thay đổi. Hãy dùng tài khoản có quyền quản trị rồi thử lại."),
+    ("Give USB devices back to Windows?", "Trả thiết bị USB lại cho Windows?"),
+    ("When Nightjar closed, it was still sharing USB devices through usbipd-win ({}). Windows asks for administrator rights to give them back to their own drivers. Not now leaves them shared; the stream menu’s USB devices section offers this again.", "Khi Nightjar đóng, nó vẫn đang chia sẻ thiết bị USB qua usbipd-win ({}). Windows sẽ hỏi quyền quản trị để trả chúng về trình điều khiển của chúng. “Để sau” giữ chúng ở trạng thái chia sẻ; mục Thiết bị USB trong menu luồng sẽ đề nghị lại việc này."),
+    ("Give back", "Trả lại"),
+    ("USB devices given back to Windows: {}", "Thiết bị USB đã trả lại cho Windows: {}"),
+    ("Still shared through usbipd-win since Nightjar closed: {}", "Vẫn chia sẻ qua usbipd-win từ khi Nightjar đóng: {}"),
+    ("Giving back…", "Đang trả lại…"),
+    ("Give back to Windows", "Trả lại cho Windows"),
 ];

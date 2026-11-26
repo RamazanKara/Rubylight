@@ -129,7 +129,7 @@ fn the_journal_is_empty_without_a_file_and_never_guessed_when_unreadable() {
     let scratch = Scratch::new("journal");
     let journal = scratch.journal();
     assert_eq!(journal.entries().unwrap(), vec![]);
-    let entry = Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: None };
+    let entry = Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: None, asked: false };
     journal.record(entry.clone()).unwrap();
     journal.record(Entry { guid: Some(GUID.into()), ..entry.clone() }).unwrap();
     assert_eq!(journal.entries().unwrap(), vec![Entry { guid: Some(GUID.into()), ..entry.clone() }], "one entry per device");
@@ -149,7 +149,7 @@ fn sharing_journals_before_the_bind_and_leaves_the_users_own_shares_alone() {
 
     let ours = share(&fake, &journal, find(&state, DUALSENSE).unwrap()).unwrap();
     assert_eq!(ours, Share::Ours { instance_id: DUALSENSE.into(), guid: GUID.into() });
-    assert_eq!(journal.entries().unwrap(), vec![Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()) }]);
+    assert_eq!(journal.entries().unwrap(), vec![Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()), asked: false }]);
 
     assert_eq!(share(&fake, &journal, find(&state, STICK).unwrap()).unwrap(), Share::Theirs);
     assert_eq!(fake.calls(), vec!["bind 1-3"], "the user's share is used as it is");
@@ -177,7 +177,7 @@ fn unsharing_undoes_only_nightjars_share_by_its_guid() {
     let scratch = Scratch::new("unshare");
     let journal = scratch.journal();
     let fake = Fake::with(vec![listed(DUALSENSE, Some("1-3"), Some(GUID)), listed(STICK, Some("2-1"), Some(OTHER_GUID))]);
-    journal.record(Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()) }).unwrap();
+    journal.record(Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()), asked: false }).unwrap();
     unshare(&fake, &journal, DUALSENSE, GUID).unwrap();
     assert_eq!(fake.calls(), vec![format!("unbind {GUID}")]);
     assert_eq!(journal.entries().unwrap(), vec![]);
@@ -185,7 +185,7 @@ fn unsharing_undoes_only_nightjars_share_by_its_guid() {
 
     // The user unshared it meanwhile and shared it again: that new share is theirs.
     let fake = Fake::with(vec![listed(DUALSENSE, Some("1-3"), Some(OTHER_GUID))]);
-    journal.record(Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()) }).unwrap();
+    journal.record(Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()), asked: false }).unwrap();
     unshare(&fake, &journal, DUALSENSE, GUID).unwrap();
     assert_eq!(fake.calls(), Vec::<String>::new());
     assert_eq!(journal.entries().unwrap(), vec![]);
@@ -203,12 +203,12 @@ fn the_next_start_unshares_what_a_crash_left_and_nothing_else() {
         listed(pending, None, Some("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")),
         listed(gone, Some("2-4"), None),
     ]);
-    journal.record(Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()) }).unwrap();
+    journal.record(Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()), asked: false }).unwrap();
     // Stopped while Windows' prompt for the bind was up: no GUID journaled. The share it has
     // now may be the user's (made since), so it is never unbound.
-    journal.record(Entry { instance_id: pending.into(), busid: "1-7".into(), guid: None }).unwrap();
+    journal.record(Entry { instance_id: pending.into(), busid: "1-7".into(), guid: None, asked: false }).unwrap();
     // Unshared by the user meanwhile.
-    journal.record(Entry { instance_id: gone.into(), busid: "2-4".into(), guid: Some("99999999-8888-7777-6666-555555555555".into()) }).unwrap();
+    journal.record(Entry { instance_id: gone.into(), busid: "2-4".into(), guid: Some("99999999-8888-7777-6666-555555555555".into()), asked: false }).unwrap();
     assert_eq!(recover(&fake, &journal).unwrap(), 1);
     assert_eq!(fake.calls(), vec![format!("unbind {GUID}")]);
     assert_eq!(journal.entries().unwrap(), vec![]);
@@ -219,17 +219,52 @@ fn the_next_start_unshares_what_a_crash_left_and_nothing_else() {
 
     // A cancelled prompt keeps the entry for the next start.
     let fake = Fake { fail_unbind: true, ..Fake::with(vec![listed(DUALSENSE, Some("1-3"), Some(GUID))]) };
-    journal.record(Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()) }).unwrap();
-    assert_eq!(recover(&fake, &journal).unwrap(), 0);
+    journal.record(Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()), asked: false }).unwrap();
+    assert_eq!(recover(&fake, &journal).unwrap_err(), "cancelled", "the user hears why");
     assert_eq!(journal.entries().unwrap().len(), 1);
     journal.forget(DUALSENSE).unwrap();
+}
+
+#[test]
+fn a_start_counts_the_leftovers_without_a_prompt_and_asks_about_each_once() {
+    let scratch = Scratch::new("check");
+    let journal = scratch.journal();
+    let gone = r"USB\VID_1209&PID_0002\8";
+    let fake = Fake::with(vec![listed(DUALSENSE, Some("1-3"), Some(GUID)), listed(STICK, Some("2-1"), Some(OTHER_GUID))]);
+    journal.record(Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()), asked: false }).unwrap();
+    journal.record(Entry { instance_id: gone.into(), busid: "2-4".into(), guid: Some("99999999-8888-7777-6666-555555555555".into()), asked: false }).unwrap();
+    assert_eq!(check(&fake, &journal, false).unwrap(), Leftovers { unasked: 1, all: 1 }, "the one gone already is forgotten");
+    assert_eq!(journal.entries().unwrap().len(), 1);
+    assert_eq!(check(&fake, &journal, true).unwrap(), Leftovers { unasked: 1, all: 1 });
+    assert_eq!(fake.calls(), Vec::<String>::new(), "no usbipd bind or unbind, so no administrator prompt");
+    // Declined: the next start doesn't ask again, and the USB devices section still counts it.
+    assert_eq!(check(&fake, &journal, true).unwrap(), Leftovers { unasked: 0, all: 1 });
+    assert!(journal.entries().unwrap()[0].asked);
+    // A later share of the device replaces the entry, and is asked about after its own crash.
+    journal.record(Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()), asked: false }).unwrap();
+    assert_eq!(check(&fake, &journal, false).unwrap(), Leftovers { unasked: 1, all: 1 });
+    // Given back when the user asks.
+    assert_eq!(recover(&fake, &journal).unwrap(), 1);
+    assert_eq!(check(&fake, &journal, true).unwrap(), Leftovers::default());
+}
+
+#[test]
+fn a_journal_from_before_the_question_reads_as_not_asked() {
+    let scratch = Scratch::new("old-journal");
+    let journal = scratch.journal();
+    let old = serde_json::json!({ "version": 1, "entries": [{ "instance_id": DUALSENSE, "busid": "1-3", "guid": GUID }] });
+    std::fs::write(journal.path(), old.to_string()).unwrap();
+    assert!(!journal.entries().unwrap()[0].asked);
+    journal.mark_asked(&[DUALSENSE.to_ascii_lowercase()]).unwrap();
+    assert!(journal.entries().unwrap()[0].asked, "instance ids match in any case");
+    assert!(std::fs::read_to_string(journal.path()).unwrap().contains("\"asked\": true"));
 }
 
 #[test]
 fn a_forced_or_attached_share_is_never_unbound() {
     let scratch = Scratch::new("forced");
     let journal = scratch.journal();
-    let entry = Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()) };
+    let entry = Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()), asked: false };
 
     // Shared forced since (Nightjar never forces): someone else's now.
     let fake = Fake::with(vec![StateDevice { is_forced: true, ..listed(DUALSENSE, Some("1-3"), Some(GUID)) }]);
@@ -265,7 +300,7 @@ fn a_bind_that_runs_out_of_time_keeps_what_it_may_have_shared() {
     let fake = Fake { unfinished_bind: true, ..Fake::with(vec![listed(DUALSENSE, Some("1-3"), None)]) };
     let state = fake.state().unwrap();
     assert_eq!(share(&fake, &journal, &state[0]).unwrap_err(), "late");
-    assert_eq!(journal.entries().unwrap(), vec![Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: None }], "kept: it may still share it");
+    assert_eq!(journal.entries().unwrap(), vec![Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: None, asked: false }], "kept: it may still share it");
     assert_eq!(fake.calls(), vec!["bind 1-3"]);
     journal.forget(DUALSENSE).unwrap();
 

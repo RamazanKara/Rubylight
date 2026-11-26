@@ -164,6 +164,19 @@ impl App {
                 self.launcher.notify(tr("Controller not connected"), why.message());
             }
         }
+        // What Nightjar left shared in usbipd-win when it stopped: asked about once at start.
+        #[cfg(windows)]
+        {
+            use nightjar_desktop_media::usb_windows;
+            if let Some(count) = usb_windows::take_start_notice() {
+                self.launcher.ask_after(Dialog::ConfirmUsbGiveBack { count });
+            }
+            match usb_windows::take_given_back() {
+                Some(Ok(count)) if count > 0 => self.launcher.toast(trf("USB devices given back to Windows: {}", &[&count])),
+                Some(Err(why)) => self.launcher.notify(tr("USB devices"), why),
+                _ => {}
+            }
+        }
         #[cfg(target_os = "linux")]
         self.apply_renderer_choice();
         #[cfg(windows)]

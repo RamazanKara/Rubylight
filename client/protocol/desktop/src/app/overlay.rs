@@ -71,6 +71,7 @@ fn show_usb_section(ui: &mut egui::Ui, panel: &mut usb::Panel) {
     if let Some(failed) = panel.take_opening_failed() {
         panel.error = Some(failed);
     }
+    let (usbipd_left, usbipd_giving_back) = panel.usbipd_left();
     let local = panel.local().to_vec();
     let attachments = panel.attachments();
     let devices = local
@@ -108,6 +109,8 @@ fn show_usb_section(ui: &mut egui::Ui, panel: &mut usb::Panel) {
         devices,
         failed_attachments,
         error: panel.error.clone(),
+        usbipd_left,
+        usbipd_giving_back,
     };
     for action in usb_show(ui, &view) {
         match action {
@@ -119,6 +122,7 @@ fn show_usb_section(ui: &mut egui::Ui, panel: &mut usb::Panel) {
             UsbUiAction::AttachUsbipd(busid) => panel.attach_usbipd_busid(&busid),
             UsbUiAction::Detach(id) => panel.detach(id),
             UsbUiAction::SetAuto(busid, on) => panel.set_auto_busid(&busid, on),
+            UsbUiAction::GiveBackUsbipd => panel.give_back_usbipd(),
         }
     }
 }

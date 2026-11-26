@@ -371,10 +371,10 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         stream::scan_sync::keep_in(store.dir());
     }
     // Devices Nightjar shared through usbipd-win and could not unshare before it stopped (a
-    // crash, a cancelled prompt) go back to Windows. Nothing runs without its journal.
+    // crash, a cancelled prompt): found without a prompt, and the launcher asks about them once.
     #[cfg(windows)]
     if !second_screen::this_process() && !store.is_read_only() {
-        nightjar_desktop_media::usb_windows::recover_in_background();
+        nightjar_desktop_media::usb_windows::check_in_background();
     }
     stream::scan_sync::restore(&store.scan_untrusted().displays);
     let profiles = store.profiles();
@@ -399,6 +399,12 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         .flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
         .chain(profiles.entries.iter().map(|profile| &profile.settings))));
     let (window, renderer, wake_event, launcher_mode) = startup::open_window_and_renderer(&store, &settings, gpu, vulkan_video)?;
+    // usbipd-win's administrator prompts open over this window, never behind a fullscreen stream.
+    #[cfg(windows)]
+    // SAFETY: a live window, on the main thread; the property is SDL's HWND for it.
+    nightjar_desktop_media::usb_windows::set_prompt_window(unsafe {
+        SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, std::ptr::null_mut())
+    } as isize);
 
     let waker: hosts::Waker = Arc::new(move || {
         // SAFETY: SDL_PushEvent is thread-safe; the event is plain data.

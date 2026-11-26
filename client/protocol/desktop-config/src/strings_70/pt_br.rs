@@ -21,4 +21,12 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Two identical devices are on the same port number of different USB controllers, so Nightjar can’t tell them apart for usbipd-win. Plug one into another port, then press Refresh.", "Há dois dispositivos idênticos no mesmo número de porta de controladores USB diferentes, então o Nightjar não consegue distingui-los para o usbipd-win. Conecte um deles em outra porta e clique em Atualizar."),
     ("A program on this computer holds the device, so usbipd-win can’t take it. Close that program, then retry.", "Um programa deste computador está usando o dispositivo, então o usbipd-win não consegue assumi-lo. Feche esse programa e tente de novo."),
     ("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", "Outro driver controla este dispositivo ({}). Encaminhe-o com o usbipd-win, que mantém esse driver, ou instale o WinUSB para ele."),
+    ("usbipd-win ran without administrator rights, so Windows refused the change. Use an account with administrator rights, then try again.", "O usbipd-win foi executado sem direitos de administrador, então o Windows recusou a alteração. Use uma conta com direitos de administrador e tente novamente."),
+    ("Give USB devices back to Windows?", "Devolver os dispositivos USB ao Windows?"),
+    ("When Nightjar closed, it was still sharing USB devices through usbipd-win ({}). Windows asks for administrator rights to give them back to their own drivers. Not now leaves them shared; the stream menu’s USB devices section offers this again.", "Quando o Nightjar fechou, ainda estava compartilhando dispositivos USB pelo usbipd-win ({}). O Windows pede direitos de administrador para devolvê-los aos próprios drivers. “Agora não” os mantém compartilhados; a seção Dispositivos USB do menu da transmissão oferece isso de novo."),
+    ("Give back", "Devolver"),
+    ("USB devices given back to Windows: {}", "Dispositivos USB devolvidos ao Windows: {}"),
+    ("Still shared through usbipd-win since Nightjar closed: {}", "Ainda compartilhados pelo usbipd-win desde que o Nightjar fechou: {}"),
+    ("Giving back…", "Devolvendo…"),
+    ("Give back to Windows", "Devolver ao Windows"),
 ];

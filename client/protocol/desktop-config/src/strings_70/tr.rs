@@ -21,4 +21,12 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Two identical devices are on the same port number of different USB controllers, so Nightjar can’t tell them apart for usbipd-win. Plug one into another port, then press Refresh.", "Farklı USB denetleyicilerinin aynı numaralı bağlantı noktasında iki özdeş cihaz var, bu yüzden Nightjar bunları usbipd-win için ayırt edemiyor. Birini başka bir bağlantı noktasına takın, ardından Yenile’ye basın."),
     ("A program on this computer holds the device, so usbipd-win can’t take it. Close that program, then retry.", "Bu bilgisayardaki bir program cihazı kullanıyor, bu yüzden usbipd-win onu alamıyor. O programı kapatın, ardından yeniden deneyin."),
     ("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", "Bu cihazı başka bir sürücü kullanıyor ({}). O sürücüyü koruyan usbipd-win ile yönlendirin veya cihaz için WinUSB yükleyin."),
+    ("usbipd-win ran without administrator rights, so Windows refused the change. Use an account with administrator rights, then try again.", "usbipd-win yönetici hakları olmadan çalıştı, bu yüzden Windows değişikliği reddetti. Yönetici haklarına sahip bir hesap kullanıp yeniden deneyin."),
+    ("Give USB devices back to Windows?", "USB aygıtları Windows’a geri verilsin mi?"),
+    ("When Nightjar closed, it was still sharing USB devices through usbipd-win ({}). Windows asks for administrator rights to give them back to their own drivers. Not now leaves them shared; the stream menu’s USB devices section offers this again.", "Nightjar kapandığında USB aygıtlarını hâlâ usbipd-win üzerinden paylaşıyordu ({}). Windows, bunları kendi sürücülerine geri vermek için yönetici hakları ister. “Şimdi değil” onları paylaşımda bırakır; yayın menüsünün USB aygıtları bölümü bunu yeniden sunar."),
+    ("Give back", "Geri ver"),
+    ("USB devices given back to Windows: {}", "Windows’a geri verilen USB aygıtları: {}"),
+    ("Still shared through usbipd-win since Nightjar closed: {}", "Nightjar kapandığından beri usbipd-win üzerinden hâlâ paylaşılıyor: {}"),
+    ("Giving back…", "Geri veriliyor…"),
+    ("Give back to Windows", "Windows’a geri ver"),
 ];

@@ -23,6 +23,9 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::time::Duration;
 
+#[path = "native_dvr.rs"]
+mod native_dvr;
+
 /// The part of `GET /session` Microphone only reads.
 #[derive(Deserialize)]
 struct MicrophoneBusy {

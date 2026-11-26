@@ -125,6 +125,10 @@ pub enum ClientMessage {
     FrameWarpRequest(rubylight_protocol::frame_warp_v2::RequestV2),
     /// When each video packet arrived, for the host's congestion control (0x5547).
     TransportFeedback(rubylight_protocol::transport_feedback::TransportFeedback),
+    /// A Stream DVR request (0x554A): the host's state, a clip, or a recording started or
+    /// stopped. The host answers with a state or a clip result
+    /// ([`ControlEvent`](super::events::ControlEvent)) carrying the same request id.
+    StreamDvr(rubylight_protocol::stream_dvr::Request),
 }
 
 impl ClientMessage {
@@ -156,6 +160,7 @@ impl ClientMessage {
             Self::ClipboardSync(_) => ptype::CLIPBOARD_SYNC,
             Self::FrameWarpRequest(_) => ptype::FRAME_WARP_REQUEST,
             Self::TransportFeedback(_) => ptype::TRANSPORT_FEEDBACK,
+            Self::StreamDvr(_) => ptype::STREAM_DVR,
         }
     }
 
@@ -229,6 +234,11 @@ impl ClientMessage {
             Self::TransportFeedback(report) => {
                 let _ = report.encode_into(out);
             }
+            // A request has no clip id, so it always encodes.
+            Self::StreamDvr(request) => {
+                let message = rubylight_protocol::stream_dvr::Message::Request(*request);
+                out.extend_from_slice(&message.encode().unwrap_or_default());
+            }
         }
     }
 
@@ -286,7 +296,8 @@ impl ClientMessage {
             | Self::ControllerAudioStatus { .. }
             | Self::Usb(_)
             | Self::ClipboardSync(_)
-            | Self::TransportFeedback(_) => Some(self.message_type()),
+            | Self::TransportFeedback(_)
+            | Self::StreamDvr(_) => Some(self.message_type()),
             // A host before 7.0 announced 0x5543 to 0x5546 but not the meta, and took a request
             // this client no longer sends: it gets none.
             Self::FrameWarpRequest(_) => Some(ptype::FRAME_WARP_V2_META),

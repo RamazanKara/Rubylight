@@ -30,6 +30,7 @@ public class MoonBridgeControlMessagesTest {
         java.put("CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST", MoonBridge.CONTROL_MESSAGE_CURSOR_SHAPE_REQUEST);
         java.put("CONTROL_MESSAGE_CLIPBOARD_SYNC", MoonBridge.CONTROL_MESSAGE_CLIPBOARD_SYNC);
         java.put("CONTROL_MESSAGE_FEC_SUMMARY", MoonBridge.CONTROL_MESSAGE_FEC_SUMMARY);
+        java.put("CONTROL_MESSAGE_STREAM_DVR", MoonBridge.CONTROL_MESSAGE_STREAM_DVR);
 
         Map<String, Integer> listed = new TreeMap<>();
         try (InputStream input = getClass().getResourceAsStream("/protocol/control-messages.txt")) {

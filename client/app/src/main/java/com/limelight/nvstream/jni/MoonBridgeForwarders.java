@@ -517,6 +517,14 @@ public abstract class MoonBridgeForwarders implements MoonBridgeConstants {
         return RustBridge.isAvailable() && RustBridge.sendRateChange(serial, bitrateKbps, fpsMillihz);
     }
 
+    // A Stream DVR request (0x554A): op 1 asks for the state, 2 saves a clip of durationSecs
+    // (0 for the whole buffer), 3 starts and 4 stops a recording; dvrState or dvrClip on the
+    // listener answers with the same id. Only call when
+    // hostSupportsControlMessage(CONTROL_MESSAGE_STREAM_DVR); false when it could not be sent.
+    public static boolean sendStreamDvr(int requestId, int op, int durationSecs) {
+        return RustBridge.isAvailable() && RustBridge.sendStreamDvr(requestId, op, durationSecs);
+    }
+
     // Reports the client's keyboard layout as a BCP 47 tag (0x553E), so the host types keys the
     // client did not normalize in that layout. Only call when
     // hostSupportsControlMessage(CONTROL_MESSAGE_KEYBOARD_LAYOUT); false when it could not be

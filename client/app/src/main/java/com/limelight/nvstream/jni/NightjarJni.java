@@ -294,6 +294,8 @@ public final class NightjarJni {
 
     public static native boolean sendRateChange(int serial, int bitrateKbps, int fpsMillihz);
 
+    public static native boolean sendStreamDvr(int requestId, int op, int durationSecs);
+
     public static native boolean sendKeyboardLayout(String bcp47Tag);
 
     public static native int clipboardSyncStart(String current);

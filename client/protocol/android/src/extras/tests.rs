@@ -93,6 +93,49 @@ fn rate_changes_go_out_as_asked_and_refuse_what_the_host_would() {
 }
 
 #[test]
+fn stream_dvr_requests_reach_the_wire_and_answers_reach_java() {
+    use rubylight_protocol::stream_dvr::{Message, Outcome, Reason, State};
+    let save = stream_dvr_message(-1, 2, 30).expect("a save goes out");
+    assert_eq!(
+        Message::decode(&save.payload()),
+        Some(Message::Request(Request {
+            request_id: u32::MAX,
+            op: Op::SaveClip,
+            duration_secs: 30,
+        }))
+    );
+    assert!(stream_dvr_message(1, 1, 0).is_some());
+    assert_eq!(stream_dvr_message(1, 0, 0), None);
+    assert_eq!(stream_dvr_message(1, 5, 0), None);
+    assert_eq!(stream_dvr_message(1, 2, -1), None);
+    assert_eq!(stream_dvr_message(1, 2, 65_536), None);
+
+    let state = HostState {
+        request_id: 3,
+        state: State::Recording,
+        reason: Reason::None,
+        ring_buffered_secs: 60,
+        ring_capacity_secs: 120,
+        recording_elapsed_secs: 134,
+        quota_used_bytes: u64::MAX,
+        quota_limit_bytes: 20 << 30,
+    };
+    assert_eq!(
+        dvr_state_args(&state),
+        ([3, 2, 0, 60, 120, 134], [i64::MAX, 20 << 30])
+    );
+    let clip = ClipResult {
+        request_id: 4,
+        outcome: Outcome::Refused,
+        reason: Reason::Pyrowave,
+        duration_secs: 0,
+        file_bytes: 0,
+        clip_id: String::new(),
+    };
+    assert_eq!(dvr_clip_args(&clip), ([4, 1, 2, 0], 0));
+}
+
+#[test]
 fn audio_configurations_round_trip() {
     assert_eq!(
         audio_configuration_to_int(AudioConfiguration::STEREO),

@@ -237,6 +237,8 @@ public interface MoonBridgeConstants {
     // Moonlight V+'s FEC summary, which the engine sends to Foundation Sunshine hosts that
     // offer FEC control in DESCRIBE (no a=x-rl-control entry).
     int CONTROL_MESSAGE_FEC_SUMMARY = 0x5510;
+    // Stream DVR (7.0): clips and recordings on the host PC, asked from the stream menu.
+    int CONTROL_MESSAGE_STREAM_DVR = 0x554A;
 
     // Microphone state for this session.
     int MIC_STATE_OFF = 0;

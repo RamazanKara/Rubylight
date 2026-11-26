@@ -3,6 +3,7 @@
 
 mod extensions;
 mod fec;
+mod stream_dvr;
 
 use super::*;
 use crate::control::negotiation::encryption;

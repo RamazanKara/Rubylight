@@ -58,6 +58,8 @@ pub struct Methods {
     pub usb_changed: JStaticMethodID,
     pub clipboard_sync: JStaticMethodID,
     pub clipboard_sync_refused: JStaticMethodID,
+    pub dvr_state: JStaticMethodID,
+    pub dvr_clip: JStaticMethodID,
 }
 
 pub struct Bridge {
@@ -135,6 +137,8 @@ pub fn init(env: &mut JNIEnv, class: &JClass) -> jni::errors::Result<()> {
         usb_changed: id("bridgeClUsbChanged", "()V")?,
         clipboard_sync: id("bridgeClClipboardSync", "(Ljava/lang/String;)V")?,
         clipboard_sync_refused: id("bridgeClClipboardSyncRefused", "(I)V")?,
+        dvr_state: id("bridgeClDvrState", "(IIIIIIJJ)V")?,
+        dvr_clip: id("bridgeClDvrClip", "(IIIIJ)V")?,
     };
     let bridge = Arc::new(Bridge {
         vm: env.get_java_vm()?,

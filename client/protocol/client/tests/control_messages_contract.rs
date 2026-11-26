@@ -6,7 +6,7 @@
 use rubylight_protocol::ids::{ADOPTED_CONTROL_IDS, CONTROL_IDS, RUBYLIGHT_3_CONTROL_IDS};
 use rubylight_protocol::{
     clipboard_sync, cursor_shape, fec_report, keyboard_layout, pipeline_rates, rate_change,
-    text_input, usb,
+    stream_dvr, text_input, usb,
 };
 use std::collections::BTreeMap;
 
@@ -66,10 +66,15 @@ fn moonbridge_names_the_3_0_control_messages_as_rubylight_protocol_defines_them(
                 "CONTROL_MESSAGE_FEC_SUMMARY",
                 fec_report::FEC_SUMMARY_MESSAGE_TYPE
             ),
+            (
+                "CONTROL_MESSAGE_STREAM_DVR",
+                stream_dvr::DVR_STATE_MESSAGE_TYPE
+            ),
         ])
     );
     // Every 3.0 and adopted type has a Java name but the host's cursor image and Frame Warp's
-    // messages, which the Rust engine sends and handles itself and MoonBridge does not name.
+    // messages, which the Rust engine sends and handles itself and MoonBridge does not name. Of
+    // the 7.0 types MoonBridge names Stream DVR, which the stream menu asks before it shows.
     let mut listed: Vec<u16> = named.into_values().collect();
     listed.sort_unstable();
     let frame_warp = rubylight_protocol::frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE
@@ -78,9 +83,10 @@ fn moonbridge_names_the_3_0_control_messages_as_rubylight_protocol_defines_them(
         .iter()
         .map(|(id, _)| *id)
         .filter(|id| {
-            (RUBYLIGHT_3_CONTROL_IDS.contains(id) || ADOPTED_CONTROL_IDS.contains(id))
+            ((RUBYLIGHT_3_CONTROL_IDS.contains(id) || ADOPTED_CONTROL_IDS.contains(id))
                 && *id != cursor_shape::CURSOR_SHAPE_MESSAGE_TYPE
-                && !frame_warp.contains(id)
+                && !frame_warp.contains(id))
+                || *id == stream_dvr::DVR_STATE_MESSAGE_TYPE
         })
         .collect();
     defined.sort_unstable();

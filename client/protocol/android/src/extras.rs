@@ -13,6 +13,7 @@ use rubylight_protocol::keyboard_layout::{KeyboardLayout, LayoutSource};
 use rubylight_protocol::phase_lock::{self, SlackWindow};
 use rubylight_protocol::present_clock::{Grid, GridSchedule};
 use rubylight_protocol::rate_change::RateChangeRequest;
+use rubylight_protocol::stream_dvr::{ClipResult, HostState, Op, Request};
 use rubylight_protocol::text_input::TextInputRequest;
 
 /// `LI_ERR_UNSUPPORTED`: the Java side falls back (touch to mouse, for example).
@@ -224,6 +225,47 @@ pub fn rate_change_message(
         fps_millihz: u32::try_from(fps_millihz).ok()?,
     });
     message.is_valid().then_some(message)
+}
+
+/// `sendStreamDvr`: a Stream DVR request (0x554A) with the caller's id, an op (1 state, 2 save a
+/// clip, 3 start and 4 stop a recording) and the clip's seconds (0 for the whole buffer);
+/// `None` for an op or a length the wire cannot carry.
+pub fn stream_dvr_message(request_id: i32, op: i32, duration_secs: i32) -> Option<ClientMessage> {
+    Some(ClientMessage::StreamDvr(Request {
+        request_id: request_id as u32,
+        op: Op::from_u8(u8::try_from(op).ok()?)?,
+        duration_secs: u16::try_from(duration_secs).ok()?,
+    }))
+}
+
+/// The arguments of `bridgeClDvrState(requestId, state, reason, bufferedSecs, capacitySecs,
+/// recordingSecs, quotaUsedBytes, quotaLimitBytes)`, as the wire has them.
+pub fn dvr_state_args(state: &HostState) -> ([i32; 6], [i64; 2]) {
+    let bytes = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
+    (
+        [
+            state.request_id as i32,
+            state.state as i32,
+            state.reason as i32,
+            i32::from(state.ring_buffered_secs),
+            i32::from(state.ring_capacity_secs),
+            i32::try_from(state.recording_elapsed_secs).unwrap_or(i32::MAX),
+        ],
+        [bytes(state.quota_used_bytes), bytes(state.quota_limit_bytes)],
+    )
+}
+
+/// The arguments of `bridgeClDvrClip(requestId, outcome, reason, durationSecs, fileBytes)`.
+pub fn dvr_clip_args(clip: &ClipResult) -> ([i32; 4], i64) {
+    (
+        [
+            clip.request_id as i32,
+            clip.outcome as i32,
+            clip.reason as i32,
+            i32::from(clip.duration_secs),
+        ],
+        i64::try_from(clip.file_bytes).unwrap_or(i64::MAX),
+    )
 }
 
 /// `sendKeyboardLayout`: the device's BCP-47 layout tag (0x553E), or `None` for an empty tag

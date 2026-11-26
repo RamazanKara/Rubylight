@@ -426,6 +426,21 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarJni_sendRateChang
     jbool(extras::rate_change_message(serial, bitrate_kbps, fps_millihz).is_some_and(engine::send))
 }
 
+/// A Stream DVR request (0x554A): `op` 1 asks for the state, 2 saves a clip of `duration_secs`
+/// (0 for the whole buffer), 3 starts and 4 stops a recording. The host answers with
+/// `bridgeClDvrState` or `bridgeClDvrClip` and the same id. False for a bad op or length, or
+/// without a host that announced it.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarJni_sendStreamDvr(
+    _: JNIEnv,
+    _: JClass,
+    request_id: jint,
+    op: jint,
+    duration_secs: jint,
+) -> jboolean {
+    jbool(extras::stream_dvr_message(request_id, op, duration_secs).is_some_and(engine::send))
+}
+
 /// The device's keyboard layout as a BCP-47 tag (0x553E); false for a tag the wire cannot
 /// carry or without a host that announced it.
 #[unsafe(no_mangle)]

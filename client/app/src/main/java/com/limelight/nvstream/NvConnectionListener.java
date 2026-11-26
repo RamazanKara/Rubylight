@@ -60,6 +60,17 @@ public interface NvConnectionListener {
     default void rateChange(RateChangeResult result) {}
 
     /**
+     * The host's Stream DVR state (0x554A), as an answer to MoonBridge.sendStreamDvr (same id)
+     * or on its own (id 0): state 0 off, 1 armed, 2 recording, 3 saving, 4 unsupported, 5 error,
+     * with the wire's reason. On the receive thread.
+     */
+    default void dvrState(int requestId, int state, int reason, int bufferedSecs, int capacitySecs,
+                          int recordingSecs, long quotaUsedBytes, long quotaLimitBytes) {}
+
+    /** The host's result for a saved clip or a stopped recording: outcome 0 saved, 1 refused, 2 failed. */
+    default void dvrClip(int requestId, int outcome, int reason, int durationSecs, long fileBytes) {}
+
+    /**
      * The host's text field notice (0x553B): kind 0 lower, 1 raise, 2 update; inputType in wire
      * order (text, number, decimal, phone, email, url, password, search, multiline); flags 1
      * sensitive, 2 no autocorrect, 4 no autocapitalize, 8 enter action; element the focused

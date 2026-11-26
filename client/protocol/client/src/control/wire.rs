@@ -67,6 +67,8 @@ pub mod ptype {
         rubylight_protocol::frame_warp_v2::FRAME_WARP_V2_META_MESSAGE_TYPE;
     /// Rubylight's USB forwarding (both ways).
     pub const USB: u16 = rubylight_protocol::usb::USB_MESSAGE_TYPE;
+    /// Rubylight's Stream DVR (both ways): clip and recording requests, the host's state.
+    pub const STREAM_DVR: u16 = rubylight_protocol::stream_dvr::DVR_STATE_MESSAGE_TYPE;
 }
 
 /// ENet channels of the control stream (`CTRL_CHANNEL_*`).

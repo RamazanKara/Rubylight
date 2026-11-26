@@ -270,6 +270,12 @@ pub enum ControlEvent {
     ClipboardSync(rubylight_protocol::clipboard_sync::Frame),
     /// A 0x5508 payload of this many bytes that is not a v1 frame.
     ClipboardSyncRejected(usize),
+    /// The host's Stream DVR state (0x554A): its answer to a
+    /// [`ClientMessage::StreamDvr`](super::messages::ClientMessage) (the request's id), or a
+    /// change or refresh it sends on its own (id 0).
+    StreamDvrState(rubylight_protocol::stream_dvr::HostState),
+    /// How a clip or a recording ended (0x554A), with the request's id.
+    StreamDvrClip(rubylight_protocol::stream_dvr::ClipResult),
     ConnectionStatus(ConnectionStatus),
     /// Client roaming started, moved the stream, gave up, or was not needed.
     Roam(RoamEvent),
@@ -482,6 +488,17 @@ pub(crate) fn rate_change(p: &[u8]) -> Option<ControlEvent> {
         return None;
     }
     RateChangeResult::decode(p).map(ControlEvent::RateChange)
+}
+
+/// A Stream DVR state or clip result; a request (the client's own kind) or a frame that breaks
+/// the format is dropped.
+pub(crate) fn stream_dvr(p: &[u8]) -> Option<ControlEvent> {
+    use rubylight_protocol::stream_dvr::Message;
+    match Message::decode(p)? {
+        Message::State(state) => Some(ControlEvent::StreamDvrState(state)),
+        Message::Clip(clip) => Some(ControlEvent::StreamDvrClip(clip)),
+        Message::Request(_) => None,
+    }
 }
 
 pub(crate) fn cursor_shape(p: &[u8]) -> ControlEvent {

@@ -240,6 +240,9 @@ final class RustBridge {
     static boolean sendRateChange(int serial, int bitrateKbps, int fpsMillihz) {
         return NightjarJni.sendRateChange(serial, bitrateKbps, fpsMillihz);
     }
+    static boolean sendStreamDvr(int requestId, int op, int durationSecs) {
+        return NightjarJni.sendStreamDvr(requestId, op, durationSecs);
+    }
     static boolean sendKeyboardLayout(String bcp47Tag) { return NightjarJni.sendKeyboardLayout(bcp47Tag); }
     // Clipboard sync (0x5508): MoonBridge.CLIPBOARD_SYNC_* and MoonBridge.CLIPBOARD_COPY_*.
     static int clipboardSyncStart(String current) { return NightjarJni.clipboardSyncStart(current); }

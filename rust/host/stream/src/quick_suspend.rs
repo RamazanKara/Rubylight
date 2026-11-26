@@ -16,7 +16,7 @@
 use crate::state::Host;
 use butterpollo_session::{
     quick_suspend::{
-        Journal, Record, journal,
+        Journal, Record, Recovery, Thaw, journal,
         policy::{self, Refused},
         recover,
     },
@@ -171,7 +171,7 @@ fn suspended_status(suspended: &Suspended) -> Status {
 fn running_game(h: &Host) -> Option<(String, bool)> {
     let app = h.current_app.lock().unwrap_or_else(PoisonError::into_inner);
     let app = app.as_ref()?;
-    Some((app.name.clone(), !app.is_desktop()))
+    Some((app.name.clone(), app.has_game_process()))
 }
 
 /// The state now. Suspended stays visible while the setting is off, so the
@@ -247,11 +247,26 @@ pub fn suspend(h: &Host, who: Who<'_>) -> Status {
             return Err(refusal(reason));
         }
         let mut slot = h.quick_suspend.lock();
-        if slot.is_none() {
-            *slot = Some(freeze(h, by)?);
-            h.quick_suspend.changed();
+        if let Some(suspended) = slot.as_ref() {
+            return Ok(suspended_status(suspended));
         }
-        Ok(suspended_status(slot.as_ref().expect("suspended above")))
+        let suspended = freeze(h, by, &mut suspend::Thaw)?;
+        let answer = suspended_status(&suspended);
+        *slot = Some(suspended);
+        drop(slot);
+        h.quick_suspend.changed();
+        // A teardown the host starts on its own (the game's stop, the grace
+        // period) takes no transition: one that began before the game was
+        // suspended resumed nothing, so resume it here. One that begins from
+        // now on finds the game suspended and resumes it itself.
+        let stopping = h.with_session(|machine, _, _| {
+            machine.state() == rubylight_native_api::session::State::Stopping
+        });
+        if stopping {
+            thaw(h, "the session ends");
+            return Err(refusal(Reason::SessionBusy));
+        }
+        Ok(answer)
     })();
     outcome.unwrap_or_else(|refused| {
         tracing::info!(
@@ -265,11 +280,12 @@ pub fn suspend(h: &Host, who: Who<'_>) -> Status {
 
 /// Pick, journal and suspend the game's processes. What was suspended is
 /// resumed again when a later process refuses.
-fn freeze(h: &Host, by: String) -> Result<Suspended, Refused> {
+fn freeze(h: &Host, by: String, thaw: &mut impl Thaw) -> Result<Suspended, Refused> {
     let os = |error: anyhow::Error| {
         tracing::warn!(error = %format!("{error:#}"), "Quick Suspend failed");
         refusal(Reason::IoOrOsError)
     };
+    leftovers(h, thaw)?;
     // Listed before `current_app` is locked, as every owner of that lock does.
     let session = crate::process::session_processes().map_err(os)?;
     let all = butterpollo_win_io::process::processes().map_err(os)?;
@@ -308,8 +324,10 @@ fn freeze(h: &Host, by: String) -> Result<Suspended, Refused> {
             Err(suspend::SuspendError::Gone) => {}
             Err(error) => {
                 tracing::warn!(pid = record.pid, program = record.name, %error, "Quick Suspend: a process refused; resuming the rest");
-                undo(&done);
-                forget(h);
+                let mut undone = journal.clone();
+                undone.processes = done.iter().map(|record| (*record).clone()).collect();
+                let recovery = recover(&undone, thaw);
+                settle(h, &undone, &recovery, "a suspend failed partway");
                 let reason = match error {
                     suspend::SuspendError::Protected => Reason::ProtectedProcess,
                     _ => Reason::IoOrOsError,
@@ -336,18 +354,68 @@ fn freeze(h: &Host, by: String) -> Result<Suspended, Refused> {
     Ok(Suspended { journal, count, by })
 }
 
-/// Resume what a failed suspend did suspend, parents first.
-fn undo(done: &[&Record]) {
-    for record in done.iter().rev() {
-        if let Err(error) = suspend::resume(record.pid, record.started) {
-            tracing::error!(
-                pid = record.pid,
-                program = record.name,
-                error,
-                "Quick Suspend: a process could not be resumed; the watchdog and the next start try again"
-            );
+/// A journal an earlier resume left behind (what it could not resume) is
+/// tried again before anything else is suspended; while any of it stays
+/// suspended nothing new is, so its records are never written over.
+fn leftovers(h: &Host, thaw: &mut impl Thaw) -> Result<(), Refused> {
+    let left = suspend_watch::lock(&h.directory).and_then(|_lock| journal::load(&h.directory));
+    let left = match left {
+        Ok(Some(left)) => left,
+        Ok(None) => return Ok(()),
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "Quick Suspend: the journal cannot be read");
+            return Err(refusal(Reason::IoOrOsError));
         }
+    };
+    let recovery = recover(&left, thaw);
+    if settle(h, &left, &recovery, "a suspend starts") {
+        Ok(())
+    } else {
+        Err(Refused {
+            reason: Reason::IoOrOsError,
+            program: recovery
+                .failed
+                .first()
+                .map(|(record, _)| record.name.clone()),
+        })
     }
+}
+
+/// After a resume of `journal`'s processes: when every one runs again the
+/// journal goes, and the watchdog with it; otherwise what failed stays on
+/// disk, with the watchdog, for it and the next start, and the console says
+/// so. True when every process runs again.
+fn settle(h: &Host, journal: &Journal, recovery: &Recovery, why: &str) -> bool {
+    if recovery.complete() {
+        forget(h);
+        return true;
+    }
+    let mut left = journal.clone();
+    left.processes = recovery
+        .failed
+        .iter()
+        .map(|(record, _)| record.clone())
+        .collect();
+    for (record, error) in &recovery.failed {
+        tracing::error!(
+            pid = record.pid,
+            program = record.name,
+            error,
+            why,
+            "Quick Suspend: a process could not be resumed; the watchdog and the next start try again"
+        );
+    }
+    let saved =
+        suspend_watch::lock(&h.directory).and_then(|_lock| journal::save(&h.directory, &left));
+    if let Err(error) = saved {
+        tracing::error!(error = %format!("{error:#}"), "Quick Suspend: the journal could not be updated");
+    }
+    h.warnings.event(
+        "quick_suspend_resume",
+        "A paused game could not be resumed completely; Rubylight tries again when it starts.",
+        std::time::Duration::from_secs(600),
+    );
+    false
 }
 
 /// Clear the journal and let the watchdog go: nothing is suspended.
@@ -361,14 +429,26 @@ fn forget(h: &Host) {
     }
 }
 
-/// Resume the suspended game for `who`. Without one it answers the state.
+/// Resume the suspended game for `who`. Without one it answers the state; a
+/// process that stays suspended answers a refusal naming it.
 pub fn resume(h: &Host, who: Who<'_>) -> Status {
+    resume_with(h, who, &mut suspend::Thaw)
+}
+
+fn resume_with(h: &Host, who: Who<'_>, thaw: &mut impl Thaw) -> Status {
+    let title = || running_game(h).map(|(title, _)| title);
     if h.quick_suspend.suspended()
         && let Err(reason) = permitted(h, who)
     {
-        return Status::refused(&refusal(reason), running_game(h).map(|(t, _)| t));
+        return Status::refused(&refusal(reason), title());
     }
-    thaw(h, "resumed");
+    if let Err(failed) = thaw_with(h, "resumed", thaw) {
+        let refused = Refused {
+            reason: Reason::IoOrOsError,
+            program: Some(failed),
+        };
+        return Status::refused(&refused, title());
+    }
     status(h)
 }
 
@@ -379,50 +459,35 @@ pub fn resume_for(h: &Host, why: &str) {
 }
 
 fn thaw(h: &Host, why: &str) {
+    let _ = thaw_with(h, why, &mut suspend::Thaw);
+}
+
+/// Resume the suspended game, if any. Err names a process that stays
+/// suspended, kept in the journal for the watchdog and the next start.
+fn thaw_with(h: &Host, why: &str, thaw: &mut impl Thaw) -> Result<(), String> {
     let mut slot = h.quick_suspend.lock();
     let Some(suspended) = slot.take() else {
-        return;
+        return Ok(());
     };
-    let recovery = recover(&suspended.journal, &mut suspend::Thaw);
-    if recovery.complete() {
-        forget(h);
+    let recovery = recover(&suspended.journal, thaw);
+    let outcome = if settle(h, &suspended.journal, &recovery, why) {
         tracing::info!(
             game = suspended.journal.app_title,
             processes = recovery.resumed.len(),
             why,
             "Quick Suspend: the game runs again"
         );
+        Ok(())
     } else {
-        // What failed stays in the journal for the watchdog and the next start.
-        let mut left = suspended.journal.clone();
-        left.processes = recovery
+        Err(recovery
             .failed
-            .iter()
-            .map(|(record, _)| record.clone())
-            .collect();
-        for (record, error) in &recovery.failed {
-            tracing::error!(
-                pid = record.pid,
-                program = record.name,
-                error,
-                why,
-                "Quick Suspend: a process could not be resumed"
-            );
-        }
-        let saved =
-            suspend_watch::lock(&h.directory).and_then(|_lock| journal::save(&h.directory, &left));
-        if let Err(error) = saved {
-            tracing::error!(error = %format!("{error:#}"), "Quick Suspend: the journal could not be updated");
-        }
-        h.warnings.event(
-            "quick_suspend_resume",
-            "A paused game could not be resumed completely; Rubylight tries again when it starts."
-                .into(),
-            std::time::Duration::from_secs(600),
-        );
-    }
+            .first()
+            .map(|(record, _)| record.name.clone())
+            .unwrap_or_default())
+    };
     drop(slot);
     h.quick_suspend.changed();
+    outcome
 }
 
 /// Housekeeping: a suspended game whose processes all ended (closed from the

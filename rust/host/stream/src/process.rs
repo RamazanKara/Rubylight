@@ -198,7 +198,7 @@ impl RunningApp {
         }
         self.owned_processes(processes)
     }
-    fn has_game_process(&self) -> bool {
+    pub(crate) fn has_game_process(&self) -> bool {
         self.steam.is_some()
             || self.playnite.is_some()
             || self.child.is_some()

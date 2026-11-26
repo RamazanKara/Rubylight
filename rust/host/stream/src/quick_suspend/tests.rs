@@ -113,6 +113,69 @@ fn devices_read_the_same_state_on_the_wire_and_from_the_native_api() {
     assert_eq!(suspended.wire(0).suspended_count, 1);
 }
 
+/// Resumes that fail, or find every process gone.
+struct Fake {
+    fails: bool,
+}
+
+impl Thaw for Fake {
+    fn resume(
+        &mut self,
+        _: u32,
+        _: u64,
+    ) -> Result<butterpollo_session::quick_suspend::Resumed, String> {
+        if self.fails {
+            Err("access denied".into())
+        } else {
+            Ok(butterpollo_session::quick_suspend::Resumed::Gone)
+        }
+    }
+}
+
+#[test]
+fn a_process_that_stays_suspended_stays_in_the_journal_and_blocks_a_new_suspend() {
+    let f = Fixture::new();
+    turn_on(&f);
+    let mut paused = Journal::new(suspend_watch::me(), "Arena", 1_763_772_200_000);
+    paused.processes.push(Record {
+        pid: 0x7fff_fff0,
+        started: 5,
+        name: "arena.exe".into(),
+    });
+    *f.host.quick_suspend.lock() = Some(Suspended {
+        journal: paused.clone(),
+        count: 1,
+        by: "Phone".into(),
+    });
+    // The resume fails: the answer names the process, and the journal keeps it.
+    let failed = resume_with(&f.host, Who::Console, &mut Fake { fails: true });
+    assert_eq!(
+        (failed.state, failed.reason),
+        (State::Refused, Reason::IoOrOsError)
+    );
+    assert!(failed.message.unwrap().contains("arena.exe"));
+    assert!(!f.host.quick_suspend.suspended());
+    let left = journal::load(&f.host.directory).unwrap().unwrap();
+    assert_eq!(left.processes, paused.processes);
+    // A new suspend tries it again first, and pauses nothing while it fails.
+    let refused = leftovers(&f.host, &mut Fake { fails: true }).unwrap_err();
+    assert_eq!(refused.reason, Reason::IoOrOsError);
+    assert_eq!(refused.program.as_deref(), Some("arena.exe"));
+    assert!(journal::path(&f.host.directory).exists());
+    // Once it runs again, or is gone, the journal goes.
+    leftovers(&f.host, &mut Fake { fails: false }).unwrap();
+    assert!(!journal::path(&f.host.directory).exists());
+    // A resume that works clears the journal at once.
+    *f.host.quick_suspend.lock() = Some(Suspended {
+        journal: paused,
+        count: 1,
+        by: "Phone".into(),
+    });
+    let resumed = resume_with(&f.host, Who::Console, &mut Fake { fails: false });
+    assert_ne!(resumed.state, State::Refused);
+    assert!(!journal::path(&f.host.directory).exists());
+}
+
 #[test]
 fn every_way_a_session_ends_resumes_the_game_first() {
     // The teardown points every stop passes, the next stream of the game, a
@@ -124,4 +187,17 @@ fn every_way_a_session_ends_resumes_the_game_first() {
     let resume = launch.find("quick_suspend::resume_for(h,").unwrap();
     let start = launch.find("crate::process::launch(h,").unwrap();
     assert!(resume < start);
+    // Another app closes it only after it runs again, and a stream of it
+    // runs it again before its display is prepared.
+    let replace = &launch[launch.find("fn replace_launch_app(").unwrap()..];
+    let replace = &replace[..replace
+        .find(
+            "
+}
+",
+        )
+        .unwrap()];
+    let resumed = replace.find("another app replaces the game").unwrap();
+    assert!(resumed < replace.find("h.end_app(previous").unwrap());
+    assert!(replace.contains("\"a stream of the game starts\""));
 }

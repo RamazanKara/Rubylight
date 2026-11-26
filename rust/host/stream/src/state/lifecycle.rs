@@ -226,6 +226,15 @@ impl Host {
         // A press waiting for its stream keeps the displays it displaced; their grace starts
         // over if it fails.
         let held = self.moves.displays_held();
+        // A game Quick Suspend paused keeps its displays and session for the
+        // paused-display timeout, as `keep_while_paused` does, so it stays
+        // paused until it is resumed, a stream of it starts or it is closed.
+        let frozen = self.quick_suspend.suspended().then(|| {
+            let seconds = config
+                .integer("dd_paused_virtual_display_timeout_secs", 7200)
+                .max(0);
+            (seconds != 0).then(|| std::time::Duration::from_secs(seconds as u64))
+        });
         let expired: Vec<String> = {
             let mut displays = self.app_display.lock().unwrap();
             let mut expired = vec![];
@@ -234,8 +243,10 @@ impl Host {
                 {
                     *paused = None;
                 } else if moved.contains(owner)
-                    || config
-                        .display_disconnect_delay(lease.exclusive_layout())
+                    || frozen
+                        .unwrap_or_else(|| {
+                            config.display_disconnect_delay(lease.exclusive_layout())
+                        })
                         .is_some_and(|delay| {
                             paused.get_or_insert_with(Instant::now).elapsed() >= delay
                         })

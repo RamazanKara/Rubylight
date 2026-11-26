@@ -366,6 +366,8 @@ pub(super) fn replace_launch_app(
         // running app, so not under its lock.
         drop(current);
         h.settle_move();
+        // Frozen, a paused game cannot close itself: it runs again first.
+        crate::quick_suspend::resume_for(h, "another app replaces the game");
         current = h.current_app.lock().unwrap();
         let (canceled, stopped) = {
             let mut sessions = h.sessions.lock().unwrap();
@@ -397,6 +399,10 @@ pub(super) fn replace_launch_app(
     // seconds; serverinfo and the app list read current_app meanwhile.
     // Launches and stops stay serialized by launch_transition.
     drop(current);
+    // A stream of a paused game runs it again before its display is prepared.
+    if launch.role == Role::Stream {
+        crate::quick_suspend::resume_for(h, "a stream of the game starts");
+    }
     Ok(())
 }
 /// Launch parameter of Rubylight clients: `1` when this request is the user's

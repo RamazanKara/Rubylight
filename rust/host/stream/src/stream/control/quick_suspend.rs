@@ -63,14 +63,17 @@ pub(super) fn request(
     let Ok(config) = p.config(h, s) else {
         return;
     };
-    if !crate::extensions::quick_suspend(&config) {
-        tracing::debug!("unoffered Quick Suspend request");
-        return;
-    }
     let Some(Message::Request(request)) = Message::decode(payload) else {
         tracing::debug!(len = payload.len(), "invalid Quick Suspend request");
         return;
     };
+    // Turned off while a game is paused, the host still answers and resumes it.
+    if !crate::extensions::quick_suspend(&config)
+        && (request.op == Op::Suspend || !h.quick_suspend.suspended())
+    {
+        tracing::debug!("unoffered Quick Suspend request");
+        return;
+    }
     if !p.quick_suspend.active {
         p.quick_suspend.active = true;
         p.quick_suspend.sent = h.quick_suspend.revision();

@@ -283,6 +283,7 @@ final class NvConnectionActions {
                                 conn.nativeHeadphoneSurround =
                                         capabilities.offersAudio(
                                                 NativeCapabilities.HEADPHONE_SURROUND);
+                                conn.nativeQuickSuspend = capabilities.offersQuickSuspend();
                                 if (read != null) read.run();
                                 if (conn.appContext != null) {
                                     new WakeTargets(conn.appContext)

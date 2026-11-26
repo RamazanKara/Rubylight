@@ -75,6 +75,7 @@ public class NvConnection {
     NativeApiTransport nativeApiTransport = new JniNativeApiTransport();
     volatile boolean nativeHostControl, nativeCouchMenu, nativeUsbForwarding;
     volatile boolean nativeImageClipboard, nativeSessionGuests, nativeNightMode, nativeHeadphoneSurround;
+    volatile boolean nativeQuickSuspend;
 
     private static Semaphore connectionAllowed = new Semaphore(1);
     static long connectionWaitMs = 15_000;
@@ -594,6 +595,7 @@ public class NvConnection {
     public boolean askedForClipboardSync() { return context.hostCaps != null && NvHTTP.asksClipboardSync(context); }
     public boolean hasImageClipboard() { return nativeImageClipboard; }
     public boolean offersSessionGuests() { return nativeSessionGuests; }
+    public boolean offersQuickSuspend() { return nativeQuickSuspend; }
     public void openHostMenu() throws IOException { NvConnectionActions.openHostMenu(this); }
     public NativeAudio hostAudio() throws IOException { return NvConnectionActions.hostAudio(this); }
     public NativeAudio writeHostAudio(String id, boolean on) throws IOException { return NvConnectionActions.writeHostAudio(this, id, on); }

@@ -35,6 +35,8 @@ public final class NativeCapabilities {
     public static final String NIGHT_MODE = "audio.night_mode";
     /** GET /audio and POST /audio/settings carry headphone surround for this device's stream. */
     public static final String HEADPHONE_SURROUND = "audio.headphone_surround";
+    /** GET /session/suspend reads Quick Suspend's state; POST /session/suspend and /session/resume pause and resume the game. */
+    public static final String QUICK_SUSPEND = "session.quick_suspend";
 
     public final int apiVersion;
     public final String hostName;
@@ -73,6 +75,11 @@ public final class NativeCapabilities {
     /** Whether the host forwards USB devices and lets this device do it. */
     public boolean offersUsbForwarding() {
         return usb && has(USB);
+    }
+
+    /** Whether the host pauses the running game on request and this device may ask: Launch or Host control. */
+    public boolean offersQuickSuspend() {
+        return (launch || hostControl) && has(QUICK_SUSPEND);
     }
 
     /** Whether the host offers the audio setting {@code id} and lets this device change it: View or Launch. */

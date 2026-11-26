@@ -166,11 +166,13 @@ final class GameMenuActions {
         game.overlays.dismissStreamMenuHint(true);
         // The audio switches show the host's state as it is now, so they appear once it answers.
         hostActions.resetHostAudio();
+        hostActions.quickSuspend.forget();
         streamMenuSheet = new com.limelight.ui.StreamMenu(game, this::streamMenuOptions, this::onStreamMenuItem,
                 hostActions.nativeMenuController(), menuShortcuts);
         showStreamDialog(streamMenuSheet.sheet());
         if (byController) streamMenuSheet.sheet().focusFirstActionFromController();
         hostActions.refreshHostAudio();
+        hostActions.quickSuspend.refresh();
     }
 
     // The stream's size or rate changed: a menu left open names the new ones in its header. UI thread.
@@ -198,6 +200,8 @@ final class GameMenuActions {
         options.headphoneSurroundOffered = game.conn.offersHostAudio(com.limelight.nativeapi.NativeCapabilities.HEADPHONE_SURROUND);
         options.hostAudio = hostActions.hostAudio();
         options.hostAudioUnread = hostActions.hostAudioUnread();
+        options.quickSuspendOffered = hostActions.quickSuspend.offered();
+        options.quickSuspendPaused = hostActions.quickSuspend.paused();
         options.micButtonAvailable = game.micButton != null;
         options.micButtonShown = game.micButton != null && game.prefConfig.micButton;
         options.menuButtonAvailable = game.menuButton != null;
@@ -298,6 +302,8 @@ final class GameMenuActions {
             case HOST_WEB_UI: action = hostActions::showHostWebUi; break;
             case HOST_STATUS: action = hostActions::refreshHostStatus; break;
             case HOST_MENU: action = hostActions::openHostMenu; break;
+            case SUSPEND_GAME:
+            case RESUME_GAME: action = () -> hostActions.quickSuspend.choose(item); break;
             case RECONNECT: action = game.streamRecovery::reconnectStream; break;
             case DISCONNECT: action = this::leaveStream; break;
             case CONFIRM_DISCONNECT: action = this::confirmDisconnect; break;

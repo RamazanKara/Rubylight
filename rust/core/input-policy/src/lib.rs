@@ -18,6 +18,7 @@ pub mod input_latency;
 pub mod input_policy;
 pub mod keyboard_layout;
 pub mod menu_commands;
+pub mod ps_speaker;
 pub mod steam_deck;
 pub mod steam_feedback;
 pub mod steam_pad;

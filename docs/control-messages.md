@@ -175,6 +175,7 @@ The host also takes and sends these, with the wire formats of the projects that 
 | `0x5504` | host to client | Steam Controller haptic report | A Steam Controller arrival with capability `0x800` (Vibepollo's format, `steam_controller::SteamHaptic`) |
 | `0x5505` | host to client | Steam Controller settings write | A Steam Controller arrival with capability `0x2000` (`steam_controller::SteamSettings`) |
 | `0x5601` | host to client | DualSense waveform haptics | Connection feature `0x04` and controller capability `0x8000` ([DualSense haptics](dualsense-haptics.md)) |
+| `0x5602` | host to client | PlayStation controller speaker PCM | Connection feature `0x08`, an encrypted control stream (`x-nv-general.useReliableUdp` 13) and a [speaker binding](#controller-speaker-binding-input-packet-0x55000009-20-bytes) before a PlayStation arrival with capability `0x4000` (Nonary's format, `ps_speaker_pcm::SpeakerBlock`) |
 
 ## Error correction reports
 
@@ -363,6 +364,12 @@ A device's physical touchpad (a tablet's keyboard cover, a laptop's precision to
 | `0x5500000A` frame | 76 | contact count u8 at 8 (at most 5), buttons u8 at 9, rotation u16 at 10, width mm u16 at 12, height mm u16 at 14, then five 12-byte contacts from 16: event u8, reserved u8, pressure u16, id u32, x u16, y u16 (0-65535) |
 
 Events are Moonlight's touch events (1 down, 2 up, 3 move, 4 cancel, 5 the button only, 7 cancel all). A size of 0 means unknown; the host then uses 105 x 70 mm. The host replays the fingers on a virtual Windows precision touchpad over USB/IP (`butterpollo_core::virtual_hid::PrecisionTouchpad`) and lifts what a device still holds when its stream ends or loses focus. Nightjar sends frames from Android (`SOURCE_TOUCHPAD` with pointer capture) and the desktop (Raw Input on Windows, evdev on Linux, the trackpad on macOS).
+
+### Controller speaker binding (input packet `0x55000009`, 20 bytes)
+
+Nonary's Moonlight and other clients of Vibepollo's format play a PlayStation controller's speaker from `0x5602` blocks instead of Rubylight's `0x5533`. Such a client sets `0x08` in `x-ml-general.featureFlags` and, right before the controller's arrival on the same reliable input channel, sends a binding: the big-endian length 16, the magic `0x55000009` (little-endian), slot u16 (below 16), version u16 (1) and a nonzero owner u64, all little-endian after the length. The arrival carries capability `0x4000`, which means speaker PCM only on a PlayStation arrival (type 2); on a Steam Controller (type 4) it stays `LI_CCAP_STEAM_ATTRIBUTES`.
+
+The magic is also the single-contact touchpad packet's above. The host tells them apart by exact length before decoding: 20 bytes with length 16 is a binding, 40 bytes with length 36 a touchpad contact, and any other length is neither (`rubylight-wire`'s `input_shared_magic_tests` prove no packet is both). A binding counts only on a session that negotiated `0x08` over encrypted control with ENet channel 8, only for a slot without a controller, and only once, at that slot's next arrival. A PlayStation arrival without one loses `0x4000`. A bound controller gets a USB DualSense on the host even without `0x8000`, plays the game's speaker channels within the same controller speaker policy as `0x5533`, and gets its sound as `0x5602` blocks on channel 8 (unreliable): version 2, format 1 (48 kHz S16LE stereo), controller, a generation that changes with each binding, sequence, sample position, frame count (at most 240), flags (bit 0 a gap) and the owner, then the samples. Such a controller never gets `0x5533` or `0x5535` too, and the host ignores `0x5535` for it. Nightjar uses the binding only with a host that offers neither `0x5533` in `a=x-rl-control` nor touchpad packets (`x-ss-general.featureFlags` `0x10`).
 
 ### Stream negotiation
 

@@ -17,6 +17,13 @@ pub(super) fn handle_input_packet(
     encrypted: bool,
     legacy_buf: &mut Vec<u8>,
 ) {
+    let speaker = super::ps_speaker::negotiated(s, peer.channel_count());
+    // A 20-byte speaker binding shares the touchpad packet's magic; its length alone routes it.
+    if encrypted
+        && super::ps_speaker::take_binding(p, s, payload, speaker && s.launch.client.allows(1 << 8))
+    {
+        return;
+    }
     let event = if encrypted {
         input::decode(payload)
     } else {
@@ -40,6 +47,7 @@ pub(super) fn handle_input_packet(
         // the mouse go only to their one holder (`multiclient`).
         Ok(event) if !h.device_guests.admits(s, required_permission(&event)) => {}
         Ok(mut event) => {
+            super::ps_speaker::input(p, &mut event, speaker);
             p.audio_haptics.input(
                 &mut event,
                 haptics_negotiated(&s.config, peer.channel_count()),

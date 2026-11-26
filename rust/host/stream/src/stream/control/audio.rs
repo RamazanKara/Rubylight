@@ -19,6 +19,10 @@ pub(super) fn handle_controller_audio(
     }
     if kind == controller_audio::CONTROL {
         if let Some((id, flags)) = controller_audio::status(payload) {
+            // A controller bound to speaker PCM (0x5602) never takes USB controller audio too.
+            if p.ps_speaker.bound(id) {
+                return;
+            }
             let Ok(config) = p.config(h, s) else {
                 return;
             };

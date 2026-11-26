@@ -42,6 +42,7 @@ pub(super) fn send_pad_feedback(
     s: &Arc<Session>,
     poll_feedback: bool,
 ) {
+    super::ps_speaker::offer_status(h, p, s);
     // The gamepad thread polls feedback every 8 ms; pass on
     // what it found, and the sensors an arrived pad has.
     let sends = match (&p.injector, &p.coop) {
@@ -50,6 +51,7 @@ pub(super) fn send_pad_feedback(
             |kind| i.feedback_allowed(kind),
             haptics_negotiated(&s.config, host.peer(peer_id).channel_count()),
             &p.controller_audio,
+            &mut p.ps_speaker,
             &mut p.controller_pcm,
             &mut p.audio_haptics.arbiter,
             &mut p.rumble,
@@ -59,6 +61,7 @@ pub(super) fn send_pad_feedback(
             |kind| player.feedback_allowed(kind),
             haptics_negotiated(&s.config, host.peer(peer_id).channel_count()),
             &p.controller_audio,
+            &mut p.ps_speaker,
             &mut p.controller_pcm,
             &mut p.audio_haptics.arbiter,
             &mut p.rumble,
@@ -106,11 +109,13 @@ pub(super) fn send_audio_haptics(
 /// The game's own haptics and rumble reach `arbiter` here, before the same
 /// pass generates haptics from game audio, so it already leaves those
 /// controllers alone.
+#[allow(clippy::too_many_arguments)]
 pub(in crate::stream) fn pad_reports(
     reports: impl IntoIterator<Item = PadReport>,
     feedback_allowed: impl Fn(u16) -> bool,
     negotiated: bool,
     controller_audio: &[u8; 16],
+    speakers: &mut butterpollo_input_policy::ps_speaker::Speakers,
     pcm: &mut controller_audio::PcmTraffic,
     arbiter: &mut butterpollo_input_policy::audio_haptics::Arbiter,
     rumble: &mut RumbleForwarded,
@@ -118,6 +123,18 @@ pub(in crate::stream) fn pad_reports(
     let mut sends = PadSends::default();
     for report in reports {
         match report {
+            // A bound controller's speaker goes as Nonary's speaker PCM, never as 0x5533 too.
+            PadReport::Speaker(frame) if speakers.bound(frame.id) => {
+                if frame.created.elapsed() <= haptics::MAX_AGE
+                    && let Some(payload) = speakers.block(frame.id, frame.sequence, &frame.samples)
+                {
+                    pcm.observe(frame.id, controller_audio::SPEAKER, Instant::now());
+                    sends.waveforms.push((
+                        butterpollo_input_policy::ps_speaker::PS_SPEAKER_PCM_MESSAGE_TYPE,
+                        payload,
+                    ));
+                }
+            }
             PadReport::Speaker(frame) => {
                 if controller_audio
                     .get(usize::from(frame.id))
@@ -140,6 +157,9 @@ pub(in crate::stream) fn pad_reports(
                     sends.waveforms.push((haptics::PACKET_TYPE, payload));
                 }
             }
+            // Its virtual DualSense's USB audio state is not sent to a client that binds speakers.
+            PadReport::Feedback { id, kind, .. }
+                if kind == controller_audio::CONTROL && speakers.bound(id) => {}
             PadReport::Feedback { id, kind, data } => {
                 let packets = feedback_packets(id, kind, &data);
                 for (kind, payload) in &packets {

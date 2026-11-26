@@ -8,6 +8,7 @@ mod extensions;
 mod haptics;
 mod input;
 mod peer;
+mod ps_speaker;
 mod qos;
 mod socket;
 

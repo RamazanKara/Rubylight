@@ -215,6 +215,7 @@ mod tests {
                 |_| true,
                 true,
                 &[0; 16],
+                &mut Default::default(),
                 &mut self.pcm,
                 &mut self.peer.arbiter,
                 &mut Default::default(),

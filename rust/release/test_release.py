@@ -987,7 +987,10 @@ class Signing(unittest.TestCase):
         # The service sets the driver up again only when it is missing
         # (--repair-drivers), never after a settings edit: an unattended
         # uninstall after one broke measurements on the development PC.
-        service = (ROOT / 'rust/service/src/supervisor.rs').read_text(encoding='utf-8')
+        service = '\n'.join(
+            (ROOT / path).read_text(encoding='utf-8')
+            for path in ('rust/service/src/supervisor.rs', 'rust/service/src/driver_watch.rs')
+        )
         self.assertIn(r'"drivers\\rubylight-display\\install-local.ps1"', service)
         self.assertNotIn('--rubylight-display', service)
         self.assertNotIn('virtual_display_driver', service)

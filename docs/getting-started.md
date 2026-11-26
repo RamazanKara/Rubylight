@@ -43,7 +43,8 @@ The installer sets up the host, the Windows service, Rubylight's virtual display
 | `--usbip-driver`, `--no-usbip-driver` | Installs or skips usbip-win2 for USB audio and haptics. |
 | `--wake-on-lan`, `--no-wake-on-lan` | Turns on the wired adapters' wake settings, or leaves them as they are. |
 | `--uninstall [--factory-reset] [--remove-drivers]` | Uninstalls; see [Upgrading](#upgrading). |
-| `--repair-drivers --now` | Sets the virtual display driver up again from this installation. |
+| `--repair-drivers --now` | Sets the virtual display and gamepad drivers up again from this installation (`--driver display` or `--driver gamepad` for one). |
+| `--repair` | Repairs this installation once: starts the service again if it is stopped or does not answer, sets both drivers up again (never one you left out) and puts back the firewall rule and the Start menu shortcut. |
 
 The portable package installs no service. Virtual displays and virtual controllers need their Windows drivers, and the bundled virtual display driver is reached through the installed service. Keep the extracted libraries and the `assets` folder next to the executables. If Sunshine, Apollo or Vibepollo is serving the default ports, close it first or run Rubylight with [its own profile and ports](configuration.md#multiple-instances).
 

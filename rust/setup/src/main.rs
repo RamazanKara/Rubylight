@@ -9,7 +9,9 @@
 //!                       [--wake-on-lan | --no-wake-on-lan] [--no-start] [--end-streams]
 //!                       [--side-by-side]
 //! rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]
-//! rubylight-setup.exe --repair-drivers [--now] (the service runs it without --now)
+//! rubylight-setup.exe --repair-drivers [--driver display|gamepad]... [--now]
+//!                       (the service runs it without --now)
+//! rubylight-setup.exe --repair [--quiet]
 #![warn(clippy::undocumented_unsafe_blocks)]
 
 mod detect;
@@ -31,6 +33,7 @@ mod net_adapter;
 mod payload;
 #[cfg(test)]
 mod profile_tests;
+mod repair;
 mod system;
 mod ui;
 mod ui_theme;
@@ -69,12 +72,17 @@ struct Arguments {
     side_by_side: bool,
     factory_reset: bool,
     remove_drivers: bool,
-    /// The service found no virtual display driver: set it up again.
+    /// The service found a driver missing: set it up again.
     repair_drivers: bool,
+    /// With --repair-drivers: the drivers to set up again; both by default.
+    drivers: Vec<install::Driver>,
     /// With --repair-drivers: a person asks. The repair shows its progress and
     /// result and ignores the once-a-day limit and the --no-display-driver
     /// choice, which bind the service's plain `--repair-drivers`.
     now: bool,
+    /// Repair the installation once: the service, both drivers, the firewall
+    /// rule and the Start menu shortcut (crate::repair).
+    repair: bool,
     /// Diagnostics: write what setup found to this file and exit.
     detect: Option<PathBuf>,
     /// Diagnostics: unpack and verify the package into this folder and exit.
@@ -117,6 +125,15 @@ fn parse_arguments(mut args: impl Iterator<Item = String>) -> Result<Arguments, 
             "--remove-drivers" => parsed.remove_drivers = true,
             "--repair-drivers" => parsed.repair_drivers = true,
             "--now" => parsed.now = true,
+            "--driver" => {
+                let name = args.next().ok_or("--driver needs display or gamepad")?;
+                let driver = install::Driver::parse(&name)
+                    .ok_or_else(|| format!("unknown driver {name}: use display or gamepad"))?;
+                if !parsed.drivers.contains(&driver) {
+                    parsed.drivers.push(driver);
+                }
+            }
+            "--repair" => parsed.repair = true,
             "--detect" => {
                 parsed.detect = Some(PathBuf::from(args.next().ok_or("--detect needs a file")?))
             }
@@ -128,15 +145,28 @@ fn parse_arguments(mut args: impl Iterator<Item = String>) -> Result<Arguments, 
             other => return Err(format!("unknown option {other}")),
         }
     }
-    if parsed.side_by_side && (parsed.uninstall || parsed.update || parsed.repair_drivers) {
+    if parsed.side_by_side
+        && (parsed.uninstall || parsed.update || parsed.repair_drivers || parsed.repair)
+    {
         return Err("--side-by-side only applies when installing; every other run follows how Rubylight was installed".into());
+    }
+    if parsed.repair && (parsed.uninstall || parsed.update || parsed.repair_drivers) {
+        return Err("--repair runs on its own".into());
+    }
+    if !parsed.drivers.is_empty() && !parsed.repair_drivers {
+        return Err("--driver only applies with --repair-drivers".into());
+    }
+    if parsed.repair_drivers && parsed.drivers.is_empty() {
+        parsed.drivers = install::Driver::ALL.to_vec();
     }
     Ok(parsed)
 }
 const USAGE: &str = "rubylight-setup.exe [--quiet] [--install-dir <folder>] [--no-gamepad-driver] [--no-display-driver] [--usbip-driver | --no-usbip-driver] [--wake-on-lan | --no-wake-on-lan] [--no-start] [--end-streams] [--side-by-side]\n\
 rubylight-setup.exe --uninstall [--quiet] [--factory-reset] [--remove-drivers]\n\
-rubylight-setup.exe --repair-drivers [--now]\n\n\
---repair-drivers sets the virtual display driver up again from this installation. The Rubylight service runs it by itself, at most once a day per version, never during a stream and never after --no-display-driver. --now is for a person: it shows progress and the result and ignores those limits, though it still refuses while a stream runs.\n\n\
+rubylight-setup.exe --repair-drivers [--driver display|gamepad]... [--now]\n\
+rubylight-setup.exe --repair [--quiet]\n\n\
+--repair-drivers sets the virtual display and gamepad drivers up again from this installation, or only those --driver names. The Rubylight service runs it by itself for a driver that went missing, at most once a day per driver and version, never during a stream and never for a driver left out with --no-display-driver or --no-gamepad-driver. --now is for a person: it shows progress and the result and ignores those limits, though it still refuses while a stream runs.\n\n\
+--repair repairs the installed Rubylight once: it starts the service again when it is stopped or does not answer, sets both drivers up again (without the daily limit, but never one left out at install) and puts back the Windows Firewall rule and the Start menu shortcut.\n\n\
 A quiet setup refuses to install while Rubylight is streaming; --end-streams ends the stream instead, and the client can reconnect once setup has finished.\n\n\
 --usbip-driver installs the bundled Steam Deck and DualSense USB audio and haptics driver. It is optional, off by default, and its choice is kept for updates. --no-usbip-driver skips it without removing a shared driver.\n\n\
 --wake-on-lan turns on the wake settings of the wired network adapters, so a client can wake this PC from sleep. It is optional, off by default, and its choice is kept for updates. --no-wake-on-lan leaves the adapters as they are.\n\n\
@@ -219,7 +249,7 @@ fn main() {
     }
     // Rubylight streams only through AMD AMF or NVIDIA NVENC: refuse
     // before anything changes, in every mode that installs or updates it.
-    let refusal = (!args.uninstall && !args.repair_drivers)
+    let refusal = (!args.uninstall && !args.repair_drivers && !args.repair)
         .then(gpu::refusal)
         .flatten();
     let code = if let Some(refusal) = refusal {
@@ -233,19 +263,21 @@ fn main() {
         // The service runs it unattended and quiet; a person sees progress
         // and the result.
         let by_hand = args.now;
+        let run = if by_hand {
+            install::RepairRun::ByHand
+        } else {
+            install::RepairRun::Service
+        };
+        let drivers = args.drivers.clone();
         match ui::progress(TITLE, "Repairing the drivers", !by_hand, move |progress| {
-            install::repair_drivers(&progress, by_hand)
+            install::repair_drivers(&progress, run, &drivers)
         }) {
-            Ok(restart) => {
+            Ok(repair) => {
                 if by_hand {
-                    let text = if restart {
-                        "The display driver was set up again. Windows must restart to finish."
-                    } else {
-                        "The display driver was set up again."
-                    };
-                    ui::finished(TITLE, "The drivers are repaired", text, true, None);
+                    let text = repair.text();
+                    ui::finished(TITLE, "The drivers are repaired", &text, true, None);
                 }
-                if restart { 3010 } else { 0 }
+                if repair.restart { 3010 } else { 0 }
             }
             Err(error) => failed(!by_hand, "The drivers could not be repaired", &error),
         }
@@ -312,6 +344,8 @@ fn main() {
                 &anyhow::anyhow!("--update requires --quiet and --install-dir"),
             ),
         }
+    } else if args.repair {
+        repair::run_repair(args.quiet)
     } else if args.uninstall {
         run_uninstall(&args)
     } else {
@@ -648,5 +682,66 @@ mod tests {
         assert!(USAGE.contains("[--side-by-side]"));
         assert!(USAGE.contains("RubylightService"));
         assert!(USAGE.contains("uninstalls Vibepollo"));
+    }
+    #[test]
+    fn repair_drivers_names_both_drivers_unless_told_which() {
+        use install::Driver::*;
+        assert_eq!(
+            parse(&["--repair-drivers"]).unwrap().drivers,
+            [Display, Gamepad]
+        );
+        // As the service runs it: only the drivers it found missing.
+        let service = parse(&["--repair-drivers", "--driver", "gamepad"]).unwrap();
+        assert_eq!(service.drivers, [Gamepad]);
+        assert!(!service.now);
+        let both = parse(&[
+            "--repair-drivers",
+            "--driver",
+            "display",
+            "--driver",
+            "GAMEPAD",
+            "--now",
+        ])
+        .unwrap();
+        assert_eq!(both.drivers, [Display, Gamepad]);
+        assert!(both.now);
+        let twice = parse(&[
+            "--repair-drivers",
+            "--driver",
+            "display",
+            "--driver",
+            "display",
+        ]);
+        assert_eq!(twice.unwrap().drivers, [Display]);
+        for wrong in [
+            &["--repair-drivers", "--driver"][..],
+            &["--repair-drivers", "--driver", "usbip"],
+            &["--driver", "display"],
+        ] {
+            assert!(parse(wrong).is_err(), "{wrong:?}");
+        }
+        assert!(parse(&[]).unwrap().drivers.is_empty());
+        assert!(USAGE.contains("--repair-drivers [--driver display|gamepad]... [--now]"));
+    }
+    #[test]
+    fn repair_runs_on_its_own() {
+        let repair = parse(&["--repair"]).unwrap();
+        assert!(repair.repair && !repair.quiet && !repair.repair_drivers);
+        assert!(parse(&["--REPAIR", "--quiet"]).unwrap().quiet);
+        for other in ["--uninstall", "--update", "--repair-drivers"] {
+            let error = parse(&["--repair", other]).err().unwrap();
+            assert_eq!(error, "--repair runs on its own");
+        }
+        let error = parse(&["--repair", "--side-by-side"]).err().unwrap();
+        assert!(error.contains("--side-by-side only applies"), "{error}");
+        assert!(USAGE.contains("rubylight-setup.exe --repair [--quiet]"));
+        // Its own branch, before uninstalling or installing.
+        let main = include_str!("main.rs");
+        let branch = main.split("} else if args.repair {").nth(1).unwrap();
+        assert!(
+            branch
+                .trim_start()
+                .starts_with("repair::run_repair(args.quiet)")
+        );
     }
 }

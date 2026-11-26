@@ -290,7 +290,7 @@ say) so it outranks the 0.1.0.x development builds, and puts it under
   failed, the old one stays; nothing uses it.
 - The service checks for the driver every minute, and every 5 seconds once it is missing.
   When the driver has been missing for a minute, whether since the service started or after
-  the device was removed while it runs, the service runs `uninstall.exe --repair-drivers`
+  the device was removed while it runs, the service runs `uninstall.exe --repair-drivers --driver display`
   (the same program as `butterpollo-setup.exe`), which installs it again: at most once a day
   per version, never after `--no-display-driver`, and only when the host reports no stream,
   pending launch or app (a host that does not answer while it runs counts as busy). A device

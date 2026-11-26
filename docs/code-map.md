@@ -83,7 +83,7 @@ Deadlines, by name: [`ENCODER_RECOVERY`](../rust/host/stream/src/stream/video.rs
 | Update, service | `src/update_files.rs`, `src/update_recovery.rs` | `io/src/service.rs` | `updater.rs`, `updater/`, `maintenance.rs`, `maintenance/`, `service_tasks.rs` |
 | Tray | `session/src/tray.rs` (app status, notice queue) | `io/src/tray.rs`, `tray/status.rs` (status, 7.0 badge colours and compositing, menu), `tray/icon.rs`, `tray/notices.rs` | `runtime.rs` (`user_action`, `show_app`) |
 
-Outside those crates: the installer in `rust/setup/src/`, the service in `rust/service/src/`, the display and virtual gamepad drivers and their protocols in `rust/drivers/`, capture and encoder probes in `rust/probes/src/` (run with `python tools/dev.py cargo -- run -p butterpollo-probes --bin <name>`; several change real settings and say so in their header).
+Outside those crates: the installer in `rust/setup/src/` (driver repair and `driver-repair.json` in `rust/setup/src/install/driver_repair.rs`, the one-shot `--repair` in `rust/setup/src/repair.rs`), the service in `rust/service/src/` (its watch over the display and gamepad drivers in `rust/service/src/driver_watch.rs`), the display and virtual gamepad drivers and their protocols in `rust/drivers/`, capture and encoder probes in `rust/probes/src/` (run with `python tools/dev.py cargo -- run -p butterpollo-probes --bin <name>`; several change real settings and say so in their header).
 
 ## Checklists
 

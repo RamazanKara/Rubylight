@@ -25,25 +25,29 @@ pub(super) async fn pair(
 pub(super) fn another_device_pairing(existing: Option<(&str, bool)>, certificate: &str) -> bool {
     existing.is_some_and(|(theirs, active)| active && theirs != certificate)
 }
-/// How often one peer (an IPv4 address or an IPv6 /64) raises the tray's pairing notice. The
-/// console lists every request; a device asking again and again doesn't flood the desktop.
-const NOTICE_EVERY: Duration = Duration::from_secs(30);
-static NOTICES: std::sync::Mutex<std::collections::BTreeMap<std::net::IpAddr, Instant>> =
-    std::sync::Mutex::new(std::collections::BTreeMap::new());
+/// How many tray pairing notices one peer (an IPv4 address or an IPv6 /64, which a whole home
+/// network may share) raises in [`NOTICE_WINDOW`]: enough for a request cancelled and tried again
+/// or a second device of the same network, few enough that a device asking again and again
+/// doesn't flood the desktop. The console lists every request.
+const NOTICE_BURST: usize = 3;
+const NOTICE_WINDOW: Duration = Duration::from_secs(30);
+type Notices = std::collections::BTreeMap<std::net::IpAddr, Vec<Instant>>;
+static NOTICES: std::sync::Mutex<Notices> = std::sync::Mutex::new(Notices::new());
 
-/// Whether `peer` may raise the tray's pairing notice at `now`, and if so, starts its wait. Only a
-/// notice that shows starts the wait, so a peer asking every 20 seconds is told every 30.
-pub(super) fn may_notify(
-    notices: &mut std::collections::BTreeMap<std::net::IpAddr, Instant>,
-    peer: std::net::IpAddr,
-    now: Instant,
-) -> bool {
-    notices.retain(|_, at| now.saturating_duration_since(*at) < NOTICE_EVERY);
-    let group = crate::network::peer_group(peer.to_canonical());
-    if notices.contains_key(&group) {
+/// Whether `peer` may raise the tray's pairing notice at `now`, and if so, counts it. Only a
+/// notice that shows counts.
+pub(super) fn may_notify(notices: &mut Notices, peer: std::net::IpAddr, now: Instant) -> bool {
+    notices.retain(|_, shown| {
+        shown.retain(|at| now.saturating_duration_since(*at) < NOTICE_WINDOW);
+        !shown.is_empty()
+    });
+    let shown = notices
+        .entry(crate::network::peer_group(peer.to_canonical()))
+        .or_default();
+    if shown.len() >= NOTICE_BURST {
         return false;
     }
-    notices.insert(group, now);
+    shown.push(now);
     true
 }
 
@@ -495,23 +499,33 @@ mod notice_tests {
     use super::*;
 
     #[test]
-    fn one_peer_raises_one_tray_notice_per_30_seconds_across_its_ipv6_prefix() {
-        let mut notices = std::collections::BTreeMap::new();
+    fn one_peer_raises_three_tray_notices_per_30_seconds_across_its_ipv6_prefix() {
+        let mut notices = Notices::new();
         let start = Instant::now();
         let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
         assert!(may_notify(&mut notices, ip("fd00:1:2:3::1"), start));
-        // A rotated privacy address of the same /64, and the same address again, wait.
+        // A request tried again and a second device of the same /64 still raise theirs.
         let soon = start + Duration::from_secs(5);
-        assert!(!may_notify(&mut notices, ip("fd00:1:2:3:aaaa::9"), soon));
-        assert!(!may_notify(&mut notices, ip("fd00:1:2:3::1"), soon));
-        // Another prefix and an IPv4 peer have their own wait, however the address is written.
+        assert!(may_notify(&mut notices, ip("fd00:1:2:3::1"), soon));
+        assert!(may_notify(&mut notices, ip("fd00:1:2:3:aaaa::9"), soon));
+        // A fourth within the window, from any address of the prefix, waits.
+        assert!(!may_notify(&mut notices, ip("fd00:1:2:3:bbbb::7"), soon));
+        // Another prefix and an IPv4 peer have their own count, however the address is written.
         assert!(may_notify(&mut notices, ip("fd00:1:2:4::1"), soon));
-        assert!(may_notify(&mut notices, ip("::ffff:192.168.4.9"), soon));
+        for _ in 0..NOTICE_BURST {
+            assert!(may_notify(&mut notices, ip("::ffff:192.168.4.9"), soon));
+        }
         assert!(!may_notify(&mut notices, ip("192.168.4.9"), soon));
+        // The first notice leaves the window: one more may show.
         assert!(may_notify(
             &mut notices,
             ip("fd00:1:2:3::2"),
-            start + NOTICE_EVERY
+            start + NOTICE_WINDOW
+        ));
+        assert!(!may_notify(
+            &mut notices,
+            ip("fd00:1:2:3::2"),
+            start + NOTICE_WINDOW
         ));
     }
 

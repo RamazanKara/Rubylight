@@ -87,18 +87,38 @@ fn the_pairing_pages_lead_to_the_devices_page() {
 }
 
 #[test]
-fn launch_error_uses_vibepollos_wording_and_signed_exit_code() {
+fn launch_error_says_what_happened_and_what_to_do_with_a_signed_exit_code() {
     assert_eq!(
         launch_error_notice("Game", 1),
         (
-            "Launch Error",
-            "Application Game exited too fast with code 1. Click here to terminate the stream."
-                .into()
+            "Launch failed",
+            "Game closed right after it started (exit code 1). Click to end the stream.".into()
         )
     );
     assert!(
         launch_error_notice("Game", 0xc0000005)
             .1
-            .contains("code -1073741819.")
+            .contains("(exit code -1073741819).")
     );
+}
+
+#[test]
+fn a_failed_launch_shows_while_its_app_still_runs() {
+    let shown = |app: Option<&str>, failed: Option<&str>| Shown {
+        icon: if app.is_some() {
+            Icon::Streaming
+        } else {
+            Icon::Idle
+        },
+        app: app.map(str::to_owned),
+        summary: None,
+        failed: failed.map(str::to_owned),
+    };
+    assert_eq!(shown(Some("Game"), Some("Game")).status(), Status::Error);
+    assert_eq!(
+        shown(Some("Other"), Some("Game")).status(),
+        Status::Streaming
+    );
+    assert_eq!(shown(None, Some("Game")).status(), Status::Idle);
+    assert_eq!(shown(Some("Game"), None).status(), Status::Streaming);
 }

@@ -19,8 +19,9 @@ use windows::{
 
 mod icon;
 mod notices;
+pub mod status;
 
-use icon::badged;
+use icon::Icons;
 #[cfg(test)]
 use notices::launch_error_notice;
 use notices::{NOTICES, SHOWN, show_held};
@@ -28,12 +29,13 @@ pub use notices::{
     launch_error, notices_due, notify, notify_pairing, pairing_request_ended,
     release_overdue_notices, try_notify,
 };
+use status::{Item, Status};
 
 /// Retries adding the icon while the taskbar does not accept it yet.
 const RETRY_TIMER: usize = 1;
 /// The running app changed; see [`show_app`].
 const APP_CHANGED: u32 = WM_APP + 2;
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Open,
     /// Open the console where a waiting device's PIN goes.
@@ -55,8 +57,10 @@ pub enum Action {
 struct State {
     sender: mpsc::Sender<Action>,
     icon: NOTIFYICONDATAW,
-    /// Idle, streaming and paused.
-    icons: [HICON; 3],
+    /// The brand icon and one badged copy per status, at the current small-icon size.
+    icons: Icons,
+    /// The icon file used when the executable carries no icon.
+    icon_file: PathBuf,
     port: u16,
     taskbar: u32,
     hide_controls: bool,
@@ -202,11 +206,7 @@ impl State {
     /// Show the running app's state in the icon and its tooltip.
     fn show(&mut self) {
         let app = APP.lock().unwrap();
-        self.icon.hIcon = self.icons[match app.icon {
-            Icon::Idle => 0,
-            Icon::Streaming => 1,
-            Icon::Paused => 2,
-        }];
+        self.icon.hIcon = self.icons.get(app.status());
         let tip = match &app.summary {
             Some(summary) => format!("Rubylight — {summary}"),
             None => format!("Rubylight — web port {}", self.port),
@@ -215,33 +215,64 @@ impl State {
         self.icon.szTip = [0; 128];
         self.icon.szTip[..tip.len()].copy_from_slice(&tip);
     }
+    /// Load the icons again at the size Windows uses now, as after Explorer restarts
+    /// (possibly at another DPI), and show the current status with them.
+    fn reload_icons(&mut self) {
+        match Icons::load(&self.icon_file) {
+            // The old set goes once the new one is in the icon data.
+            Ok(icons) => drop(std::mem::replace(&mut self.icons, icons)),
+            Err(error) => tracing::debug!(%error, "kept the tray icons"),
+        }
+        self.show();
+    }
 }
 /// The running app as the tray shows it.
 struct Shown {
     icon: Icon,
     app: Option<String>,
     summary: Option<String>,
+    /// The app whose launch failed, while it is still the running app.
+    failed: Option<String>,
+}
+impl Shown {
+    fn status(&self) -> Status {
+        let failed = self.failed.is_some() && self.failed == self.app;
+        Status::from_icon(self.icon, failed)
+    }
 }
 static APP: Mutex<Shown> = Mutex::new(Shown {
     icon: Icon::Idle,
     app: None,
     summary: None,
+    failed: None,
 });
 /// Show the running app (None when none runs) in the tray: the icon's
 /// state, the tooltip and the menu's item that quits it.
 pub fn show_app(icon: Icon, app: Option<&str>, summary: Option<&str>) {
     let mut shown = APP.lock().unwrap();
     let changed = shown.app.as_deref() != app;
+    let failed = if changed { None } else { shown.failed.take() };
     *shown = Shown {
         icon,
         app: app.map(str::to_owned),
         summary: summary.map(str::to_owned),
+        failed,
     };
     drop(shown);
     if changed {
         let held = NOTICES.lock().unwrap().app_changed();
         show_held(held);
     }
+    repaint();
+}
+/// App `app` closed right after it started: the tray shows the error while it stays
+/// the running app.
+fn launch_failed(app: &str) {
+    APP.lock().unwrap().failed = Some(app.to_owned());
+    repaint();
+}
+/// Have the tray's thread show the current status.
+fn repaint() {
     if let Some(window) = *SHOWN.lock().unwrap() {
         // SAFETY: The tray publishes its HWND under SHOWN; this asynchronous message
         // contains only integer values and borrows no Rust data after the call returns.
@@ -277,9 +308,12 @@ unsafe extern "system" fn window(
             // restarts); until the icon is in, retry every few seconds.
             if message == taskbar || (message == WM_TIMER && wparam.0 == RETRY_TIMER) {
                 let s = &mut *state;
-                s.show();
                 if message == taskbar {
+                    // A new taskbar may come with another DPI: badge the icon afresh.
+                    s.reload_icons();
                     s.added.on_taskbar_created();
+                } else {
+                    s.show();
                 }
                 match add_icon(s, message == taskbar) {
                     AddOutcome::Added | AddOutcome::GiveUp => {
@@ -323,31 +357,32 @@ unsafe extern "system" fn window(
                     WM_RBUTTONUP | WM_CONTEXTMENU => {
                         let hide_controls = (*state).hide_controls;
                         if let Ok(menu) = CreatePopupMenu() {
-                            let _ = AppendMenuW(menu, MF_STRING, 1, w!("Open Rubylight"));
-                            let _ = AppendMenuW(menu, MF_STRING, 7, w!("Pair a device"));
-                            let _ = AppendMenuW(menu, MF_STRING, 6, w!("Check for updates"));
-                            if !hide_controls {
-                                let _ = AppendMenuW(menu, MF_STRING, 2, w!("Disconnect clients"));
-                                let app = APP.lock().unwrap().app.clone();
-                                let label: Vec<u16> = match &app {
-                                    // An ampersand would underline the next letter.
-                                    Some(app) => format!("Quit {}", app.replace('&', "&&")),
-                                    None => "No app running".into(),
-                                }
-                                .encode_utf16()
-                                .chain(Some(0))
-                                .collect();
-                                let flags = if app.is_some() {
-                                    MF_STRING
-                                } else {
-                                    MF_STRING | MF_GRAYED
+                            let items = {
+                                let app = APP.lock().unwrap();
+                                status::menu(app.status(), app.app.as_deref(), hide_controls)
+                            };
+                            // Command ids are the item's position plus one; 0 is no choice.
+                            for (at, item) in items.iter().enumerate() {
+                                let (flags, label) = match item {
+                                    Item::Separator => {
+                                        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+                                        continue;
+                                    }
+                                    Item::Header(label) => (MF_STRING | MF_GRAYED, label),
+                                    Item::Entry { label, enabled, .. } => (
+                                        if *enabled {
+                                            MF_STRING
+                                        } else {
+                                            MF_STRING | MF_GRAYED
+                                        },
+                                        label,
+                                    ),
                                 };
-                                let _ = AppendMenuW(menu, flags, 5, PCWSTR(label.as_ptr()));
-                                let _ = AppendMenuW(menu, MF_STRING, 8, w!("Back up settings"));
-                                let _ = AppendMenuW(menu, MF_STRING, 9, w!("Restore settings..."));
-                                let _ = AppendMenuW(menu, MF_STRING, 3, w!("Restart"));
-                                let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-                                let _ = AppendMenuW(menu, MF_STRING, 4, w!("Quit"));
+                                let label: Vec<u16> = status::menu_label(label)
+                                    .encode_utf16()
+                                    .chain(Some(0))
+                                    .collect();
+                                let _ = AppendMenuW(menu, flags, at + 1, PCWSTR(label.as_ptr()));
                             }
                             let mut point = POINT::default();
                             let _ = GetCursorPos(&mut point);
@@ -364,18 +399,17 @@ unsafe extern "system" fn window(
                                 None,
                             )
                             .0;
-                            let action = match id {
-                                1 => Some(Action::Open),
-                                2 => Some(Action::StopSessions),
-                                3 => Some(Action::Restart),
-                                4 => Some(Action::Quit),
-                                5 => Some(Action::QuitApp),
-                                6 => Some(Action::CheckUpdates),
-                                7 => Some(Action::PairDevice),
-                                8 => Some(Action::BackupSettings),
-                                9 => Some(Action::RestoreSettings),
-                                _ => None,
-                            };
+                            let action = usize::try_from(id)
+                                .ok()
+                                .and_then(|id| items.get(id.checked_sub(1)?))
+                                .and_then(|item| match item {
+                                    Item::Entry {
+                                        action,
+                                        enabled: true,
+                                        ..
+                                    } => Some(*action),
+                                    _ => None,
+                                });
                             if let Some(action) = action {
                                 let s = &*state;
                                 let _ = s.sender.send(action);
@@ -424,56 +458,20 @@ impl Tray {
                     if RegisterClassW(&class) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS {
                         bail!("cannot register tray window");
                     }
-                    // The executable's own icon (resource 1, see host/build.rs),
-                    // else the icon file, else the generic application icon.
-                    let (width, height) =
-                        (GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON));
-                    let path: Vec<u16> = icon
-                        .to_string_lossy()
-                        .encode_utf16()
-                        .chain(Some(0))
-                        .collect();
-                    let custom = LoadImageW(
-                        Some(HINSTANCE(module.0)),
-                        PCWSTR(1 as _),
-                        IMAGE_ICON,
-                        width,
-                        height,
-                        LR_DEFAULTCOLOR,
-                    )
-                    .or_else(|_| {
-                        LoadImageW(
-                            None,
-                            PCWSTR(path.as_ptr()),
-                            IMAGE_ICON,
-                            width,
-                            height,
-                            LR_LOADFROMFILE,
-                        )
-                    })
-                    .ok();
-                    let icon = if let Some(handle) = custom {
-                        HICON(handle.0)
-                    } else {
-                        LoadIconW(None, IDI_APPLICATION)?
-                    };
-                    let icons = [
-                        icon,
-                        badged(icon, Icon::Streaming).unwrap_or(icon),
-                        badged(icon, Icon::Paused).unwrap_or(icon),
-                    ];
+                    let icons = Icons::load(&icon)?;
                     let mut state = Box::new(State {
                         sender,
-                        icons,
-                        port,
                         icon: NOTIFYICONDATAW {
                             cbSize: size_of::<NOTIFYICONDATAW>() as u32,
                             uID: 1,
                             uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
                             uCallbackMessage: WM_APP + 1,
-                            hIcon: icon,
+                            hIcon: icons.get(Status::Idle),
                             ..Default::default()
                         },
+                        icons,
+                        icon_file: icon,
+                        port,
                         taskbar: RegisterWindowMessageW(w!("TaskbarCreated")),
                         hide_controls,
                         added: AddLog::default(),
@@ -520,14 +518,8 @@ impl Tray {
                     let _ = Shell_NotifyIconW(NIM_DELETE, &state.icon);
                     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
                     let _ = DestroyWindow(hwnd);
-                    for badge in &icons[1..] {
-                        if *badge != icon {
-                            let _ = DestroyIcon(*badge);
-                        }
-                    }
-                    if custom.is_some() {
-                        let _ = DestroyIcon(icon);
-                    }
+                    // The icons go with the state, after the window.
+                    drop(state);
                     Ok(())
                 }
             })();

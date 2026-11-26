@@ -61,11 +61,12 @@ pub fn try_notify(title: &str, text: &str) -> Result<()> {
     post_notice(&notice(title, text, None))
 }
 
+/// What happened, then what to do: the stream stays open until the user ends it.
 pub(super) fn launch_error_notice(app: &str, code: u32) -> butterpollo_session::tray::Notice {
     (
-        "Launch Error",
+        "Launch failed",
         format!(
-            "Application {app} exited too fast with code {}. Click here to terminate the stream.",
+            "{app} closed right after it started (exit code {}). Click to end the stream.",
             code as i32
         ),
     )
@@ -73,6 +74,7 @@ pub(super) fn launch_error_notice(app: &str, code: u32) -> butterpollo_session::
 
 /// Keep the detached stream open until the user chooses to end it.
 pub fn launch_error(app: &str, code: u32) {
+    super::launch_failed(app);
     let (title, text) = launch_error_notice(app, code);
     if let Err(error) = post_notice(&notice(title, &text, Some(NoticeAction::QuitApp))) {
         tracing::warn!(%error, "no tray notification for a launch error");

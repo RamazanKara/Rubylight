@@ -80,6 +80,7 @@ Deadlines, by name: [`ENCODER_RECOVERY`](../rust/host/stream/src/stream/video.rs
 | Console, API | `crypto/src/auth.rs`, `session/src/log_analysis.rs` | | `web.rs`, `web/`, `console/`, `web_sessions.rs`, `webhooks.rs` |
 | Browser play | `session/src/webrtc/` | | `webrtc/` |
 | Update, service | `src/update_files.rs`, `src/update_recovery.rs` | `io/src/service.rs` | `updater.rs`, `updater/`, `maintenance.rs`, `service_tasks.rs` |
+| Tray | `session/src/tray.rs` (app status, notice queue) | `io/src/tray.rs`, `tray/status.rs` (status, 7.0 badge colours and compositing, menu), `tray/icon.rs`, `tray/notices.rs` | `runtime.rs` (`user_action`, `show_app`) |
 
 Outside those crates: the installer in `rust/setup/src/`, the service in `rust/service/src/`, the display and virtual gamepad drivers and their protocols in `rust/drivers/`, capture and encoder probes in `rust/probes/src/` (run with `python tools/dev.py cargo -- run -p butterpollo-probes --bin <name>`; several change real settings and say so in their header).
 

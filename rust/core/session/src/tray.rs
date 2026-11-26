@@ -85,49 +85,7 @@ impl Tracker {
     }
 }
 
-/// Draw the state's dot, ringed in white, in the bottom-right corner of a
-/// `width`×`height` icon image: BGRA rows with straight alpha. False,
-/// leaving the image as is, for Idle or an image without alpha.
-pub fn badge(pixels: &mut [u8], width: usize, height: usize, icon: Icon) -> bool {
-    let color: [u8; 3] = match icon {
-        Icon::Idle => return false,
-        Icon::Streaming => [0x43, 0xa0, 0x2e],
-        Icon::Paused => [0x22, 0x99, 0xd2],
-    };
-    if width == 0
-        || pixels.len() < width * height * 4
-        || !pixels.as_chunks::<4>().0.iter().any(|p| p[3] != 0)
-    {
-        return false;
-    }
-    let size = width.min(height) as f32;
-    let radius = size / 4.0;
-    let ring = (size / 16.0).max(1.0);
-    let (cx, cy) = (width as f32 - radius, height as f32 - radius);
-    for y in 0..height {
-        for x in 0..width {
-            let distance = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
-            let coverage = (radius - distance + 0.5).clamp(0.0, 1.0);
-            if coverage == 0.0 {
-                continue;
-            }
-            let fill = if distance > radius - ring {
-                [0xff; 3]
-            } else {
-                color
-            };
-            let pixel = &mut pixels[(y * width + x) * 4..][..4];
-            let below = f32::from(pixel[3]) / 255.0 * (1.0 - coverage);
-            let alpha = coverage + below;
-            for c in 0..3 {
-                pixel[c] = ((f32::from(fill[c]) * coverage + f32::from(pixel[c]) * below) / alpha)
-                    .round() as u8;
-            }
-            pixel[3] = (alpha * 255.0).round() as u8;
-        }
-    }
-    true
-}
+// The icon's badge is drawn by the Windows tray (`rust/windows/io/src/tray/status.rs`).
 
 /// What clicking the tray's notification does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -91,6 +91,8 @@ test-folder = []
 test-route = []
 
 [dev-dependencies]
+# Already in the workspace (butterpollo-session); writes the tray badge dump.
+png = "0.18"
 tempfile = "3.23"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 

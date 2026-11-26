@@ -351,27 +351,3 @@ fn switching_apps_announces_the_new_one_and_clears_the_pause() {
         Some("Streaming Steam Big Picture")
     );
 }
-#[test]
-fn the_badge_marks_the_corner_of_icons_with_alpha() {
-    let (width, height) = (16, 16);
-    let red = [0x10, 0x4b, 0xad, 0xff];
-    let mut pixels = red.repeat(width * height);
-    assert!(!badge(&mut pixels, width, height, Icon::Idle));
-    assert!(badge(&mut pixels, width, height, Icon::Streaming));
-    let at = |pixels: &[u8], x: usize, y: usize| pixels[(y * width + x) * 4..][..4].to_vec();
-    assert_eq!(at(&pixels, 0, 0), red);
-    assert_eq!(at(&pixels, 12, 12), [0x43, 0xa0, 0x2e, 0xff]);
-    // The ring's edge, nearly all white.
-    assert!(at(&pixels, 12, 8).iter().all(|c| *c >= 0xf0));
-    let mut paused = red.repeat(width * height);
-    badge(&mut paused, width, height, Icon::Paused);
-    assert_eq!(at(&paused, 12, 12), [0x22, 0x99, 0xd2, 0xff]);
-    // A transparent corner gets the dot alone, opaque.
-    let mut clear = [0u8; 4].repeat(width * height);
-    clear[3] = 0xff;
-    assert!(badge(&mut clear, width, height, Icon::Paused));
-    assert_eq!(at(&clear, 12, 12), [0x22, 0x99, 0xd2, 0xff]);
-    let mut flat = [0u8; 4].repeat(width * height);
-    assert!(!badge(&mut flat, width, height, Icon::Streaming));
-    assert!(flat.iter().all(|b| *b == 0));
-}

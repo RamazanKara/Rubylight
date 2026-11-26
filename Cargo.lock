@@ -770,6 +770,7 @@ dependencies = [
  "butterpollo-media-policy",
  "butterpollo-session",
  "libloading",
+ "png",
  "rubylight-protocol",
  "rubylight-vdisplay-proto",
  "rubylight-vgamepad-proto",

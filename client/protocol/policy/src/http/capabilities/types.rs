@@ -115,10 +115,15 @@ pub enum Feature {
     HostUpdate,
     /// Devices waiting to pair, approved from here (`pairing.approve` in native features).
     PairingApprove,
+    /// Stream DVR (0x554A): save the last seconds of the stream as a clip on the host PC, or
+    /// record it. Needs `StreamDvrVersion` 1 in serverinfo and `stream.dvr` in the native
+    /// features, so it is known only after [`super::HostCapabilities::with_native`]. Whether
+    /// the replay buffer runs for a stream travels in the stream's DVR state.
+    StreamDvr,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 54] = [
+    pub const ALL: [Feature; 55] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -173,6 +178,7 @@ impl Feature {
         Feature::PcShutdown,
         Feature::HostUpdate,
         Feature::PairingApprove,
+        Feature::StreamDvr,
     ];
 }
 
@@ -304,6 +310,8 @@ pub struct Evidence {
     /// -1 without `SecondScreenVersion`: the host ends the first stream when a second one of the
     /// device starts.
     pub second_screen_version: i32,
+    /// -1 without `StreamDvrVersion`: the host keeps no clips.
+    pub stream_dvr_version: i32,
     /// The image enhancements the host runs before encoding (`NvidiaEnhancements`,
     /// `rubylight_protocol::nvidia_enhance` bits); 0 for none.
     pub nvidia_enhancements: u8,
@@ -335,6 +343,8 @@ pub struct Evidence {
     /// `pairing.approve` in native features, and `pairing_approve` or Host control grant.
     pub pairing_offered: bool,
     pub pairing_permission: bool,
+    /// `stream.dvr` in native features.
+    pub stream_dvr_offered: bool,
     /// `MaxVideoPacket`: the largest video packet this host accepts, including a client's
     /// 32-byte encryption header. 0 when the host offers no more than stock Moonlight's 1400.
     pub max_video_packet: u16,

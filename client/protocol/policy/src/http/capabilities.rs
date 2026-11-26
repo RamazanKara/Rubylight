@@ -471,6 +471,15 @@ impl Evidence {
                 self.pairing_offered,
                 (!self.pairing_permission).then_some(Reason::PairingApprovePermission),
             ),
+            // Both: serverinfo says the host keeps clips, the native API that this device may.
+            Feature::StreamDvr => {
+                let serverinfo = self.serverinfo_version(self.stream_dvr_version);
+                if serverinfo.is_supported() {
+                    self.native_feature(self.stream_dvr_offered, None)
+                } else {
+                    serverinfo
+                }
+            }
         }
     }
 
@@ -564,6 +573,7 @@ impl HostCapabilities {
         evidence.update_offered = listed("update") && permissions.host_control;
         evidence.pairing_offered = listed("pairing.approve");
         evidence.pairing_permission = native.files.pairing_approve || permissions.host_control;
+        evidence.stream_dvr_offered = listed(rubylight_native_api::feature::STREAM_DVR);
         Self::from_evidence(evidence)
     }
 

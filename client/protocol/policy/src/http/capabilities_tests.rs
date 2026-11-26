@@ -453,3 +453,38 @@ fn frame_warp_needs_frame_warp_protocol_2() {
         stored
     );
 }
+
+#[test]
+fn stream_dvr_needs_the_serverinfo_field_and_the_native_feature() {
+    let xml =
+        include_str!("../../../../app/src/test/resources/protocol/rubylight-30-serverinfo.xml");
+    let native = |features: &str| -> NativeCapabilities {
+        let json = format!(
+            r#"{{"api_version":1,"host":{{"name":"RL","version":"7.0.0","unique_id":"rl"}},"features":[{features}],"permissions":{{"list":true,"view":true,"launch":true}}}}"#
+        );
+        serde_json::from_str(&json).unwrap()
+    };
+    // A host without the field keeps no clips, whatever its native API lists.
+    let older = HostCapabilities::from_server_info_xml(xml).unwrap();
+    assert_eq!(older.availability(Feature::StreamDvr), Availability::NEVER);
+    let older_native = older.with_native(&native(r#""stream.dvr""#));
+    assert!(!older_native.has(Feature::StreamDvr));
+
+    let with_field = xml.replace("</root>", "<StreamDvrVersion>1</StreamDvrVersion></root>");
+    let dvr = HostCapabilities::from_server_info_xml(&with_field).unwrap();
+    assert_eq!(
+        dvr.availability(Feature::StreamDvr),
+        Availability::Unknown,
+        "known only once the native API answered"
+    );
+    let offered = dvr.with_native(&native(r#""stream.dvr""#));
+    assert!(offered.has(Feature::StreamDvr));
+    let not_listed = dvr.with_native(&native(r#""library""#));
+    assert_eq!(not_listed.availability(Feature::StreamDvr), Availability::NEVER);
+    let zero = xml.replace("</root>", "<StreamDvrVersion>0</StreamDvrVersion></root>");
+    let zero = HostCapabilities::from_server_info_xml(&zero).unwrap();
+    assert!(!zero.with_native(&native(r#""stream.dvr""#)).has(Feature::StreamDvr));
+    // Stored capabilities keep both halves.
+    let back = HostCapabilities::from_versioned_json(&offered.to_versioned_json().unwrap());
+    assert!(back.has(Feature::StreamDvr));
+}

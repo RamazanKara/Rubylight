@@ -38,7 +38,7 @@ macro_rules! contract {
     };
 }
 
-const CONTRACTS: [(&str, &str, &str); 15] = [
+const CONTRACTS: [(&str, &str, &str); 16] = [
     contract!("apollo"),
     contract!("apollo-http"),
     contract!("apollo-input-only"),
@@ -50,6 +50,7 @@ const CONTRACTS: [(&str, &str, &str); 15] = [
     contract!("rubylight-files-refused"),
     contract!("rubylight-30"),
     contract!("rubylight-30-refused"),
+    contract!("rubylight-dvr"),
     contract!("rubylight-native"),
     contract!("sunshine"),
     contract!("vibepollo"),
@@ -114,6 +115,7 @@ fn feature_name(feature: Feature) -> &'static str {
         Feature::PcShutdown => "pc_shutdown",
         Feature::HostUpdate => "host_update",
         Feature::PairingApprove => "pairing_approve",
+        Feature::StreamDvr => "stream_dvr",
     }
 }
 

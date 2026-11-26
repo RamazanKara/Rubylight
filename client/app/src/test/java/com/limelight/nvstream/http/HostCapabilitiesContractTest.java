@@ -95,6 +95,7 @@ public class HostCapabilitiesContractTest {
             case PC_SHUTDOWN: return "pc_shutdown";
             case HOST_UPDATE: return "host_update";
             case PAIRING_APPROVE: return "pairing_approve";
+            case STREAM_DVR: return "stream_dvr";
             default: return null;
         }
     }

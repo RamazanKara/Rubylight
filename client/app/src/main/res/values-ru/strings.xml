@@ -571,4 +571,8 @@
     <string name="summary_hdr_shield_firmware_update">Обновите прошивку NVIDIA SHIELD Android TV, чтобы включить HDR</string>
     <string name="full_range_vulkan_switched">Декодер отбросил полный диапазон. Включён Vulkan, чтобы чёрный был правильным.</string>
     <string name="full_range_vulkan_unavailable">Полный диапазон отброшен, Vulkan нет: чёрный может быть неверным. Отключите этот диапазон.</string>
+    <string name="frame_warp_update_host">Frame Warp выключен: нужна текущая версия Nightjar и приложения для трансляции на ПК.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: нужна текущая версия на ПК</string>
+    <string name="frame_warp_overlay_confidence">%1$s, уверенность %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, уверенность %2$s%%, гироскоп зафиксирован</string>
 </resources>

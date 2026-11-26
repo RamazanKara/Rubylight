@@ -548,6 +548,13 @@ final class NvConnectionPreflight {
                 int pyroWaveLinkMbps = linkHints.mbps;
                 boolean wirelessRoute = linkHints.wireless;
                 PreferenceConfiguration hintPrefs = PreferenceConfiguration.readPreferences(appContext);
+                // Frame Warp on and a PC whose streaming app is older than this Nightjar's: the stream runs
+                // without it and says why, as a renderer that cannot draw it does
+                HostCapabilities.Availability frameWarp = conn.hostDetails.caps.availability(HostCapabilities.Feature.FRAME_WARP);
+                boolean frameWarpHostTooOld = frameWarp.reason == HostCapabilities.Reason.UPDATE_HOST;
+                if (hintPrefs.frameWarp && frameWarpHostTooOld) {
+                    context.connListener.displayTransientMessage(appContext.getString(R.string.frame_warp_update_host));
+                }
                 boolean clientWireless = WiredLink.tellsHostWireless(
                         hintPrefs.tellHostWireless, conn.hostDetails.caps.family(), wirelessRoute);
                 int sentLinkMbps = hintPrefs.tellHostLinkSpeed ? pyroWaveLinkMbps : 0;
@@ -581,7 +588,7 @@ final class NvConnectionPreflight {
                     MoonBridge.requestAudioPassthrough(NvConnectionAudio.audioPassthroughCodecs(
                             hintPrefs.audioPassthrough, hintPrefs.muteAudio,
                             context.streamConfig.getAudioConfiguration().channelCount));
-                    MoonBridge.requestFrameWarp(hintPrefs.frameWarp, conn.hostDetails.caps.has(HostCapabilities.Feature.FRAME_WARP));
+                    MoonBridge.requestFrameWarp(hintPrefs.frameWarp, frameWarp.isSupported(), frameWarpHostTooOld);
                     Network streamNetwork = RoamingNetworkWatch.defaultNetwork(appContext);
                     int ret = MoonBridge.startConnection(
                             context.serverAddress.address, context.serverAppVersion, context.rtspSessionUrl,

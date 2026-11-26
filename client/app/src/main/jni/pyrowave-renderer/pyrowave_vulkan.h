@@ -69,6 +69,7 @@ typedef VkQueueGlobalPriorityKHR VkQueueGlobalPriority;
 #include "rubylight_protocol.h"
 #include "../window-dataspace/window_dataspace.h"
 #include "../frame_warp_mask.h"
+#include "../vulkan/frame_warp_v2_pc.h"
 
 #define LOG_TAG "PyroWave"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -371,8 +372,9 @@ struct WarpMask {
 
 // A mask image not written yet (WarpSlot::generation)
 constexpr int32_t WARP_MASK_UNWRITTEN = -2;
-// The floats of FrameWarpShift (shaders/frame_warp.glsl): vec4 shift, then vec4 lens
-constexpr size_t WARP_SHIFT_FLOATS = 8;
+// The floats of FrameWarpShift (shaders/frame_warp.glsl): vec4 shift, vec4 lens, then vec4 v2
+// (the shader row, ../vulkan/frame_warp_v2_pc.h)
+constexpr size_t WARP_SHIFT_FLOATS = 12;
 
 // Frame Warp's share of a slot: what its draws read besides the planes (set 1 in
 // shaders/frame_warp.glsl). Only the present thread uses it once enableFrameWarp() made it, and

@@ -379,7 +379,7 @@ final class GameOverlays {
                     if (!note.equals(game.qualityStatus)) networkText += "\n" + note;
                 }
                 networkText += "\n" + game.menuActions.wifiText(game.streamHealth.stallPeriodMs());
-                float[] warpNumbers = new float[4];
+                float[] warpNumbers = new float[MoonBridge.FRAME_WARP_STATUS_NUMBERS];
                 String warpLine = PerformanceOverlay.frameWarpText(game, MoonBridge.frameWarpStatus(warpNumbers),
                         warpNumbers);
                 debugPerformanceText = PerformanceOverlay.debugText(game,

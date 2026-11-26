@@ -209,6 +209,7 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
         pc.warp[1] = warpOut[1];
     }
     memcpy(pc.warpLens, warpOut + 4, sizeof(pc.warpLens));
+    frameWarpV2Row(warpOut, pc.warpV2);
 
     VkCommandBuffer cmd = commandBuffers_[slot];
     vk_.vkResetCommandBuffer(cmd, 0);

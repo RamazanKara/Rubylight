@@ -197,25 +197,37 @@ public final class PerformanceOverlay {
     /**
      * The Frame Warp line of Statistics and Debug, from MoonBridge.frameWarpStatus(): whether the PC offers it and,
      * once it has learned the game's camera, the gain, the game's lag, the shift drawn last and the last second's
-     * peak. Null with the setting off.
+     * peak; then, once the PC sent them, its confidence and whether it has the gyro locked. Null with the setting off.
      */
     public static String frameWarpText(Context context, int status, float[] numbers) {
         Locale locale = context.getResources().getConfiguration().locale;
         switch (status) {
             case MoonBridge.FRAME_WARP_NOT_OFFERED: return context.getString(R.string.frame_warp_overlay_not_offered);
-            case MoonBridge.FRAME_WARP_LEARNING: return context.getString(R.string.frame_warp_overlay_learning);
+            case MoonBridge.FRAME_WARP_UPDATE_HOST: return context.getString(R.string.frame_warp_overlay_update_host);
+            case MoonBridge.FRAME_WARP_LEARNING:
+                return withConfidence(context, locale, context.getString(R.string.frame_warp_overlay_learning), numbers);
             case MoonBridge.FRAME_WARP_OFF_FOR_STREAM: return context.getString(R.string.frame_warp_overlay_off);
             case MoonBridge.FRAME_WARP_MOUSE:
             case MoonBridge.FRAME_WARP_STICK:
                 boolean mouse = status == MoonBridge.FRAME_WARP_MOUSE;
                 // Pixels per mouse count are a fraction; pixels per second of full stick are hundreds
-                return context.getString(mouse ? R.string.frame_warp_overlay_mouse : R.string.frame_warp_overlay_stick,
+                return withConfidence(context, locale, context.getString(
+                        mouse ? R.string.frame_warp_overlay_mouse : R.string.frame_warp_overlay_stick,
                         measurement(locale, numbers[0], mouse ? "%.2f" : "%.0f"),
                         measurement(locale, numbers[1], "%.0f"),
                         measurement(locale, numbers[2], "%.1f"),
-                        measurement(locale, numbers[3], "%.1f"));
+                        measurement(locale, numbers[3], "%.1f")), numbers);
             default: return null;
         }
+    }
+
+    // The Frame Warp line with the PC's confidence (numbers[4], 0 to 1, below 0 before the PC sent one) and its gyro
+    // lock (numbers[5]); a shorter array, or no confidence yet, leaves it as it is.
+    private static String withConfidence(Context context, Locale locale, String line, float[] numbers) {
+        if (numbers.length < MoonBridge.FRAME_WARP_STATUS_NUMBERS || !(numbers[4] >= 0f)) return line;
+        String percent = measurement(locale, Math.min(numbers[4], 1f) * 100f, "%.0f");
+        return context.getString(numbers[5] > 0.5f ? R.string.frame_warp_overlay_confidence_gyro
+                : R.string.frame_warp_overlay_confidence, line, percent);
     }
 
     public static CharSequence withDecoderDrops(Context context, CharSequence statistics, int decoderDrops) {

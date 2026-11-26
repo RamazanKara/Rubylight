@@ -571,4 +571,8 @@
     <string name="summary_hdr_shield_firmware_update">更新 NVIDIA SHIELD Android TV 上的固件以启用 HDR</string>
     <string name="full_range_vulkan_switched">解码器丢弃了全范围色彩，已切换到 Vulkan 以保持正确的黑位。</string>
     <string name="full_range_vulkan_unavailable">解码器丢弃了全范围色彩且 Vulkan 不可用，黑色可能不正确。请关闭“全范围色彩”。</string>
+    <string name="frame_warp_update_host">Frame Warp 已关闭：需要最新版本的 Nightjar 和电脑上的串流应用。</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp：电脑需要最新版本</string>
+    <string name="frame_warp_overlay_confidence">%1$s，置信度 %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s，置信度 %2$s%%，陀螺仪已锁定</string>
 </resources>

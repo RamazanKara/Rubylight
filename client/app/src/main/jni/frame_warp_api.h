@@ -11,10 +11,10 @@
 extern "C" {
 #endif
 
-#define FRAME_WARP_API_VERSION 3
+#define FRAME_WARP_API_VERSION 4
 
 // The floats warp() and peek() write
-#define FRAME_WARP_FLOATS 8
+#define FRAME_WARP_FLOATS 12
 
 // warp(): besides a HUD mask generation (0 to 65535)
 #define FRAME_WARP_NO_MASK (-1)
@@ -36,9 +36,13 @@ typedef struct FrameWarpApi {
     // the picture is turned through; x right, y down. A point p of the picture (0 to 1) is sampled
     // at
     //   0.5 + ((p - 0.5) * n - shift) / max(1 + dot(p - 0.5, k), 0.25)
-    // which for a flat picture (k = 0, n = 1) is its position less the shift. Returns the HUD mask
-    // generation to keep unshifted, FRAME_WARP_NO_MASK, or FRAME_WARP_INACTIVE to draw the picture
-    // as it is (no shift and a flat picture's terms written).
+    // which for a flat picture (k = 0, n = 1) is its position less the shift. Floats 8 to 11 are
+    // the shader row (vulkan/frame_warp_v2_pc.h): how strongly the edge fill darkens past the
+    // picture's edge, 0 to 1; how many HUD mask cells a pixel whose shifted position lands on the
+    // HUD looks back along the shift for the scene, 0 to 8; the confidence and the host's flags, for
+    // information only (the confidence is already in the shift). Returns the HUD mask generation to
+    // keep unshifted, FRAME_WARP_NO_MASK, or FRAME_WARP_INACTIVE to draw the picture as it is (no
+    // shift, a flat picture's terms and a row of zeros written).
     int32_t (*warp)(int64_t frame, float* out);
     // The HUD mask when its generation is not `known` (-1 for none held): writes its width and
     // height and, given room, one byte per cell (255 where the HUD stays put, 0 elsewhere; rows

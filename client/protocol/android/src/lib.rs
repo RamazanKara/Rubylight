@@ -377,9 +377,10 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarJni_frameWarpNote
     frame_warp::note_frame(pts_us, frame as u32);
 }
 
-/// The shift for the picture queued with `pts_us`, drawn now: `out` gets uv x, uv y, px x, px y
-/// and the lens terms k.x, k.y, n.x, n.y (`frame_warp::WARP_FLOATS` floats), and the return is the
-/// HUD mask generation, -1 without a mask or -2 to draw it as it is (also when `out` is shorter).
+/// The shift for the picture queued with `pts_us`, drawn now: `out` gets uv x, uv y, px x, px y,
+/// the lens terms k.x, k.y, n.x, n.y and the shader row (`frame_warp::WARP_FLOATS` floats), and
+/// the return is the HUD mask generation, -1 without a mask or -2 to draw it as it is
+/// (also when `out` is shorter).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarJni_frameWarpForPts(
     env: JNIEnv,
@@ -474,7 +475,8 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarJni_frameWarpDecl
 }
 
 /// The overlay's Frame Warp line: returns `RustBridge.FRAME_WARP_*` and writes gain, lag ms,
-/// shift px and peak px to `out`.
+/// shift px, peak px, the confidence (-1 before the host's first) and the gyro's lock to `out`
+/// (`frame_warp::STATUS_NUMBERS` floats).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarJni_frameWarpStatus(
     env: JNIEnv,

@@ -571,4 +571,8 @@
     <string name="summary_hdr_shield_firmware_update">HDR’yi etkinleştirmek için NVIDIA SHIELD Android TV’nizin ürün yazılımını güncelleyin</string>
     <string name="full_range_vulkan_switched">Kod çözücü tam aralığı bıraktı. Siyahlar doğru kalsın diye Vulkan\'a geçildi.</string>
     <string name="full_range_vulkan_unavailable">Tam aralık bırakıldı, Vulkan yok: siyahlar yanlış olabilir. “Tam renk aralığı”nı kapatın.</string>
+    <string name="frame_warp_update_host">Frame Warp kapalı: Nightjar’ın ve bilgisayardaki yayın uygulamasının güncel sürümü gerekiyor.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: bilgisayarda güncel sürüm gerekiyor</string>
+    <string name="frame_warp_overlay_confidence">%1$s, güven %%%2$s</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, güven %%%2$s, jiroskop kilitli</string>
 </resources>

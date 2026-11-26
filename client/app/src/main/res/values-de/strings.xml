@@ -571,4 +571,8 @@
     <string name="summary_hdr_shield_firmware_update">Aktualisiere die Firmware deines NVIDIA SHIELD Android TV, um HDR zu aktivieren</string>
     <string name="full_range_vulkan_switched">Decoder verwirft den vollen Farbbereich. Auf Vulkan gewechselt, damit Schwarz stimmt.</string>
     <string name="full_range_vulkan_unavailable">Voller Farbbereich verworfen, kein Vulkan: Schwarz evtl. falsch. Option ausschalten.</string>
+    <string name="frame_warp_update_host">Frame Warp ist aus: Es braucht die aktuelle Version von Nightjar und der Streaming-App auf dem PC.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: braucht die aktuelle Version auf dem PC</string>
+    <string name="frame_warp_overlay_confidence">%1$s, Zuverlässigkeit %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, Zuverlässigkeit %2$s%%, Gyro erfasst</string>
 </resources>

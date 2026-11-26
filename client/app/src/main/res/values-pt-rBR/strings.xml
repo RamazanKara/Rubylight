@@ -571,4 +571,8 @@
     <string name="summary_hdr_shield_firmware_update">Atualize o firmware da sua NVIDIA SHIELD Android TV para ativar o HDR</string>
     <string name="full_range_vulkan_switched">O decodificador ignorou a faixa completa. Mudou para Vulkan para manter os pretos certos.</string>
     <string name="full_range_vulkan_unavailable">Faixa completa ignorada e sem Vulkan: pretos errados. Desative “Faixa de cor completa”.</string>
+    <string name="frame_warp_update_host">Frame Warp está desligado: precisa da versão atual do Nightjar e do app de streaming do PC.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: precisa da versão atual no PC</string>
+    <string name="frame_warp_overlay_confidence">%1$s, confiança %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, confiança %2$s%%, giroscópio travado</string>
 </resources>

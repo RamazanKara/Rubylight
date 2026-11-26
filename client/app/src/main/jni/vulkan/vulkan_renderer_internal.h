@@ -3,6 +3,7 @@
 #pragma once
 
 #include "vulkan_renderer.h"
+#include "frame_warp_v2_pc.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -66,13 +67,15 @@ struct PushConstants {
     // Frame Warp (video_warp.frag): xy = shift of the picture's centre as fractions of the
     // picture, z = 1 to keep the HUD mask in place; the picture's UV rect, the crop less any
     // padding (xy its top left, zw its size); and the lens terms the rest of the picture is
-    // turned through (xy = k, zw = n; 0, 0, 1, 1 for a flat picture). Unused by video.frag.
+    // turned through (xy = k, zw = n; 0, 0, 1, 1 for a flat picture); then the edge fill's
+    // strength and the HUD probe's reach (frame_warp_v2_pc.h). Unused by video.frag.
     float warp[4];
     float warpRect[4];
     float warpLens[4];
+    float warpV2[4];
 };
 // Every Vulkan device takes at least 128 bytes of push constants (maxPushConstantsSize)
-static_assert(sizeof(PushConstants) == 7 * 4 * sizeof(float) && sizeof(PushConstants) <= 128,
+static_assert(sizeof(PushConstants) == 8 * 4 * sizeof(float) && sizeof(PushConstants) <= 128,
               "PushConstants must match the shaders' block and fit the guaranteed size");
 
 inline constexpr float kOutputPassthrough = 0.0f;

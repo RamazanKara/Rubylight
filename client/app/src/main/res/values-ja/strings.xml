@@ -571,4 +571,8 @@
     <string name="summary_hdr_shield_firmware_update">HDR を有効にするには NVIDIA SHIELD Android TV のファームウェアを更新してください</string>
     <string name="full_range_vulkan_switched">デコーダーがフルレンジを適用しないため、黒レベルを保つようVulkanに切り替えました。</string>
     <string name="full_range_vulkan_unavailable">フルレンジが適用されずVulkanも使えません。黒がおかしい場合は「フルレンジカラー」をオフに。</string>
+    <string name="frame_warp_update_host">Frame Warp はオフです: 最新バージョンの Nightjar と PC のストリーミングアプリが必要です。</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: PC に最新バージョンが必要です</string>
+    <string name="frame_warp_overlay_confidence">%1$s、信頼度 %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s、信頼度 %2$s%%、ジャイロ確定</string>
 </resources>

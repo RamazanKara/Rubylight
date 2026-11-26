@@ -82,6 +82,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     private byte[] maskCells = new byte[0];
     private ByteBuffer maskUpload;
     private int warpUniform, lensUniform, maskTexture;
+    private final GlesFrameWarpV2 warpV2 = new GlesFrameWarpV2();
     private int maskGeneration = -1;
     // The decoder time of the picture on screen (-1 before one), and the shift it was last drawn with, picture px.
     private long shownPtsUs = -1;
@@ -317,6 +318,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         GLES30.glUniform3f(warpUniform, 0f, 0f, 0f);
         // A flat picture's lens terms
         GLES30.glUniform4f(lensUniform, 0f, 0f, 1f, 1f);
+        warpV2.locate(upscaleProgram);
         GLES30.glGenTextures(1, size, 0);
         maskTexture = size[0];
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1);
@@ -376,6 +378,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         // As the PC gave them, y down: warp.frag turns the picture in those coordinates
         GLES30.glUniform4f(lensUniform, active ? warpOut[4] : 0f, active ? warpOut[5] : 0f,
                 active ? warpOut[6] : 1f, active ? warpOut[7] : 1f);
+        warpV2.apply(active, warpOut);
         // Redraws between pictures follow a locked model only: one refresh is looked at after each such draw
         if (active) postRefresh();
     }

@@ -616,4 +616,8 @@
     <string name="home_setup_dismiss">Dismiss</string>
     <string name="full_range_vulkan_switched">The decoder dropped full color range. Switched to Vulkan to keep black levels right.</string>
     <string name="full_range_vulkan_unavailable">Decoder dropped full color range, no Vulkan: blacks may be off. Turn off Full color range.</string>
+    <string name="frame_warp_update_host">Frame Warp is off: it needs the current version of Nightjar and of the PC’s streaming app.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: needs the current version on the PC</string>
+    <string name="frame_warp_overlay_confidence">%1$s, confidence %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, confidence %2$s%%, gyro locked</string>
 </resources>

@@ -3,6 +3,7 @@
 #include <cstring>
 #include <vector>
 #include "../../main/jni/frame_warp_mask.h"
+#include "../../main/jni/vulkan/frame_warp_v2_pc.h"
 
 namespace {
 
@@ -178,16 +179,35 @@ void aPictureDrawnAsItIsHasNoShiftAndAFlatPicturesLens() {
         value = 7.0f;
     }
     frameWarpStill(out);
-    // The shift as fractions and in pixels, then the lens terms k and n
-    const float expected[FRAME_WARP_FLOATS] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f};
-    assert(FRAME_WARP_FLOATS == 8);
+    // The shift as fractions and in pixels, the lens terms k and n, then a row of zeros
+    const float expected[FRAME_WARP_FLOATS] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                               1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    assert(FRAME_WARP_FLOATS == 12);
     assert(std::memcmp(out, expected, sizeof(expected)) == 0);
     assert(out[FRAME_WARP_FLOATS] == 7.0f);
     // The fake host answers as frame_warp.rs does without a stream
-    float answered[FRAME_WARP_FLOATS] = {7.0f, 7.0f, 7.0f, 7.0f, 7.0f, 7.0f, 7.0f, 7.0f};
+    float answered[FRAME_WARP_FLOATS];
+    for (float &value : answered) {
+        value = 7.0f;
+    }
     assert(api.warp(3, answered) == FRAME_WARP_INACTIVE);
     assert(std::memcmp(answered, expected, sizeof(expected)) == 0);
-    assert(api.version == 3);
+    assert(api.version == 4);
+}
+
+void theShaderRowIsTheLastFourFloats() {
+    // The shift, the lens terms, then the edge fill's strength, the probe's reach, confidence, flags
+    const float out[FRAME_WARP_FLOATS] = {0.01f, 0.0f, 19.2f, 0.0f, 0.0f, 0.0f,
+                                          1.0f, 1.0f, 0.35f, 2.0f, 0.75f, 33.0f};
+    float row[kFrameWarpV2Floats + 1] = {7.0f, 7.0f, 7.0f, 7.0f, 7.0f};
+    frameWarpV2Row(out, row);
+    assert(row[0] == 0.35f && row[1] == 2.0f && row[2] == 0.75f && row[3] == 33.0f);
+    assert(row[kFrameWarpV2Floats] == 7.0f);
+    // A picture drawn as it is hands its shader a row of zeros
+    float still[FRAME_WARP_FLOATS];
+    frameWarpStill(still);
+    frameWarpV2Row(still, row);
+    assert(row[0] == 0.0f && row[1] == 0.0f && row[2] == 0.0f && row[3] == 0.0f);
 }
 
 void thePictureLeavesOutAnEncodersPadding() {
@@ -223,6 +243,7 @@ int main() {
     redrawsOnlyAfterAQuarterPixel();
     looksAgainOnlyWhileLockedAndSomethingMoves();
     aPictureDrawnAsItIsHasNoShiftAndAFlatPicturesLens();
+    theShaderRowIsTheLastFourFloats();
     thePictureLeavesOutAnEncodersPadding();
     return 0;
 }

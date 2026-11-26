@@ -571,4 +571,8 @@
     <string name="summary_hdr_shield_firmware_update">Zaktualizuj oprogramowanie układowe urządzenia NVIDIA SHIELD Android TV, aby włączyć HDR</string>
     <string name="full_range_vulkan_switched">Dekoder pominął pełny zakres. Przełączono na Vulkan, aby czerń była prawidłowa.</string>
     <string name="full_range_vulkan_unavailable">Pełny zakres pominięty, brak Vulkan: czerń może być błędna. Wyłącz „Pełny zakres kolorów”.</string>
+    <string name="frame_warp_update_host">Frame Warp jest wyłączony: wymaga aktualnej wersji Nightjar i aplikacji do streamingu na komputerze.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: wymaga aktualnej wersji na komputerze</string>
+    <string name="frame_warp_overlay_confidence">%1$s, pewność %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, pewność %2$s%%, żyroskop dopasowany</string>
 </resources>

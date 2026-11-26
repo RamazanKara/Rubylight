@@ -571,4 +571,8 @@
     <string name="summary_hdr_shield_firmware_update">Cập nhật chương trình cơ sở trên NVIDIA SHIELD Android TV để bật HDR</string>
     <string name="full_range_vulkan_switched">Bộ giải mã đã bỏ dải màu đầy đủ. Đã chuyển sang Vulkan để giữ đúng mức đen.</string>
     <string name="full_range_vulkan_unavailable">Dải đầy đủ bị bỏ, không có Vulkan: màu đen có thể sai. Hãy tắt “Dải màu đầy đủ”.</string>
+    <string name="frame_warp_update_host">Frame Warp đã tắt: cần phiên bản hiện tại của Nightjar và ứng dụng phát trực tuyến trên PC.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: cần phiên bản hiện tại trên PC</string>
+    <string name="frame_warp_overlay_confidence">%1$s, độ tin cậy %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, độ tin cậy %2$s%%, con quay đã khóa</string>
 </resources>

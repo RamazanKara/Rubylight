@@ -175,6 +175,7 @@ impl Streaming {
             skipped_picture: None,
             uploaded_epoch: 0,
             miss_watch: present::MissWatch::default(),
+            #[cfg(target_os = "linux")]
             gamescope_fifo: present::FifoWatch::default(),
             phase_steady_windows: std::env::var("NIGHTJAR_PHASE_STEADY_WINDOWS").ok().and_then(|windows| windows.parse().ok()).unwrap_or(phase::STEADY_WINDOWS),
             scan_waits: (0, 0),

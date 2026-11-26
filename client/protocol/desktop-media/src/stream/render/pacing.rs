@@ -67,37 +67,59 @@ impl Streaming {
     pub(super) fn gamescope_interval(&self, renderer: *mut SDL_Renderer, interval: i32) -> i32 {
         let gamescope = crate::handheld::gamescope();
         if !gamescope { return interval; }
-        if self.gamescope_fifo.left && present::gamescope_fifo_watched(self.pacer.mode, self.pacer.in_order(), gamescope, crate::sdl::renderer_is(renderer, "gpu")) {
+        if self.gamescope_fifo.mailbox() && present::gamescope_fifo_watched(self.pacer.mode, self.pacer.in_order(), gamescope, crate::sdl::renderer_is(renderer, "gpu")) {
             crate::sdl::prefer_mailbox(renderer);
             return 0;
         }
-        crate::sdl::prefer_immediate(renderer, present::prefers_immediate(self.vrr.display_vrr(), crate::sdl::video_driver() == "wayland", gamescope));
+        self.prefer_immediate_under_gamescope(renderer);
         interval
+    }
+
+    #[cfg(target_os = "linux")]
+    fn prefer_immediate_under_gamescope(&self, renderer: *mut SDL_Renderer) {
+        crate::sdl::prefer_immediate(renderer, present::prefers_immediate(self.vrr.display_vrr(), crate::sdl::video_driver() == "wayland", true));
     }
 
     /// Reads a shown picture's present, issued at `issued_us` and back at `returned_us` with
     /// `replaced` pictures dropped for it, for gamescope's FIFO queue holding the stream back
-    /// (`present::FifoWatch`); once it does, the stream asks for MAILBOX, says so in the log and
-    /// tells the player. Only V-Sync streams under gamescope on the GPU renderer are read.
+    /// (`present::FifoWatch`). Once it does, the stream asks for MAILBOX; if the presents then stop
+    /// waiting it keeps it and tells the player, and if they still wait (gamescope's frame limit
+    /// keeps its FIFO) it goes back to FIFO. Only V-Sync streams under gamescope on the GPU
+    /// renderer are read.
     #[cfg(target_os = "linux")]
     pub(super) fn watch_gamescope_fifo(&mut self, renderer: *mut SDL_Renderer, issued_us: u64, returned_us: u64, replaced: u32) {
         let gamescope = crate::handheld::gamescope();
-        if !gamescope || self.gamescope_fifo.left
+        if !gamescope || self.gamescope_fifo.settled()
             || !present::gamescope_fifo_watched(self.pacer.mode, self.pacer.in_order(), gamescope, crate::sdl::renderer_is(renderer, "gpu")) { return; }
         let refresh_us = (1_000_000.0 / self.plan.display.refresh_hz.max(1.0)) as u64;
-        if !self.gamescope_fifo.presented(returned_us, returned_us.saturating_sub(issued_us), refresh_us, replaced) { return; }
+        let Some(step) = self.gamescope_fifo.presented(returned_us, returned_us.saturating_sub(issued_us), refresh_us, replaced) else { return };
+        // The watch counts afresh while the device is going away.
         if crate::render_device::event_pending() || self.plan.device.is_removed() { return; }
-        crate::sdl::prefer_mailbox(renderer);
-        // SAFETY: the live renderer belongs to the presenting thread.
-        let set = unsafe { SDL_SetRenderVSync(renderer, 0) };
-        let mode = crate::sdl::present_mode_name(crate::sdl::present_mode(renderer));
-        if !set {
-            eprintln!("nightjar: gamescope: presents keep waiting over a refresh and a half while pictures are replaced, but V-Sync could not ask for Mailbox: {}", crate::sdl::error());
-            return;
+        match step {
+            present::FifoStep::Leave => {
+                crate::sdl::prefer_mailbox(renderer);
+                // SAFETY: the live renderer belongs to the presenting thread.
+                if unsafe { SDL_SetRenderVSync(renderer, 0) } {
+                    self.gamescope_fifo.asked();
+                    eprintln!("nightjar: gamescope: presents kept waiting over a refresh and a half while pictures were replaced; V-Sync asks for Mailbox (present mode {})", crate::sdl::present_mode_name(crate::sdl::present_mode(renderer)));
+                } else {
+                    eprintln!("nightjar: gamescope: presents keep waiting over a refresh and a half while pictures are replaced, but V-Sync could not ask for Mailbox, so it stays on FIFO: {}", crate::sdl::error());
+                    self.prefer_immediate_under_gamescope(renderer);
+                    self.gamescope_fifo.stay();
+                }
+            }
+            present::FifoStep::Left => {
+                eprintln!("nightjar: gamescope: presents stopped waiting on Mailbox; V-Sync stays on it");
+                self.show_toast(tr(MSG_GAMESCOPE_LEFT_FIFO));
+            }
+            present::FifoStep::Held => {
+                self.prefer_immediate_under_gamescope(renderer);
+                // SAFETY: the live renderer belongs to the presenting thread.
+                let set = unsafe { SDL_SetRenderVSync(renderer, self.vrr.interval) };
+                eprintln!("nightjar: gamescope: presents still wait on Mailbox, so gamescope keeps its FIFO (its frame limit); V-Sync is back on FIFO (sync interval {}{})",
+                    self.vrr.interval, if set { String::new() } else { format!(", not set: {}", crate::sdl::error()) });
+            }
         }
-        // Gamescope's frame limit forces its FIFO whatever is asked, so the log says what was asked.
-        eprintln!("nightjar: gamescope: presents kept waiting over a refresh and a half while pictures were replaced; V-Sync asks for Mailbox from here (present mode {mode})");
-        self.show_toast(tr(MSG_GAMESCOPE_LEFT_FIFO));
     }
 
     /// Whether this display tells when it showed a picture, which fractional V-Sync's turns count

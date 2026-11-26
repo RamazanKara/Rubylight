@@ -282,6 +282,7 @@ pub struct Streaming {
     /// Finds pictures that missed their refresh, for `skipped`.
     miss_watch: present::MissWatch,
     /// Finds gamescope's FIFO queue holding a V-Sync stream's pictures back (Nightjar #181).
+    #[cfg(target_os = "linux")]
     gamescope_fifo: present::FifoWatch,
     /// How long a stream that skips keeps a new place from the host (`phase::SteadyReports`), from
     /// `NIGHTJAR_PHASE_STEADY_WINDOWS` for measurement runs, 0 to send every report as it is.

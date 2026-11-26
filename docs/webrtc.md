@@ -41,6 +41,8 @@ Broadcasts do not cross routers. A TV on another subnet needs the PC's address e
 
 The app then holds a client ID and a secret and signs in with them from then on. The secret is stored in `sunshine_state.json` and is never shown in the console. A request lasts 5 minutes and allows one attempt.
 
+The TV app and the browser client pair over the plain `ws://` signalling port, which protocol version 2 does not encrypt: the secret crosses the network once, in the pairing reply, where a passive observer on the local network could read it. After that it never crosses the network again; the app proves it with a one-time challenge. The host log notes each device paired this way. Pair on a network you trust, and unpair a device on **Devices** if someone could have watched that exchange. The console's **Stream** page and the play page in a TV browser pair and sign in over the console's TLS ports (`wss://`) instead.
+
 ### Stream in the console
 
 The console's **Stream** page plays a game from this PC in the browser tab, with no app and no pairing: AV1, HEVC or H.264 at any resolution and frame rate the host offers, stereo sound, keyboard and mouse.
@@ -100,6 +102,19 @@ One stream runs at a time. A WebRTC stream and a Moonlight stream exclude each o
 ### Network and safety
 
 Signalling is plain `ws://`, so it is not encrypted. Signing in keeps other devices from using or interrupting the stream; it does not hide what the app and the PC say to each other. The media itself is encrypted (DTLS-SRTP). Use it on a trusted LAN only.
+
+Browsers let any page they show open a WebSocket to any address, so the signalling port checks which page opened it (its `Origin`) before it answers:
+
+| Origin | Answer |
+| --- | --- |
+| None, as from the TV app's runtime or a program | Accepted; `auth-required` carries the PC's Wake-on-LAN address for the TV's reachability probe |
+| `file://` or another scheme that is not `http` or `https`, as from a packaged TV app | Accepted, as above |
+| A page on this PC or the local network: an address there (including Tailscale's 100.64.0.0/10), `localhost`, a name without a dot, a name ending in `.local`, `.lan`, `.home.arpa`, `.internal` or `.localdomain`, or the PC's own name | Accepted; the Wake-on-LAN address comes only after signing in (`gateway-status`) |
+| `https://openstreamco.github.io`, where the protocol's browser client is published | Accepted, as a page |
+| An entry of **Trusted origins** (`csrf_allowed_origins`) | Accepted, as a page |
+| Any other page, and `null` (which a sandboxed frame of any site sends) | Refused with `403` before the upgrade, with the reason in the reply and the host log |
+
+A browser client served from elsewhere (your own domain, say) needs its origin, such as `https://games.example.com`, in **Trusted origins**.
 
 Rubylight serves only peers on the local network: loopback, private (RFC 1918), link-local, unique-local IPv6 and carrier-grade NAT (100.64.0.0/10) addresses. Anything else is closed before its first message and logged. Do not forward these ports on your router. The one exception is guests of the console's stream, who may come from anywhere with a link: the guest port (TCP 47991, which serves nothing of the console's) and their media ports (UDP 8002-8005) may be forwarded ([What must be reachable](browser-guests.md#what-must-be-reachable)). The play page on the guest port still refuses every address outside the local network and Tailscale, and pairs only with the PIN you type in the console ([Play in a TV browser](#play-in-a-tv-browser)). Never forward the console's port, TCP 47990.
 

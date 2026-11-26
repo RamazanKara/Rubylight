@@ -350,6 +350,15 @@ async fn close_socket(mut socket: WebSocket, frame: Option<CloseFrame>) {
     .await;
 }
 
+/// The Wake-on-LAN address `auth-required` offers a connection `opened` so: `lookup`'s for a TV
+/// app or program on `webrtc_port`, none for anything else.
+pub(super) fn wake_address(
+    opened: super::Opened,
+    lookup: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    (opened == super::Opened::PlainApp).then(lookup).flatten()
+}
+
 /// Send what is queued. False when the socket is gone or stalled.
 async fn send(socket: &mut WebSocket, out: &mut Vec<ServerMessage>) -> bool {
     for message in out.drain(..) {
@@ -374,8 +383,12 @@ fn request_type(text: &str) -> String {
 }
 
 impl Connection {
-    fn auth_required(&self) -> ServerMessage {
-        let mac = discovery::mac_address(self.peer.local.ip());
+    /// The first message to a connection that has not signed in. Only a TV app or program on
+    /// `webrtc_port` gets the Wake-on-LAN address in it, for its reachability probe; a web page
+    /// gets it in `gateway-status` once it has signed in ([`super::Opened`]).
+    pub(super) fn auth_required(&self) -> ServerMessage {
+        let local = self.peer.local.ip();
+        let mac = wake_address(self.peer.opened, || discovery::mac_address(local));
         ServerMessage::auth_required(self.challenge.nonce().unwrap_or_default(), mac)
     }
 

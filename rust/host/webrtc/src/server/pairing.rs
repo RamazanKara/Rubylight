@@ -212,6 +212,11 @@ impl Connection {
                     }
                     Ok(credentials) => {
                         self.challenge.discard();
+                        if self.peer.opened.plain() {
+                            // Protocol v2 has no encryption of its own: the secret is visible to
+                            // a passive observer on the local network during this one exchange.
+                            tracing::warn!(device = %name, peer = %self.peer.address, "WebRTC device paired over plain ws://: its secret crossed the local network unencrypted once. Unpair it on Devices if anyone could watch this network.");
+                        }
                         out.push(ServerMessage::paired(
                             credentials.client_id.clone(),
                             credentials.secret.clone(),

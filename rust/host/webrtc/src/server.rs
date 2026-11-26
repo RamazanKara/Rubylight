@@ -48,6 +48,7 @@ use std::{
 use tokio::task::JoinHandle;
 
 mod connection;
+mod origin;
 mod pairing;
 
 use connection::connection;
@@ -240,7 +241,45 @@ struct Peer {
     local: SocketAddr,
     /// The browser runs on this PC ([`network::browser_on_this_pc`]).
     this_pc: bool,
+    /// Which socket it opened, and what opened it.
+    opened: Opened,
 }
+
+/// The socket a connection opened, and for `webrtc_port` what opened it ([`origin::opener`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Opened {
+    /// `webrtc_port` (plain `ws://`) from a TV app or a program: it learns the Wake-on-LAN address
+    /// in `auth-required`, which the TV's reachability probe uses without signing in.
+    PlainApp,
+    /// `webrtc_port` from a web page the host trusts: the address only after signing in.
+    PlainPage,
+    /// The console's or the guest port's TLS socket (`wss://`).
+    Tls,
+}
+
+impl Opened {
+    /// Whether the connection is plain `ws://`, so a secret sent on it crosses the network in
+    /// the clear.
+    fn plain(self) -> bool {
+        self != Self::Tls
+    }
+}
+
+/// The `csrf_allowed_origins` setting, a JSON list kept as a string.
+fn trusted_origins(h: &Host) -> Vec<String> {
+    let configured = h
+        .config
+        .read()
+        .unwrap()
+        .get("csrf_allowed_origins", "[]")
+        .to_owned();
+    butterpollo_config::config::Config::parse(&format!("csrf_allowed_origins = {configured}\n"))
+        .map(|c| c.list("csrf_allowed_origins"))
+        .unwrap_or_default()
+}
+
+/// The host-wide limit on the log lines refused pages write.
+static REFUSED_PAGES: std::sync::Mutex<Throttle> = std::sync::Mutex::new(Throttle::new());
 
 fn refused_peer(throttle: &mut Throttle, peer: SocketAddr) {
     if let Some(more) = throttle.allow() {
@@ -294,6 +333,7 @@ async fn accept(
                 address,
                 local,
                 this_pc: false,
+                opened: Opened::PlainApp,
             }));
         tokio::spawn(async move {
             // HTTP/1 only: the WebSocket upgrade needs it, and the version
@@ -327,8 +367,30 @@ async fn upgrade(
     headers: axum::http::HeaderMap,
     socket: WebSocketUpgrade,
 ) -> Response {
+    let origins: Vec<&str> = headers
+        .get_all(axum::http::header::ORIGIN)
+        .iter()
+        .map(|origin| origin.to_str().unwrap_or(""))
+        .collect();
+    let pc_name = butterpollo_win_io::net::host_name();
+    let opened = match origin::opener(
+        origins.iter().copied(),
+        &trusted_origins(&context.h),
+        pc_name.as_deref(),
+    ) {
+        origin::Opener::App => Opened::PlainApp,
+        origin::Opener::Page => Opened::PlainPage,
+        origin::Opener::Refused => {
+            let refusal = origin::refusal(&origins.join(", "));
+            if let Some(more) = REFUSED_PAGES.lock().unwrap().allow() {
+                tracing::warn!(peer = %peer.address, more, "{refusal}");
+            }
+            return (axum::http::StatusCode::FORBIDDEN, refusal).into_response();
+        }
+    };
     let peer = Peer {
         this_pc: network::browser_on_this_pc(peer.address, peer.local, &headers),
+        opened,
         ..peer
     };
     socket
@@ -401,6 +463,7 @@ impl Console {
             address: SocketAddr::new(sign_in.peer.ip().to_canonical(), sign_in.peer.port()),
             local: SocketAddr::new(sign_in.local.ip().to_canonical(), sign_in.local.port()),
             this_pc: sign_in.this_pc,
+            opened: Opened::Tls,
         };
         socket
             .protocols([CONSOLE_PROTOCOL])
@@ -443,6 +506,7 @@ impl Console {
             address: SocketAddr::new(peer.ip().to_canonical(), peer.port()),
             local: SocketAddr::new(local.ip().to_canonical(), local.port()),
             this_pc: network::browser_on_this_pc(peer, local, headers),
+            opened: Opened::Tls,
         };
         socket
             .protocols([PLAY_PROTOCOL])

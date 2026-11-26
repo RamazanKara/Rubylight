@@ -1,0 +1,9 @@
+{
+  "state": "refused",
+  "reason": "anti_cheat_detected",
+  "message": "This game uses anti-cheat protection and cannot be paused safely.",
+  "app_title": "Arena Shooter",
+  "suspended_count": 0,
+  "suspended_since_unix_ms": null,
+  "suspended_by": null
+}

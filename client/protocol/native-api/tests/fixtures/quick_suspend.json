@@ -1,0 +1,9 @@
+{
+  "state": "suspended",
+  "reason": "none",
+  "message": null,
+  "app_title": "Hollow Knight",
+  "suspended_count": 2,
+  "suspended_since_unix_ms": 1763772200000,
+  "suspended_by": "Living room TV"
+}

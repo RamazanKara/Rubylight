@@ -6,7 +6,7 @@
 
 use crate::{
     audio_ext, control, controller_identity, cursor_shape, fec_report, frame_warp, frame_warp_v2, keyboard_layout, pairing_uri,
-    pen, phase_lock, pipeline_rates, rate_change, roaming, steam_controller, text_input, transport_feedback, usb, usbip,
+    pen, phase_lock, pipeline_rates, quick_suspend, rate_change, roaming, steam_controller, text_input, transport_feedback, usb, usbip,
 };
 use alloc::{string::String, vec, vec::Vec};
 use proptest::collection::vec;
@@ -453,6 +453,45 @@ round_trip!(
         ),
     |b| transport_feedback::TransportFeedback::decode(b),
     |v| v.encode()
+);
+round_trip!(
+    quick_suspend,
+    prop_oneof![
+        (any::<u16>(), any::<u32>(), 1u8..4).prop_map(|(flags, request_id, op)| {
+            quick_suspend::ClientRequest {
+                flags,
+                request_id,
+                op: quick_suspend::Op::from_u8(op).unwrap(),
+            }
+            .encode()
+            .to_vec()
+        }),
+        (
+            any::<u16>(),
+            any::<u32>(),
+            0u8..5,
+            any::<u8>(),
+            any::<u16>(),
+            any::<u64>()
+        )
+            .prop_map(|(flags, request_id, state, reason, count, since)| {
+                quick_suspend::HostState {
+                    flags,
+                    request_id,
+                    state: quick_suspend::State::from_u8(state).unwrap(),
+                    reason: quick_suspend::Reason::from_u8(reason),
+                    suspended_count: count,
+                    suspended_since_unix_ms: since,
+                }
+                .encode()
+                .to_vec()
+            }),
+    ],
+    |b| quick_suspend::Message::decode(b),
+    |v| {
+        let (bytes, len) = v.encode();
+        Some(bytes[..len].to_vec())
+    }
 );
 round_trip!(
     keyboard_layout,

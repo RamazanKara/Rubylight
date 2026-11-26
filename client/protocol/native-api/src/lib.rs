@@ -18,6 +18,7 @@ pub mod library;
 pub mod neural;
 pub mod pairing;
 pub mod power;
+pub mod quick_suspend;
 pub mod radeon;
 pub mod session;
 pub mod usb;
@@ -99,4 +100,7 @@ pub mod feature {
     /// [`crate::guests::InviteCreate`]: `GET /session/guests/invites` and its actions answer,
     /// while pairing new devices is on: invites to play over the internet.
     pub const GUEST_INVITES: &str = "session.guest-invites";
+    /// [`crate::quick_suspend`]: `GET /session/suspend`, `POST /session/suspend` and
+    /// `POST /session/resume`, while Quick Suspend is on in the host's settings.
+    pub const QUICK_SUSPEND: &str = "session.quick_suspend";
 }

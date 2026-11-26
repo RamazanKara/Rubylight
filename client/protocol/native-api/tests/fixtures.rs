@@ -578,3 +578,16 @@ fn neural_round_trips_and_a_write_names_no_file() {
         r#"{"app":"a","switch":"frame_generation","on":true}"#
     );
 }
+
+#[test]
+fn quick_suspend_round_trips() {
+    use rubylight_native_api::quick_suspend::{QuickSuspendStatus, SuspendState};
+    let status: QuickSuspendStatus = round_trip("quick_suspend");
+    assert_eq!(status.state, SuspendState::Suspended);
+    assert_eq!(status.suspended_count, 2);
+    let refused: QuickSuspendStatus = round_trip("quick_suspend_refused");
+    assert_eq!(refused.state, SuspendState::Refused);
+    // The stable names are the control message's (0x554B, `Reason::as_str`).
+    assert_eq!(refused.reason, "anti_cheat_detected");
+    assert_eq!(feature::QUICK_SUSPEND, "session.quick_suspend");
+}

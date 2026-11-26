@@ -9,8 +9,8 @@
 
 use crate::{
     clipboard_sync, control, controller_identity, cursor_shape, fec_report, frame_warp,
-    keyboard_layout, pen, phase_lock, pipeline_rates, rate_change, steam_controller, text_input,
-    transport_feedback, usb,
+    keyboard_layout, pen, phase_lock, pipeline_rates, quick_suspend, rate_change, steam_controller,
+    text_input, transport_feedback, usb,
 };
 use core::ops::RangeInclusive;
 
@@ -100,6 +100,7 @@ pub const CONTROL_IDS: &[(u16, &str)] = &[
         frame_warp::FRAME_WARP_V2_META_MESSAGE_TYPE,
         "frame warp 2 meta",
     ),
+    (quick_suspend::QUICK_SUSPEND_MESSAGE_TYPE, "quick suspend"),
     (0x5601, "DualSense haptics"),
 ];
 
@@ -246,6 +247,7 @@ mod tests {
         // One line per id, so items that add one merge cleanly.
         let expected: &[u16] = &[
             0x5549, // frame warp 2 meta
+            0x554B, // quick suspend
         ];
         assert_eq!(new, expected);
     }

@@ -1,0 +1,2 @@
+# Plain-English errors
+- **Errors say what went wrong and what to do.** When the PC refuses a request from Nightjar (the graphics driver rejects a setting, nobody is signed in, the PC is in use, a pairing PIN came too soon), the answer now carries a short headline and, where the message doesn't already say it, the next step. Driver codes and error chains go in a separate technical detail, with user folders and addresses removed, so the words stay readable. Moonlight and older Nightjar versions show the same message as before.

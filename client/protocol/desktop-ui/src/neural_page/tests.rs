@@ -76,12 +76,7 @@ impl NeuralSource for Fake {
         match &self.refuse {
             Some(message) => Err(Error::Api {
                 status: 409,
-                error: ApiError {
-                    code: ErrorCode::TemporarilyUnavailable,
-                    message: message.clone(),
-                    setting: Some(FRAME_GENERATION.into()),
-                    retry_after_ms: None,
-                },
+                error: ApiError::new(ErrorCode::TemporarilyUnavailable, message.clone()).for_setting(FRAME_GENERATION),
             }),
             None => Ok(state(true, Some(NeuralPhase::Download))),
         }

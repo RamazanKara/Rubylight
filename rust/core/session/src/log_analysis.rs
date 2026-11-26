@@ -485,10 +485,13 @@ pub fn analyze(text: &str) -> Analysis {
 /// point at the same troubleshooting section. `None` when the host's words
 /// match no rule.
 pub fn classify(text: &str) -> Option<Category> {
-    RULES
-        .iter()
-        .find(|rule| matches(rule, text))
-        .map(|rule| rule.category)
+    rule_for(text).map(|rule| rule.category)
+}
+
+/// The first rule `text` matches, without a log line: a native API error's
+/// technical detail takes its title and fix this way (`error_catalog`).
+pub fn rule_for(text: &str) -> Option<&'static Rule> {
+    RULES.iter().find(|rule| matches(rule, text))
 }
 
 pub fn analyze_with(rules: &[Rule], text: &str) -> Analysis {

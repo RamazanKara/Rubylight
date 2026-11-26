@@ -702,6 +702,17 @@ Every non-2xx answer has the same body:
 | 503 | `temporarily_unavailable` | ADLX is busy or reinitialising, with `retry_after_ms`; Nucleus Co-op cannot run (`/coop`); the stream can't show the couch menu |
 | 500 | `internal` | A bug. The message is logged on the host too |
 
+A host may add three optional strings to `error`, each left out when it has none: `title`, a short plain-English headline; `next_step`, what to do when `message` does not already say it; and `technical_detail`, codes and error chains (an HRESULT, the driver's words, a redacted error chain) for a bug report. `title` and `next_step` never carry codes. Older clients ignore them; a client shows `message` as before when they are absent, as they are from older hosts. `rust/core/session/src/error_catalog.rs` fills them by the cause the host knows, else a known failure in `technical_detail`, else the code:
+
+```json
+{ "error": { "code": "driver_rejected",
+             "message": "wrote 3 and the driver reads back 1",
+             "setting": "anti_lag.level", "retry_after_ms": null,
+             "title": "The graphics driver refused the change",
+             "next_step": "The PC put the earlier values back. Choose another value, or update the graphics driver on the PC.",
+             "technical_detail": "driver_rejected (anti_lag.level): wrote 3 and the driver reads back 1" } }
+```
+
 `not_streaming` appears only as an action `reason`: a `disconnect` POST on a session that is already `suspended` is idempotent and returns 200 (with no session at all it is `409 no_session`). `message` is plain English that the client can show as it is. Clients branch on `code` only. An unknown code decodes as `ErrorCode::Unknown`, which carries no status, so the client must keep the HTTP status of the response and treat the error by that.
 
 Which actions are allowed (`GET /session`, and the same rules apply to the POSTs): `resume` for the owner while `suspended` or `streaming` (`/resume` supersedes the same device's stream, which is the reconnect after a crash); `disconnect` while `streaming`; `end` in any state but `idle`; `close_game` as `end`, or with no session when a game is left running. While `preparing` or `launching`, `resume`, `end` and `close_game` are refused with `session_busy`, because the launch holds `launch_transition` for as long as it takes. In `stopping`, `end` and `close_game` stay allowed (repeating is safe) and `resume` is refused with `session_busy`.

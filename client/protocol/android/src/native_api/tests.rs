@@ -20,12 +20,7 @@ impl Fake {
         if let Some(code) = self.fail {
             return Err(Error::Api {
                 status: code.status(),
-                error: ApiError {
-                    code,
-                    message: "Turn on Host control for this device.".into(),
-                    setting: Some("chill.enabled".into()),
-                    retry_after_ms: Some(250),
-                },
+                error: ApiError::new(code, "Turn on Host control for this device.").for_setting("chill.enabled").retry_after(250),
             });
         }
         Ok(serde_json::from_str(
@@ -92,12 +87,7 @@ impl Host for Fake {
         if let Some(code) = self.fail {
             return Err(Error::Api {
                 status: code.status(),
-                error: ApiError {
-                    code,
-                    message: "Start a stream first.".into(),
-                    setting: None,
-                    retry_after_ms: None,
-                },
+                error: ApiError::new(code, "Start a stream first."),
             });
         }
         Ok(CouchMenu { open })
@@ -121,13 +111,7 @@ impl Host for Fake {
         if let Some(code) = self.fail {
             return Err(Error::Api {
                 status: code.status(),
-                error: ApiError {
-                    code,
-                    message: "Turn on “Can join co-op games” for this device in the Rubylight console."
-                        .into(),
-                    setting: None,
-                    retry_after_ms: None,
-                },
+                error: ApiError::new(code, "Turn on “Can join co-op games” for this device in the Rubylight console."),
             });
         }
         Ok(CoopJoined {
@@ -211,12 +195,7 @@ impl Host for Fake {
         if pin == "0000" {
             return Err(Error::Api {
                 status: 422,
-                error: ApiError {
-                    code: ErrorCode::Unknown,
-                    message: "That is not the PIN TV shows.".into(),
-                    setting: None,
-                    retry_after_ms: None,
-                },
+                error: ApiError::new(ErrorCode::Unknown, "That is not the PIN TV shows."),
             });
         }
         Ok(PairingApproved { name: "TV".into() })
@@ -261,12 +240,7 @@ impl Host for Fake {
         if let Some(code) = self.fail {
             return Err(Error::Api {
                 status: code.status(),
-                error: ApiError {
-                    code,
-                    message: "This session belongs to another device.".into(),
-                    setting: None,
-                    retry_after_ms: None,
-                },
+                error: ApiError::new(code, "This session belongs to another device."),
             });
         }
         Ok(serde_json::from_str(AUDIO).unwrap())

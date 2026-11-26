@@ -122,6 +122,9 @@ pub struct ErrorBody {
     pub error: ApiError,
 }
 
+/// The three optional fields came after the first v1 hosts and clients, so
+/// each is absent from the wire when `None`: an older client ignores them and
+/// a newer client reads an older host's error without them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {
     pub code: ErrorCode,
@@ -130,4 +133,39 @@ pub struct ApiError {
     /// The setting a write failed on.
     pub setting: Option<String>,
     pub retry_after_ms: Option<u64>,
+    /// A short headline for the failure, in plain English.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// What the user can do about it, in plain English.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_step: Option<String>,
+    /// Codes and error chains for a bug report; never needed to act on the error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub technical_detail: Option<String>,
+}
+
+impl ApiError {
+    /// An error with only its code and message.
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            setting: None,
+            retry_after_ms: None,
+            title: None,
+            next_step: None,
+            technical_detail: None,
+        }
+    }
+
+    /// Names the setting the error is about.
+    pub fn for_setting(mut self, id: impl Into<String>) -> Self {
+        self.setting = Some(id.into());
+        self
+    }
+
+    pub fn retry_after(mut self, milliseconds: u64) -> Self {
+        self.retry_after_ms = Some(milliseconds);
+        self
+    }
 }

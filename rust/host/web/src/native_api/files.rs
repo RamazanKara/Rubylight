@@ -314,6 +314,7 @@ pub(super) fn failure(what: &str, error: UserFolderError) -> Failure {
                 ErrorCode::Internal,
                 "Rubylight runs as administrator without the Windows desktop, so it can't reach your files. Start it without administrator rights, or use the Windows service.",
             )
+            .explained("Rubylight can't reach your files on the PC", None)
         }
         UserFolderError::InvalidName(error) => Failure::new(
             ErrorCode::InvalidName,

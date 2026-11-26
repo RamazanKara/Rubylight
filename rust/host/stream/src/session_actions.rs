@@ -2,12 +2,13 @@
 //! `reconnect_tests`, decoupled from `axum` response types.
 
 use crate::state::Shared;
+use butterpollo_session::error_catalog;
 use butterpollo_session::{
     native::{self, LAUNCH, VIEW},
     session_state::Refusal,
     state::Client,
 };
-use rubylight_native_api::error::ErrorCode;
+use rubylight_native_api::error::{ApiError, ErrorCode};
 
 /// How soon a client retries after `session_busy`.
 const BUSY_RETRY_MS: u64 = 1000;
@@ -19,6 +20,11 @@ pub struct Failure {
     pub message: String,
     pub setting: Option<String>,
     pub retry_after_ms: Option<u64>,
+    /// The cause's own headline; without one the body takes `error_catalog`'s.
+    pub title: Option<String>,
+    pub next_step: Option<String>,
+    /// Codes and error chains, already redacted and cut by [`error_catalog::detail`].
+    pub technical_detail: Option<String>,
 }
 
 impl Failure {
@@ -28,12 +34,43 @@ impl Failure {
             message: message.into(),
             setting: None,
             retry_after_ms: None,
+            title: None,
+            next_step: None,
+            technical_detail: None,
         }
     }
 
+    /// The error chain goes in the technical detail, redacted; the host log has it whole.
     pub fn internal(what: &str, error: impl std::fmt::Display) -> Self {
+        let detail = format!("{error:#}");
         tracing::error!(%error, "native API: {what}");
-        Self::new(ErrorCode::Internal, format!("The host failed to {what}."))
+        Self::new(ErrorCode::Internal, format!("The host failed to {what}.")).with_detail(detail)
+    }
+
+    /// A headline and next step this cause knows better than its code; `None` leaves the next
+    /// step out rather than taking the code's.
+    pub fn explained(mut self, title: &str, next_step: Option<&str>) -> Self {
+        self.title = Some(title.to_owned());
+        self.next_step = next_step.map(str::to_owned);
+        self
+    }
+
+    /// The codes or error chain behind the failure, for a bug report.
+    pub fn with_detail(mut self, detail: impl AsRef<str>) -> Self {
+        self.technical_detail = Some(error_catalog::detail(detail.as_ref()));
+        self
+    }
+
+    /// The error body: the message as it was, with the title and next step of the cause, else
+    /// of the known failure in the technical detail, else of the code.
+    pub fn into_api_error(self) -> ApiError {
+        let mut error = ApiError::new(self.code, self.message);
+        error.setting = self.setting;
+        error.retry_after_ms = self.retry_after_ms;
+        error.title = self.title;
+        error.next_step = self.next_step;
+        error.technical_detail = self.technical_detail;
+        error_catalog::explain(error)
     }
 
     pub fn code(&self) -> ErrorCode {
@@ -172,5 +209,45 @@ fn end_second_screen(h: &Shared, screen: &str, end: bool) {
     if end {
         let display = h.app_display.lock().unwrap().remove(screen);
         drop(display);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_internal_failure_keeps_its_chain_in_the_redacted_detail_only() {
+        let body = Failure::internal(
+            "read the library",
+            r"open C:\Users\Alice\library.json: Access is denied. (os error 5)",
+        )
+        .into_api_error();
+        assert_eq!(body.code, ErrorCode::Internal);
+        assert_eq!(body.message, "The host failed to read the library.");
+        assert_eq!(
+            body.title.as_deref(),
+            Some("Something went wrong on the PC")
+        );
+        let next_step = body.next_step.as_deref().unwrap();
+        assert!(!next_step.contains("os error"), "{next_step}");
+        let detail = body.technical_detail.as_deref().unwrap();
+        assert!(detail.contains("(os error 5)"), "{detail}");
+        assert!(!detail.contains("Alice"), "{detail}");
+    }
+
+    #[test]
+    fn a_refusal_without_a_known_cause_takes_its_codes_words() {
+        let body = Failure::from(Refusal::NotOwner).into_api_error();
+        assert_eq!(body.message, "This session belongs to another device.");
+        assert_eq!(
+            body.title.as_deref(),
+            Some("Another device owns this session")
+        );
+        assert!(body.next_step.is_some());
+        assert_eq!(body.technical_detail, None);
+        let body = Failure::from(Refusal::Busy).into_api_error();
+        assert_eq!(body.retry_after_ms, Some(BUSY_RETRY_MS));
+        assert_eq!(body.next_step, None, "the message already says to retry");
     }
 }

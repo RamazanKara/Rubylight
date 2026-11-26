@@ -80,12 +80,7 @@ pub fn state(controls: Option<&Controls>, base: Settings) -> Audio {
 /// then applies them all to this session from the next packet. The session
 /// and owner refusals are the caller's.
 pub fn apply(controls: &Controls, base: Settings, write: &AudioWrite) -> Result<Audio, ApiError> {
-    let refuse = |code, id: &str, message: String| ApiError {
-        code,
-        message,
-        setting: Some(id.into()),
-        retry_after_ms: None,
-    };
+    let refuse = |code, id: &str, message: String| ApiError::new(code, message).for_setting(id);
     let mut changes = Vec::with_capacity(write.changes.len());
     for change in &write.changes {
         let key = Key::ALL

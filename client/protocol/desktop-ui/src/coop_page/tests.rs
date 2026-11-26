@@ -15,12 +15,7 @@ pub(crate) struct Fake {
 pub(crate) fn api(status: u16, code: ErrorCode, message: &str) -> Error {
     Error::Api {
         status,
-        error: ApiError {
-            code,
-            message: message.into(),
-            setting: None,
-            retry_after_ms: None,
-        },
+        error: ApiError::new(code, message),
     }
 }
 

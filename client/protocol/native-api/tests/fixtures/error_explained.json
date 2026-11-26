@@ -1,0 +1,6 @@
+{ "error": { "code": "driver_rejected",
+             "message": "wrote 3 and the driver reads back 1",
+             "setting": "anti_lag.level", "retry_after_ms": null,
+             "title": "The graphics driver refused the change",
+             "next_step": "The PC put the earlier values back. Choose another value, or update the graphics driver on the PC.",
+             "technical_detail": "driver_rejected (anti_lag.level): wrote 3 and the driver reads back 1" } }

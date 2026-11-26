@@ -335,12 +335,7 @@ fn paired_client(host: &MockHost) -> HostClient {
 
 fn error_body(code: ErrorCode, message: &str) -> String {
     serde_json::to_string(&ErrorBody {
-        error: ApiError {
-            code,
-            message: message.into(),
-            setting: None,
-            retry_after_ms: None,
-        },
+        error: ApiError::new(code, message),
     })
     .unwrap()
 }

@@ -242,7 +242,7 @@ fn a_pending_change_says_what_the_session_end_restores() {
 fn api_error(status: u16, code: ErrorCode, setting: Option<&str>) -> Error {
     Error::Api {
         status,
-        error: ApiError { code, message: "host words".into(), setting: setting.map(str::to_owned), retry_after_ms: None },
+        error: ApiError { setting: setting.map(str::to_owned), ..ApiError::new(code, "host words") },
     }
 }
 

@@ -213,8 +213,16 @@ fn write_failure(error: &WriteError) -> Failure {
     let failure = match error.kind {
         ErrorKind::InvalidValue => Failure::new(ErrorCode::InvalidValue, &error.message),
         ErrorKind::NotWritable => Failure::new(ErrorCode::NotWritable, &error.message),
-        ErrorKind::DriverRejected => Failure::new(ErrorCode::DriverRejected, &error.message),
-        ErrorKind::Unavailable => unavailable(Some(error.message.clone())),
+        // The driver's own words name codes and values: they are the detail.
+        ErrorKind::DriverRejected => {
+            Failure::new(ErrorCode::DriverRejected, &error.message).with_detail(error.to_string())
+        }
+        ErrorKind::Unavailable => unavailable(Some(error.message.clone()))
+            .explained(
+                "The graphics driver is not answering",
+                Some("Wait a moment, then try again. If it keeps failing, restart the PC."),
+            )
+            .with_detail(error.to_string()),
         ErrorKind::Journal => {
             tracing::error!(error = %error, "native API: the driver settings journal could not be written; nothing was changed");
             Failure::new(
@@ -224,6 +232,13 @@ fn write_failure(error: &WriteError) -> Failure {
                     error.message
                 ),
             )
+            .explained(
+                "The PC could not save its graphics settings backup",
+                Some(
+                    "Nothing was changed. Try again; if it keeps failing, open Help & diagnostics in the Rubylight console on the PC.",
+                ),
+            )
+            .with_detail(error.to_string())
         }
     };
     match &error.id {
@@ -271,6 +286,7 @@ fn restore_settings(h: &Shared, connection: &Connection) -> Reply {
                 ),
             )
             .retry_after(RESTORE_RETRY_MS)
+            .explained("Some graphics settings are not back yet", None)
             .into());
         }
         Err(error) => {
@@ -280,6 +296,11 @@ fn restore_settings(h: &Shared, connection: &Connection) -> Reply {
                 format!("The Radeon settings could not be put back yet: {error:#}"),
             )
             .retry_after(RESTORE_RETRY_MS)
+            .explained(
+                "The graphics settings are not back yet",
+                Some("Wait a moment, then try again."),
+            )
+            .with_detail(format!("{error:#}"))
             .into());
         }
     }
@@ -305,4 +326,59 @@ fn answer(h: &Host, client: &Client, view: &View, revision: u64) -> Reply {
             gpus: view.gpus.clone(),
         },
     ))
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    /// A driver's code or HRESULT, which only the technical detail may carry.
+    fn coded(text: &str) -> bool {
+        text.to_ascii_lowercase().contains("0x") || text.contains("ADLX")
+    }
+
+    #[test]
+    fn a_driver_failure_says_what_to_do_and_keeps_its_codes_in_the_detail() {
+        for kind in [
+            ErrorKind::DriverRejected,
+            ErrorKind::Unavailable,
+            ErrorKind::Journal,
+        ] {
+            let error = WriteError {
+                kind,
+                id: Some("anti_lag.enabled".into()),
+                message: "ADLX_FAIL (0x80004005)".into(),
+            };
+            let body = write_failure(&error).into_api_error();
+            let title = body.title.as_deref().unwrap();
+            let next_step = body.next_step.as_deref().unwrap();
+            assert!(
+                !coded(title) && !coded(next_step),
+                "{kind:?}: {title} / {next_step}"
+            );
+            let detail = body.technical_detail.as_deref().unwrap();
+            assert!(
+                detail.contains("ADLX_FAIL (0x80004005)"),
+                "{kind:?}: {detail}"
+            );
+            assert!(
+                body.message.contains("0x80004005"),
+                "{kind:?}: the message stays"
+            );
+            assert_eq!(body.setting.as_deref(), Some("anti_lag.enabled"));
+        }
+    }
+
+    #[test]
+    fn a_refused_value_is_left_to_its_message() {
+        let error = WriteError {
+            kind: ErrorKind::InvalidValue,
+            id: Some("sharpening.level".into()),
+            message: "sharpening.level is off the step".into(),
+        };
+        let body = write_failure(&error).into_api_error();
+        assert_eq!(body.title, None);
+        assert_eq!(body.next_step, None);
+        assert_eq!(body.technical_detail, None);
+    }
 }

@@ -18,6 +18,7 @@ pub mod config_ext;
 pub mod connection_commands;
 pub mod couch_menu_model;
 pub mod device_overrides;
+pub mod error_catalog;
 pub mod file_transfer;
 #[cfg(test)]
 mod fuzz;

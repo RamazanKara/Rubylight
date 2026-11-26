@@ -681,12 +681,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarConsoleJni_coopPr
         .unwrap_or(nightjar_core::http::native_api::error::ErrorCode::Unknown);
     let err = nightjar_core::http::Error::Api {
         status: u16::try_from(status).unwrap_or(500),
-        error: nightjar_core::http::native_api::error::ApiError {
-            code: parsed_code,
-            message: msg,
-            setting: None,
-            retry_after_ms: None,
-        },
+        error: nightjar_core::http::native_api::error::ApiError::new(parsed_code, msg),
     };
     new_jstring(&env, CoopProblem::of(&err).kind())
 }

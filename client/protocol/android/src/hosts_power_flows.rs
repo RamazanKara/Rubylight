@@ -337,12 +337,7 @@ fn error_from_json(err: &Value) -> Error {
         "not_paired" => Error::NotPaired,
         "api" => Error::Api {
             status: http_status,
-            error: ApiError {
-                code: ErrorCode::InvalidRequest,
-                message,
-                setting: None,
-                retry_after_ms: None,
-            },
+            error: ApiError::new(ErrorCode::InvalidRequest, message),
         },
         "cancelled" => Error::Cancelled,
         _ => Error::Malformed(message),

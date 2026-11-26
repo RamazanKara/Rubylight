@@ -2,26 +2,38 @@
 //! input it reflects, and find the HUD (`rubylight_protocol::frame_warp` has the idea and the
 //! wire formats).
 //!
+//! The host runs Frame Warp 2 only: a client asks with a version 2 request
+//! (`rubylight_protocol::frame_warp_v2::RequestV2`), and a version 1 request is ignored. On top of
+//! the batch calibrator and lens, fast fits lock the model within a second ([`v2`]), and every
+//! frame's tags come with a meta (0x5549): the camera confidence, the gyro and the edge fill.
+//!
 //! One [`FrameWarpHost`] per stream, behind a lock. The control thread hands it the client's
-//! request and every relative mouse move and controller packet as it decodes them. The video
-//! thread asks for the tags of each frame as its number is assigned, and passes each capture's
-//! luma thumbnail and, now and then, the GPU's HUD bits (both a frame or more late) to the
-//! frame-warp worker. The worker measures them with its [`Measurer`] and fits a [`FitJob`]
-//! outside the lock, handing the host only the results. The control loop sends what
-//! [`FrameWarpHost::take_tags`], [`FrameWarpHost::take_model`] and
-//! [`FrameWarpHost::take_mask`] return.
+//! request and every relative mouse move, controller packet and motion packet as it decodes
+//! them. The video thread asks for the tags of each frame as its number is assigned, says
+//! whether the host's pointer shows, and passes each capture's luma thumbnail and, now and then,
+//! the GPU's HUD bits (both a frame or more late) to the frame-warp worker. The worker measures
+//! them with its [`Measurer`] and fits a [`FitJob`] outside the lock, handing the host only the
+//! results. The control loop sends what [`FrameWarpHost::take_tags`],
+//! [`FrameWarpHost::take_meta`], [`FrameWarpHost::take_model`] and [`FrameWarpHost::take_mask`]
+//! return.
 
 pub mod calibrate;
+pub mod confidence;
+pub mod gyro;
 pub mod history;
 pub mod lens;
+pub mod lens_fast;
 mod mask;
 pub mod motion;
+pub mod rls;
+pub mod v2;
 
 #[cfg(test)]
 use std::borrow::Cow;
 use std::collections::VecDeque;
 
 pub use calibrate::{Calibrator, Prior};
+use confidence::{Scene, scene_change};
 pub use history::InputHistory;
 pub use lens::Lens;
 use mask::MaskTracker;
@@ -31,9 +43,14 @@ pub use motion::{
 };
 pub use rubylight_protocol::frame_warp::{
     FRAME_WARP_MASK_MESSAGE_TYPE, FRAME_WARP_MODEL_MESSAGE_TYPE, FRAME_WARP_REQUEST_MESSAGE_TYPE,
-    FRAME_WARP_TAGS_MESSAGE_TYPE, FrameWarpRequest, MAX_TAGS, MODEL_BYTES, Mask, Model,
-    SERVERINFO_FIELD, Tag, Tags, stick_curve,
+    FRAME_WARP_TAGS_MESSAGE_TYPE, FrameWarpRequest, MAX_TAGS, MODEL_BYTES, Mask, Model, Tag, Tags,
+    stick_curve,
 };
+pub use rubylight_protocol::frame_warp_v2::{
+    FRAME_WARP_V2_META_MESSAGE_TYPE, FrameWarpV2Meta, GyroAxes, META_BYTES, REQUEST_BYTES,
+    RequestV2, SERVERINFO_FIELD, SERVERINFO_VERSION, YawSource, meta_flags,
+};
+pub use v2::{PriorV2, V2State};
 
 /// The camera counts as turning for this long after the scene was last seen moving: the GPU's
 /// HUD pass only learns while it does.
@@ -68,7 +85,10 @@ pub struct Status {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Learned {
     pub model: Option<Model>,
-    pub prior: Option<Prior>,
+    pub prior: Option<PriorV2>,
+    /// The gyro's fast fit is locked: the stream shifts by the gyro even while the model's
+    /// mouse and stick fits are not.
+    pub gyro_locked: bool,
 }
 
 #[derive(Debug)]
@@ -89,8 +109,12 @@ pub struct FrameWarpHost {
     thumbnail: (usize, usize),
     recent: VecDeque<Tag>,
     tags: VecDeque<Vec<u8>>,
-    model: Option<Model>,
+    /// The calibrator's model last published.
     last_model: Option<Model>,
+    /// Frame Warp 2's state, while Frame Warp is on ([`v2`]).
+    v2: Option<Box<V2State>>,
+    /// The gyro's part of the game's saved prior.
+    v2_prior: Option<v2::GyroPrior>,
     mask: MaskTracker,
     /// The confident shifts of the last [`MOTION_WINDOW_US`]: capture times and motion.
     shifts: VecDeque<(u64, u64, f32, f32)>,
@@ -116,8 +140,9 @@ impl FrameWarpHost {
             thumbnail: (THUMBNAIL_WIDTH, thumbnail_height(picture)),
             recent: VecDeque::new(),
             tags: VecDeque::new(),
-            model: None,
             last_model: None,
+            v2: None,
+            v2_prior: None,
             mask: MaskTracker::default(),
             shifts: VecDeque::new(),
             moving_until_us: None,
@@ -126,10 +151,11 @@ impl FrameWarpHost {
         }
     }
 
-    /// Applies a client's request. Returns whether Frame Warp is on, or `None` for a malformed
-    /// request, which changes nothing.
+    /// Applies a client's request. Returns whether Frame Warp is on, or `None` for a request
+    /// that is not version 2 (a version 1 client's) or is malformed, which changes nothing.
     pub fn on_request(&mut self, payload: &[u8]) -> Option<bool> {
-        let request = FrameWarpRequest::decode(payload)?;
+        let full = RequestV2::decode(payload)?;
+        let request = full.base;
         let starting = request.enabled && !self.enabled;
         self.enabled = request.enabled;
         self.mask_max_width = request.mask_max_width;
@@ -153,13 +179,12 @@ impl FrameWarpHost {
             self.recent.clear();
             self.tags.clear();
         }
+        // The client counts from its request on; so does the model it hears first.
+        self.v2_request(full, starting);
         if self.enabled {
-            // The client counts from its request on; so does the model it hears first.
-            self.model = Some(self.calibrator.model(self.calibrator_generation()));
             self.mask.resend(self.mask_max_width);
         } else {
             self.tags.clear();
-            self.model = None;
             self.mask.clear_pending();
         }
         Some(self.enabled)
@@ -167,10 +192,6 @@ impl FrameWarpHost {
 
     pub fn enabled(&self) -> bool {
         self.enabled
-    }
-
-    fn calibrator_generation(&self) -> u16 {
-        self.last_model.map_or(0, |m| m.generation)
     }
 
     /// The stream's picture size changed (a reconfigure), or where the capture sits in it
@@ -187,6 +208,7 @@ impl FrameWarpHost {
         self.fit_epoch += 1;
         self.resets.thumbnail += 1;
         self.resets.hud += 1;
+        self.v2_resized();
     }
 
     /// The thumbnail size the GPU should make for this picture.
@@ -249,16 +271,21 @@ impl FrameWarpHost {
             self.fit_epoch += 1;
             self.resets.thumbnail += 1;
             self.shifts.clear();
+            self.v2_resized();
         }
-        if measured.resets == self.resets.thumbnail
-            && let Some((t0_us, motion)) = measured.shift
-        {
+        if measured.resets != self.resets.thumbnail {
+            return true;
+        }
+        let motion = measured.shift.as_ref().map(|(_, motion)| motion);
+        self.v2_scene(measured.scene, motion, measured.at_us);
+        if let Some((t0_us, motion)) = measured.shift {
             self.samples += 1;
-            if self.turning(t0_us, measured.at_us)
-                && self.lens.observe(self.calibrator.layout(), &motion)
-            {
-                self.apply_lens();
-                self.fit_epoch += 1;
+            if self.turning(t0_us, measured.at_us) || self.v2_turning(t0_us, measured.at_us) {
+                if self.lens.observe(self.calibrator.layout(), &motion) {
+                    self.apply_lens();
+                    self.fit_epoch += 1;
+                }
+                self.v2_lens(&motion);
             }
             let turn = self.calibrator.resolve(&motion);
             if turn.confidence >= MOTION_CONFIDENCE {
@@ -269,6 +296,7 @@ impl FrameWarpHost {
                 t1_us: measured.at_us,
                 motion,
             });
+            self.v2_turn((t0_us, measured.at_us), turn, now_us);
         }
         true
     }
@@ -311,7 +339,6 @@ impl FrameWarpHost {
         self.calibrator = fitted.calibrator;
         if let Some(model) = fitted.model {
             self.last_model = Some(model);
-            self.model = Some(model);
         }
     }
 
@@ -407,6 +434,7 @@ impl FrameWarpHost {
     ) -> Option<(usize, usize)> {
         if self.enabled && self.mask_max_width > 0 && placement == self.placement() {
             self.mask.offer(placed, self.mask_max_width, now_us);
+            self.v2_hud(placed);
             Some(self.thumbnail)
         } else {
             None
@@ -414,13 +442,18 @@ impl FrameWarpHost {
     }
 
     /// Tags frame `frame`, captured at `capture_us`, and queues the tags message (this frame's
-    /// tag and up to three before it).
+    /// tag and up to three before it) and the frame's meta. The tags count by the lags of the
+    /// model the client was sent last.
     pub fn tag(&mut self, frame: u32, capture_us: u64) {
         if !self.enabled {
             return;
         }
-        let mouse_us = capture_us.saturating_sub(self.calibrator.mouse_lag_us());
-        let pad_us = capture_us.saturating_sub(self.calibrator.stick_lag_us());
+        let (mouse_lag, stick_lag) = self.v2_lags().unwrap_or((
+            self.calibrator.mouse_lag_us(),
+            self.calibrator.stick_lag_us(),
+        ));
+        let mouse_us = capture_us.saturating_sub(mouse_lag);
+        let pad_us = capture_us.saturating_sub(stick_lag);
         let tag = self.history.tag(frame, mouse_us, pad_us);
         if self.recent.back().is_some_and(|last| last.frame == frame) {
             self.recent.pop_back();
@@ -430,7 +463,7 @@ impl FrameWarpHost {
             self.recent.pop_front();
         }
         let message = Tags {
-            model_generation: self.calibrator_generation(),
+            model_generation: self.wire_generation(),
             tags: self.recent.iter().copied().collect(),
         };
         if let Some(wire) = message.encode() {
@@ -439,6 +472,7 @@ impl FrameWarpHost {
             }
             self.tags.push_back(wire);
         }
+        self.v2_tag(frame, capture_us);
     }
 
     /// The next tags message to send (unreliable).
@@ -446,9 +480,9 @@ impl FrameWarpHost {
         self.tags.pop_front()
     }
 
-    /// The model to send (reliable), when it changed.
+    /// The model to send (reliable), when it changed ([`v2`] composes it).
     pub fn take_model(&mut self) -> Option<[u8; MODEL_BYTES]> {
-        self.model.take().and_then(|m| m.encode())
+        self.v2_take_model()
     }
 
     /// The HUD mask to send (reliable), when it changed.
@@ -459,7 +493,7 @@ impl FrameWarpHost {
     pub fn status(&self) -> Status {
         Status {
             enabled: self.enabled,
-            model: self.last_model,
+            model: self.v2_model().or(self.last_model),
             samples: self.samples,
             mask_cells: self.mask.sent.as_ref().map_or(0, Mask::count),
         }
@@ -468,8 +502,9 @@ impl FrameWarpHost {
     /// What the worker logs and saves after each piece of work.
     pub fn learned(&self) -> Learned {
         Learned {
-            model: self.last_model,
-            prior: self.prior(),
+            model: self.v2_model().or(self.last_model),
+            prior: self.prior_v2(),
+            gyro_locked: self.v2().is_some_and(|v2| v2.locked_fits()[2].is_some()),
         }
     }
 }
@@ -499,6 +534,8 @@ pub struct Measured {
     shift: Option<(u64, Motion)>,
     /// [`Resets::thumbnail`] when the previous thumbnail was kept.
     resets: u64,
+    /// How alike the previous thumbnail and this one are ([`confidence::scene_change`]).
+    scene: Option<Scene>,
 }
 
 /// The frame-warp worker's side of the motion measurement, kept outside the host's lock: the
@@ -524,6 +561,11 @@ impl Measurer {
     /// The shift from the previous thumbnail to `thumbnail`: the motion estimate, outside the
     /// lock.
     pub fn measure(&mut self, thumbnail: &Thumbnail) -> Measured {
+        let scene = self
+            .previous
+            .as_ref()
+            .filter(|previous| thumbnail.at_us > previous.at_us)
+            .and_then(|previous| scene_change(previous, thumbnail));
         let shift = self
             .previous
             .as_ref()
@@ -545,6 +587,7 @@ impl Measurer {
             at_us: thumbnail.at_us,
             shift,
             resets: self.previous_resets,
+            scene,
         }
     }
 

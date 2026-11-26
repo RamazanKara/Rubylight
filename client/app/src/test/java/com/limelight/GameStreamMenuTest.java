@@ -359,6 +359,28 @@ public class GameStreamMenuTest {
         assertTrue(org.robolectric.Shadows.shadowOf(input).isSoftInputVisible());
     }
 
+    @Test
+    public void streamMenuShowsResetZoomWhenPannedAtOneXOrZoomedOut() {
+        Game game = streamingGame("rubylight-serverinfo.xml");
+        com.limelight.ui.StreamView stream = game.findViewById(R.id.surfaceView);
+        ReflectionHelpers.setField(game, "streamView", stream);
+        com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream, () -> { }, () -> { });
+        desktop.viewport().resize(800, 400);
+        ReflectionHelpers.setField(game, "desktopGestures", desktop);
+
+        StreamMenu.Options idleOptions = ReflectionHelpers.callInstanceMethod(game.menuActions, "streamMenuOptions");
+        assertFalse(idleOptions.zoomed);
+
+        desktop.viewport().pan(-100, 50);
+        StreamMenu.Options pannedOptions = ReflectionHelpers.callInstanceMethod(game.menuActions, "streamMenuOptions");
+        assertTrue(pannedOptions.zoomed);
+
+        desktop.viewport().reset();
+        desktop.viewport().zoom(0.6f, 400, 200);
+        StreamMenu.Options zoomedOutOptions = ReflectionHelpers.callInstanceMethod(game.menuActions, "streamMenuOptions");
+        assertTrue(zoomedOutOptions.zoomed);
+    }
+
     private static void runMenuAction(Game game) {
         idle();
         WindowFocusActionQueue queue = ReflectionHelpers.getField(game, "windowFocusActions");

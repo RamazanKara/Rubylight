@@ -1599,6 +1599,12 @@ type = "String"
 value = "receive_decode_priority_default_on"
 
 [[android_const]]
+name = "SUBMIT_HINT_DEFAULT_ON_PREF_STRING"
+vis = "package"
+type = "String"
+value = "submit_hint_default_on"
+
+[[android_const]]
 name = "CODEC_LOW_LATENCY_CORRUPTION_OFF_PREF_STRING"
 vis = "package"
 type = "String"
@@ -1760,6 +1766,16 @@ desktop_key = "hdr"
 advice = "Enable with an HDR screen, a compatible decoder and HDR configured on the host display. HDR10 works with any host that streams HDR; HDR10+, HLG and Dolby Vision are used where the screen, the decoder and the PC support them (Rubylight 3.0). Availability is device-filtered."
 
 [[android_setting]]
+key = "list_hdr_format"
+category = "category_basic_settings"
+tier = "more"
+kind = "list"
+xml_default = "auto"
+scope = "layer"
+desktop_key = "hdr_format"
+advice = "Automatic by default. No Dolby Vision never asks for Dolby Vision (any profile) and keeps HDR10, HDR10+ and HLG as Automatic picks them; HDR10 only asks for plain HDR10 and tells a PC that offers `HdrDynamicControl` to leave out HDR10+ and HDR Vivid (`rlHdrDynamic=0`), while other PCs may still send HDR10+. No Dolby Vision is listed only where the app asks for Dolby Vision, or while it is selected."
+
+[[android_setting]]
 key = "more_video"
 category = "category_more_video"
 tier = "main"
@@ -1845,7 +1861,7 @@ tier = "main"
 kind = "action"
 scope = "global"
 desktop_key = "video_scaling"
-advice = "How the stream fills a screen of another shape: Fit shows all of it with bars, Fill (crop) fills the screen and cuts off the edges that do not fit, Stretch fills it and distorts shapes, 1:1 pixels shows the stream at its own size, centred. The key is the older Stretch switch, still written (on only for Stretch) so older versions behave sensibly; the mode itself is stored as `video_scaling`. Also in the stream menu. See [video scaling](video-and-latency.md#video-scaling)."
+advice = "How the stream fills a screen of another shape: Fit shows all of it with bars, Safe fit does the same but keeps the picture clear of a camera cutout and rounded screen corners, Fill (crop) fills the screen and cuts off the edges that do not fit, Stretch fills it and distorts shapes, 1:1 pixels shows the stream at its own size, centred. The key is the older Stretch switch, still written (on only for Stretch) so older versions behave sensibly; the mode itself is stored as `video_scaling`. Also in the stream menu. See [video scaling](video-and-latency.md#video-scaling)."
 
 [[android_setting]]
 key = "stream_orientation"
@@ -1854,7 +1870,7 @@ tier = "main"
 kind = "list"
 xml_default = "auto"
 scope = "global"
-advice = "Automatic uses landscape on phones and any orientation on tablets, squarish screens, windows and external displays. Landscape, Reverse landscape and Portrait lock the screen; Rotate with device follows it within the system rotation lock. A host streaming from its virtual display starts the stream in the screen's shape, and with Rotate with device asks for the turned size while the stream runs where the host takes in-stream reconfigure. Other hosts keep the stream's size and Video size fits it into the turned screen. Hidden on TVs. See [orientation](video-and-latency.md#orientation)."
+advice = "Automatic uses landscape on phones and any orientation on tablets, squarish screens, windows and external displays. Landscape, Reverse landscape and Portrait lock the screen; Landscape (either side) turns over with the phone even when rotation is locked, but never to portrait; Rotate with device follows it within the system rotation lock. A host streaming from its virtual display starts the stream in the screen's shape, and with Rotate with device asks for the turned size while the stream runs where the host takes in-stream reconfigure. Other hosts keep the stream's size and Video size fits it into the turned screen. Hidden on TVs. See [orientation](video-and-latency.md#orientation)."
 
 [[android_setting]]
 key = "checkbox_vrr"
@@ -1945,6 +1961,14 @@ xml_default = "center"
 scope = "global"
 desktop_key = "align_video_top"
 advice = "Top places a Fit or 1:1 picture at the top of the screen, leaving the space below for the soft keyboard or the lower half of a half-folded phone. No effect on Fill and Stretch, which cover the whole screen."
+
+[[android_setting]]
+key = "picture_position"
+category = "category_upscaling"
+tier = "more"
+kind = "action"
+scope = "global"
+advice = "Moves the picture by hand to make up for a camera cutout or curved screen edges, up to 15% of the screen's side, saved for each screen of the device in its natural orientation so it stays on the same side when the phone is turned over. Leave it centred unless part of the picture is hidden. Also in the stream menu, where the picture moves live. Hidden on TVs."
 
 [[android_setting]]
 key = "checkbox_full_range"
@@ -2797,7 +2821,7 @@ kind = "bool"
 xml_default = "false"
 scope = "global"
 desktop_key = "audio_passthrough"
-advice = "Enable for a receiver, soundbar or TV that decodes Dolby Digital or Dolby Digital Plus, or takes multichannel PCM as is. Asks a Rubylight PC for a format the audio output reports it plays, and keeps Opus otherwise. Dolby comes in 32 ms frames, so sound arrives later than Opus. Android 10 and later; hidden elsewhere."
+advice = "Enable for a receiver, soundbar or TV that decodes Dolby Digital or Dolby Digital Plus, or takes multichannel PCM as is. Asks the PC for a format the audio output reports it plays, and keeps Opus otherwise. Dolby comes in 32 ms frames, so sound arrives later than Opus. Android 10 and later; hidden elsewhere."
 
 [[android_setting]]
 key = "checkbox_enable_perf_overlay"
@@ -3271,7 +3295,7 @@ kind = "bool"
 xml_default = "@bool/default_tv_display_compatibility"
 scope = "global"
 shown_only = "on a TV (Android TV), elsewhere with Show debug settings"
-advice = "On by default on a TV (the television UI mode), off elsewhere; titled Keep TV video smooth. While a stream is shown, a 1 dp nearly black dot in the top-left corner of the video's window (left in right-to-left languages too) changes between two near-black colours every 100 ms, so the app's own layer stays part of what the TV composes. Meant for TVs and TV boxes whose picture stutters after a while, freezes, flashes or restarts while the video is the only thing on screen, and that the performance overlay keeps smooth (two Google TV Streamer owners report stutter building up over 10 to 15 minutes without the overlay). Listed on other devices while Show debug settings is on or while it is on. On a TCL Smart TV Pro (MT9689) it lowered receive to release by about 1 ms at the median and 5 to 7 ms at the 95th percentile; on a Retroid Pocket 6 it changed neither beyond the spread between legs (client/docs/measurements.md). Its composition cost is not measured. Stops while paused, in picture-in-picture and when the stream ends; with the video on an external display the dot sits in that display's window. The stream reads a stored value on any device."
+advice = "Off by default on every device (including Android TV), titled Keep TV video smooth. During a stream, Nightjar's `CompositorWatch` (`video_queue/compositor_watch.rs`) watches decoder release timestamps and `MediaCodec.OnFrameRenderedListener` callbacks automatically: if callbacks drop below 15% for 3 s, it probes the compositor keepalive and locks it on for the rest of the stream when callbacks recover (observed on a TCL Smart TV Pro MT9689, recovering from 0% to 97.72% `rendered` callbacks and eliminating HWC `OSD display queue` jank warnings); if callbacks remain live while steady decoder releases suffer >=20% post-handoff render judder for 4 s, it first sends a 500 ms one-shot pulse and promotes to locked keepalive if judder persists or relapses. When active (automatically or via this switch), on Android 10+ (API 29+) `SurfaceView` streams it attaches an invisible `1x1` transparent child `SurfaceControl` (`PixelFormat.RGBA_8888`, `PorterDuff.Mode.CLEAR`, ticked once a second at `1000 ms` on a background `HandlerThread` — no visible dot and no UI/`RenderThread` work); older Android or `TextureView` falls back to an imperceptible `1x1` physical-pixel `View` alternating `#02010101` / `#03010101`. Turning this switch on forces the keepalive on from the first frame for TVs whose picture freezes, flashes or restarts right away before automatic detection fires. Listed on TVs and elsewhere with Show debug settings (or while on). Stops while paused, in picture-in-picture, in input-only mode, and when the stream ends; on an external display it targets that display's video surface."
 
 [[android_setting]]
 key = "list_decode_queue_frames"
@@ -3569,6 +3593,14 @@ rust_type = "bool"
 default_expr = "false"
 scope = "layer"
 override_allowed = true
+
+[[desktop_setting]]
+key = "hdr_format"
+rust_type = "nightjar_policy::video_codec::hdr::HdrFormatChoice"
+default_expr = "nightjar_policy::video_codec::hdr::HdrFormatChoice::Auto"
+scope = "layer"
+override_allowed = true
+android_key = "list_hdr_format"
 
 [[desktop_setting]]
 key = "experimental_packed_444"

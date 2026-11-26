@@ -69,6 +69,8 @@ pub struct Handshake {
     mic_offered_port: u16,
     has_session: bool,
     describe: Option<DescribeInfo>,
+    /// The `x-ss-audio` Dolby codec the ANNOUNCE accepted, which its reply must confirm.
+    ss_accept: Option<super::dolby_ss::Accept>,
     rubylight: bool,
     options_cseq: Option<Option<i32>>,
     describe_cseq: Option<i32>,
@@ -179,6 +181,7 @@ impl Handshake {
             mic_offered_port: 0,
             has_session: false,
             describe: None,
+            ss_accept: None,
             rubylight: false,
             options_cseq: None,
             describe_cseq: None,
@@ -198,11 +201,13 @@ impl Handshake {
                 host_control_messages: Vec::new(),
                 host_roaming: false,
                 host_pen_barrel_roll: false,
+                ps_speaker_pcm: false,
                 microphone: mic,
                 opus: OpusConfigs::default(),
                 high_quality_surround_enabled: false,
                 audio_packet_duration_ms: 5,
                 audio_codec: 0,
+                audio_unchunked: false,
                 pyrowave_records_enabled: false,
                 audio_port: 0,
                 video_port: 0,
@@ -381,6 +386,12 @@ impl Handshake {
             describe.audio_codecs,
             self.out.config.audio.channel_count,
         );
+        // Without Rubylight's own codec, the `x-ss-audio` dialect's Dolby offer.
+        self.ss_accept = super::dolby_ss::pick(
+            describe.ss_audio_offer.as_ref().filter(|_| audio_codec == 0),
+            self.out.config.audio_passthrough,
+            self.out.config.audio.channel_count,
+        );
         let sdp = sdp::generate(&sdp::SdpParams {
             config: &self.out.config,
             app_version: self.quad(),
@@ -399,12 +410,16 @@ impl Handshake {
             hdr_formats_offered: describe.hdr_formats,
             audio_codec,
             audio_codecs_offered: describe.audio_codecs,
+            audio_codec_accept: self.ss_accept.as_ref().map(|accept| accept.token.as_str()),
             video_fec_percentage: self
                 .out
                 .fec_summaries
                 .then(|| self.out.config.video_fec.summary_percentage()),
             max_video_packet: describe.max_video_packet,
+            host_control_messages: &describe.control_messages,
+            host_feature_flags: describe.sunshine_feature_flags,
         });
+        self.out.ps_speaker_pcm = sdp.ps_speaker_pcm;
         self.out.audio_codec = audio_codec;
         self.out.encryption_enabled = sdp.encryption_enabled;
         self.out.audio_encryption_enabled = sdp.audio_encryption_enabled;
@@ -584,6 +599,11 @@ impl Handshake {
                         )));
                     }
                     return Err(error);
+                }
+                // Dolby only once the host confirms the codec accepted; else Opus.
+                if let Some(accept) = &self.ss_accept {
+                    self.out.audio_codec = super::dolby_ss::confirm(accept, response)?;
+                    self.out.audio_unchunked = self.out.audio_codec != 0;
                 }
                 if self.at_least(7, 1, 431) {
                     Stage::Play

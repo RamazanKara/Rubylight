@@ -69,6 +69,19 @@ impl RadeonBackend for Profile {
     fn write(&mut self, _gpu: i32, id: &str, value: &model::Value) -> Result<(), BackendError> {
         nvidia_settings::write(self, id, value)
     }
+    fn snapshot_keys(
+        &mut self,
+        _gpu: i32,
+        id: &str,
+    ) -> Result<Option<butterpollo_win_graphics::radeon::RawSettingKeys>, BackendError> {
+        nvidia_settings::snapshot_keys(self, id)
+    }
+    fn restore_raw(
+        &mut self,
+        entry: &butterpollo_win_graphics::radeon::Entry,
+    ) -> Result<bool, BackendError> {
+        nvidia_settings::restore_raw_keys(self, entry)
+    }
     fn gpus(&mut self) -> Result<Vec<GpuInfo>, BackendError> {
         if self.missing.load(Ordering::SeqCst) {
             return Err(BackendError("nvapi64.dll is missing".into()));

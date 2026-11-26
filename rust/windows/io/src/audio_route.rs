@@ -17,6 +17,7 @@ use windows::{Win32::Media::Audio::*, core::PCWSTR};
 mod format;
 pub mod hooks;
 mod microphone;
+pub mod notify;
 mod policy;
 
 use format::{

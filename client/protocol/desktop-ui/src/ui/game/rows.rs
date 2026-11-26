@@ -82,14 +82,16 @@ impl Launcher {
             act: classic.map_or(RowAct::Nothing, |app| RowAct::Settings(app.clone())),
         }];
         if !self.profiles.entries.is_empty() {
-            let decided = self.profiles.automatic
-                && match kind {
-                    crate::network_types::Kind::Mobile => self.profiles.mobile,
-                    crate::network_types::Kind::HomeWifi => self.profiles.home,
-                    crate::network_types::Kind::Wifi => self.profiles.wifi,
-                    crate::network_types::Kind::Other => None,
-                }
-                .is_some();
+            // A profile kept for this screen decides as a network choice does.
+            let decided = self.profiles.for_screen().is_some()
+                || self.profiles.automatic
+                    && match kind {
+                        crate::network_types::Kind::Mobile => self.profiles.mobile,
+                        crate::network_types::Kind::HomeWifi => self.profiles.home,
+                        crate::network_types::Kind::Wifi => self.profiles.wifi,
+                        crate::network_types::Kind::Other => None,
+                    }
+                    .is_some();
             let shown = if decided {
                 self.profiles.selected(kind)
             } else {

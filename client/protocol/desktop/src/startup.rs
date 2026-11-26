@@ -54,6 +54,20 @@ pub(crate) fn panel_pixels(_: SDL_DisplayID) -> Option<(u32, u32)> {
     None
 }
 
+/// The screen the window is on, for the profile kept for it (`Profiles::screen`): SDL's name for
+/// the display, which it reads from the monitor (EDID on Windows and Linux, the system's name for
+/// it on macOS) and which stays that monitor's on any port and after a restart. None when SDL
+/// gives no name.
+pub(crate) fn screen_of(window: *mut SDL_Window) -> Option<config::DisplayMatcher> {
+    // SAFETY: a live window; the name is owned by SDL and copied before the next SDL call.
+    let name = unsafe {
+        let name = SDL_GetDisplayName(SDL_GetDisplayForWindow(window));
+        if name.is_null() { return None; }
+        std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned()
+    };
+    config::DisplayMatcher::new(&name, &name)
+}
+
 /// Whether the window now stands on another display, or its display on another mode.
 pub(crate) fn another_display(kind: SDL_EventType) -> bool {
     matches!(kind, SDL_EVENT_WINDOW_DISPLAY_CHANGED | SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED)

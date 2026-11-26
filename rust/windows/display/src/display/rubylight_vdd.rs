@@ -292,8 +292,12 @@ impl Drop for Control {
 /// The ADD request for the display `id` (the host's per-client 64-bit display id) at `mode`
 /// (millihertz refresh). The monitor id follows `id`, and must be that one, so Windows sees
 /// the same monitor across a host restart: the driver answers busy until a predecessor's
-/// monitor with it has departed.
+/// monitor with it has departed. The luminance volume follows `peak_nits`
+/// (`hdr_peak_brightness`): full-frame light at two fifths of the peak and a
+/// 0.05-nit black, the proportions of the EDID's built-in ~1000 / 400 / 0.05
+/// nits, so DXGI never reports zero for either.
 pub(super) fn add_request(id: u64, mode: (u32, u32, u32), peak_nits: u32) -> AddRequest {
+    let peak = peak_nits.clamp(400, 2000);
     AddRequest {
         session_id: id,
         width: mode.0,
@@ -301,9 +305,9 @@ pub(super) fn add_request(id: u64, mode: (u32, u32, u32), peak_nits: u32) -> Add
         refresh_mhz: mode.2,
         preferred_monitor_id: modes::preferred_id(id),
         flags: ADD_FLAG_EXACT_ID,
-        max_luminance_nits: peak_nits.clamp(400, 2000),
-        max_frame_avg_nits: 0,
-        min_luminance_millinits: 0,
+        max_luminance_nits: peak,
+        max_frame_avg_nits: peak * 2 / 5,
+        min_luminance_millinits: 50,
     }
 }
 
@@ -465,6 +469,8 @@ mod tests {
         );
         assert_eq!(request.flags, ADD_FLAG_EXACT_ID);
         assert_eq!(request.max_luminance_nits, 2000);
+        assert_eq!(request.max_frame_avg_nits, 800);
+        assert_eq!(request.min_luminance_millinits, 50);
         // Same display, same monitor id: Windows keeps its settings across reconnects.
         assert_eq!(
             request.preferred_monitor_id,
@@ -475,6 +481,28 @@ mod tests {
         // The encoded request is the driver's IOCTL input byte for byte.
         assert_eq!(AddRequest::decode(&request.encode()), Ok(request));
         assert_eq!(proto::function_of(proto::IOCTL_ADD), 0xB01);
+    }
+
+    #[test]
+    fn the_peak_sets_a_whole_luminance_volume() {
+        use rubylight_vdisplay_proto::edid;
+        let luminance = |peak| {
+            let request = add_request(7, (1920, 1080, 60_000), peak);
+            let volume = edid::ClientLuminance {
+                max_nits: request.max_luminance_nits,
+                max_frame_avg_nits: request.max_frame_avg_nits,
+                min_millinits: request.min_luminance_millinits,
+            };
+            // The HDR Static Metadata block's max, max frame-average and min codes.
+            edid::generate(1, volume, None)[140..143].to_vec()
+        };
+        // The default 1000 nits is the EDID's built-in ~993 / 400 / 0.05 nits.
+        assert_eq!(luminance(1000), [0x8A, 0x60, 0x12]);
+        for peak in [100, 400, 1500, 4000] {
+            let codes = luminance(peak);
+            assert!(codes.iter().all(|code| *code != 0), "{peak}: {codes:?}");
+            assert!(codes[1] < codes[0], "{peak}: {codes:?}");
+        }
     }
 
     #[test]

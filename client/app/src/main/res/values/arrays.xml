@@ -120,6 +120,18 @@
         <item>forcepyrowave</item>
     </string-array>
 
+    <!-- The order is HdrFormatChoice's. -->
+    <string-array name="hdr_format_names" translatable="false">
+        <item>@string/hdr_format_auto</item>
+        <item>@string/hdr_format_no_dolby_vision</item>
+        <item>@string/hdr_format_hdr10</item>
+    </string-array>
+    <string-array name="hdr_format_values" translatable="false">
+        <item>auto</item>
+        <item>no_dolby_vision</item>
+        <item>hdr10</item>
+    </string-array>
+
     <string-array name="mobile_bitrate_names" translatable="false">
         <item>@string/mobile_bitrate_off</item>
         <item>3 Mbps</item>

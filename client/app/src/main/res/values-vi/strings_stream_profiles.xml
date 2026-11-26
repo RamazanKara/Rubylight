@@ -120,4 +120,11 @@
     <string name="game_preset_quality_summary" formatted="false">Đặt bitrate bằng 150% bitrate của PC, hoặc của cài đặt chính nếu PC không có, tối đa đến giới hạn của PC. Frame pacing và tần số quét thích ứng không đổi; khi kết nối yếu, các khung hình lớn hơn có thể làm tăng độ trễ.</string>
     <string name="game_preset_custom">Tùy chỉnh</string>
     <string name="game_preset_custom_summary">Các giá trị riêng của bạn, đặt bên dưới.</string>
+    <string name="profiles_screen">Hồ sơ cho màn hình này</string>
+    <string name="profiles_screen_none">Không có hồ sơ cho màn hình này</string>
+    <string name="profiles_screen_summary">Nightjar đang ở trên %1$s. Stream bắt đầu ở đó dùng hồ sơ này, ưu tiên hơn mạng và hồ sơ đang dùng.</string>
+    <string name="profiles_screen_built_in">Màn hình của thiết bị này</string>
+    <string name="profiles_marker_screen">Dành cho %1$s</string>
+    <string name="profiles_screen_forget">Quên màn hình</string>
+    <string name="layers_part_profile_screen">hồ sơ %1$s, dành cho màn hình này</string>
 </resources>

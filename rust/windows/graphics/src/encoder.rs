@@ -286,7 +286,8 @@ impl Encoder {
                 }
             }
         };
-        if config.hdr || image.pixel == crate::capture::Pixel::RgbaF16 {
+        // An HDR desktop (FP16, or PQ that an SDR stream tone-maps) too.
+        if config.hdr || image.pixel != crate::capture::Pixel::Bgra8 {
             created.set_luminance(image.gpu.sdr_white_nits(), 1.0);
         }
         Ok(created)

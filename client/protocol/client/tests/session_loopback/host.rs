@@ -202,18 +202,25 @@ impl FakeHost {
 }
 
 pub(crate) fn start_host(packed_format: Option<u32>) -> FakeHost {
-    start_host_options(packed_format, false, false, false)
+    start_host_options(packed_format, false, false, false, None)
+}
+
+/// A host without Rubylight's audio codecs that offers AC3 with `a=x-ss-audio-codec-offer` and,
+/// when the ANNOUNCE accepts exactly that token, answers `X-SS-Audio-Codec: <confirm>`; else
+/// `Opus`, as such hosts do.
+pub(crate) fn start_dolby_ss_host(confirm: &'static str) -> FakeHost {
+    start_host_options(None, false, false, false, Some(confirm))
 }
 
 /// With `roaming`, the host advertises client roaming, answers PROBE and CONFIRM, and offers
 /// the microphone.
 pub(crate) fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
-    start_host_options(packed_format, roaming, false, false)
+    start_host_options(packed_format, roaming, false, false, None)
 }
 
 /// A host that negotiates encrypted video (`SS_ENC_VIDEO`) and per-packet transport feedback (`0x5547`).
 pub(crate) fn start_encrypted_feedback_host() -> FakeHost {
-    start_host_options(None, false, true, true)
+    start_host_options(None, false, true, true, None)
 }
 
 fn start_host_options(
@@ -221,6 +228,7 @@ fn start_host_options(
     roaming: bool,
     video_encrypted: bool,
     transport_feedback: bool,
+    dolby_ss: Option<&'static str>,
 ) -> FakeHost {
     let video = UdpSocket::bind("127.0.0.1:0").unwrap();
     let audio = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -283,6 +291,9 @@ fn start_host_options(
                     if roaming {
                         describe.push_str(&host_mic::sdp(ports.3));
                     }
+                    if dolby_ss.is_some() {
+                        describe.push_str("a=x-ss-audio-codec-offer:AC3\n");
+                    }
                     body = describe.into_bytes();
                     headers.push(("Content-Type", "application/sdp".into()));
                 }
@@ -303,6 +314,14 @@ fn start_host_options(
                     } else {
                         headers.push(("X-SS-Ping-Payload", "0123456789abcdef".into()));
                     }
+                }
+                "ANNOUNCE" if dolby_ss.is_some() => {
+                    let sdp = String::from_utf8_lossy(&request.body);
+                    let accepted = sdp
+                        .lines()
+                        .any(|line| line.trim_end() == "a=x-ss-audio-codec-accept:AC3");
+                    let codec = dolby_ss.filter(|_| accepted).unwrap_or("Opus");
+                    headers.push(("X-SS-Audio-Codec", codec.into()));
                 }
                 _ => {}
             }

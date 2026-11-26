@@ -13,8 +13,8 @@ use crate::media;
 use super::{compile, create_dynamic_cb, write_cb, BackBuffer};
 
 /// `packed444.hlsl`'s `Presentation` block: the destination, the output's colour, then Frame
-/// Warp's two rows.
-const PRESENTATION_FLOATS: usize = 16;
+/// Warp's three rows.
+const PRESENTATION_FLOATS: usize = 20;
 pub(super) const PRESENTATION_BYTES: u32 = PRESENTATION_FLOATS as u32 * 4;
 const MAX_SHARED_VIEWS: usize = 32;
 
@@ -304,9 +304,9 @@ impl Packed {
         warp: &super::super::frame_warp::WarpDraw) -> bool {
         // SAFETY: `self.device` is live on this thread.
         let mask = unsafe { self.mask.borrow_mut().view(&self.device, warp) };
-        let (row, lens) = (warp.row(mask.is_some()), warp.lens_row());
+        let (row, lens, v2) = (warp.row(mask.is_some()), warp.lens_row(), warp.v2_row());
         let presentation = [destination[0], destination[1], destination[2], destination[3], u32::from(linear) as f32, scale, 0.0, 0.0,
-            row[0], row[1], row[2], row[3], lens[0], lens[1], lens[2], lens[3]];
+            row[0], row[1], row[2], row[3], lens[0], lens[1], lens[2], lens[3], v2[0], v2[1], v2[2], v2[3]];
         let x = destination[0].max(0.0);
         let y = destination[1].max(0.0);
         let clipped = [x, y, (destination[0] + destination[2]).min(output.0 as f32) - x,

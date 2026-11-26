@@ -24,7 +24,7 @@ const MAX_GPU_NAME_UTF16: usize = 512;
 /// The CPU readings this client shows; other keys are ignored.
 pub const CPU_METRICS: [&str; 1] = ["cpu_usage_percent"];
 /// The GPU readings this client shows; other keys are ignored.
-pub const GPU_METRICS: [&str; 13] = [
+pub const GPU_METRICS: [&str; 14] = [
     "gpu_usage_percent",
     "gpu_clock_mhz",
     "gpu_memory_clock_mhz",
@@ -38,6 +38,7 @@ pub const GPU_METRICS: [&str; 13] = [
     "gpu_board_power_w",
     "gpu_vram_used_mb",
     "gpu_vram_usage_percent",
+    "gpu_encoder_percent",
 ];
 
 /// Readings the host sent, in [`CPU_METRICS`] or [`GPU_METRICS`] order. A reading the host left

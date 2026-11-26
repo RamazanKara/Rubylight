@@ -114,6 +114,12 @@ final class HostStreamProfileSummary {
             fragment.findPreference(key).setSummary(summary(activity, switchField(key),
                     switchOverride(activity, key) != null, switchText(activity, key, switchValue(config, key))));
         }
+        Preference hdrFormat = fragment.findPreference("hdr_format");
+        if (hdrFormat != null) {
+            String[] formats = activity.getResources().getStringArray(R.array.hdr_format_names);
+            hdrFormat.setSummary(summary(activity, HostStreamProfile.Field.HDR_FORMAT, own.hdrFormat != null,
+                    formats[config.hdrFormat.ordinal()]) + "\n" + activity.getString(R.string.summary_hdr_format));
+        }
         fragment.findPreference("vrr").setSummary(
                 summary(activity, HostStreamProfile.Field.VRR, own.vrr != null, vrrText(activity, config)));
         String pacing = summary(activity, HostStreamProfile.Field.PACING,

@@ -18,6 +18,7 @@ mod device_recovery;
 #[cfg(test)]
 mod encoder_tests;
 pub(crate) mod frame_warp;
+mod frame_warp_prior;
 mod game_audio;
 mod hdr;
 mod instance_audio;

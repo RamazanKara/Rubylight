@@ -154,6 +154,7 @@ impl InputQueue {
             }
             number % u16::from(GFE_CONTROLLERS)
         };
+        self.speaker_slots = active_mask;
         let event = InputEvent::Controller {
             number,
             active_mask,
@@ -253,6 +254,7 @@ impl InputQueue {
             capabilities |= capability::TOUCHPAD;
         }
         if self.sunshine {
+            capabilities = self.bind_speaker(number, kind, capabilities);
             self.offer_event(InputEvent::ControllerArrival {
                 number,
                 kind,
@@ -261,6 +263,49 @@ impl InputQueue {
             })?;
         }
         self.send_controller(u16::from(number), active_mask, 0, 0, 0, (0, 0), (0, 0))
+    }
+
+    /// A PlayStation arrival asking for speaker PCM (0x4000) keeps it only on a stream that
+    /// negotiated it, behind a binding queued just before it on the same channel; any other
+    /// type's 0x4000 (a Steam Controller's attributes) is left alone.
+    fn bind_speaker(&mut self, number: u8, kind: u8, capabilities: u16) -> u16 {
+        use rubylight_protocol::ps_speaker_pcm::{CTYPE_PS, PS_SPEAKER_CAPABILITY};
+        if kind != CTYPE_PS {
+            return capabilities;
+        }
+        let Some(owners) = self.ps_speaker.clone() else {
+            return capabilities & !PS_SPEAKER_CAPABILITY;
+        };
+        let present = self.speaker_slots & (1 << number) != 0;
+        self.speaker_slots |= 1 << number;
+        if capabilities & PS_SPEAKER_CAPABILITY == 0 {
+            owners.set(number, 0);
+            return capabilities;
+        }
+        if present {
+            // The same controller announced again (its audio changed): the host ignores a
+            // binding for its slot, and one that keeps the binding it took plays on.
+            return if owners.get(u16::from(number)) != 0 {
+                capabilities
+            } else {
+                capabilities & !PS_SPEAKER_CAPABILITY
+            };
+        }
+        owners.set(number, 0);
+        let bound = crate::control::ps_speaker::next_owner().filter(|owner| {
+            self.offer_event(InputEvent::SpeakerBinding {
+                number,
+                owner: *owner,
+            })
+            .is_ok()
+        });
+        match bound {
+            Some(owner) => {
+                owners.set(number, owner);
+                capabilities
+            }
+            None => capabilities & !PS_SPEAKER_CAPABILITY,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

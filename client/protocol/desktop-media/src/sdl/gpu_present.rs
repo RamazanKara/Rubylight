@@ -19,6 +19,15 @@ pub fn prefer_immediate(renderer: *mut SDL_Renderer, prefer: bool) {
     unsafe { SDL_SetBooleanProperty(SDL_GetRendererProperties(renderer), PREFER_IMMEDIATE_PROPERTY.as_ptr(), prefer) };
 }
 
+/// Asks the GPU renderer for MAILBOX before IMMEDIATE the next time V-Sync turns off, whatever
+/// [`set_vrr_tearing`] says: a V-Sync stream under gamescope that presents MAILBOX instead of
+/// gamescope's FIFO once that held it back (`stream::present::FifoWatch`) must not tear.
+#[cfg(target_os = "linux")]
+pub fn prefer_mailbox(renderer: *mut SDL_Renderer) {
+    // SAFETY: a live renderer and a property name constant.
+    unsafe { SDL_SetBooleanProperty(SDL_GetRendererProperties(renderer), PREFER_IMMEDIATE_PROPERTY.as_ptr(), false) };
+}
+
 /// The coming stream presents IMMEDIATE under VRR too (`stream::wl_scanout::vrr_tearing`: without
 /// Tear-free VRR), where `present::prefers_immediate` keeps MAILBOX for a Wayland desktop's VRR.
 #[cfg(target_os = "linux")]

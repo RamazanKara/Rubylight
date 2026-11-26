@@ -53,9 +53,17 @@ pub(crate) fn hlg_light(signal: [f64; 3]) -> [f64; 3] {
 /// 170M, 1 BT.709, 2 BT.2020). ITU-R BT.2446-1 Method B, ported from
 /// Foundation Sunshine's MethodBScRgbToSdr and LimitSdrGamut
 /// (AlkaidLab/foundation-sunshine, commit 9d761ba, PR #1387). Copyright (c)
-/// Foundation Sunshine authors, GPL-3.0.
+/// Foundation Sunshine authors, GPL-3.0. For a 1000-nit source, as
+/// section 5.2.1 has it; [`method_b_peak`] takes the source's peak.
 #[cfg(test)]
 pub(crate) fn method_b(light: [f64; 3], color_matrix: u8) -> [f64; 3] {
+    method_b_peak(light, color_matrix, 1000.)
+}
+/// [`method_b`] for a source of `peak` nits: the HLG reference OOTF it
+/// inverts is a `peak`-nit display's, at BT.2100's system gamma
+/// 1.2 + 0.42 log10(peak / 1000), so `peak` maps to SDR white.
+#[cfg(test)]
+pub(crate) fn method_b_peak(light: [f64; 3], color_matrix: u8, peak: f64) -> [f64; 3] {
     type Matrix = [[f64; 3]; 3];
     const RGB709_TO_LMS: Matrix = [
         [0.295809355, 0.623101305, 0.081089341],
@@ -76,11 +84,6 @@ pub(crate) fn method_b(light: [f64; 3], color_matrix: u8) -> [f64; 3] {
         [1.065379, -0.055401, -0.009978],
         [-0.019633, 1.036363, -0.016730],
         [0.001632, 0.004412, 0.993956],
-    ];
-    const TO_2020: Matrix = [
-        [0.627404, 0.329283, 0.043313],
-        [0.069097, 0.919540, 0.011362],
-        [0.016391, 0.088013, 0.895595],
     ];
     fn mul(m: Matrix, v: [f64; 3]) -> [f64; 3] {
         m.map(|row| row[0] * v[0] + row[1] * v[1] + row[2] * v[2])
@@ -142,7 +145,8 @@ pub(crate) fn method_b(light: [f64; 3], color_matrix: u8) -> [f64; 3] {
     if y <= 0. {
         return [0.; 3];
     }
-    let bridge = 291. * (y * 80. / 1000.).powf(1. / 1.2);
+    let system_gamma = 1.2 + 0.42 * (peak / 1000.).log10();
+    let bridge = 291. * (y * 80. / peak).powf(1. / system_gamma);
     let (knee, width) = (55.0842, 16.44899);
     let nits = if bridge <= knee {
         bridge
@@ -154,9 +158,47 @@ pub(crate) fn method_b(light: [f64; 3], color_matrix: u8) -> [f64; 3] {
     if color_matrix == 0 {
         sdr = limit(sdr, mul(TO_SMPTE_C, sdr), LMS_TO_SMPTE_C);
     } else if color_matrix == 2 {
-        sdr = mul(TO_2020, sdr);
+        sdr = mul(BT709_TO_2020, sdr);
     }
     sdr.map(|v| v.max(0.).powf(1. / 2.4))
+}
+/// color.hlsl's `gamut2020` and `gamut709`.
+#[cfg(test)]
+const BT709_TO_2020: [[f64; 3]; 3] = [
+    [0.627404, 0.329283, 0.043313],
+    [0.069097, 0.919540, 0.011362],
+    [0.016391, 0.088013, 0.895595],
+];
+#[cfg(test)]
+const BT2020_TO_709: [[f64; 3]; 3] = [
+    [1.660491, -0.587641, -0.072850],
+    [-0.124550, 1.132900, -0.008349],
+    [-0.018151, -0.100579, 1.118730],
+];
+/// color.hlsl's `load` for a tone-mapped PQ capture on the CPU, for the
+/// tests: 10-bit PQ codes of BT.2020 light to scRGB (`gamut709(depq(rgb) *
+/// 125)`), which [`method_b`] then maps as it does an FP16 capture.
+#[cfg(test)]
+pub(crate) fn pq_scrgb(codes: [u16; 3]) -> [f64; 3] {
+    let light = codes.map(|code| {
+        let p = (f64::from(code) / 1023.).powf(32. / 2523.);
+        ((p - 3424. / 4096.).max(0.) / (2413. / 128. - 2392. / 128. * p)).powf(16384. / 2610.)
+            * 125.
+    });
+    BT2020_TO_709.map(|row| row[0] * light[0] + row[1] * light[1] + row[2] * light[2])
+}
+/// The 10-bit PQ codes of scRGB `light` in BT.2020, as an HDR10 desktop
+/// hands them over; light outside BT.2020 clips.
+#[cfg(test)]
+pub(crate) fn scrgb_pq10(light: [f32; 3]) -> [u16; 3] {
+    let light = light.map(f64::from);
+    BT709_TO_2020.map(|row| {
+        let nits = (row[0] * light[0] + row[1] * light[1] + row[2] * light[2]) * 80.;
+        let p = (nits.clamp(0., 10000.) / 10000.).powf(2610. / 16384.);
+        let signal =
+            ((3424. / 4096. + 2413. / 128. * p) / (1. + 2392. / 128. * p)).powf(2523. / 32.);
+        (signal * 1023.).round() as u16
+    })
 }
 pub(crate) fn pointer_linear(value: u8) -> f32 {
     srgb_table()[value as usize] * 1.25
@@ -431,6 +473,73 @@ mod tests {
         assert!((pq(10000.) - 1.).abs() < 0.00002);
         assert!((f32::from(code(1., pq_table())) / 65535. - pq(80.)).abs() < 0.0001);
     }
+    /// 8-bit limited-range codes of an SDR signal in `matrix` (0 BT.601,
+    /// 1 BT.709, 2 BT.2020).
+    fn limited_codes(rgb: [f64; 3], matrix: usize) -> [f64; 3] {
+        let (kr, kb) = [(0.299, 0.114), (0.2126, 0.0722), (0.2627, 0.0593)][matrix];
+        let y = kr * rgb[0] + (1. - kr - kb) * rgb[1] + kb * rgb[2];
+        [
+            16. + 219. * y,
+            128. + 224. * (rgb[2] - y) / (2. * (1. - kb)),
+            128. + 224. * (rgb[0] - y) / (2. * (1. - kr)),
+        ]
+        .map(f64::round)
+    }
+    #[test]
+    fn method_b_of_an_hdr10_capture_matches_the_fp16_codes() {
+        // The same desktop as 10-bit PQ: Sunshine's codes within one for the
+        // greys and the colours inside the cube. The BT.709 primaries (9 to
+        // 11) and the colour outside BT.2020 (13) sit on the cube's edge,
+        // where a PQ code's error of 1e-4 moves the gamut limiting by up to
+        // 25 codes; the GPU tests hold those to `method_b` of the PQ light.
+        for (patch, (light, codes)) in METHOD_B_PATCHES.iter().enumerate() {
+            if (9..=11).contains(&patch) || patch == 13 {
+                continue;
+            }
+            let pq = pq_scrgb(scrgb_pq10(*light));
+            for matrix in [1, 0, 2] {
+                let wanted = match matrix {
+                    1 => *codes,
+                    _ if patch < 9 => continue,
+                    0 => METHOD_B_SMPTE_C[patch - 9],
+                    _ => METHOD_B_BT2020[patch - 9],
+                };
+                let actual = limited_codes(method_b(pq, matrix as u8), matrix);
+                for (actual, wanted) in actual.into_iter().zip(wanted) {
+                    assert!(
+                        (actual - f64::from(wanted)).abs() <= 1.,
+                        "matrix {matrix} {light:?}: {actual}, wanted {wanted}"
+                    );
+                }
+            }
+        }
+        // PQ round trip: 10-bit codes keep scRGB within a code's step.
+        let grey = pq_scrgb(scrgb_pq10([1.; 3]));
+        assert!(grey.iter().all(|v| (v - 1.).abs() < 0.01), "{grey:?}");
+        assert_eq!(scrgb_pq10([0.; 3]), [0; 3]);
+        assert_eq!(scrgb_pq10([125.; 3]), [1023; 3]);
+    }
+    #[test]
+    fn method_b_maps_the_sources_peak_to_sdr_white() {
+        let grey = |nits: f64, peak| method_b_peak([nits / 80.; 3], 1, peak)[0];
+        for light in [[0.5; 3], [2.5; 3], [2., 0.75, 0.25], [10., 1., 5.]] {
+            assert_eq!(method_b_peak(light, 1, 1000.), method_b(light, 1));
+        }
+        for peak in [400., 600., 1000., 1500., 2000.] {
+            assert!((grey(peak, peak) - 1.).abs() < 1e-4, "{peak}");
+            assert!(grey(peak * 0.9, peak) < 1., "{peak}");
+        }
+        // A brighter display's 203-nit white is a lower signal, a dimmer
+        // one's a higher, and black stays black.
+        assert!(grey(203., 400.) > grey(203., 1000.));
+        assert!(grey(203., 1000.) > grey(203., 2000.));
+        assert!(
+            (grey(203., 2000.) - 0.761).abs() < 0.002,
+            "{}",
+            grey(203., 2000.)
+        );
+        assert_eq!(method_b_peak([0.; 3], 1, 400.), [0.; 3]);
+    }
     #[test]
     fn method_b_matches_its_fixed_points() {
         let grey = |nits: f64| method_b([nits / 80.; 3], 1)[0].min(1.);
@@ -446,18 +555,11 @@ mod tests {
             (0, &METHOD_B_PATCHES[9..]),
             (2, &METHOD_B_PATCHES[9..]),
         ] {
-            let (kr, kb) = [(0.299, 0.114), (0.2126, 0.0722), (0.2627, 0.0593)][matrix];
             for (patch, (light, codes)) in patches.iter().enumerate() {
                 let rgb = method_b(light.map(f64::from), matrix as u8);
                 // Out-of-gamut and over-range colours land inside the cube.
                 assert!(rgb.iter().all(|v| (0. ..=1.0001).contains(v)), "{rgb:?}");
-                let y = kr * rgb[0] + (1. - kr - kb) * rgb[1] + kb * rgb[2];
-                let actual = [
-                    16. + 219. * y,
-                    128. + 224. * (rgb[2] - y) / (2. * (1. - kb)),
-                    128. + 224. * (rgb[0] - y) / (2. * (1. - kr)),
-                ]
-                .map(f64::round);
+                let actual = limited_codes(rgb, matrix);
                 let wanted = match matrix {
                     1 => *codes,
                     0 => METHOD_B_SMPTE_C[patch],

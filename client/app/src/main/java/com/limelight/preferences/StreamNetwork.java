@@ -68,12 +68,13 @@ public final class StreamNetwork {
         return new StreamNetwork(cellular, wifi, metered, wifiName, missing);
     }
 
-    /** Reads the network and fills the network part of {@code input}. */
+    /** Reads the network and fills the network part of {@code input}, and the screen the stream starts on. */
     public static void fill(Context context, StreamLayers.Input input) {
         boolean wantName = input.profiles.auto && !input.profiles.homeWifi.isEmpty();
         StreamNetwork network = read(context, wantName);
         input.network = StreamLayers.classify(network.cellular, network.wifi, network.metered,
                 network.wifiName, input.profiles.homeWifi);
         input.wifiNameKnown = !network.wifiNameMissing;
+        input.screen = StreamScreen.of(context);
     }
 }

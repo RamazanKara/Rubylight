@@ -32,7 +32,7 @@ pub(super) fn game_page_with_profiles(names: &[&str]) -> Frames {
     let mut f = home_with_games(1);
     let pc = f.hosts.list[0].id;
     f.hosts.list[0].apps = Apps::Loaded(Arc::new(vec![nightjar_policy::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]));
-    f.l.profiles.entries = names.iter().zip(1u64..).map(|(name, id)| crate::config::Profile { id, name: (*name).into(), settings: Default::default() }).collect();
+    f.l.profiles.entries = names.iter().zip(1u64..).map(|(name, id)| crate::config::Profile::new(id, *name, Default::default())).collect();
     f.l.go(Screen::Game { host: pc, app: 1000 });
     f.settle();
     f

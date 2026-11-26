@@ -464,5 +464,33 @@ class WatchGpuHangTests(unittest.TestCase):
         self.assertFalse(watch_gpu_hang.process_post_tool(remote_timeout, agents_dir=self.agents_dir))
 
 
+    def test_reading_or_naming_a_runner_is_not_a_run(self) -> None:
+        for cmd in (
+            "sed -n 5,14p tools/hw/run.py; sed -n 326,337p tools/hw/run.py",
+            "grep -n soak tools/hw/run.py",
+            "cat > notes.md <<'EOF'\nrun python rust/tests/crash_restore_soak.py; Exit code 3 is an AMD hang\nEOF",
+            "python - <<'EOF'\nprint('rust/release/e2e.py exit code 3')\nEOF",
+            "git log --oneline -- rust/release/e2e.py",
+        ):
+            payload = {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": cmd},
+                "tool_response": {"stdout": "Exit code 3 is an AMD encoder hang", "exit_code": 3},
+            }
+            self.assertFalse(watch_gpu_hang.process_post_tool(payload, agents_dir=self.agents_dir), msg=cmd)
+        for cmd in (
+            "MSYS_NO_PATHCONV=1 python rust/release/e2e.py --codec av1",
+            "cd rust && python tests/crash_restore_soak.py --cycles 10",
+            "python C:/Users/ramaz/.claude/tools/laptop.py run --branch x -- python rust/release/e2e.py",
+        ):
+            payload = {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": cmd},
+                "tool_response": {"exit_code": 3},
+            }
+            self.assertTrue(watch_gpu_hang.process_post_tool(payload, agents_dir=self.agents_dir), msg=cmd)
+
 if __name__ == "__main__":
     unittest.main()

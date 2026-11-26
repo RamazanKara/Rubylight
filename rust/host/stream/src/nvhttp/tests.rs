@@ -475,3 +475,60 @@ fn terminate_confirmation_and_vacated_background_share_device_identity_across_sc
     assert!(!super::terminate_refused(&f.host, &owner_second));
     assert!(super::quit_vacated_background(&f.host, &owner_second).is_none());
 }
+#[tokio::test]
+async fn a_successful_launch_reports_its_setup_fallback_and_a_failed_one_never_does() {
+    use crate::state::test_support::Fixture;
+    use butterpollo_session::{remote::Control, session::Role};
+    async fn body(response: axum::response::Response) -> String {
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+    let f = Fixture::new();
+    let launch = f.launch(f.client(u32::MAX), Role::Stream);
+    assert_eq!(super::launch_steps::launch_warning(&launch, None), None);
+    launch.warnings.set("audio_route", "not a setup fallback");
+    launch
+        .warnings
+        .set("display_scale", "Scale <b>lowered</b>.");
+    assert_eq!(super::launch_steps::launch_warning(&launch, None), None);
+    launch.warnings.set(
+        "display_virtual",
+        "Using a physical display & \u{202E}more.",
+    );
+    let warning = super::launch_steps::launch_warning(&launch, None);
+    assert_eq!(
+        warning,
+        Some((
+            "virtual_display_unavailable".into(),
+            "Using a physical display & more.".into()
+        ))
+    );
+    assert_eq!(
+        super::launch_steps::launch_warning(&launch, Some(Control::Resume)),
+        None
+    );
+    let ok = body(super::launch_response(
+        Ok(("gamesession".into(), "rtsp://h:1".into(), warning.clone())),
+        1,
+        "gamesession",
+        false,
+        true,
+    ))
+    .await;
+    assert!(ok.contains("<gamesession>1</gamesession>"), "{ok}");
+    assert!(
+        ok.contains("<clientWarning>virtual_display_unavailable</clientWarning><clientWarningMessage>Using a physical display &amp; more.</clientWarningMessage>"),
+        "{ok}"
+    );
+    let failed = body(super::launch_response(
+        Err(anyhow::anyhow!("no")),
+        1,
+        "gamesession",
+        false,
+        false,
+    ))
+    .await;
+    assert!(!failed.contains("clientWarning"), "{failed}");
+}

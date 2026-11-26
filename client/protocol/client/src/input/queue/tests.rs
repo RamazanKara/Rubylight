@@ -2,6 +2,7 @@
 //! backpressure and grace-period state holding.
 
 mod devices;
+mod speaker;
 
 use super::poll::code_points;
 use super::*;

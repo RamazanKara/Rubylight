@@ -28,7 +28,7 @@
     <string name="desktop_zoom_enable">啟用雙指縮放和平移</string>
     <string name="desktop_zoom_disable">停用雙指縮放和平移</string>
     <string name="desktop_zoom_reset">重設縮放</string>
-    <string name="desktop_zoom_help">以兩指捏合即可縮放，最高 4×；以兩指拖曳即可平移。單指仍使用所選的觸控模式。啟用縮放控制時，會取代兩指捲動。</string>
+    <string name="desktop_zoom_help">以兩指捏合可在 0.5× 至 4× 之間縮放；以兩指拖曳可自由移動畫面，包含黑邊區域。單指仍使用所選的觸控模式。啟用縮放控制時，會取代兩指捲動。</string>
     <string name="desktop_output">視訊輸出 (會重新連線串流)</string>
     <string name="desktop_output_device">這部裝置</string>
     <string name="desktop_touchpad_help">影像會顯示在你的外接顯示器上。請將這個螢幕當作觸控板使用。鍵盤、遊戲按鈕和串流選單仍可在這裡使用。</string>

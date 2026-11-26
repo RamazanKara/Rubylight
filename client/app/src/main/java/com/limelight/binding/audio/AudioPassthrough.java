@@ -1,7 +1,9 @@
 package com.limelight.binding.audio;
 
+import android.annotation.SuppressLint;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.os.Build;
 
@@ -30,12 +32,30 @@ public final class AudioPassthrough {
         boolean supports(int encoding, int channelMask);
     }
 
+    /** {@link AudioManager#getDirectPlaybackSupport}'s answer: its DIRECT_PLAYBACK_* bits. */
+    interface DirectSupport {
+        int support(int encoding, int channelMask);
+    }
+
     /** The codecs the route plays for {@code channels}; 0 before Android 10, which cannot tell. */
+    @SuppressLint("NewApi") // select() asks getDirectPlaybackSupport only on Android 13 and later.
     public static int playableCodecs(int channels) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return playableCodecs(Build.VERSION.SDK_INT, channels, null);
         }
-        return playableCodecs(Build.VERSION.SDK_INT, channels, AudioPassthrough::directPlayback);
+        return playableCodecs(Build.VERSION.SDK_INT, channels,
+                select(Build.VERSION.SDK_INT, AudioPassthrough::directPlayback, AudioPassthrough::directSupport));
+    }
+
+    /**
+     * How to ask the route: AudioManager.getDirectPlaybackSupport from Android 13, where
+     * AudioTrack.isDirectPlaybackSupported is deprecated, and the old call before. Any direct mode
+     * counts, offload as well as bitstream, as the old call counted either.
+     */
+    static DirectPlayback select(int sdk, DirectPlayback legacy, DirectSupport modern) {
+        if (sdk < Build.VERSION_CODES.TIRAMISU) return legacy;
+        return (encoding, channelMask) ->
+                modern.support(encoding, channelMask) != AudioManager.DIRECT_PLAYBACK_NOT_SUPPORTED;
     }
 
     static int playableCodecs(int sdk, int channels, DirectPlayback direct) {
@@ -101,6 +121,15 @@ public final class AudioPassthrough {
             return AudioTrack.isDirectPlaybackSupported(format(encoding, channelMask), attributes());
         } catch (RuntimeException e) {
             return false;
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private static int directSupport(int encoding, int channelMask) {
+        try {
+            return AudioManager.getDirectPlaybackSupport(format(encoding, channelMask), attributes());
+        } catch (RuntimeException e) {
+            return AudioManager.DIRECT_PLAYBACK_NOT_SUPPORTED;
         }
     }
 }

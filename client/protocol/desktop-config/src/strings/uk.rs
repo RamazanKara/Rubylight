@@ -1759,4 +1759,8 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приймання: систе
     ("Add this device’s battery percentage and local time to the compact performance overlay.", "Додає відсоток заряду батареї та місцевий час цього пристрою до компактного оверлея продуктивності."),
     ("macOS restricts Wi-Fi network names (SSIDs) without Location Services permission, so Wi-Fi connections match Other Wi-Fi instead of Home Wi-Fi.", "macOS обмежує доступ до назв мереж Wi-Fi (SSID) без дозволу служб локації, тому з’єднання Wi-Fi відповідають пункту «Інша мережа Wi-Fi» замість «Домашня мережа Wi-Fi»."),
     ("The clipboard on this device holds no text.", "У буфері обміну цього пристрою немає тексту."),
+    ("HDR format", "Формат HDR"),
+    ("No Dolby Vision", "Без Dolby Vision"),
+    ("HDR10 only", "Лише HDR10"),
+    ("Automatic uses the best HDR format both sides take; the others leave out Dolby Vision, or everything beyond HDR10. Change it if a format looks wrong; with HDR10 only some PCs may still send HDR10+.", "«Автоматично» бере найкращий формат HDR, який підтримують обидві сторони; інші варіанти прибирають Dolby Vision або все понад HDR10. Змініть, якщо якийсь формат виглядає неправильно; з «Лише HDR10» деякі ПК все одно можуть надсилати HDR10+."),
 ];

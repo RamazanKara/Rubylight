@@ -73,6 +73,8 @@ pub struct Settings {
     /// (`stream::wl_scanout::Brightness`). Off: the PC's absolute brightness, which HDR10 means
     /// and direct scanout needs.
     pub hdr_desktop_brightness: bool,
+    /// "HDR format" (Android's `list_hdr_format`): what an HDR stream may ask for.
+    pub hdr_format: nightjar_policy::video_codec::hdr::HdrFormatChoice,
     /// "Sharper colored text" (`nightjar_core::sharp_color`) is one choice kept in two keys that
     /// older versions read: Off is both off, Automatic both on. Every load sets both to "either
     /// was on" ([`Settings::migrate`], [`Overrides`]).

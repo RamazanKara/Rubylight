@@ -29,6 +29,9 @@ public final class StreamProfiles {
     static final String RULE_HOME_WIFI = "rule.home_wifi";
     static final String RULE_WIFI = "rule.wifi";
     static final String HOME_WIFI = "home_wifi";
+    /** A profile's screen ({@link StreamScreen#id}) and that screen's name, from 7.0; absent for every other profile. */
+    static final String SCREEN = "screen.";
+    static final String SCREEN_NAME = "screen_name.";
     static final int MAX_NAME = 32;
     static final int MAX_PROFILES = 50;
 
@@ -56,15 +59,19 @@ public final class StreamProfiles {
         public final boolean auto;
         final Map<StreamLayers.Network, String> rules;
         public final Set<String> homeWifi;
+        /** The screen each profile is kept for, by profile ID in the profiles' order; most profiles have none. */
+        final Map<String, StreamScreen> screens;
 
         private Snapshot(Map<String, String> names, Map<String, String> values, String activeId, boolean auto,
-                         Map<StreamLayers.Network, String> rules, Set<String> homeWifi) {
+                         Map<StreamLayers.Network, String> rules, Set<String> homeWifi,
+                         Map<String, StreamScreen> screens) {
             this.names = Collections.unmodifiableMap(names);
             this.values = values;
             this.activeId = activeId;
             this.auto = auto;
             this.rules = rules;
             this.homeWifi = Collections.unmodifiableSet(homeWifi);
+            this.screens = Collections.unmodifiableMap(screens);
         }
 
         static Snapshot from(Map<String, ?> stored) {
@@ -95,8 +102,21 @@ public final class StreamProfiles {
                     if (name instanceof String) homeWifi.add((String) name);
                 }
             }
+            Map<String, StreamScreen> screens = new LinkedHashMap<>();
+            for (String id : names.keySet()) {
+                Object screen = stored.get(SCREEN + id);
+                Object screenName = stored.get(SCREEN_NAME + id);
+                if (screen instanceof String && !((String) screen).trim().isEmpty()) {
+                    screens.put(id, new StreamScreen((String) screen, screenName instanceof String ? (String) screenName : ""));
+                }
+            }
             return new Snapshot(names, values, active instanceof String && !((String) active).isEmpty() ?
-                    (String) active : null, Boolean.TRUE.equals(auto), rules, homeWifi);
+                    (String) active : null, Boolean.TRUE.equals(auto), rules, homeWifi, screens);
+        }
+
+        /** The screen profile {@code id} is kept for; null for none. */
+        public StreamScreen screen(String id) {
+            return id == null ? null : screens.get(id);
         }
 
         public boolean exists(String id) {
@@ -207,7 +227,8 @@ public final class StreamProfiles {
             order.append(kept);
         }
         SharedPreferences.Editor editor = prefs(context).edit()
-                .remove(NAME + id).remove(VALUES + id).putString(ORDER, order.toString());
+                .remove(NAME + id).remove(VALUES + id).remove(SCREEN + id).remove(SCREEN_NAME + id)
+                .putString(ORDER, order.toString());
         if (id.equals(snapshot.activeId)) editor.remove(ACTIVE);
         for (StreamLayers.Network network : StreamLayers.Network.values()) {
             if (id.equals(snapshot.rule(network))) editor.remove(ruleKey(network));
@@ -235,6 +256,24 @@ public final class StreamProfiles {
         if (id == null) editor.remove(key);
         else editor.putString(key, id);
         editor.apply();
+    }
+
+    /**
+     * Keeps profile {@code id} for {@code screen}, so a stream started there uses it; null keeps no profile for it. A
+     * screen calls up one profile, so the profile kept for it before lets it go.
+     */
+    public static void keepForScreen(Context context, StreamScreen screen, String id) {
+        Snapshot snapshot = load(context);
+        SharedPreferences.Editor editor = prefs(context).edit();
+        String before = StreamLayers.screenProfile(snapshot, screen);
+        if (before != null) editor.remove(SCREEN + before).remove(SCREEN_NAME + before);
+        if (id != null && snapshot.exists(id)) editor.putString(SCREEN + id, screen.id).putString(SCREEN_NAME + id, screen.name);
+        editor.apply();
+    }
+
+    /** Lets profile {@code id} go of the screen it was kept for. */
+    public static void forgetScreen(Context context, String id) {
+        prefs(context).edit().remove(SCREEN + id).remove(SCREEN_NAME + id).apply();
     }
 
     public static void setHomeWifi(Context context, Set<String> names) {

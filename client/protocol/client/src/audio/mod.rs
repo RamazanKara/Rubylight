@@ -17,6 +17,11 @@ use queue::{AddResult, AudioQueue, Queued, RtpHeader, RTP_PAYLOAD_TYPE_AUDIO};
 
 /// Datagrams are read into a buffer of this size, as in the C core.
 pub const MAX_PACKET_SIZE: usize = 1400;
+/// The read buffer while AC3 or E-AC3 frames come unchunked, one whole frame per datagram (see
+/// [`AudioReceiver::unchunked_frames`]): the longest frame there is (E-AC3's 4096 bytes) with
+/// room for the RTP and FEC headers and the encryption padding. A 640 kbit/s AC3 frame is
+/// 2560 bytes, 2588 encrypted with its RTP header, which [`MAX_PACKET_SIZE`] would cut.
+pub const MAX_UNCHUNKED_PACKET_SIZE: usize = 4096 + 64;
 /// Audio received in the first half second is the host's backlog and is dropped.
 const INITIAL_DROP_MS: u32 = 500;
 
@@ -67,8 +72,18 @@ pub struct AudioReceiver {
     received_data: bool,
     packet: Vec<u8>,
     plain: Vec<u8>,
-    /// AC3 and E-AC3 streams: their chunks put back together into frames.
-    frames: Option<passthrough::FrameAssembler>,
+    /// AC3 and E-AC3 streams: the frames their packets carry.
+    frames: Option<Frames>,
+    /// The longest datagram read: [`MAX_PACKET_SIZE`], or [`MAX_UNCHUNKED_PACKET_SIZE`].
+    max_packet: usize,
+}
+
+/// How an AC3 or E-AC3 stream's packets carry its frames.
+enum Frames {
+    /// Rubylight's numbered chunks (`audio_ext::ChunkHeader`), put back together.
+    Chunks(passthrough::FrameAssembler),
+    /// One whole frame per packet, without a chunk header.
+    Unchunked(passthrough::UnchunkedFrames),
 }
 
 impl AudioReceiver {
@@ -86,23 +101,45 @@ impl AudioReceiver {
             packet: Vec::with_capacity(MAX_PACKET_SIZE),
             plain: Vec::with_capacity(MAX_PACKET_SIZE + 16),
             frames: None,
+            max_packet: MAX_PACKET_SIZE,
         }
     }
 
     /// An AC3 or E-AC3 stream: `receive` hands on whole frames, put together from their
     /// chunks, and [`AudioOutput::Lost`] once per frame lost.
     pub fn assemble_frames(&mut self) {
-        self.frames = Some(passthrough::FrameAssembler::default());
+        self.frames = Some(Frames::Chunks(passthrough::FrameAssembler::default()));
         self.queue.frames_in_chunks();
+    }
+
+    /// An AC3 or E-AC3 stream whose host sends each frame whole in one datagram, without a
+    /// chunk header (negotiated with the `x-ss-audio` RTSP lines, `rtsp::dolby_ss`): `receive`
+    /// reads datagrams up to [`MAX_UNCHUNKED_PACKET_SIZE`] and hands on each packet that is a
+    /// frame, [`AudioOutput::Lost`] for one that is lost or is not a frame. One packet per 32 ms
+    /// frame keeps the queue's Opus pacing, so it is not told the frames come in chunks.
+    pub fn unchunked_frames(&mut self) {
+        self.frames = Some(Frames::Unchunked(passthrough::UnchunkedFrames::default()));
+        self.max_packet = MAX_UNCHUNKED_PACKET_SIZE;
+        self.packet.reserve(MAX_UNCHUNKED_PACKET_SIZE);
+        self.plain.reserve(MAX_UNCHUNKED_PACKET_SIZE + 16);
+    }
+
+    /// The longest datagram `receive` reads whole; the socket's reads should take as much.
+    pub fn max_packet_size(&self) -> usize {
+        self.max_packet
     }
 
     /// Processes one datagram received at `now_us` (monotonic microseconds) and passes the
     /// packets now due to `out`.
     pub fn receive(&mut self, datagram: &[u8], now_us: u64, out: &mut impl FnMut(AudioOutput<'_>)) {
         match self.frames.take() {
-            Some(mut frames) => {
+            Some(Frames::Chunks(mut frames)) => {
                 self.receive_packets(datagram, now_us, &mut |output| frames.push(output, out));
-                self.frames = Some(frames);
+                self.frames = Some(Frames::Chunks(frames));
+            }
+            Some(Frames::Unchunked(mut frames)) => {
+                self.receive_packets(datagram, now_us, &mut |output| frames.push(output, out));
+                self.frames = Some(Frames::Unchunked(frames));
             }
             None => self.receive_packets(datagram, now_us, out),
         }
@@ -114,7 +151,7 @@ impl AudioReceiver {
         now_us: u64,
         out: &mut impl FnMut(AudioOutput<'_>),
     ) {
-        let datagram = &datagram[..datagram.len().min(MAX_PACKET_SIZE)];
+        let datagram = &datagram[..datagram.len().min(self.max_packet)];
         if datagram.len() < 12 {
             return;
         }
@@ -176,12 +213,15 @@ impl AudioReceiver {
         }
     }
 
-    /// The queue's counts; frames whose chunks were not an AC3 or E-AC3 frame count as invalid.
+    /// The queue's counts; frames (put together from chunks or not) that were not an AC3 or
+    /// E-AC3 frame count as invalid.
     pub fn stats(&self) -> AudioStats {
         let mut stats = self.queue.stats;
-        if let Some(frames) = &self.frames {
-            stats.packet_count_invalid += frames.invalid;
-        }
+        stats.packet_count_invalid += match &self.frames {
+            Some(Frames::Chunks(frames)) => frames.invalid,
+            Some(Frames::Unchunked(frames)) => frames.invalid,
+            None => 0,
+        };
         stats
     }
 

@@ -122,4 +122,11 @@
     <string name="game_preset_quality_summary" formatted="false">Sets the bitrate to 150% of the PC’s, or of the main settings’ if the PC has none, up to the PC’s limit. Frame pacing and adaptive refresh are unchanged; on a weak connection the larger frames can add delay.</string>
     <string name="game_preset_custom">Custom</string>
     <string name="game_preset_custom_summary">Your own values, set below.</string>
+    <string name="profiles_screen">Profile for this screen</string>
+    <string name="profiles_screen_none">No profile for this screen</string>
+    <string name="profiles_screen_summary">Nightjar is on %1$s. A stream started there uses this profile, ahead of the network and the profile in use.</string>
+    <string name="profiles_screen_built_in">This device’s screen</string>
+    <string name="profiles_marker_screen">Kept for %1$s</string>
+    <string name="profiles_screen_forget">Forget screen</string>
+    <string name="layers_part_profile_screen">profile %1$s, kept for this screen</string>
 </resources>

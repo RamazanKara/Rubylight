@@ -120,4 +120,11 @@
     <string name="game_preset_quality_summary" formatted="false">將位元率設為電腦位元率的 150%（電腦未設定時取主設定的位元率），上限為電腦的限制。影格排程和自適應更新率不變；連線較弱時，更大的影格可能增加延遲。</string>
     <string name="game_preset_custom">自訂</string>
     <string name="game_preset_custom_summary">你在下方設定的自訂值。</string>
+    <string name="profiles_screen">此螢幕的設定檔</string>
+    <string name="profiles_screen_none">此螢幕無設定檔</string>
+    <string name="profiles_screen_summary">Nightjar 位於 %1$s。在此開始的串流會使用此設定檔，優先於網路和目前設定檔。</string>
+    <string name="profiles_screen_built_in">本裝置的螢幕</string>
+    <string name="profiles_marker_screen">用於 %1$s</string>
+    <string name="profiles_screen_forget">忘記螢幕</string>
+    <string name="layers_part_profile_screen">設定檔 %1$s（用於此螢幕）</string>
 </resources>

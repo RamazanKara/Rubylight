@@ -155,6 +155,7 @@ final class MediaCodecVsyncPacer {
             r.refreshSlots.reset();
             r.pyroWaveDisplayClock.reset(r.vsyncIntervalNs);
         }
+        r.compositorWatch.resetWindow();
     }
 
     void doFrame(long frameTimeNanos) {

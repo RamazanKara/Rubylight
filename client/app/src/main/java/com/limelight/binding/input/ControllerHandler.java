@@ -366,6 +366,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     public static boolean isRemoteControlEvent(KeyEvent event) { return ControllerDeviceClassifier.isRemoteControlEvent(event); }
     public static boolean isGameControllerDevice(InputDevice device) { return ControllerDeviceClassifier.isGameControllerDevice(device); }
     public static short getAttachedControllerMask(Context context) { return ControllerDeviceClassifier.getAttachedControllerMask(context); }
+    public static short getAttachedPlayStationMask(Context context) { return ControllerDeviceClassifier.getAttachedPlayStationMask(context); }
 
     static boolean onscreenOwnsPlayerOne(PreferenceConfiguration config) {
         return NightjarInputJni.onscreenOwnsPlayerOne(config.onscreenOwnPlayer, config.multiController, config.onscreenController, config.onlyL3R3);

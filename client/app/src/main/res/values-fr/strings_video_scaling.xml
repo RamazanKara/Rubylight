@@ -6,12 +6,19 @@
         <item>Remplir (rogner)</item>
         <item>Étirer</item>
         <item>Pixels 1:1</item>
+        <item>Ajustement sûr</item>
     </string-array>
-    <string name="video_scaling_help">Ajuster : l’image entière, avec des bandes si l’écran a une autre forme.\nRemplir (rogner) : remplit l’écran sans déformer l’image ; les bords qui dépassent sont coupés.\nÉtirer : remplit l’écran ; les formes peuvent paraître plus larges ou plus hautes.\nPixels 1:1 : un pixel du stream par pixel de l’écran. Un stream plus petit a une bordure ; un plus grand est rogné.\nPosition de la vidéo place une image Ajuster ou 1:1 en haut. Le zoom par pincement fonctionne dans tous les modes, et le picture-in-picture montre toujours l’image entière.</string>
+    <string name="video_scaling_help">Ajuster : l’image entière, avec des bandes si l’écran a une autre forme.\nRemplir (rogner) : remplit l’écran sans déformer l’image ; les bords qui dépassent sont coupés.\nÉtirer : remplit l’écran ; les formes peuvent paraître plus larges ou plus hautes.\nPixels 1:1 : un pixel du stream par pixel de l’écran. Un stream plus petit a une bordure ; un plus grand est rogné.\nPosition de la vidéo place une image Ajuster ou 1:1 en haut. Le zoom par pincement fonctionne dans tous les modes, et le picture-in-picture montre toujours l’image entière.
+Ajustement sûr : comme Ajuster, mais à l’écart des encoches de caméra et des coins arrondis.</string>
     <string name="title_video_alignment">Position de la vidéo</string>
     <string name="summary_video_alignment">La position d’une image en « Ajuster » ou « Pixels 1:1 » : au centre ou en haut. « Haut » laisse libre l’espace sous l’image.</string>
     <string-array name="video_alignment_names">
         <item>Centre</item>
         <item>Haut</item>
     </string-array>
+    <string name="picture_position_title">Position de l’image</string>
+    <string name="picture_position_horizontal">Gauche / droite</string>
+    <string name="picture_position_vertical">Haut / bas</string>
+    <string name="picture_position_center">Centrer</string>
+    <string name="summary_picture_position">Déplace l’image pour compenser une encoche de caméra ou des bords incurvés, enregistré pour chaque écran de cet appareil. Laissez-la centrée sauf si une partie de l’image est masquée.</string>
 </resources>

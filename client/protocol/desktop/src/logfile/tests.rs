@@ -523,3 +523,18 @@ fn add_secrets_redacts_pinned_address_and_typed_endpoints() {
         assert!(!scrubbed.contains(secret), "{secret} leaked in {scrubbed}");
     }
 }
+
+#[test]
+fn a_problem_report_hides_user_folders_and_names_crash_dumps_without_their_contents() {
+    let dir = temp("report-dump");
+    std::fs::write(dir.join(CURRENT), "dump C:\\Users\\alice\\AppData\\Roaming\\Nightjar\\logs\\nightjar-crash-17.dmp written\n").unwrap();
+    std::fs::write(dir.join("nightjar-crash-17.dmp"), vec![b'M'; 3000]).unwrap();
+    std::fs::write(dir.join("other.dmp"), b"MDMP").unwrap();
+    let text = std::fs::read_to_string(write_report(&dir, "Nightjar 9.9.9 / home /home/alice").unwrap()).unwrap();
+    assert!(!text.contains("alice"), "{text}");
+    assert!(text.contains("C:\\Users\\[user]\\AppData"), "{text}");
+    assert!(text.contains("/home/[user]"), "{text}");
+    assert!(text.ends_with("listed and not included:\nnightjar-crash-17.dmp: 3 KiB\n"), "{text}");
+    assert!(!text.contains("MMMM") && !text.contains("other.dmp"), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

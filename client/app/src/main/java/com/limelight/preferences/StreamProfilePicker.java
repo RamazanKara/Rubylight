@@ -12,8 +12,8 @@ import java.util.Map;
 
 /**
  * The stream profile in use and the chooser for it, shared by the library's menu and Home's game page. Choosing
- * one makes it the active profile, as the Profiles page does; "Choose by network" still decides for this network,
- * so its Profiles page opens instead.
+ * one makes it the active profile, as the Profiles page does; a profile kept for this screen, or "Choose by network"
+ * for this network, still decides, so its Profiles page opens instead.
  */
 public final class StreamProfilePicker {
     private StreamProfilePicker() {
@@ -58,8 +58,10 @@ public final class StreamProfilePicker {
         return picker;
     }
 
+    /** A profile kept for this screen, or "Choose by network" for this network, decides instead of the player's pick. */
     private static boolean byNetwork(StreamProfiles.Snapshot profiles, StreamLayers.Input input) {
-        return profiles.auto && profiles.rule(input.network) != null;
+        return StreamLayers.screenProfile(profiles, input.screen) != null
+                || profiles.auto && profiles.rule(input.network) != null;
     }
 
     private static void addChoice(ActionSheet picker, Activity activity, String id, String name, boolean inUse,

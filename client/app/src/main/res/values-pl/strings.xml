@@ -17,7 +17,7 @@
     <string name="title_experimental_chipset_tuning">Dostrajanie chipsetu</string>
     <string name="summary_experimental_chipset_tuning">Na niektórych urządzeniach może uniemożliwić dekodowanie. Daje dekoderom MediaTek Dimensity i Samsung Exynos dodatkowe ustawienia niskich opóźnień, które mają skrócić opóźnienie dekodowania; inne chipsety nie są objęte. Zostaw wyłączone, chyba że dekoder nie nadąża.</string>
     <string name="title_tv_display_compatibility">Płynny obraz w TV</string>
-    <string name="summary_tv_display_compatibility">Dla telewizorów i pudełek TV, których obraz po chwili przycina, zawiesza się, miga lub restartuje, jeśli nic nie jest rysowane na obrazie, na przykład nakładka wydajności. Domyślnie włączone na telewizorach. Koszt to jedna prawie czarna kropka w lewym górnym rogu, rysowana dziesięć razy na sekundę.</string>
+    <string name="summary_tv_display_compatibility">Na większości telewizorów pozostaw wyłączone: Nightjar automatycznie włączy niewidoczną warstwę kompozytora, jeśli taktowanie obrazu stanie lub zamarznie. Włącz, aby wymusić tę warstwę od samego początku na telewizorach, które od razu przycinają, migają lub się restartują.</string>
     <string name="scut_deleted_pc">Komputer usunięty</string>
     <string name="scut_not_paired">Komputer niesparowany</string>
     <string name="scut_pc_not_found">Nie znaleziono komputera</string>
@@ -571,4 +571,15 @@
     <string name="summary_hdr_shield_firmware_update">Zaktualizuj oprogramowanie układowe urządzenia NVIDIA SHIELD Android TV, aby włączyć HDR</string>
     <string name="full_range_vulkan_switched">Dekoder pominął pełny zakres. Przełączono na Vulkan, aby czerń była prawidłowa.</string>
     <string name="full_range_vulkan_unavailable">Pełny zakres pominięty, brak Vulkan: czerń może być błędna. Wyłącz „Pełny zakres kolorów”.</string>
+    <string name="launch_warning_virtual_display_unavailable">Ekran wirtualny komputera jest niedostępny, więc ten strumień pokazuje jego fizyczny ekran.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">To urządzenie poprosiło o własny ekran komputera, więc strumień nie używa ekranu wirtualnego.</string>
+    <string name="frame_warp_update_host">Frame Warp jest wyłączony: wymaga aktualnej wersji Nightjar i aplikacji do streamingu na komputerze.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: wymaga aktualnej wersji na komputerze</string>
+    <string name="frame_warp_overlay_confidence">%1$s, pewność %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, pewność %2$s%%, żyroskop dopasowany</string>
+    <string name="title_hdr_format">Format HDR</string>
+    <string name="summary_hdr_format">Automatycznie używa najlepszego formatu HDR obsługiwanego przez obie strony; pozostałe opcje pomijają Dolby Vision albo wszystko poza HDR10. Zmień to, gdy któryś format wygląda źle; przy „Tylko HDR10” niektóre PC mogą nadal wysyłać HDR10+.</string>
+    <string name="hdr_format_auto">Automatycznie</string>
+    <string name="hdr_format_no_dolby_vision">Bez Dolby Vision</string>
+    <string name="hdr_format_hdr10">Tylko HDR10</string>
 </resources>

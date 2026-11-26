@@ -425,7 +425,8 @@ fn receive_thread(
     session: Arc<Shared>,
     stop: Arc<AtomicBool>,
 ) -> Option<Box<dyn AudioRenderer>> {
-    let mut batch = net::BatchReceiver::new(&socket, crate::audio::MAX_PACKET_SIZE, false);
+    // MAX_PACKET_SIZE, or more while AC3 or E-AC3 frames come unchunked.
+    let mut batch = net::BatchReceiver::new(&socket, receiver.max_packet_size(), false);
     let mut received = false;
     let mut jitter: Option<ArrivalJitter> = None;
     let mut trace = PacketTrace::from_env(Stream::Audio);

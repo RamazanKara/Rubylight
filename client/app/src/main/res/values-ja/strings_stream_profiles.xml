@@ -120,4 +120,11 @@
     <string name="game_preset_quality_summary" formatted="false">ビットレートを PC の値（PC に値がなければメイン設定の値）の 150% に設定します。上限は PC の上限です。フレームペーシングと可変リフレッシュは変わりません。回線が弱いと、大きくなったフレームで遅延が増えることがあります。</string>
     <string name="game_preset_custom">カスタム</string>
     <string name="game_preset_custom_summary">下で設定した独自の値です。</string>
+    <string name="profiles_screen">この画面のプロファイル</string>
+    <string name="profiles_screen_none">この画面のプロファイルなし</string>
+    <string name="profiles_screen_summary">Nightjar は %1$s に表示されています。ここで開始したストリームは、ネットワークや使用中のプロファイルより優先してこのプロファイルを使います。</string>
+    <string name="profiles_screen_built_in">このデバイスの画面</string>
+    <string name="profiles_marker_screen">%1$s 用</string>
+    <string name="profiles_screen_forget">画面の割り当てを解除</string>
+    <string name="layers_part_profile_screen">プロファイル %1$s（この画面用）</string>
 </resources>

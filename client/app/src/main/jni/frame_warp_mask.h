@@ -22,11 +22,11 @@ inline bool frameWarpMoved(float drawnX, float drawnY, float x, float y) {
     return std::hypot(x - drawnX, y - drawnY) >= kFrameWarpRedrawPx;
 }
 
-// What warp() writes (frame_warp_api.h) for a picture drawn as it is, into `out`: no shift, and
-// the lens terms of a flat picture.
+// What warp() writes (frame_warp_api.h) for a picture drawn as it is, into `out`: no shift, the
+// lens terms of a flat picture, and a row of zeros (no shader reads it without a shift).
 inline void frameWarpStill(float *out) {
     for (int i = 0; i < FRAME_WARP_FLOATS; ++i) {
-        out[i] = i >= 6 ? 1.0f : 0.0f;
+        out[i] = i == 6 || i == 7 ? 1.0f : 0.0f;
     }
 }
 

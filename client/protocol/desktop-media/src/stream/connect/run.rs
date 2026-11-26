@@ -56,6 +56,7 @@ pub(crate) fn connect(
         play_local_audio: settings.play_audio_on_host,
         sops: settings.sops,
         gamepad_mask: plan.gamepad_mask,
+        playstation_mask: plan.playstation_mask,
         persist_gamepads: crate::gamepad::one_player(settings),
         confirm_replace: plan.confirm_replace,
         prepared_controllers: if role != AppRole::RemoteMonitor
@@ -77,6 +78,7 @@ pub(crate) fn connect(
         display_luminance: plan.display_luminance,
         rtx_hdr: settings.rtx_hdr,
         rtx_video: settings.rtx_video,
+        hdr_static_only: settings.hdr_format.static_metadata_only(),
         ..Default::default()
     };
     if plan.record.server_certificate.is_none() {
@@ -272,7 +274,13 @@ pub(crate) fn connect(
                 cause: None,
             });
         }
-        Ok(Some(launched)) => launched,
+        Ok(Some(mut launched)) => {
+            // Shown once the stream runs; an automatic reconnect does not show it again.
+            if let Some(warning) = launched.warning.take().filter(|_| !auto_reconnect) {
+                shared.notify(crate::stream::pipeline::Notice::LaunchWarning(warning));
+            }
+            launched
+        }
         Ok(None) => return Err(refused("The PC declined to start the app.".into())),
         Err(nightjar_core::http::Error::Status { code, message }) => {
             if let Some(why) = plan
@@ -358,6 +366,9 @@ pub(crate) fn connect(
         haptics_pcm: settings.controllers
             && settings.controller_audio
             && role != AppRole::RemoteMonitor,
+        ps_speaker_pcm: settings.controllers
+            && settings.controller_audio
+            && role != AppRole::RemoteMonitor,
         pyrowave_link_mbps: sent_link_mbps as i32,
         pyrowave_pace_mbps: pace_mbps as i32,
         client_wireless,
@@ -369,14 +380,13 @@ pub(crate) fn connect(
         video_capabilities,
         audio_capabilities: CAPABILITY_DIRECT_SUBMIT,
         video_fec: settings.error_correction.into(),
-        hdr_format: asked_hdr_format(hdr_format(
-            settings.hdr,
+        hdr_format: asked_hdr_format(settings_hdr_format(
+            settings,
             plan.info
                 .capabilities
                 .evidence()
                 .map_or(-1, |evidence| evidence.hdr_formats),
             offer.formats,
-            settings.experimental_packed_444,
             reads_dolby_vision(),
         )),
         // The draw pass takes only peaks from the RPUs, so it takes 8.1 full range where the host
@@ -499,7 +509,11 @@ pub(crate) fn connect(
             .host_control_messages
             .contains(&nightjar_core::frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE)
     });
-    let frame_warp_refused = settings.frame_warp && role == AppRole::Stream && frame_warp.is_none();
+    let frame_warp_refused = if settings.frame_warp && role == AppRole::Stream && frame_warp.is_none() {
+        super::super::frame_warp_v2::Refusal::of(plan.info.capabilities.availability(Feature::FrameWarp))
+    } else {
+        super::super::frame_warp_v2::Refusal::None
+    };
     let mut facts = Facts {
         frame_warp,
         frame_warp_refused,

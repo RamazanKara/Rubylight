@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Orientation</string>
-    <string name="summary_stream_orientation">Which way the stream may turn. Automatic keeps phones in landscape and lets tablets turn; Landscape, Reverse landscape and Portrait lock it; Rotate with device follows the device.</string>
+    <string name="summary_stream_orientation">Which way the stream may turn. Automatic keeps phones in landscape and lets tablets turn; Landscape, Reverse landscape and Portrait lock it; Rotate with device follows the device. Landscape (either side) turns over with the phone even when rotation is locked.</string>
     <string-array name="stream_orientation_names">
         <item>Automatic</item>
         <item>Landscape</item>
         <item>Portrait</item>
         <item>Rotate with device</item>
         <item>Reverse landscape</item>
+        <item>Landscape (either side)</item>
     </string-array>
     <string-array name="stream_orientation_values" translatable="false">
         <item>auto</item>
@@ -15,7 +16,10 @@
         <item>portrait</item>
         <item>rotate</item>
         <item>reverse_landscape</item>
+        <item>landscape_flip</item>
     </string-array>
     <string name="stream_orientation_scaled">This PC keeps the stream’s shape while it runs, so the picture is scaled to fit the turned screen.</string>
     <string name="stream_orientation_decoder_limit">This device’s decoder cannot take the turned size, so the stream keeps its shape and is scaled to fit.</string>
+    <string name="stream_flip_screen">Flip screen 180°</string>
+    <string name="stream_flip_unavailable">Screen flip isn’t available in windowed or external-display mode.</string>
 </resources>

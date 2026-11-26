@@ -415,3 +415,41 @@ fn power_update_and_pairing_approve_follow_native_permissions() {
         caps
     );
 }
+
+#[test]
+fn frame_warp_needs_frame_warp_protocol_2() {
+    let xml =
+        include_str!("../../../../app/src/test/resources/protocol/rubylight-30-serverinfo.xml");
+    let caps = |extra: &str| {
+        let xml = xml.replacen("</root>", &format!("{extra}</root>"), 1);
+        super::super::serverinfo::ServerInfo::parse(&xml, 47989)
+            .unwrap()
+            .capabilities
+    };
+    let update = Availability::Unsupported(Some(Reason::UpdateHost));
+    let absent = caps("").availability(Feature::FrameWarp);
+    assert!(!absent.is_supported());
+    for (field, expected) in [
+        ("<FrameWarpProtocol>2</FrameWarpProtocol>", Availability::Supported),
+        ("<FrameWarpProtocol>3</FrameWarpProtocol>", Availability::Supported),
+        // A 7.0 host that also lists the old field for some reason still runs Frame Warp 2.
+        (
+            "<FrameWarpVersion>1</FrameWarpVersion><FrameWarpProtocol>2</FrameWarpProtocol>",
+            Availability::Supported,
+        ),
+        // A host before 7.0: Frame Warp needs the current version there.
+        ("<FrameWarpVersion>1</FrameWarpVersion>", update),
+        ("<FrameWarpVersion>2</FrameWarpVersion>", update),
+        ("<FrameWarpProtocol>1</FrameWarpProtocol>", absent),
+        ("<FrameWarpProtocol>bad</FrameWarpProtocol>", absent),
+        ("<FrameWarpVersion>bad</FrameWarpVersion>", absent),
+    ] {
+        assert_eq!(caps(field).availability(Feature::FrameWarp), expected, "{field}");
+    }
+    // Stored capabilities keep both fields.
+    let stored = caps("<FrameWarpVersion>1</FrameWarpVersion>");
+    assert_eq!(
+        HostCapabilities::from_versioned_json(&stored.to_versioned_json().unwrap()),
+        stored
+    );
+}

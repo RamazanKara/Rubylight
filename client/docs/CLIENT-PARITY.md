@@ -85,7 +85,7 @@ The tables below have no macOS column. The Mac client shares the desktop library
 | Take back display queue delay | Yes | N/A | N/A | Lowest latency and Balanced, under **Advanced → More**. Desktop has no compositor display queue to watch. |
 | Lower refresh rate | Yes | N/A | N/A | Off, On, or On and matched to the game. |
 | Fixed timing on adaptive screens | Yes | N/A | N/A | Adaptive refresh (ARR) screens on Android 16 with VRR off; off by default. |
-| Keep TV video smooth (setting, formerly TV display compatibility) | Yes | N/A | N/A | Android TV, on by default there (off elsewhere), under **Advanced → More** (on other devices listed with Show debug settings or while it is on): a nearly black dot in the video's top-left corner is redrawn ten times a second for TVs whose picture stutters after a while, freezes, flashes or restarts while the video is the only thing on screen. A behaviour of Android TV firmware; the desktop client has no counterpart. |
+| Keep TV video smooth (setting + auto `CompositorWatch`) | Yes | N/A | N/A | Off by default on Android TV and other devices: `CompositorWatch` automatically detects dead `OnFrameRendered` callbacks or sustained post-handoff display judder with steady decoder output and enables an invisible `1×1` transparent child `SurfaceControl` (`SurfaceView`, API 29+, ticked every `1000 ms` off the UI thread; imperceptible `1×1` px `View` fallback on older Android/`TextureView`). Under **Advanced → More**, **Keep TV video smooth** forces the layer on from stream start for TVs that freeze or restart right away. Android TV compositor behaviour only; desktop has no counterpart. |
 | Phase-lock frame timing | Yes | Yes | Partial | Linux: X11 (EGL/GLX sync control), Wayland (`wp_presentation`), KMS, and DRM vblank (including the GPU/Vulkan renderer). macOS does not report vblank timing yet. |
 | Beam racing and early decode (PyroWave, wired) | N/A | Yes | Yes | Both off by default; see [beam racing](beam-racing.md). |
 | Rotation, picture-in-picture, external displays | Yes | N/A | N/A | |
@@ -148,6 +148,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan.
 | Steam Deck Game Mode (gamescope) | N/A | N/A | Yes | Under gamescope the Flatpak opens fullscreen without a border; the pointer hides while the controller is used, and Start+Back opens the stream menu since Steam keeps the Guide button. [Steam Deck](steam-deck.md) |
 | Extra buttons: touchpad click, Share / Capture, paddles | Yes | Yes | Yes | The desktop maps every SDL button. |
 | DualSense, Xbox and Switch Pro USB drivers | Yes | N/A | N/A | SDL handles these controllers on the desktop. |
+| DualSense speaker and haptics over Bluetooth | No | Yes | Yes | The desktop sends Sony's Bluetooth audio reports through its own HID handle. Android without root lets no app send those reports to a Bluetooth controller, so there they need USB. [DualSense audio and haptics](dualsense-haptics.md#bluetooth-on-windows-and-linux) |
 | On-screen controls | Yes | No | No | |
 | Per-game touch controls | Yes | No | No | |
 | Touch modes (trackpad, direct, multi-touch, local cursor) | Yes | Partial | Partial | The desktop sends native touch only. |

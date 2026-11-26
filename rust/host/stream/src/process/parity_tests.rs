@@ -215,6 +215,7 @@ fn launch_environment_refuses_client_shell_syntax() {
     let app: App = serde_json::from_value(json!({"name":"Game"})).unwrap();
     for key in [
         "gcmap",
+        "psmap",
         "scaleFactor",
         "surroundParams",
         "surroundAudioInfo",

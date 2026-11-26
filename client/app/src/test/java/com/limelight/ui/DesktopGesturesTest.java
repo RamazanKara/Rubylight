@@ -155,4 +155,161 @@ public class DesktopGesturesTest {
         assertTrue(items.contains(StreamMenu.Item.ZOOM_RESET));
         assertEquals(Boolean.FALSE, StreamMenuTestSupport.entry(StreamMenu.mainPage(options), StreamMenu.Item.ZOOM).checked);
     }
+
+    @Test
+    public void passivePinchOutBelowOneXZoomsPansAndReturnsToScrollingAtOneX() {
+        AtomicInteger cancels = new AtomicInteger();
+        AtomicInteger rightClicks = new AtomicInteger();
+        DesktopGestures gestures = newGestures(cancels, rightClicks);
+        int[] one = {0};
+        int[] two = {0, 1};
+
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_DOWN, 0, one, 1000, new float[] {100, 200}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_POINTER_DOWN, 1, two, 1010,
+                new float[] {100, 200}, new float[] {700, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 1020,
+                new float[] {250, 200}, new float[] {550, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 1030,
+                new float[] {300, 200}, new float[] {500, 200}));
+        float zoomedOut = gestures.viewport().scale();
+        assertTrue("expected zoom < 1.0, got " + zoomedOut, zoomedOut < 1.0f && zoomedOut >= DesktopViewport.MIN_SCALE);
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 1040,
+                new float[] {300, 200}, new float[] {500, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 1050, new float[] {300, 200}));
+
+        // Panning while zoomed out moves freely.
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_DOWN, 0, one, 2000, new float[] {200, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_DOWN, 1, two, 2010,
+                new float[] {200, 200}, new float[] {400, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2020,
+                new float[] {160, 180}, new float[] {360, 180}));
+        assertTrue(gestures.viewport().isTransformed());
+
+        // Pinching back out to 1.0x resets and returns to scrolling.
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2030,
+                new float[] {60, 180}, new float[] {460, 180}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2040,
+                new float[] {10, 180}, new float[] {610, 180}));
+        assertFalse(gestures.viewport().isTransformed());
+        assertEquals(1.0f, gestures.viewport().scale(), 0.001f);
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 2050,
+                new float[] {10, 180}, new float[] {610, 180}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 2060, new float[] {10, 180}));
+
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_DOWN, 0, one, 3000, new float[] {200, 150}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_POINTER_DOWN, 1, two, 3010,
+                new float[] {200, 150}, new float[] {400, 150}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 3020,
+                new float[] {200, 260}, new float[] {400, 260}));
+    }
+
+    @Test
+    public void explicitZoomAllowsFreeOneXDraggingAndContinuousZoomFromHalfToFourX() {
+        AtomicInteger cancels = new AtomicInteger();
+        AtomicInteger rightClicks = new AtomicInteger();
+        DesktopGestures gestures = newGestures(cancels, rightClicks);
+        gestures.setEnabled(true);
+        int[] one = {0};
+        int[] two = {0, 1};
+
+        // Drag immediately at 1.0x to pull top-right inward.
+        assertFalse(send(gestures, true, false, MotionEvent.ACTION_DOWN, 0, one, 1000, new float[] {300, 100}));
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_POINTER_DOWN, 1, two, 1010,
+                new float[] {300, 100}, new float[] {700, 100}));
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_MOVE, 0, two, 1080,
+                new float[] {150, 250}, new float[] {550, 250}));
+        assertEquals(-150f, gestures.viewport().x(), 0.1f);
+        assertEquals(150f, gestures.viewport().y(), 0.1f);
+        assertEquals(1.0f, gestures.viewport().scale(), 0.001f);
+
+        // Pinch in and out crosses 1.0x continuously without snapping back to 0 pan.
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_MOVE, 0, two, 1100,
+                new float[] {200, 250}, new float[] {500, 250}));
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_MOVE, 0, two, 1120,
+                new float[] {250, 250}, new float[] {450, 250}));
+        float zoomedOut = gestures.viewport().scale();
+        assertTrue("expected < 1.0, got " + zoomedOut,
+                zoomedOut < 1.0f && zoomedOut >= DesktopViewport.MIN_SCALE);
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_MOVE, 0, two, 1140,
+                new float[] {100, 250}, new float[] {600, 250}));
+        assertTrue("expected > 1.0, got " + gestures.viewport().scale(), gestures.viewport().scale() > 1.0f);
+        assertTrue("expected pan preserved across 1.0x", gestures.viewport().y() != 0f);
+    }
+
+    @Test
+    public void streamViewUnclippedAndSyncsContainerBoundsAcrossBlackBorders() {
+        Application app = RuntimeEnvironment.getApplication();
+        android.widget.FrameLayout parent = new android.widget.FrameLayout(app);
+        StreamView view = new StreamView(app);
+        view.initializeSurface(false);
+        assertFalse(view.getClipChildren());
+        assertFalse(view.getClipToPadding());
+        parent.addView(view);
+        parent.layout(0, 0, 2400, 1080);
+        view.layout(240, 0, 2160, 1080);
+
+        DesktopGestures gestures = new DesktopGestures(app, view, () -> { }, () -> { });
+        gestures.setEnabled(true);
+        int[] one = {0};
+        int[] two = {0, 1};
+        assertFalse(send(gestures, true, false, MotionEvent.ACTION_DOWN, 0, one, 1000, new float[] {400, 300}));
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_POINTER_DOWN, 1, two, 1010,
+                new float[] {400, 300}, new float[] {800, 300}));
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_MOVE, 0, two, 1080,
+                new float[] {160, 300}, new float[] {560, 300}));
+        assertEquals(-240f, gestures.viewport().x(), 0.1f);
+        assertEquals(-240f, view.getChildAt(0).getTranslationX(), 0.1f);
+    }
+
+    @Test
+    public void passivePinchCrossingThresholdOnBeginDoesNotStrandPanAndReversingSubOnePercentResets() {
+        DesktopGestures gestures = newGestures(new AtomicInteger(), new AtomicInteger());
+        int[] one = {0}, two = {0, 1};
+
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_DOWN, 0, one, 1000, new float[] {250, 200}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_POINTER_DOWN, 1, two, 1010,
+                new float[] {250, 200}, new float[] {550, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 1020,
+                new float[] {220, 200}, new float[] {580, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 1030,
+                new float[] {180, 220}, new float[] {540, 220}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 1040,
+                new float[] {180, 220}, new float[] {540, 220}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 1050, new float[] {180, 220}));
+        assertFalse(gestures.viewport().isTransformed());
+
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_DOWN, 0, one, 2000, new float[] {-600, 200}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_POINTER_DOWN, 1, two, 2010,
+                new float[] {-600, 200}, new float[] {1400, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2020,
+                new float[] {-620, 200}, new float[] {1420, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2030,
+                new float[] {-628, 200}, new float[] {1428, 200}));
+        assertTrue(gestures.viewport().scale() > 1.0f && gestures.viewport().scale() <= 1.01f);
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2040,
+                new float[] {-575, 200}, new float[] {1375, 200}));
+        assertEquals(1.0f, gestures.viewport().scale(), 0.001f);
+        assertFalse(gestures.viewport().isTransformed());
+    }
+
+    @Test
+    public void onTransformChangedFiresWhenParentPaddingOrLayoutChangesSyncBounds() {
+        Application app = RuntimeEnvironment.getApplication();
+        android.widget.FrameLayout parent = new android.widget.FrameLayout(app);
+        StreamView view = new StreamView(app);
+        view.initializeSurface(false);
+        parent.addView(view, new android.widget.FrameLayout.LayoutParams(1920, 1080));
+        parent.measure(android.view.View.MeasureSpec.makeMeasureSpec(2400, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY));
+        parent.layout(0, 0, 2400, 1080);
+
+        AtomicInteger syncs = new AtomicInteger();
+        DesktopGestures gestures = new DesktopGestures(app, view, () -> { }, () -> { });
+        gestures.setOnTransformChanged(syncs::incrementAndGet);
+        parent.setPadding(100, 0, 100, 0);
+        parent.measure(android.view.View.MeasureSpec.makeMeasureSpec(2400, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(1200, android.view.View.MeasureSpec.EXACTLY));
+        parent.layout(0, 0, 2400, 1200);
+        assertTrue(syncs.get() > 0);
+    }
 }

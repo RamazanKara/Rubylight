@@ -231,7 +231,7 @@ fn amf_default_policy_bytes_are_unchanged_for_sdr_hdr_and_ten_bit_sdr() {
         ),
         (
             2,
-            "Av1Usage=Integer(2):true\nAv1QualityPreset=Integer(100):true\nAv1RateControlMethod=Integer(1):false\nAv1EnablePreAnalysis=Boolean(false):false\nAv1AQMode=Integer(1):true\nAv1EnforceHRD=Boolean(false):false\nAv1BPicturesPattern=Integer(0):false\n",
+            "Av1Usage=Integer(2):true\nAv1QualityPreset=Integer(100):true\nAv1RateControlMethod=Integer(1):false\nAv1EnablePreAnalysis=Boolean(false):false\nAv1AQMode=Integer(1):true\nAv1EnforceHRD=Boolean(false):false\nAv1RateControlSkipFrameEnable=Boolean(false):false\nAv1BPicturesPattern=Integer(0):false\n",
         ),
     ] {
         for (hdr, sdr_10bit) in [(false, false), (true, false), (false, true)] {
@@ -558,6 +558,39 @@ fn legacy_codec_specific_settings_and_auto_are_preserved() {
                 properties
                     .iter()
                     .any(|p| p.name.ends_with("Usage") && p.value == Value::Integer(expected))
+            );
+        }
+    }
+}
+#[test]
+fn amf_rate_control_never_skips_a_frame_for_any_codec() {
+    // A VRR client shows a skipped frame as a held picture. AV1 has its own
+    // property for it (AMF_VIDEO_ENCODER_AV1_RATE_CONTROL_SKIP_FRAME); it is
+    // optional so a driver without it keeps its default instead of failing.
+    for (codec, name) in [
+        (0, "RateControlSkipFrameEnable"),
+        (1, "HevcRateControlSkipFrameEnable"),
+        (2, "Av1RateControlSkipFrameEnable"),
+    ] {
+        for text in [
+            "",
+            "amd_rc=cbr\n",
+            "amd_rc=vbr_peak\namd_usage=lowlatency\n",
+        ] {
+            let stream = Negotiated {
+                codec,
+                ..Default::default()
+            };
+            let skip: Vec<_> = amf(&Config::parse(text).unwrap(), &stream)
+                .unwrap()
+                .into_iter()
+                .filter(|p| p.name.contains("RateControlSkipFrame"))
+                .map(|p| (p.name, p.value, p.required))
+                .collect();
+            assert_eq!(
+                skip,
+                [(name.to_owned(), Value::Boolean(false), false)],
+                "codec {codec}, config {text:?}"
             );
         }
     }

@@ -435,7 +435,7 @@ async fn serverinfo_extras_preserve_permissions_codecs_commands_and_limiter_unit
 
 /// `/serverinfo` of a host with the default configuration, byte for byte, unpaired over HTTP
 /// and paired over HTTPS. Anything a host adds later must be offered, so these change only with
-/// an offer (`ControllerIdentityVersion`, last); only the host's own name, identity, version, profile
+/// an offer (`HdrDynamicControl`, last); only the host's own name, identity, version, profile
 /// and sleep support vary.
 /// What serverinfo shows only a program on this PC (session counts, the running game for local
 /// maintenance, the host's profile) a tunnelled device never sees, though it connects over

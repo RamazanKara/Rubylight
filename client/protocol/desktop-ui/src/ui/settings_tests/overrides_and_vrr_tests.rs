@@ -36,8 +36,8 @@ fn the_section_key_table_is_what_the_page_draws() {
     let only_here = |key: &str, vrr: bool| match key {
         "check_updates" => (crate::platform_hooks::hooks().self_update_checks)(),
         "network_priority" | "receive_coalescing" => cfg!(any(target_os = "linux", windows)),
-        // It needs HDR, which hides Less color banding.
-        "hdr_desktop_brightness" => false,
+        // They need HDR, which hides Less color banding.
+        "hdr_desktop_brightness" | "hdr_format" => false,
         // A PC's own settings, for a host that reports them (NvidiaEnhancements).
         "rtx_hdr" | "rtx_video" => false,
         // Only where a saved PC offers more than stock packets; the fixture PC has no serverinfo.

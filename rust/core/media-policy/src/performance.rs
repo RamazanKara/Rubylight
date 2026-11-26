@@ -347,6 +347,8 @@ pub struct Performance {
     /// adds them after it has copied them out and released this lock, and the
     /// console adds them to the totals it reads.
     stutter_counted: u64,
+    /// Each sent frame's gap against the frame period, for the 5 s timing log.
+    pub send_gaps: crate::send_gaps::SendGaps,
 }
 /// The client's FEC report totals since the stream started.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -464,6 +466,7 @@ impl Performance {
             age,
             sent,
         } = timing;
+        self.send_gaps.note(now, period);
         if let Some(start) = self.bucket
             && now.duration_since(start) >= Duration::from_secs(1)
         {

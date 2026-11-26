@@ -180,6 +180,8 @@ pub fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
         .nvidia_enhancements
         .load(std::sync::atomic::Ordering::Acquire);
     butterpollo_media_policy::nvidia_enhance::apply_launch(&mut config, &launch.options, offered);
+    // And its `rlHdrDynamic=0` turns HDR10+ and HDR Vivid off for this stream.
+    butterpollo_media_policy::extensions::apply_hdr_dynamic(&mut config, &launch.options)?;
     config.values.insert(
         butterpollo_media_policy::nvidia_enhance::OFFERED_KEY.into(),
         offered.to_string(),

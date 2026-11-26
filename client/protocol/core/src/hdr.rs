@@ -47,6 +47,12 @@ pub const ANNOUNCE_ATTRIBUTE: &str = "x-rl-video[0].hdrFormat";
 /// [`DV_81_FULL_RANGE`] offer flag and a full-range `encoderCscMode`.
 pub const FULL_RANGE_ANNOUNCE_ATTRIBUTE: &str = "x-rl-video[0].dolbyVisionFullRange";
 
+/// Serverinfo element: the host honours [`DYNAMIC_LAUNCH_PARAMETER`].
+pub const DYNAMIC_SERVERINFO_FIELD: &str = "HdrDynamicControl";
+/// `/launch` and `/resume` parameter: `0` leaves HDR10+ and HDR Vivid metadata out of this
+/// stream, over the host's own setting; `1` or absent keeps that setting.
+pub const DYNAMIC_LAUNCH_PARAMETER: &str = "rlHdrDynamic";
+
 /// `format` is exactly one bit this version defines.
 pub fn single_bit(format: u8) -> bool {
     format & ALL == format && format.count_ones() == 1

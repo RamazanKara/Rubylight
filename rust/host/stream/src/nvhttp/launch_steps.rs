@@ -681,23 +681,55 @@ pub(super) fn retain_launch_app(
         }
     }
 }
+/// The setup fallback a successful launch reports to the client, if any; a control tile's
+/// launch (Resume, Running Game) reports none.
+pub(super) fn launch_warning(
+    launch: &Launch,
+    control: Option<Control>,
+) -> Option<(String, String)> {
+    if control.is_some() {
+        return None;
+    }
+    butterpollo_session::launch_warning::pick(&launch.warnings.snapshot())
+}
+/// A started session's reply key (`gamesession` or `resume`), RTSP URL and launch warning.
+pub type Started = (String, String, Option<(String, String)>);
+/// The session URL a launch reply names, on the address the client reached.
+pub(super) fn rtsp_url(scheme: &str, local: std::net::IpAddr, port: u16) -> String {
+    match local {
+        std::net::IpAddr::V4(ip) => format!("{scheme}://{ip}:{port}"),
+        std::net::IpAddr::V6(ip) => format!("{scheme}://[{ip}]:{port}"),
+    }
+}
+pub(super) fn started(
+    launch: &Launch,
+    control: Option<Control>,
+    reply: &str,
+    url: String,
+) -> Started {
+    (reply.into(), url, launch_warning(launch, control))
+}
 pub fn launch_response(
-    result: Result<(String, String)>,
+    result: Result<Started>,
     requested: u32,
     reply: &str,
     resume: bool,
     driver_ready: bool,
 ) -> Response {
     match result {
-        Ok((key, url)) => xml(
-            200,
-            &[
+        Ok((key, url, warning)) => {
+            let mut fields = vec![
                 (key.as_str(), "1".into()),
                 ("sessionUrl0", url),
                 ("VirtualDisplayDriverReady", driver_ready.to_string()),
-            ],
-            None,
-        ),
+            ];
+            // Additive: clients that do not know these tags ignore them.
+            if let Some((code, message)) = warning {
+                fields.push(("clientWarning", code));
+                fields.push(("clientWarningMessage", message));
+            }
+            xml(200, &fields, None)
+        }
         Err(error) => {
             tracing::warn!(
                 error = %format!("{error:#}"),
@@ -714,4 +746,41 @@ pub fn launch_response(
             xml(status, &[(reply, "0".into())], Some(format!("{error:#}")))
         }
     }
+}
+/// `nvidia_virtual_display_vsync` for this launch. A failure is shown and the stream starts.
+pub fn force_vsync<'a>(
+    h: &'a Shared,
+    args: &Args,
+    app: Option<&App>,
+    launch: &Launch,
+) -> crate::radeon_session::VsyncHold<'a> {
+    let config = crate::stream::effective_config(h, launch).ok();
+    let enabled = config
+        .as_ref()
+        .is_some_and(|c| c.boolean("nvidia_virtual_display_vsync", false));
+    let adapter = config.as_ref().map_or("", |c| c.get("adapter_name", ""));
+    // Off, the launch's preparation is not looked at.
+    let virtual_display = enabled
+        && launch
+            .preparation
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|preparation| preparation.prepared().on_virtual_display());
+    let fps = args
+        .get("mode")
+        .and_then(|mode| crate::radeon_profile::stream_fps(mode));
+    let wanted = crate::radeon_session::wants_vsync(enabled, virtual_display, app, fps);
+    let (hold, result) = h.hold_vsync(&launch.client.uuid, adapter, wanted);
+    match result {
+        Ok(()) => launch.warnings.clear("driver_vsync"),
+        Err(error) => {
+            tracing::error!(%error, "Vertical sync is not forced on for the virtual display");
+            launch.warnings.set(
+                "driver_vsync",
+                format!("Vertical sync could not be forced on for the virtual display: {error}"),
+            );
+        }
+    }
+    hold
 }

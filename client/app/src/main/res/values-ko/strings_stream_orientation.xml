@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">화면 방향</string>
-    <string name="summary_stream_orientation">스트림이 회전할 수 있는 방향입니다. ‘자동’은 휴대전화를 가로로 유지하고 태블릿은 회전하게 합니다. ‘가로’, ‘반대 가로’, ‘세로’는 방향을 고정하고, ‘기기에 따라 회전’은 기기 방향을 따릅니다.</string>
+    <string name="summary_stream_orientation">스트림이 회전할 수 있는 방향입니다. ‘자동’은 휴대전화를 가로로 유지하고 태블릿은 회전하게 합니다. ‘가로’, ‘반대 가로’, ‘세로’는 방향을 고정하고, ‘기기에 따라 회전’은 기기 방향을 따릅니다. 가로 (양방향)는 회전이 잠겨 있어도 휴대폰과 함께 뒤집힙니다.</string>
     <string-array name="stream_orientation_names">
         <item>자동</item>
         <item>가로</item>
         <item>세로</item>
         <item>기기에 따라 회전</item>
         <item>반대 가로</item>
+        <item>가로 (양방향)</item>
     </string-array>
     <string name="stream_orientation_scaled">이 PC는 스트리밍 중 스트림 모양을 유지하므로 회전된 화면에 맞춰 영상을 표시합니다.</string>
     <string name="stream_orientation_decoder_limit">이 기기의 디코더가 회전된 크기를 지원하지 않아 스트림 모양을 유지하고 화면에 맞춰 표시합니다.</string>
+    <string name="stream_flip_screen">화면 180° 뒤집기</string>
+    <string name="stream_flip_unavailable">창 모드나 외부 디스플레이에서는 화면을 뒤집을 수 없습니다.</string>
 </resources>

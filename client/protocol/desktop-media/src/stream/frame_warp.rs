@@ -7,15 +7,17 @@
 //! What every path does, in fractions of the visible picture: the output point `uv` samples the
 //! picture at `uv - shift`, or, when the host knows the game's lens, where a camera turned by
 //! that shift at the picture's centre shows it (`nightjar_core::frame_warp::source`: the edges
-//! move farther than the centre), with the edge fill where that is outside the picture (mirrored
-//! at the edge and darkened, `nightjar_core::frame_warp::edge`), unless the HUD mask cell
-//! `floor(uv * (width, height))` is set, or the cell that sample lands on is, which samples at
-//! `uv` as it is: the HUD stays in place and isn't drawn a second time beside itself, a shift
-//! away (the scene behind it isn't in the picture, so it stays unshifted there). The shader
-//! paths share `frame_warp.hlsl` (`hlsl`) and read the mask as bytes (byte `x / 8` of row `y`,
-//! bit `x % 8`: `Mask::words` in little-endian order) through two rows of their constants, `warp`
-//! `(shift x, shift y, mask width, mask height)` and `warpLens` (the lens terms); the SDL renderer
-//! path draws the same mapping as triangles (`Mesh`, `render_texture`). An identity shift takes
+//! move farther than the centre), with the edge fill where that is outside the picture (a
+//! squeezed reflection, darkened, `nightjar_core::frame_warp_v2::edge_v2`), unless the HUD mask
+//! cell `floor(uv * (width, height))` is set, or the cell that sample lands on is: then the HUD
+//! probe looks back along the shift for the scene beside the HUD
+//! (`nightjar_core::frame_warp_v2::hud_probe`), else it samples at `uv` as it is. The HUD stays
+//! in place and isn't drawn a second time beside itself, a shift away. The shader paths share
+//! `frame_warp.hlsl` (`hlsl`) and read the mask as bytes (byte `x / 8` of row `y`, bit `x % 8`:
+//! `Mask::words` in little-endian order) through three rows of their constants, `warp`
+//! `(shift x, shift y, mask width, mask height)`, `warpLens` (the lens terms) and `warpV2` (the
+//! fill's strength and the probe's reach, `frame_warp_v2`); the SDL renderer path draws the same
+//! mapping as triangles (`Mesh`, `render_texture`), without the probe. An identity shift takes
 //! each path's draw as it was.
 
 #[cfg(any(windows, test))]
@@ -25,10 +27,11 @@ use std::time::Instant;
 
 use nightjar_core::frame_warp::{FrameWarp, Mask, Model, Status, Warp, FLAT};
 #[cfg(test)]
-use nightjar_core::frame_warp::{edge, source, EDGE_RAMP, MIN_DEPTH};
+use nightjar_core::frame_warp::{source, MIN_DEPTH};
 #[cfg(test)]
 use sdl3_sys::everything::SDL_FRect;
 
+use super::frame_warp_v2::Refusal;
 use crate::config::{HostRecord, NOTICE_FRAME_WARP_UNAVAILABLE};
 use crate::strings::tr;
 
@@ -95,11 +98,14 @@ pub struct WarpDraw {
     pub lens: [f32; 4],
     /// The cells that stay in place; None for none.
     pub hud: Option<Arc<Hud>>,
+    /// The edge fill's strength and the HUD probe's reach, then the confidence and the flags, as
+    /// the predictor gave them (`Warp::v2`, drawn as `v2_row`).
+    pub v2: [f32; 4],
 }
 
 impl Default for WarpDraw {
     fn default() -> Self {
-        Self { shift: [0.0; 2], lens: FLAT, hud: None }
+        Self { shift: [0.0; 2], lens: FLAT, hud: None, v2: Warp::default().v2 }
     }
 }
 
@@ -109,7 +115,7 @@ impl WarpDraw {
         if !warp.active {
             return Self::default();
         }
-        Self { shift: warp.uv, lens: warp.lens, hud: hud.filter(|_| warp.mask_generation.is_some()).cloned() }
+        Self { shift: warp.uv, lens: warp.lens, hud: hud.filter(|_| warp.mask_generation.is_some()).cloned(), v2: warp.v2 }
     }
 
     /// Nothing moves: every path draws as it does without Frame Warp.
@@ -501,8 +507,9 @@ fn locked_text(model: &Model) -> String {
     parts.join(", ")
 }
 
-/// The statistics overlay's Frame Warp line: what the host's model locked, its lag and the shift,
-/// "learning" before it locks, or "not offered by the PC".
+/// The statistics overlay's Frame Warp line: what the host's model locked (with the gyro and how
+/// sure the host is, `frame_warp_v2::locked_clauses`), its lag and the shift, "learning" before
+/// it locks, or "not offered by the PC".
 pub fn status_line(status: Option<&Status>) -> String {
     let Some(status) = status else { return "not offered by the PC".to_owned() };
     let Some(model) = status.model.filter(Model::locked) else {
@@ -513,8 +520,9 @@ pub fn status_line(status: Option<&Status>) -> String {
     };
     let shift = status.pixels[0].hypot(status.pixels[1]);
     let mut line = format!(
-        "locked {}, lag {:.0} ms, shift {shift:.0} px (peak {:.0})",
+        "locked {}{}, lag {:.0} ms, shift {shift:.0} px (peak {:.0})",
         locked_text(&model),
+        super::frame_warp_v2::locked_clauses(status),
         f64::from(model.lag_us) / 1000.0,
         status.peak
     );
@@ -524,15 +532,18 @@ pub fn status_line(status: Option<&Status>) -> String {
     line
 }
 
-/// The notice that this PC doesn't offer Frame Warp, once per PC like the PyroWave fallback's
-/// (`pyrowave_notice`): the first stream from it with the setting on and Frame Warp refused says
-/// it, then nothing until Frame Warp runs there again. Returns the text and whether `record` changed.
-pub fn frame_warp_notice(record: &mut HostRecord, running: bool, refused: bool) -> (Option<String>, bool) {
-    if refused {
-        let first = record.claim_notice(NOTICE_FRAME_WARP_UNAVAILABLE);
-        return (first.then(|| tr("This PC doesn’t offer Frame Warp, so Nightjar streams without it.").to_owned()), first);
-    }
-    (None, running && record.reset_notice(NOTICE_FRAME_WARP_UNAVAILABLE))
+/// The notice that this PC doesn't offer Frame Warp, or that it needs the current version here and
+/// there (`Refusal`), once per PC like the PyroWave fallback's (`pyrowave_notice`): the first
+/// stream from it with the setting on and Frame Warp refused says it, then nothing until Frame
+/// Warp runs there again. Returns the text and whether `record` changed.
+pub fn frame_warp_notice(record: &mut HostRecord, running: bool, refused: Refusal) -> (Option<String>, bool) {
+    let text = match refused {
+        Refusal::None => return (None, running && record.reset_notice(NOTICE_FRAME_WARP_UNAVAILABLE)),
+        Refusal::NotOffered => tr("This PC doesn’t offer Frame Warp, so Nightjar streams without it."),
+        Refusal::UpdateHost => tr("Frame Warp needs the current version of Nightjar and of the PC’s streaming app, so this stream runs without it."),
+    };
+    let first = record.claim_notice(NOTICE_FRAME_WARP_UNAVAILABLE);
+    (first.then(|| text.to_owned()), first)
 }
 
 /// A HUD mask as a Direct3D 11 texture (R8, `mask_bytes`), made again when the mask changes.

@@ -227,6 +227,7 @@ impl Journal {
             Some(existing) => {
                 if existing.written != entry.original {
                     existing.original = entry.original;
+                    existing.raw = entry.raw;
                 }
                 existing.written = entry.written;
                 existing.session = entry.session;

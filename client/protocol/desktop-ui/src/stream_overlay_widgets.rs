@@ -299,6 +299,8 @@ pub struct UsbDeviceView {
     pub pid: u16,
     pub name: String,
     pub blocked_message: Option<String>,
+    /// Windows has another driver on it and usbipd-win lists it: it may go through usbipd-win.
+    pub usbipd: bool,
     pub can_auto: bool,
     pub auto_on: bool,
     pub opening: bool,
@@ -319,6 +321,9 @@ pub struct UsbPanelView {
     pub devices: Vec<UsbDeviceView>,
     pub failed_attachments: Vec<UsbFailedAttachment>,
     pub error: Option<String>,
+    /// The shares Nightjar left in usbipd-win when it stopped, and whether they are being given back.
+    pub usbipd_left: usize,
+    pub usbipd_giving_back: bool,
 }
 
 /// Action triggered by the stream menu's USB section.
@@ -326,8 +331,12 @@ pub struct UsbPanelView {
 pub enum UsbUiAction {
     Refresh,
     Attach(String),
+    /// Forward through usbipd-win, which the user asked for on a device another driver has.
+    AttachUsbipd(String),
     Detach(u32),
     SetAuto(String, bool),
+    /// Give back what Nightjar left shared in usbipd-win (Windows asks for administrator rights).
+    GiveBackUsbipd,
 }
 
 /// The stream controls' USB section when the setting is on but the PC offers nothing: why.
@@ -369,6 +378,15 @@ pub fn usb_show(ui: &mut egui::Ui, view: &UsbPanelView) -> Vec<UsbUiAction> {
                         actions.push(UsbUiAction::Detach(*request_id));
                     }
                 }
+                (None, true) if device.usbipd => {
+                    if ui
+                        .button(tr("Forward with usbipd-win"))
+                        .on_hover_text(tr("Windows keeps its own driver on the device: usbipd-win lends it to the PC while it is attached. Windows asks for administrator rights to share it, and again to stop."))
+                        .clicked()
+                    {
+                        actions.push(UsbUiAction::AttachUsbipd(device.busid.clone()));
+                    }
+                }
                 (None, true) => {
                     ui.add_enabled(false, egui::Button::new(tr("Attach")));
                 }
@@ -382,6 +400,16 @@ pub fn usb_show(ui: &mut egui::Ui, view: &UsbPanelView) -> Vec<UsbUiAction> {
         if let Some(blocked) = &device.blocked_message {
             ui.colored_label(crate::theme::ERROR, blocked);
         }
+    }
+    if view.usbipd_left > 0 {
+        ui.horizontal(|ui| {
+            ui.label(trf("Still shared through usbipd-win since Nightjar closed: {}", &[&view.usbipd_left]));
+            if view.usbipd_giving_back {
+                ui.weak(tr("Giving back…"));
+            } else if ui.button(tr("Give back to Windows")).clicked() {
+                actions.push(UsbUiAction::GiveBackUsbipd);
+            }
+        });
     }
     for failed in &view.failed_attachments {
         ui.colored_label(crate::theme::ERROR, format!("{}: {}", failed.name, failed.phase_label));

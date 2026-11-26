@@ -28,7 +28,7 @@
     <string name="desktop_zoom_enable">Sıkıştırarak yakınlaştırma ve kaydırmayı etkinleştir</string>
     <string name="desktop_zoom_disable">Sıkıştırarak yakınlaştırma ve kaydırmayı devre dışı bırak</string>
     <string name="desktop_zoom_reset">Yakınlaştırmayı sıfırla</string>
-    <string name="desktop_zoom_help">4 kata kadar yakınlaştırmak için iki parmakla sıkıştırın; kaydırmak için iki parmağı sürükleyin. Tek parmak seçili dokunma modunu korur. Yakınlaştırma kontrolleri etkinken iki parmakla kaydırmanın yerini alır.</string>
+    <string name="desktop_zoom_help">0,5× ile 4× arasında yakınlaştırmak için iki parmağınızı sıkıştırıp açın; görüntüyü siyah kenarlıklar dahil serbestçe taşımak için iki parmağınızla sürükleyin. Tek parmak seçili dokunma modunu korur. Yakınlaştırma kontrolleri etkinken iki parmakla kaydırmanın yerini alır.</string>
     <string name="desktop_output">Video çıkışı (yayını yeniden bağlar)</string>
     <string name="desktop_output_device">Bu cihaz</string>
     <string name="desktop_touchpad_help">Video harici ekranınızda. Bu ekranı dokunmatik yüzey olarak kullanın. Klavye, oyun düğmeleri ve yayın menüsü burada kullanılabilir.</string>

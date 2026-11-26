@@ -122,4 +122,11 @@
     <string name="game_preset_quality_summary" formatted="false">Define a taxa de bits em 150% da do PC, ou das configurações principais se o PC não tiver uma, até o limite do PC. O frame pacing e a taxa de atualização adaptável não mudam; em uma conexão fraca, os quadros maiores podem adicionar atraso.</string>
     <string name="game_preset_custom">Personalizado</string>
     <string name="game_preset_custom_summary">Seus próprios valores, definidos abaixo.</string>
+    <string name="profiles_screen">Perfil para esta tela</string>
+    <string name="profiles_screen_none">Nenhum perfil para esta tela</string>
+    <string name="profiles_screen_summary">O Nightjar está em %1$s. Um stream iniciado nela usa este perfil, antes da rede e do perfil em uso.</string>
+    <string name="profiles_screen_built_in">Tela deste dispositivo</string>
+    <string name="profiles_marker_screen">Guardado para %1$s</string>
+    <string name="profiles_screen_forget">Esquecer tela</string>
+    <string name="layers_part_profile_screen">perfil %1$s, guardado para esta tela</string>
 </resources>

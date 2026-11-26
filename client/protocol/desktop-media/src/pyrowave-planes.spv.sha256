@@ -4,6 +4,6 @@
 # shader or to frame_warp.hlsl, which it includes, and put the three SHA-256s here (the shaders'
 # with LF line endings): a unit test
 # (`pyrowave_gpu::tests::the_planes_module_was_built_from_the_shader_as_it_is`) compares them.
-pyrowave.hlsl bb56ad145d541c2270cd45f56c382c0e7fb351b6a35c42b0128000337d8ac957
-frame_warp.hlsl fbaa40acfc912b7b8f3902212b21f68191b29d5c15fc4c5d9785584afbd8ef43
-pyrowave-planes.spv c4d415a672e9635a51767b1e6679baa324bfaffd4b73d85de68a4f2efdae3473
+pyrowave.hlsl a61a5ed24760691aec16d0aa332948d7f7ba31f1b88a72a758fb38fd18cb2a74
+frame_warp.hlsl 522981e54009b20c2afb248e23ab4f1c37c9cf9b3a8880e5ec26ac15ab10fdb5
+pyrowave-planes.spv 8aab1257e47bb59923e50583b2ca13e6bc46e5b05be2496a137081c370425361

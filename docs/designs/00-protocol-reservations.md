@@ -28,7 +28,7 @@ Add `pub const RUBYLIGHT_7_CONTROL_IDS: RangeInclusive<u16> = 0x5548..=0x554F;` 
 | ID | Constant & Module (`client/protocol/core/src/`) | Item | Direction | Delivery | Summary |
 | --- | --- | --- | --- | --- | --- |
 | `0x5548` | `launch_curtain::LAUNCH_CURTAIN_STATE_MESSAGE_TYPE` | 03 `launch-curtain` | Host → Client | Reliable | Launch progress phase, launcher prompt metadata, curtain lift / timeout / error reason |
-| `0x5549` | `frame_warp::FRAME_WARP_V2_META_MESSAGE_TYPE` | 04 `frame-warp-2` | Host → Client | Unreliable | Frame Warp 2.0 per-frame camera velocity, confidence, gyro-assisted warp & HUD depth hints |
+| `0x5549` | `frame_warp_v2::FRAME_WARP_V2_META_MESSAGE_TYPE` | 04 `frame-warp-2` | Host → Client | Unreliable | Frame Warp per-frame meta: camera confidence, HUD stability, gyro packet and gain, edge fill and HUD probe hints. Frame Warp 2 replaces Frame Warp 1: `0x5543` keeps its ID but carries only the 12-byte version 2 request (`frame_warp_v2::RequestV2`; a host ignores the 8-byte version 1 request), `0x5544`..`0x5546` keep their layouts |
 | `0x554A` | `stream_dvr::DVR_STATE_MESSAGE_TYPE` | 05 `stream-dvr` | Bidirectional | Reliable | Instant-replay clip save / manual record toggle and host DVR ring status / clip result |
 | `0x554B` | `quick_suspend::QUICK_SUSPEND_MESSAGE_TYPE` | 08 `quick-suspend` | Bidirectional | Reliable | Freeze / unfreeze active game process tree, state confirmation, refusal reason |
 | `0x554C` | `party_audio::PARTY_AUDIO_CONTROL_MESSAGE_TYPE` | 10 `couch-party-audio` | Bidirectional | Reliable | Live per-guest audio mix, voice ducking, and local/remote speaker balance |
@@ -49,7 +49,7 @@ All fields appear in `rust/core/media-policy/src/extensions.rs` (`Offered`) only
 | Item | `/serverinfo` Element | Value | `DESCRIBE` Line | Launch / `ANNOUNCE` Opt-In |
 | --- | --- | --- | --- | --- |
 | 03 `launch-curtain` | `LaunchCurtainVersion` | `1` | `a=x-rl-control:0x5548` | Launch `rlLaunchCurtain=1` |
-| 04 `frame-warp-2` | `FrameWarpVersion` | `2` *(v1 compat kept)* | `a=x-rl-control:0x5549` *(with `0x5543..0x5546`)* | `FrameWarpRequest` `version=2` (`0x5543`) |
+| 04 `frame-warp-2` | `FrameWarpProtocol` *(replaces `FrameWarpVersion`, which 7.0 hosts no longer send)* | `2` | `a=x-rl-control:0x5549` *(with `0x5543..0x5546`)* | Request `0x5543` version 2 (12 bytes) |
 | 05 `stream-dvr` | `StreamDvrVersion` | `1` | `a=x-rl-control:0x554A` | Control `0x554A` or Native API |
 | 06 `hdr-sdr-tonemap` | `HdrToneMapVersion` | `1` | `a=x-rl-video.sdrToneMap:1` | Launch `rlSdrToneMap=auto\|bt2390\|off` |
 | 08 `quick-suspend` | `QuickSuspendVersion` | `1` | `a=x-rl-control:0x554B` | Control `0x554B` or Native API |
@@ -85,7 +85,7 @@ Every new capability is added in lockstep to `client/protocol/policy/src/http/ca
 | Item | Rust `Feature` / Java `HostCapabilities.Feature` | Proven By |
 | --- | --- | --- |
 | 03 | `LaunchCurtain` / `LAUNCH_CURTAIN` | `LaunchCurtainVersion >= 1` or native `session.launch_curtain` |
-| 04 | `FrameWarpV2` / `FRAME_WARP_V2` | `FrameWarpVersion >= 2` |
+| 04 | `FrameWarp` / `FRAME_WARP` *(no new feature)* | `FrameWarpProtocol >= 2`; `FrameWarpVersion` without it is `Unsupported(UpdateHost)` |
 | 05 | `StreamDvr` / `STREAM_DVR` | `StreamDvrVersion >= 1` and native `stream.dvr` |
 | 06 | `HdrSdrToneMap` / `HDR_SDR_TONEMAP` | `HdrToneMapVersion >= 1` or native `video.sdr_tonemap` |
 | 08 | `QuickSuspend` / `QUICK_SUSPEND` | `QuickSuspendVersion >= 1` and native `session.quick_suspend` |

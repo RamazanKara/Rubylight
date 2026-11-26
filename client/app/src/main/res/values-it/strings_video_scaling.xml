@@ -6,12 +6,19 @@
         <item>Riempi (ritaglia)</item>
         <item>Allunga</item>
         <item>Pixel 1:1</item>
+        <item>Adatta sicuro</item>
     </string-array>
-    <string name="video_scaling_help">Adatta: l’immagine intera, con bande se lo schermo ha un’altra forma.\nRiempi (ritaglia): riempie lo schermo senza deformare l’immagine; i bordi in eccesso vengono tagliati.\nAllunga: riempie lo schermo; le forme possono apparire più larghe o più alte.\nPixel 1:1: un pixel dello stream per ogni pixel dello schermo. Uno stream più piccolo ha un bordo; uno più grande viene ritagliato.\nPosizione video sposta in alto un’immagine Adatta o 1:1. Lo zoom con pizzico funziona in ogni modalità e il picture in picture mostra sempre l’immagine intera.</string>
+    <string name="video_scaling_help">Adatta: l’immagine intera, con bande se lo schermo ha un’altra forma.\nRiempi (ritaglia): riempie lo schermo senza deformare l’immagine; i bordi in eccesso vengono tagliati.\nAllunga: riempie lo schermo; le forme possono apparire più larghe o più alte.\nPixel 1:1: un pixel dello stream per ogni pixel dello schermo. Uno stream più piccolo ha un bordo; uno più grande viene ritagliato.\nPosizione video sposta in alto un’immagine Adatta o 1:1. Lo zoom con pizzico funziona in ogni modalità e il picture in picture mostra sempre l’immagine intera.
+Adatta sicuro: come Adatta, ma lontano da fori della fotocamera e angoli arrotondati.</string>
     <string name="title_video_alignment">Posizione video</string>
     <string name="summary_video_alignment">Dove si trova un’immagine Adatta o 1:1: al centro o in alto. «In alto» lascia libero lo spazio sotto l’immagine.</string>
     <string-array name="video_alignment_names">
         <item>Centro</item>
         <item>In alto</item>
     </string-array>
+    <string name="picture_position_title">Posizione dell’immagine</string>
+    <string name="picture_position_horizontal">Sinistra / destra</string>
+    <string name="picture_position_vertical">Su / giù</string>
+    <string name="picture_position_center">Centra</string>
+    <string name="summary_picture_position">Sposta l’immagine per compensare un foro della fotocamera o bordi curvi, salvato per ogni schermo di questo dispositivo. Lasciala centrata a meno che una parte dell’immagine sia nascosta.</string>
 </resources>

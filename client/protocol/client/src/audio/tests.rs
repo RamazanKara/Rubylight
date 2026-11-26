@@ -122,6 +122,94 @@ fn dolby_chunks_recovered_by_fec_come_out_as_whole_frames() {
     assert_eq!(played, frames[2..].iter().cloned().map(Some).collect::<Vec<_>>());
 }
 
+/// Eight 640 kbit/s AC3 frames (2560 bytes each, the longest AC3 frame), distinct per frame.
+fn ac3_640_frames() -> Vec<Vec<u8>> {
+    (0..8u8)
+        .map(|index| {
+            let mut frame: Vec<u8> = (0..2560u32).map(|i| (i % 251) as u8 ^ index).collect();
+            frame[..6].copy_from_slice(&[0x0B, 0x77, 0, 0, 36, 8 << 3]);
+            frame
+        })
+        .collect()
+}
+
+#[test]
+fn unchunked_dolby_frames_over_1400_bytes_arrive_whole_and_fec_repairs_them() {
+    const KEY: [u8; 16] = *b"unchunked-dolby!";
+    let iv = [0, 0, 0x12, 0x34, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9];
+    let frames = ac3_640_frames();
+    for encrypted in [false, true] {
+        // One frame per packet, as such a host sends them: encrypted with the key id plus the
+        // sequence number as IV, then FEC over what goes on the wire.
+        let payloads = frames
+            .iter()
+            .enumerate()
+            .map(|(seq, frame)| {
+                if !encrypted {
+                    return frame.clone();
+                }
+                let mut packet_iv = [0u8; 16];
+                packet_iv[..4].copy_from_slice(&(0x1234 + seq as u32).to_be_bytes());
+                crate::crypto::cbc_encrypt(&KEY, &packet_iv, frame, crate::crypto::CbcPadding::Pkcs7)
+                    .unwrap()
+            })
+            .collect();
+        let mut packets = stream_of(payloads);
+        let longest = if encrypted { 12 + 2576 } else { 12 + 2560 };
+        assert_eq!(packets[0].len(), longest);
+        assert!(packets.iter().all(|p| p.len() > MAX_PACKET_SIZE));
+        // Data packets 5 and 6 (block 1) are lost; their 2576-byte parity shards bring them back.
+        packets.retain(|p| ![5u16, 6].contains(&u16::from_be_bytes([p[2], p[3]])) || p[1] != 97);
+        let mut rx = AudioReceiver::new(AudioConfig {
+            packet_duration_ms: 32,
+            encryption: encrypted.then_some(AudioEncryption { key: KEY, iv }),
+            ..config()
+        });
+        rx.unchunked_frames();
+        assert_eq!(rx.max_packet_size(), MAX_UNCHUNKED_PACKET_SIZE);
+        rx.packets_to_drop = 0;
+        let played = run(&mut rx, &packets);
+        let stats = rx.stats();
+        assert_eq!((stats.packet_count_fec_recovered, stats.decrypt_failures), (2, 0));
+        assert_eq!(stats.packet_count_invalid, 0);
+        // The first block only synchronizes the queue.
+        assert_eq!(played, frames[4..].iter().cloned().map(Some).collect::<Vec<_>>(), "{encrypted}");
+    }
+}
+
+#[test]
+fn unchunked_packets_that_are_not_frames_are_lost_and_counted() {
+    let mut payloads = ac3_640_frames();
+    payloads[5] = vec![0x55; 2560];
+    let mut rx = AudioReceiver::new(AudioConfig {
+        packet_duration_ms: 32,
+        ..config()
+    });
+    rx.unchunked_frames();
+    rx.packets_to_drop = 0;
+    let played = run(&mut rx, &stream_of(payloads.clone()));
+    assert_eq!(played.len(), 4);
+    assert_eq!(played[1], None);
+    assert_eq!(played[2].as_deref(), Some(&payloads[6][..]));
+    assert_eq!(rx.stats().packet_count_invalid, 1);
+}
+
+#[test]
+fn opus_and_chunked_streams_keep_the_1400_byte_read() {
+    // A longer datagram is cut, as in the C core, and the socket reads no more.
+    let mut opus = AudioReceiver::new(config());
+    let mut chunked = AudioReceiver::new(config());
+    chunked.assemble_frames();
+    for rx in [&mut opus, &mut chunked] {
+        assert_eq!(rx.max_packet_size(), MAX_PACKET_SIZE);
+    }
+    opus.packets_to_drop = 0;
+    let packets = stream(8, 2000);
+    let played = run(&mut opus, &packets);
+    assert_eq!(played.len(), 4);
+    assert_eq!(played[0].as_deref(), Some(&packets[6][12..MAX_PACKET_SIZE]));
+}
+
 /// The FEC failures counted after each data packet of `seqs`, given at its time in ms.
 fn fec_failures_at(rx: &mut AudioReceiver, seqs: &[(u16, u64)]) -> Vec<u32> {
     let packets = stream(32, 60);

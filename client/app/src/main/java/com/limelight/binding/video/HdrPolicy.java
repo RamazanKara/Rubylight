@@ -135,6 +135,11 @@ public final class HdrPolicy {
     }
 
     /** HDR10 PQ is what the PC encodes; HLG and Dolby Vision on the panel do not stand in for it. */
+    /** Whether the screen reports Dolby Vision. */
+    public static boolean hasDolbyVision(int[] types) {
+        return (displayTypesMask(types) & NightjarPolicyJni.DISPLAY_HDR_DOLBY_VISION) != 0;
+    }
+
     public static boolean hasHdr10(int[] types) {
         return NightjarPolicyJni.hdrHasHdr10(displayTypesMask(types));
     }

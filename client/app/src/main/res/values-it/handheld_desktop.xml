@@ -28,7 +28,7 @@
     <string name="desktop_zoom_enable">Attiva zoom con pizzico e panoramica</string>
     <string name="desktop_zoom_disable">Disattiva zoom con pizzico e panoramica</string>
     <string name="desktop_zoom_reset">Reimposta zoom</string>
-    <string name="desktop_zoom_help">Pizzica con due dita per ingrandire fino a 4×; trascina con due dita per spostarti. Con un dito resta attiva la modalità touch selezionata. Lo scorrimento con due dita viene sostituito mentre i controlli dello zoom sono attivi.</string>
+    <string name="desktop_zoom_help">Pizzica con due dita per ingrandire da 0,5× a 4×; trascina con due dita per spostare liberamente l’immagine, anche sui bordi neri. Con un dito resta attiva la modalità touch selezionata. Lo scorrimento con due dita viene sostituito mentre i controlli dello zoom sono attivi.</string>
     <string name="desktop_output">Uscita video (riconnette lo stream)</string>
     <string name="desktop_output_device">Questo dispositivo</string>
     <string name="desktop_touchpad_help">Il video è sul display esterno. Usa questo schermo come touchpad. Tastiera, pulsanti di gioco e menu dello stream restano disponibili qui.</string>

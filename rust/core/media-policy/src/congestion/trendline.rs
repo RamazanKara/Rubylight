@@ -75,10 +75,23 @@ impl Group {
 }
 
 /// Groups packets by send time and yields the deltas between consecutive groups.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(super) struct InterArrival {
     current: Option<Group>,
     previous: Option<Group>,
+    /// Packets sent within this of a group's first belong to it: [`BURST_US`], or less above
+    /// 120 fps ([`crate::pacing_high_hz::group_burst_us`]).
+    burst_us: u64,
+}
+
+impl Default for InterArrival {
+    fn default() -> Self {
+        Self {
+            current: None,
+            previous: None,
+            burst_us: BURST_US,
+        }
+    }
 }
 
 /// The deltas between two groups, ms, and the later group.
@@ -98,7 +111,7 @@ impl InterArrival {
             // Sent before the open group: a late join, which says nothing about the trend.
             return None;
         }
-        if p.sent_us - current.first_send <= BURST_US {
+        if p.sent_us - current.first_send <= self.burst_us {
             current.last_send = current.last_send.max(p.sent_us);
             current.first_arrival = current.first_arrival.min(arrival);
             current.last_arrival = current.last_arrival.max(arrival);
@@ -122,8 +135,20 @@ impl InterArrival {
         })
     }
 
+    /// Forgets the groups; the group window stays.
     pub(super) fn reset(&mut self) {
-        *self = Self::default();
+        self.current = None;
+        self.previous = None;
+    }
+
+    /// Sets the group window, µs; the open groups are forgotten.
+    pub(super) fn set_burst_us(&mut self, burst_us: u64) {
+        self.reset();
+        self.burst_us = burst_us.max(1);
+    }
+
+    pub(super) fn burst_us(&self) -> u64 {
+        self.burst_us
     }
 }
 

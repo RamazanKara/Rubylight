@@ -81,6 +81,8 @@ impl Streaming {
             crate::sdl::prefer_immediate(renderer, present::prefers_immediate(self.vrr.display_vrr(), wayland, crate::handheld::gamescope()));
             interval.or(Some(self.vrr.interval))
         } else { interval };
+        #[cfg(target_os = "linux")]
+        let interval = interval.map(|interval| self.gamescope_interval(renderer, interval));
         #[cfg(not(target_os = "linux"))]
         let _ = display_vrr;
         if self.pacer.mode != before {
@@ -537,6 +539,7 @@ impl Streaming {
             if let Some(p) = &picture { warp.picture(p.decoded.number, p.decoded.race_seq, p.decoded.ready_us); }
             self.texture.warp = warp.draw(None);
         }
+        let had_redraw = std::mem::replace(&mut self.needs_redraw, false);
         let (flipped, by_kms) = match self.kms_flip(window, &mut draw_overlay, has_picture) {
             Some(flipped) => {
                 if scanned_out && let Some(p) = &mut picture {
@@ -560,7 +563,6 @@ impl Streaming {
                 (self.render_flip(renderer, &mut draw_overlay, has_picture, freshly_uploaded, picture.as_ref().map(|p| p.present_us)), false)
             }
         };
-        self.needs_redraw = false;
         if flipped.device_lost { return true; }
         if !flipped.refused && let Some(frame) = picture.as_ref().and_then(|p| p.decoded.picture.frame()) { frame.mark_d3d11_flushed(); }
         #[cfg(target_os = "linux")]
@@ -590,6 +592,7 @@ impl Streaming {
             }
         }
         if flipped.refused {
+            if had_redraw { self.needs_redraw = true; }
             self.skipped_picture = picture;
             let (refresh_us, was_waiting) = ((1_000_000.0 / self.plan.display.refresh_hz.max(1.0)) as u64, self.skipped.waits());
             if let Some(hold) = self.skipped.skipped(flipped.returned_us, self.pacer.frame_us(), refresh_us) {
@@ -599,6 +602,8 @@ impl Streaming {
         }
         // A redraw for the menu or the overlay leaves a kept picture to be shown and counted.
         if has_picture && self.skipped.shown() { eprintln!("nightjar: pacing: trying no-wait presents again (hold {:?})", self.skipped.hold()); }
+        #[cfg(target_os = "linux")]
+        if has_picture && !by_kms { self.watch_gamescope_fifo(renderer, flipped.issued_us, flipped.returned_us, dropped); }
         let presented = flipped.returned_us;
         let scan = flipped.scan;
         let watches = cfg!(windows) && has_picture && self.no_wait_present && !self.skipped.waits() && self.pacer.skips_instead_of_waiting(self.plan.display.refresh_hz);

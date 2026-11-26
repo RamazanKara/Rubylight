@@ -49,9 +49,11 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long a guest waits for its media port, which the guest before it may still hold.
 const BIND_WAIT: Duration = Duration::from_secs(3);
-/// Keyframes the guests may ask the owner's encoder for: one this often, between them all. The
-/// encoder makes one picture for everyone, so a guest on a poor link must not keep the owner's in
-/// keyframes; a guest that asks too soon is asked for again by its transport.
+/// Keyframes the guests may ask the owner's encoder for: at most one this often, between them
+/// all. The encoder makes one picture for everyone, so a guest on a poor link must not keep the
+/// owner's in keyframes: each guest also backs off on its own, from this up to 8 s while its
+/// losses go on ([`keyframe_backoff`]). A guest that asks too soon is asked for again by its
+/// transport.
 pub const KEYFRAME_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_MESSAGE: usize = 64 * 1024;
 /// How long the invite dialog's "On the internet" keeps the guest ports mapped before a link is
@@ -646,6 +648,8 @@ impl Guests {
 
 mod guards;
 pub use guards::OwnerGuard;
+
+pub mod keyframe_backoff;
 
 mod signal;
 #[cfg(test)]

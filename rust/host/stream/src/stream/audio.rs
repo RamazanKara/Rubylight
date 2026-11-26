@@ -30,6 +30,7 @@ pub(crate) fn open_audio_encoder(
 }
 
 type Route = butterpollo_win_io::audio_route::Route;
+use butterpollo_win_io::audio_route::notify;
 
 /// The `audio_surround` warning when the device has fewer channels (`applied`)
 /// than the capture `requested`. They differ from the client's own layout only
@@ -123,11 +124,14 @@ fn route_upkeep(
     }
 }
 
-/// The audio route's once-a-second upkeep, on its own thread. Each round
-/// asks the Windows audio service for the default devices, several COM calls;
-/// on the audio sender they held up the read after them about once a second.
+/// The audio route's upkeep, on its own thread: once a second and at once on
+/// an endpoint change. Each round asks the Windows audio service for the
+/// default devices, several COM calls; on the audio sender they held up the
+/// read after them about once a second.
 struct RouteUpkeep {
     sink: Arc<Mutex<String>>,
+    /// Set when a round picks another sink, so the audio thread reads it at once.
+    changed: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -146,8 +150,10 @@ impl RouteUpkeep {
             &route.sink,
         )));
         let stop = Arc::new(AtomicBool::new(false));
+        let changed = Arc::new(AtomicBool::new(false));
         let thread = thread::Builder::new().name("audio route".into()).spawn({
             let sink = sink.clone();
+            let changed = changed.clone();
             let stop = stop.clone();
             move || {
                 let _com = match ComGuard::new() {
@@ -163,25 +169,41 @@ impl RouteUpkeep {
                         return;
                     }
                 };
+                // Endpoint changes wake the next round at once; the poll stays the safety net.
+                let upkeep = thread::current();
+                let _watch = notify::EndpointWatch::new(Arc::new(move || upkeep.unpark()))
+                    .inspect_err(|error| tracing::warn!("audio endpoint notifications unavailable; polling only: {error:#}"))
+                    .ok();
+                let mut last_round = Instant::now();
                 loop {
-                    thread::park_timeout(Duration::from_secs(1));
+                    notify::park_until_round(last_round);
                     if stop.load(Ordering::Acquire) {
                         break;
                     }
+                    last_round = Instant::now();
                     let previous = sink.lock().unwrap().clone();
                     let selected = route_upkeep(&route, &config, &warnings, &previous);
+                    let moved = selected != previous;
                     *sink.lock().unwrap() = selected;
+                    if moved {
+                        changed.store(true, Ordering::Release);
+                    }
                 }
             }
         })?;
         Ok(Self {
             sink,
+            changed,
             stop,
             thread: Some(thread),
         })
     }
     fn sink(&self) -> String {
         self.sink.lock().unwrap().clone()
+    }
+    /// Whether a round picked another sink since the last call; one atomic load when not.
+    fn take_changed(&self) -> bool {
+        self.changed.load(Ordering::Relaxed) && self.changed.swap(false, Ordering::Acquire)
     }
 }
 
@@ -373,6 +395,10 @@ impl Media {
                         pace.host_dropped(assembler.discard_frames());
                     }
                 });
+            }
+            if upkeep.as_ref().is_some_and(RouteUpkeep::take_changed) {
+                // The upkeep moved to another sink (an endpoint event): switch now, not at the next check.
+                audio_check = Instant::now();
             }
             if !muted && !game_audio && Instant::now() >= audio_check {
                 audio_check = Instant::now() + Duration::from_secs(1);

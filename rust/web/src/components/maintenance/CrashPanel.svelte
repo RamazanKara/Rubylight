@@ -4,6 +4,7 @@
   import Button from '../Button.svelte';
   import Panel from '../Panel.svelte';
   import LoadState from '../LoadState.svelte';
+  import Toggle from '../Toggle.svelte';
   import { api, type CrashStatus } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
   import { bytes, duration } from '../../lib/format';
@@ -12,6 +13,7 @@
   let crash = $state<CrashStatus | null>(null);
   let loadError = $state('');
   let busy = $state(false);
+  let includeDump = $state(false);
 
   function age(seconds: number) {
     if (seconds < 86400) return `${duration(seconds)} ago`;
@@ -71,8 +73,15 @@
     {:else}
       <p class="muted note">No crash reports from the last 7 days.</p>
     {/if}
+    {#if crash?.available}
+      <Toggle
+        label="Include the crash memory dump"
+        hint="A memory dump can hold anything Rubylight had in memory, such as names, addresses and passwords. Include it only when asked, and share it privately."
+        bind:checked={includeDump}
+      />
+    {/if}
     <div class="row">
-      <Button href={api.logs.supportBundleUrl} icon="download">Download support bundle</Button>
+      <Button href={includeDump && crash?.available ? api.logs.supportBundleWithDumpUrl : api.logs.supportBundleUrl} icon="download">Download support bundle</Button>
       {#if crash?.available && !crash.dismissed}<Button {busy} onclick={dismiss}>Dismiss crash report</Button>{/if}
       <Button href="/logs" variant="ghost" icon="logs">Open logs</Button>
     </div>

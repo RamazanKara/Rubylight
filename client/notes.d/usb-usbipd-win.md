@@ -1,0 +1,2 @@
+## desktop
+- On Windows, a USB device another driver holds (a controller, a fightstick, a flash drive) can be forwarded with usbipd-win instead of Zadig: choose Forward with usbipd-win in the stream controls. Windows keeps its own driver, asks for administrator rights to share the device and again to stop, and Nightjar only ever unshares what it shared itself. After a crash, the launcher asks once whether to give leftover shares back; the stream menu's USB devices section offers it after that. The administrator prompt opens in front of Nightjar, a fullscreen stream too.

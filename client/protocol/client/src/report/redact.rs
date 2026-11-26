@@ -1,6 +1,7 @@
 //! Log redaction shared with the Android app's `utils/RedactedLog.redact`: names and addresses of
-//! the user's PCs, URLs, e-mail, IP and MAC addresses, UUIDs, keys, Android paths and PINs are
-//! replaced by marks such as `[PC]` or `[address]`.
+//! the user's PCs, URLs, e-mail, IP and MAC addresses, UUIDs, keys, Android paths, the user's
+//! name in Windows, macOS and Linux home folders, and PINs are replaced by marks such as `[PC]`,
+//! `[user]` or `[address]`.
 //!
 //! The cases in `tests/fixtures/redact` are replayed against both (cargo `redact_contract` and
 //! JUnit `RedactedLogContractTest`), so the two stay equal. The patterns use Java's ASCII
@@ -71,6 +72,29 @@ static SENSITIVE: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     .map(|(pattern, mark)| (Regex::new(&pattern).expect("redaction pattern"), mark))
     .collect()
 });
+
+/// A folder or file name in a path: no separator, space or character Windows forbids in names.
+const PATH_NAME: &str = r#"[^\\/ \t\n\x0B\x0C\r"'<>|:*?]+"#;
+
+/// A user's home folder in a path, up to the user's name, which becomes `[user]`: `C:\Users\`
+/// (any case, either separator, doubled in escaped text) and `Documents and Settings` on
+/// Windows, `/Users/` on macOS and `/home/` on Linux. A name with spaces counts as one only up
+/// to the separator after it; at the end of the path its first word goes.
+static USER_PATH: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&user_path()).expect("user path pattern"));
+
+/// [`USER_PATH`] over bytes, for [`can_cut`].
+static USER_PATH_BYTES: LazyLock<regex::bytes::Regex> =
+    LazyLock::new(|| regex::bytes::Regex::new(&user_path()).expect("user path pattern"));
+
+/// How far around a cut [`can_cut`] looks for a user folder's path: its prefix and a long name.
+const USER_PATH_WINDOW: usize = 320;
+
+fn user_path() -> String {
+    format!(
+        r"((?-u:\b)[A-Za-z]:[\\/]+(?i-u:users|documents and settings)[\\/]+|/(?:Users|home)/+)(?:{PATH_NAME}(?: +{PATH_NAME})*([\\/])|{PATH_NAME})"
+    )
+}
 
 /// A secret's keyword and up to three separators, then the secret itself.
 static PIN: LazyLock<Regex> = LazyLock::new(|| {
@@ -155,6 +179,9 @@ impl Secrets {
         if marked {
             text = text.replace(PC_PLACEHOLDER, "[PC]");
         }
+        if let std::borrow::Cow::Owned(replaced) = USER_PATH.replace_all(&text, "${1}[user]${2}") {
+            text = replaced;
+        }
         for (pattern, mark) in SENSITIVE.iter() {
             if let std::borrow::Cow::Owned(replaced) = pattern.replace_all(&text, *mark) {
                 text = replaced;
@@ -172,13 +199,22 @@ impl Secrets {
     }
 
     /// Whether a line too long to hold can be cut before its byte `at` with each part scrubbed
-    /// alone and nothing let through: no PC name runs across the cut, and the text before it
-    /// does not end in a keyword whose secret would start the next part, where nothing names it.
+    /// alone and nothing let through: no PC name or user folder's path runs across the cut, and
+    /// the text before it does not end in a keyword whose secret would start the next part, where
+    /// nothing names it.
     pub fn can_cut(&self, text: &[u8], at: usize) -> bool {
         if at == 0 || at >= text.len() {
             return true;
         }
         if KEYWORD_END.is_match(&text[at.saturating_sub(KEYWORD_END_WINDOW)..at]) {
+            return false;
+        }
+        let start = at.saturating_sub(USER_PATH_WINDOW);
+        let around = &text[start..(at + USER_PATH_WINDOW).min(text.len())];
+        if USER_PATH_BYTES
+            .find_iter(around)
+            .any(|path| start + path.start() < at && at < start + path.end())
+        {
             return false;
         }
         self.list.iter().all(|secret| {
@@ -284,6 +320,24 @@ mod tests {
         assert!(secrets.can_cut(b"Token", 5));
         assert!(!secrets.can_cut(b"a key=", 6 - 1));
         assert!(secrets.can_cut(b"monkey value", 7), "a keyword inside a word is none");
+    }
+
+    #[test]
+    fn a_cut_keeps_a_user_folders_path_whole() {
+        let secrets = Secrets::new();
+        let text = br"saved C:\Users\John Smith\AppData\x.json and /home/alice done";
+        let at = |word: &str| {
+            let word = word.as_bytes();
+            text.windows(word.len()).position(|w| w == word).unwrap()
+        };
+        // Inside the prefix and the name, of either kind of path, are no places to cut.
+        for word in [r"sers\", "John", "Smith", "ith", "ome/", "alice", "ice"] {
+            assert!(!secrets.can_cut(text, at(word)), "{word}");
+        }
+        // Before the path and after the name are.
+        for word in [r"C:\", r"AppData", "and", "done"] {
+            assert!(secrets.can_cut(text, at(word)), "{word}");
+        }
     }
 
     #[test]

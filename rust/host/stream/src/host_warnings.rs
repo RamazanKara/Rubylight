@@ -12,6 +12,8 @@ const FILE: &str = "host-warnings.json";
 pub const FIREWALL: &str = "firewall_blocked";
 /// The guest page's port could not be opened.
 pub const GUEST_PORT: &str = "guest_port";
+/// An app's cover is on a network or device path, which the host no longer opens.
+pub const NETWORK_COVER: &str = "network_cover";
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 struct Saved {
@@ -140,6 +142,27 @@ pub fn notice(directory: &Path, warnings: &Warnings, code: &str, message: &str) 
     }
 }
 
+/// Says which apps' covers are on a network or device path, which the host does not open
+/// ([`butterpollo_session::network_path`]): they show the default cover until the image is copied
+/// to this PC. Cleared when no app has one.
+pub fn network_covers(warnings: &Warnings, apps: &[butterpollo_session::state::App]) {
+    let names = butterpollo_session::catalog::network_covers(apps);
+    if names.is_empty() {
+        warnings.clear(NETWORK_COVER);
+        return;
+    }
+    let shown = names.iter().take(3).cloned().collect::<Vec<_>>().join(", ");
+    let more = match names.len() {
+        0..=3 => String::new(),
+        n => format!(" and {} more", n - 3),
+    };
+    let message = format!(
+        r"The cover of {shown}{more} is on a network path (\\server\share) or a device path, which the host does not open: it would sign in to that computer with this PC's account. The app shows the default cover; copy the image to this PC and choose it again in the app's settings."
+    );
+    tracing::warn!(apps = names.len(), "{message}");
+    warnings.set(NETWORK_COVER, message);
+}
+
 /// The current warnings without those the console dismissed at this text.
 pub fn visible(directory: &Path, warnings: &Warnings) -> Vec<Warning> {
     let dismissed = load_cached(directory)
@@ -244,6 +267,29 @@ mod tests {
             std::env::temp_dir().join(format!("rubylight-warnings-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path)?;
         Ok(Temp(path))
+    }
+
+    #[test]
+    fn a_cover_on_a_network_path_is_a_warning_until_no_app_has_one() {
+        let warnings = Warnings::default();
+        let mut app = butterpollo_session::state::App::desktop();
+        app.name = "Shared Game".into();
+        app.extra.insert(
+            "image-path".into(),
+            serde_json::json!(r"\\nas\covers\game.png"),
+        );
+        network_covers(&warnings, std::slice::from_ref(&app));
+        let shown = warnings.snapshot();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].code, NETWORK_COVER);
+        assert!(shown[0].message.contains("Shared Game"));
+        assert!(shown[0].message.contains(r"\\server\share"));
+        app.extra.insert(
+            "image-path".into(),
+            serde_json::json!(r"Z:\covers\game.png"),
+        );
+        network_covers(&warnings, &[app]);
+        assert!(warnings.snapshot().is_empty());
     }
 
     #[test]

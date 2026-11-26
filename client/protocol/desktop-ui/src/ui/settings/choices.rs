@@ -191,6 +191,15 @@ pub(super) fn enhancement_choice(ui: &mut Ui, salt: &str, choice: &mut Option<bo
     }).response
 }
 
+pub(in crate::ui) fn hdr_format_name(choice: nightjar_policy::video_codec::hdr::HdrFormatChoice) -> String {
+    use nightjar_policy::video_codec::hdr::HdrFormatChoice;
+    match choice {
+        HdrFormatChoice::Auto => tr("Automatic").to_owned(),
+        HdrFormatChoice::NoDolbyVision => tr("No Dolby Vision").to_owned(),
+        HdrFormatChoice::Hdr10 => tr("HDR10 only").to_owned(),
+    }
+}
+
 pub(in crate::ui) fn error_correction_name(mode: ErrorCorrection) -> String {
     match mode {
         ErrorCorrection::Host => tr("PC’s setting").to_owned(),

@@ -406,3 +406,21 @@ fn smoothness_on_fractional_panel_does_not_falsely_drop_one_refresh_old_frames()
     let (picture, dropped) = ntsc.take_due(18_200);
     assert_eq!((picture.unwrap().decoded.ready_us, dropped), (1_000, 0));
 }
+
+#[test]
+fn in_order_pacing_is_the_pacers_keep_every_picture_at_v_sync() {
+    let pacings = [FramePacing::Latency, FramePacing::Balanced, FramePacing::CapFps, FramePacing::Smoothness];
+    for pacing in pacings {
+        for drop_late in [false, true] {
+            for host_times in [false, true] {
+                let in_order = in_order_pacing(pacing, drop_late, host_times);
+                for mode in [PacingMode::Vsync, PacingMode::Immediate, PacingMode::HostTimes, PacingMode::BeamRace] {
+                    let pacer = Pacer::new(mode, 8_333).with_frame_pacing(pacing, 60).with_drop_late_frames(drop_late).with_host_frame_times(host_times);
+                    assert_eq!(pacer.in_order(), in_order, "{pacing:?} drop {drop_late} host {host_times}");
+                    assert_eq!(pacer.keeps_every_picture(), mode == PacingMode::Vsync && in_order, "{mode:?} {pacing:?} drop {drop_late} host {host_times}");
+                }
+            }
+        }
+    }
+    assert!(!in_order_pacing(FramePacing::Smoothness, true, true), "the PC's frame times take the newest picture");
+}

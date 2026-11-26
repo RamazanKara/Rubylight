@@ -28,7 +28,7 @@ public class VideoScalingTest {
 
     @Test
     public void everyModeSurvivesARoundTrip() {
-        for (int mode = VideoScaling.FIT; mode <= VideoScaling.NATIVE; mode++) {
+        for (int mode = VideoScaling.FIT; mode <= VideoScaling.SAFE_FIT; mode++) {
             assertEquals(mode, VideoScaling.resolve(VideoScaling.value(mode), VideoScaling.legacyStretch(mode)));
         }
     }
@@ -38,6 +38,7 @@ public class VideoScalingTest {
         assertFalse(VideoScaling.legacyStretch(VideoScaling.FIT));
         assertFalse(VideoScaling.legacyStretch(VideoScaling.FILL));
         assertFalse(VideoScaling.legacyStretch(VideoScaling.NATIVE));
+        assertFalse(VideoScaling.legacyStretch(VideoScaling.SAFE_FIT));
         assertTrue(VideoScaling.legacyStretch(VideoScaling.STRETCH));
     }
 
@@ -62,6 +63,7 @@ public class VideoScalingTest {
     public void onlyFitAndNativeMoveToTheTop() {
         assertTrue(VideoScaling.alignsTop(VideoScaling.FIT, VideoScaling.TOP));
         assertTrue(VideoScaling.alignsTop(VideoScaling.NATIVE, VideoScaling.TOP));
+        assertTrue(VideoScaling.alignsTop(VideoScaling.SAFE_FIT, VideoScaling.TOP));
         assertFalse(VideoScaling.alignsTop(VideoScaling.FILL, VideoScaling.TOP));
         assertFalse(VideoScaling.alignsTop(VideoScaling.STRETCH, VideoScaling.TOP));
         assertFalse(VideoScaling.alignsTop(VideoScaling.FIT, VideoScaling.CENTER));
@@ -81,6 +83,10 @@ public class VideoScalingTest {
         assertTrue(VideoScaling.coversArea(VideoScaling.STRETCH));
         assertFalse(VideoScaling.coversArea(VideoScaling.FIT));
         assertFalse(VideoScaling.coversArea(VideoScaling.NATIVE));
+        assertFalse(VideoScaling.coversArea(VideoScaling.SAFE_FIT));
+        assertTrue(VideoScaling.keepsCornersClear(VideoScaling.SAFE_FIT));
+        assertFalse(VideoScaling.keepsCornersClear(VideoScaling.FIT));
+        assertEquals(VideoScaling.FIT, VideoScaling.forPictureInPicture(VideoScaling.SAFE_FIT));
     }
 
     @Test
@@ -147,7 +153,7 @@ public class VideoScalingTest {
 
     @Test
     public void anUnknownVideoOrAreaFillsWhatThereIs() {
-        for (int mode = VideoScaling.FIT; mode <= VideoScaling.NATIVE; mode++) {
+        for (int mode = VideoScaling.FIT; mode <= VideoScaling.SAFE_FIT; mode++) {
             assertRect(layout(mode, VideoScaling.CENTER, 0, 0, 2400, 1080), 0, 0, 2400, 1080);
             assertRect(layout(mode, VideoScaling.CENTER, 1920, 1080, 0, 0), 0, 0, 0, 0);
         }
@@ -211,5 +217,16 @@ public class VideoScalingTest {
         assertEquals(0, VideoScaling.toStream(100, 100, 0, 100, 0, 0), 0);
         assertEquals(0, VideoScaling.toStream(100, 100, 0, 100, Float.NaN, 0), 0);
         assertEquals(240, VideoScaling.toScreen(10, 0, 240, 1920, 1, 0), 0);
+    }
+
+    @Test
+    public void safeFitPlacesThePictureLikeFit() {
+        VideoScaling fit = new VideoScaling(), safe = new VideoScaling();
+        fit.layout(VideoScaling.FIT, VideoScaling.CENTER, 1920, 1080, 2284, 1008);
+        safe.layout(VideoScaling.SAFE_FIT, VideoScaling.CENTER, 1920, 1080, 2284, 1008);
+        assertEquals(fit.width(), safe.width());
+        assertEquals(fit.height(), safe.height());
+        assertEquals(fit.left(), safe.left());
+        assertEquals(1792, safe.width());
     }
 }

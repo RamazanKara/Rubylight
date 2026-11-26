@@ -66,6 +66,19 @@ public class AdaptiveLayoutTest {
     }
 
     @Test
+    public void safeFitKeepsClearOfTheCutoutCornersAndSwipeStripOnEitherLandscapeSide() {
+        // A punch-hole phone in landscape: the cutout on the left (rotation 90), 120 px corners,
+        // a 63 px swipe-home strip at the bottom. Corners need 36 px from each edge.
+        Insets left = AdaptiveLayout.safeFitArea(Insets.of(80, 0, 0, 0), Insets.of(0, 0, 0, 63), 120, 120, 120, 120);
+        assertEquals(Insets.of(80, 36, 36, 63), left);
+        // Turned over (rotation 270): the cutout moves right, the safe area mirrors.
+        Insets right = AdaptiveLayout.safeFitArea(Insets.of(0, 0, 80, 0), Insets.of(0, 0, 0, 63), 120, 120, 120, 120);
+        assertEquals(Insets.of(36, 36, 80, 63), right);
+        // Before Android 12 no corners are reported: the cutout alone, as Fit.
+        assertEquals(Insets.of(80, 0, 0, 0), AdaptiveLayout.safeFitArea(Insets.of(80, 0, 0, 0), Insets.NONE, 0, 0, 0, 0));
+    }
+
+    @Test
     public void separatingHingesChooseAContiguousPaneIncludingZeroWidthFolds() {
         Rect window = new Rect(10, 24, 1010, 800);
         assertEquals(new Rect(10, 24, 500, 800), AdaptiveLayout.usablePane(window, new Rect(500, 0, 520, 900), true, false));

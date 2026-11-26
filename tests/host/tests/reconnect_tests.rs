@@ -29,6 +29,8 @@ mod control_fuzz_tests;
 mod extension_tests;
 #[path = "reconnect_tests/frame_warp_tests.rs"]
 mod frame_warp_tests;
+#[path = "reconnect_tests/frame_warp_v2_tests.rs"]
+mod frame_warp_v2_tests;
 #[path = "reconnect_tests/rate_change_tests.rs"]
 mod rate_change_tests;
 #[path = "reconnect_tests/roaming_tests.rs"]

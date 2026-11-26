@@ -1,4 +1,5 @@
 use super::*;
+use nightjar_core::frame_warp_v2::{FrameWarpV2Meta, Status as V2Status, DEFAULT_ROW};
 
 #[test]
 fn the_ring_finds_frames_by_their_exact_time_and_forgets_old_ones() {
@@ -57,8 +58,13 @@ fn warps_encode_their_mask_and_inactive_draws_as_is() {
         lens: [0.05, -0.02, 1.001, 1.004],
         active: false,
         mask_generation: Some(3),
+        v2: [0.35, 2.0, 0.75, 33.0],
     };
-    assert_eq!(WARP_STILL, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0], "no shift, a flat picture");
+    assert_eq!(
+        WARP_STILL,
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+        "no shift, a flat picture, no row"
+    );
     assert_eq!(encode_warp(&inactive), (WARP_INACTIVE, WARP_STILL));
     let active = Warp {
         active: true,
@@ -67,11 +73,14 @@ fn warps_encode_their_mask_and_inactive_draws_as_is() {
     };
     assert_eq!(
         encode_warp(&active),
-        (WARP_NO_MASK, [0.1, 0.2, 3.0, 4.0, 0.05, -0.02, 1.001, 1.004]),
-        "the shift, then the lens terms"
+        (WARP_NO_MASK, [0.1, 0.2, 3.0, 4.0, 0.05, -0.02, 1.001, 1.004, 0.35, 2.0, 0.75, 33.0]),
+        "the shift, then the lens terms, then the shader row as the core gives it"
     );
     let flat = Warp { lens: FLAT, ..active };
-    assert_eq!(encode_warp(&flat).1, [0.1, 0.2, 3.0, 4.0, 0.0, 0.0, 1.0, 1.0]);
+    assert_eq!(encode_warp(&flat).1, [0.1, 0.2, 3.0, 4.0, 0.0, 0.0, 1.0, 1.0, 0.35, 2.0, 0.75, 33.0]);
+    // A warp before the host's first meta carries the core's default fill and probe.
+    let first = Warp { active: true, ..Warp::default() };
+    assert_eq!(encode_warp(&first).1[8..], DEFAULT_ROW);
     let masked = Warp {
         mask_generation: Some(65535),
         ..active
@@ -115,9 +124,11 @@ fn model(mouse: bool, stick: bool) -> Model {
 fn status_numbers_say_what_the_overlay_shows() {
     let mut n = [9.0; STATUS_NUMBERS];
     assert_eq!(status_numbers(false, true, false, None, &mut n), STATUS_OFF);
-    assert_eq!(n, [0.0; STATUS_NUMBERS]);
+    assert_eq!(n, NO_NUMBERS);
+    assert_eq!(NO_NUMBERS, [0.0, 0.0, 0.0, 0.0, -1.0, 0.0], "no confidence yet");
     assert_eq!(status_numbers(true, false, false, None, &mut n), STATUS_NOT_OFFERED);
     assert_eq!(status_numbers(true, true, false, None, &mut n), STATUS_LEARNING);
+    assert_eq!(n, NO_NUMBERS, "before the stream's Frame Warp runs");
     let mut status = Status {
         pixels: [12.0, 5.0],
         peak: 41.0,
@@ -128,20 +139,47 @@ fn status_numbers_say_what_the_overlay_shows() {
     assert_eq!(status_numbers(true, true, false, Some(&status), &mut n), STATUS_LEARNING, "unlocked");
     status.model = Some(model(true, true));
     assert_eq!(status_numbers(true, true, false, Some(&status), &mut n), STATUS_MOUSE);
-    assert_eq!(n, [0.94, 38.4, 13.0, 41.0]);
+    assert_eq!(n, [0.94, 38.4, 13.0, 41.0, -1.0, 0.0], "no meta yet");
     status.model = Some(model(false, true));
     assert_eq!(status_numbers(true, true, false, Some(&status), &mut n), STATUS_STICK);
-    assert_eq!(n, [900.0, 38.4, 13.0, 41.0]);
+    assert_eq!(n, [900.0, 38.4, 13.0, 41.0, -1.0, 0.0]);
     status.peak = 1.0;
     status_numbers(true, true, false, Some(&status), &mut n);
     assert_eq!(n[3], 13.0, "the peak is never below the shift shown with it");
     assert_eq!(status_numbers(true, true, true, Some(&status), &mut n), STATUS_DECLINED);
-    assert_eq!(n, [0.0; STATUS_NUMBERS]);
+    assert_eq!(n, NO_NUMBERS);
     assert_eq!(
         status_numbers(true, false, true, Some(&status), &mut n),
         STATUS_NOT_OFFERED,
         "not offered says more than declined"
     );
+}
+
+#[test]
+fn status_numbers_carry_the_confidence_and_the_gyro_lock() {
+    let mut n = [9.0; STATUS_NUMBERS];
+    let locked = FrameWarpV2Meta { flags: meta_flags::GYRO_LOCKED, ..FrameWarpV2Meta::default() };
+    let mut status = Status {
+        pixels: [3.0, 4.0],
+        model: Some(model(true, false)),
+        v2: V2Status { confidence: 0.5, meta: Some(locked), gyro_packets: 9 },
+        ..Status::default()
+    };
+    assert_eq!(status_numbers(true, true, false, Some(&status), &mut n), STATUS_MOUSE);
+    assert_eq!(n, [0.94, 38.4, 5.0, 5.0, 0.5, 1.0]);
+    // Learning shows them too, as the gyro alone may hold the shift.
+    status.model = Some(model(false, false));
+    assert_eq!(status_numbers(true, true, false, Some(&status), &mut n), STATUS_LEARNING);
+    assert_eq!(n, [0.0, 0.0, 0.0, 0.0, 0.5, 1.0]);
+    let unlocked = FrameWarpV2Meta { flags: meta_flags::HUD_SOFT_EDGE, ..locked };
+    status.v2 = V2Status { confidence: 1.5, meta: Some(unlocked), gyro_packets: 9 };
+    status_numbers(true, true, false, Some(&status), &mut n);
+    assert_eq!(n[4..], [1.0, 0.0], "held to 0..1, the gyro unlocked");
+    status.v2 = V2Status { confidence: 0.75, meta: None, gyro_packets: 9 };
+    status_numbers(true, true, false, Some(&status), &mut n);
+    assert_eq!(n[4..], [-1.0, 0.0], "the envelope before the host's first meta is no confidence");
+    assert_eq!(status_numbers(true, true, true, Some(&status), &mut n), STATUS_DECLINED);
+    assert_eq!(n, NO_NUMBERS);
 }
 
 #[test]

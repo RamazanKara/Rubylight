@@ -2,14 +2,23 @@
 
 use super::*;
 
+/// `GET /pyrowave-bandwidth-probe`: a fixed 32 MiB body a paired client times. Held to what
+/// `/bandwidth-probe` is: refused while a stream runs or starts (409), and past each client's
+/// cooldown and budget (429 with `Retry-After`, [`probe::PYROWAVE`]).
 pub(super) async fn pyrowave_bandwidth(
     State(h): State<Shared>,
     Extension(connection): Extension<Connection>,
 ) -> Response {
-    if authenticated(&h, &connection, 0).is_err() {
-        return StatusCode::UNAUTHORIZED.into_response();
+    use butterpollo_media_policy::bandwidth_probe as probe;
+    let client = match authenticated(&h, &connection, 0) {
+        Ok(client) => client,
+        Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+    if let Some(refused) = probe_refused(&h, &h.pyrowave_probes, &client, probe::PYROWAVE_BYTES) {
+        return refused;
     }
-    let payload = Bytes::from(vec![0xa5; 32 * 1024 * 1024]);
+    tracing::info!(client = %client.name, bytes = probe::PYROWAVE_BYTES, "PyroWave bandwidth probe");
+    let payload = Bytes::from(vec![0xa5; probe::PYROWAVE_BYTES as usize]);
     (
         [
             (header::CONTENT_TYPE, "application/octet-stream"),
@@ -44,34 +53,8 @@ pub(super) async fn bandwidth_probe(
         Ok(bytes) => bytes,
         Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     };
-    let busy = {
-        let mut sessions = h.sessions.lock().unwrap();
-        let expired = sessions.expire();
-        let busy = streaming(&sessions);
-        drop(sessions);
-        drop(expired);
-        busy
-    };
-    if busy {
-        return (
-            StatusCode::CONFLICT,
-            "Stop streaming before testing bandwidth",
-        )
-            .into_response();
-    }
-    let admitted = h
-        .bandwidth_probes
-        .lock()
-        .unwrap()
-        .admit(&client.uuid, bytes, Instant::now());
-    if let Err(wait) = admitted {
-        let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            [(header::RETRY_AFTER, seconds.max(1).to_string())],
-            "Bandwidth probe limit reached",
-        )
-            .into_response();
+    if let Some(refused) = probe_refused(&h, &h.bandwidth_probes, &client, bytes) {
+        return refused;
     }
     tracing::info!(client = %client.name, bytes, "bandwidth probe");
     (
@@ -89,6 +72,46 @@ pub(super) async fn bandwidth_probe(
         )),
     )
         .into_response()
+}
+/// Why a probe of `bytes` for `client` is refused now, if it is: a stream runs or starts (409, checked
+/// first), or the client is within its cooldown or past its budget in `limiter` (429).
+fn probe_refused(
+    h: &Shared,
+    limiter: &std::sync::Mutex<butterpollo_media_policy::bandwidth_probe::Limiter>,
+    client: &Client,
+    bytes: u32,
+) -> Option<Response> {
+    let busy = {
+        let mut sessions = h.sessions.lock().unwrap();
+        let expired = sessions.expire();
+        let busy = streaming(&sessions);
+        drop(sessions);
+        drop(expired);
+        busy
+    };
+    if busy {
+        return Some(
+            (
+                StatusCode::CONFLICT,
+                "Stop streaming before testing bandwidth",
+            )
+                .into_response(),
+        );
+    }
+    let admitted = limiter
+        .lock()
+        .unwrap()
+        .admit(&client.uuid, bytes, Instant::now());
+    let wait = admitted.err()?;
+    let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
+    Some(
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(header::RETRY_AFTER, seconds.max(1).to_string())],
+            "Bandwidth probe limit reached",
+        )
+            .into_response(),
+    )
 }
 /// Whether a stream runs or starts, which a probe must not compete with.
 pub(super) fn streaming(sessions: &crate::state::Sessions) -> bool {

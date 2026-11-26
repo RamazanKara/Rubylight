@@ -10,6 +10,7 @@
 //! not supported.
 
 mod describe;
+pub mod dolby_ss;
 mod handshake;
 mod message;
 mod transport;
@@ -194,12 +195,19 @@ pub struct RtspOutcome {
     /// The stream takes pen barrel roll (`a=x-ss-general.penBarrelRoll:1`); send it only
     /// with `Feature::PenBarrelRoll` too.
     pub host_pen_barrel_roll: bool,
+    /// The ANNOUNCE asked for controller speaker PCM (0x5602): bind PlayStation controllers.
+    pub ps_speaker_pcm: bool,
     pub microphone: MicrophoneState,
     pub opus: OpusConfigs,
     pub high_quality_surround_enabled: bool,
     pub audio_packet_duration_ms: u8,
-    /// The `audio_ext::CODEC_*` bit the ANNOUNCE asked for, 0 for stock Opus.
+    /// The `audio_ext::CODEC_*` bit the stream carries: the one the ANNOUNCE asked for with
+    /// Rubylight's `x-rl-audio.codec`, or the AC3 or E-AC3 the host confirmed in the
+    /// `x-ss-audio` dialect ([`dolby_ss`]); 0 for stock Opus.
     pub audio_codec: u8,
+    /// The AC3 or E-AC3 frames of `audio_codec` come unchunked, one whole frame per datagram,
+    /// as hosts of the `x-ss-audio` dialect send them; false for Rubylight's chunked frames.
+    pub audio_unchunked: bool,
     pub pyrowave_records_enabled: bool,
     pub audio_port: u16,
     pub video_port: u16,

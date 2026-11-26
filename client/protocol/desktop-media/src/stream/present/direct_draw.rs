@@ -252,6 +252,7 @@ impl VideoTexture {
             warp.shift = super::whole_pixel_shift(warp.shift, visible);
             constants.warp = pass.warp_row(&warp);
             constants.warp_lens = warp.lens_row();
+            constants.warp_v2 = warp.v2_row();
         }
         let drawn = if !flushed {
             Err(format!("SDL_FlushRenderer: {}", crate::sdl::error()))

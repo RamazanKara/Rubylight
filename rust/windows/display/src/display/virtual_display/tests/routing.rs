@@ -189,3 +189,33 @@ fn the_failure_says_what_switching_the_display_on_came_to() {
         "virtual display was connected but Windows kept it switched off (switching it on: Windows refused the display layout)"
     );
 }
+#[test]
+fn a_restarted_driver_is_given_the_render_gpu_under_its_live_luid() {
+    let card = |luid| RenderAdapter {
+        name: "AMD Radeon RX 7900 XT".into(),
+        luid,
+    };
+    let frozen = Some(card((2, 0)));
+    // A GPU reset or a driver update listed the card under a new LUID: the
+    // display asks for that one, never the frozen one.
+    let moved = RenderResolver::new(move || Ok(Some(card((7, 0)))));
+    assert_eq!(
+        reresolve_render_adapter(frozen.clone(), Some(&moved)),
+        Some(card((7, 0)))
+    );
+    // A chosen GPU that is gone: none, so Windows renders it and capture
+    // fails with the reason, never a silent move to another GPU.
+    let gone = RenderResolver::new(|| {
+        anyhow::bail!("The GPU chosen under Graphics card is not available")
+    });
+    assert_eq!(reresolve_render_adapter(frozen.clone(), Some(&gone)), None);
+    // Automatic on a PC with one GPU: still left to Windows.
+    let windows = RenderResolver::new(|| Ok(None));
+    assert_eq!(
+        reresolve_render_adapter(frozen.clone(), Some(&windows)),
+        None
+    );
+    // No resolver (a display created without one): the adapter stays.
+    assert_eq!(reresolve_render_adapter(frozen.clone(), None), frozen);
+    assert!(VirtualOptions::default().render_resolver.is_none());
+}

@@ -12,6 +12,7 @@ import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.nvstream.jni.NightjarPolicyJni;
+import com.limelight.preferences.HdrFormatChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 
 /**
@@ -499,6 +500,8 @@ final class MediaCodecCodecSelector {
         pyroWaveHlgRefused = false;
         pyroWaveHlgFramesStopped = false;
         pyroWaveHlgLostSaid.set(false);
+        // "HDR format" narrows what is asked for; the DESCRIBE and ANNOUNCE rules stay the host's.
+        hostHdrFormats = HdrFormatPolicy.masked(hostHdrFormats, r.prefs.hdrFormat);
         if (hostHdrFormats == 0) return 0;
         int[] displayTypes = HdrPolicy.displayHdrTypes(r.outputDisplay);
         // Packed full chroma draws a BT.2020/PQ surface, the Vulkan renderer PQ or HLG where this
@@ -556,6 +559,10 @@ final class MediaCodecCodecSelector {
         } else if (pyroWave) {
             pyroWaveHdrLimit = HdrFormatPolicy.pyroWaveLimit(hostHdrFormats, displayTypes, dolbyVisionDecoders,
                     format);
+            // "HDR10 only" turned HDR10+ off, so leaving it out is no limit to report.
+            if (r.prefs.hdrFormat == HdrFormatChoice.HDR10 && pyroWaveHdrLimit == HdrFormatPolicy.DrawnLimit.HDR10_PLUS) {
+                pyroWaveHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+            }
             pyroWaveHlgNeedsHostUpdate = HdrFormatPolicy.pyroWaveHlgNeedsHostUpdate(hostHdrFormats, displayTypes);
         }
         HdrFormatPolicy.DrawnLimit limit = vulkan ? r.vulkanHelper.vulkanHdrLimit : pyroWaveHdrLimit;

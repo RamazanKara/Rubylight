@@ -99,9 +99,11 @@ final class NvHttpLaunch {
                 .put("ri_key_hex", bytesToHex(ctx.riKey.getEncoded())).put("ri_key_id", ctx.riKeyId)
                 .put("prepared_controllers", ctx.preparedControllers == null ? "" : ctx.preparedControllers)
                 .put("gamepad_mask", sc.getAttachedGamepadMask())
+                .put("playstation_mask", sc.getPlayStationGamepadMask() & 0xFFFF)
                 .put("persist_gamepads", sc.getPersistGamepadsAfterDisconnect())
                 .put("rate_change", ctx.rateChange).put("confirm_replace", ctx.confirmReplace)
                 .put("clipboard_sync", ctx.streamConfig.getClipboardSync());
+        j.put("hdr_static_only", sc.getHdrStaticOnly());
         if (ctx.fecChoice != null) j.put("fec", ctx.fecChoice.wireValue);
         if (sc.getDisplayLuminance() != null) {
             j.put("display_luminance", Json.obj()

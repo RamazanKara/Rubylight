@@ -118,6 +118,13 @@
         <Preference android:key="more_video" android:title="@string/settings_more" android:persistent="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_basic_settings">
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_hdr_format"
+            android:title="@string/title_hdr_format"
+            android:entries="@array/hdr_format_names"
+            android:entryValues="@array/hdr_format_values"
+            android:dialogMessage="@string/summary_hdr_format"
+            android:defaultValue="auto" />
         <!-- Off or On: writes checkbox_yuv444 and experimental_packed_444 alike (PreferenceConfiguration.sharpColor);
              a stream tries native 4:4:4, then packed full chroma (SharpColor). Hidden while the codec is PyroWave. -->
         <Preference android:key="sharp_color" android:title="@string/title_sharp_color"
@@ -247,6 +254,9 @@
             android:entries="@array/video_alignment_names"
             android:entryValues="@array/video_alignment_values"
             android:defaultValue="center" />
+        <Preference android:key="picture_position"
+            android:title="@string/picture_position_title"
+            android:summary="@string/summary_picture_position" android:persistent="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_full_range"
             android:title="@string/title_full_range"

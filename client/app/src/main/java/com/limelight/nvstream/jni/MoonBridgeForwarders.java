@@ -23,6 +23,7 @@ public abstract class MoonBridgeForwarders implements MoonBridgeConstants {
     static volatile int decodeQueueBound;
     static volatile boolean frameWarpWanted;
     static volatile boolean frameWarpRequested;
+    static volatile boolean frameWarpHostTooOld;
 
     public static int CAPABILITY_SLICES_PER_FRAME(byte slices) {
         return slices << 24;
@@ -117,11 +118,13 @@ public abstract class MoonBridgeForwarders implements MoonBridgeConstants {
 
     /**
      * Call before startConnection(): Frame Warp for the next stream (docs/frame-warp.md). {@code wanted} is the
-     * setting, {@code listed} whether the host's serverinfo lists it.
+     * setting, {@code listed} whether the host's serverinfo lists it, {@code hostTooOld} whether it is unlisted because
+     * the PC's streaming app is older than this Nightjar's Frame Warp (the overlay then says so).
      */
-    public static void requestFrameWarp(boolean wanted, boolean listed) {
+    public static void requestFrameWarp(boolean wanted, boolean listed, boolean hostTooOld) {
         frameWarpWanted = wanted;
         frameWarpRequested = wanted && listed;
+        frameWarpHostTooOld = !listed && hostTooOld;
     }
 
     /**
@@ -146,8 +149,10 @@ public abstract class MoonBridgeForwarders implements MoonBridgeConstants {
      * The shift for the picture queued with {@code ptsUs}, drawn now: {@code out} (FRAME_WARP_FLOATS floats) gets
      * the shift of the picture's centre as fractions of the picture (x, y) and in picture pixels (x, y), then the lens
      * terms the rest of the picture is turned through (k.x, k.y, n.x, n.y; 0, 0, 1, 1 for a flat picture, which is
-     * sampled at its position less the shift), all with y down. Returns the HUD mask generation,
-     * FRAME_WARP_NO_MASK, or FRAME_WARP_INACTIVE to draw the picture as it is (also when {@code out} is shorter).
+     * sampled at its position less the shift), all with y down, then the shader row (GlesFrameWarpV2: the edge
+     * fill's strength, the HUD probe's reach in mask cells, the PC's confidence and flags). Returns the HUD mask
+     * generation, FRAME_WARP_NO_MASK, or FRAME_WARP_INACTIVE to draw the picture as it is (also when {@code out} is
+     * shorter).
      */
     public static int frameWarpForPts(long ptsUs, float[] out) {
         return RustBridge.isAvailable() ? RustBridge.frameWarpForPts(ptsUs, out) : FRAME_WARP_INACTIVE;
@@ -186,12 +191,13 @@ public abstract class MoonBridgeForwarders implements MoonBridgeConstants {
     }
 
     /**
-     * The overlay's Frame Warp line: a FRAME_WARP_* state, and in {@code out} (4 floats) the gain, the game's lag in
-     * ms, the shift and the last second's peak in picture pixels.
+     * The overlay's Frame Warp line: a FRAME_WARP_* state, and in {@code out} (FRAME_WARP_STATUS_NUMBERS floats) the
+     * gain, the game's lag in ms, the shift and the last second's peak in picture pixels, the PC's confidence (0 to 1,
+     * -1 before it sent one) and 1 while the PC has the gyro locked.
      */
     public static int frameWarpStatus(float[] out) {
         if (!frameWarpWanted) return FRAME_WARP_OFF;
-        if (!frameWarpRequested) return FRAME_WARP_NOT_OFFERED;
+        if (!frameWarpRequested) return frameWarpHostTooOld ? FRAME_WARP_UPDATE_HOST : FRAME_WARP_NOT_OFFERED;
         return RustBridge.isAvailable() ? RustBridge.frameWarpStatus(out) : FRAME_WARP_OFF_FOR_STREAM;
     }
 

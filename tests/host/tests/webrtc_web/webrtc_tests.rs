@@ -471,7 +471,10 @@ async fn a_console_stream_socket_outlives_a_token_refresh_but_not_a_sign_out() {
     let refreshed = post(
         &f,
         "/api/auth/refresh",
-        &[("cookie", format!("__Host-apollo_refresh={}", s.refresh))],
+        &[
+            ("cookie", format!("__Host-apollo_refresh={}", s.refresh)),
+            ("x-csrf-token", s.csrf.clone()),
+        ],
     )
     .await;
     assert!(quiet(&mut ws).await, "a refresh keeps the stream");

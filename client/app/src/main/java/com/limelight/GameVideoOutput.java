@@ -59,8 +59,14 @@ final class GameVideoOutput {
     String launchPanel;
 
     boolean orientationNoticeShown;
-    // Settings › Keep TV video smooth while it runs (updateCompositorHeartbeat); null otherwise.
+    // Keep TV video smooth (manual setting or automatic CompositorWatch probe/lock-on); null otherwise.
     com.limelight.ui.CompositorHeartbeat compositorHeartbeat;
+    boolean autoCompositorKeepalive;
+    boolean autoCompositorPulse;
+    private final Runnable endCompositorPulse = () -> {
+        autoCompositorPulse = false;
+        updateCompositorHeartbeat();
+    };
     // UI actions that read the decoder's limits or ask for a size and met a decoder rebuild, in the
     // order they were asked for; one per key, a newer one taking the older one's place.
     final java.util.LinkedHashMap<String, Runnable> decoderActions = new java.util.LinkedHashMap<>();
@@ -241,6 +247,7 @@ final class GameVideoOutput {
 
     void toggleDesktopZoom() {
         game.desktopGestures.setEnabled(!game.desktopGestures.enabled());
+        if (game.trackpadPointer != null) game.trackpadPointer.syncCursor();
         if (game.desktopGestures.enabled()) game.messages.alert(R.string.desktop_zoom_help, Toast.LENGTH_LONG);
     }
 
@@ -304,21 +311,69 @@ final class GameVideoOutput {
         }
         android.view.ViewParent parent = game.renderView == null ? null : game.renderView.getParent();
         android.view.ViewGroup holder = parent instanceof android.view.ViewGroup ? (android.view.ViewGroup) parent : null;
-        boolean show = holder != null && game.prefConfig != null && game.prefConfig.tvDisplayCompatibility
-                && game.connected && game.foreground && !game.isDestroyed()
-                && (game.app == null || game.app.getRole() != NvApp.Role.INPUT_ONLY)
-                && !game.isInPictureInPictureMode();
-        if (compositorHeartbeat != null && (!show || compositorHeartbeat.holder() != holder)) {
+        android.view.SurfaceView surfaceView = game.renderView == null ? null : game.renderView.getSurfaceView();
+        boolean hasVideoView = surfaceView != null
+                || (game.renderView != null && game.renderView.getTextureView() != null);
+        boolean activeWindow = game.foreground && !game.isInPictureInPictureMode()
+                && (!hasVideoView || game.surfaceCreated);
+        if (!activeWindow && game.decoderRenderer != null) {
+            game.decoderRenderer.resetCompositorWatchWindow();
+            if (!game.decoderRenderer.isCompositorKeepaliveLockedOn()) {
+                autoCompositorKeepalive = false;
+                autoCompositorPulse = false;
+                game.bitrateHandler.removeCallbacks(endCompositorPulse);
+            }
+        }
+        boolean keepalive = game.prefConfig != null
+                && (game.prefConfig.tvDisplayCompatibility || autoCompositorKeepalive || autoCompositorPulse);
+        boolean show = holder != null && keepalive && refresh.refreshHeartbeat == null
+                && game.connected && activeWindow && !game.isDestroyed()
+                && (game.app == null || game.app.getRole() != NvApp.Role.INPUT_ONLY);
+        if (compositorHeartbeat != null && (!show || !compositorHeartbeat.matchesStreamTarget(holder, surfaceView))) {
             compositorHeartbeat.stop();
             compositorHeartbeat = null;
         }
         if (show && compositorHeartbeat == null) {
-            compositorHeartbeat = new com.limelight.ui.CompositorHeartbeat(holder);
+            compositorHeartbeat = com.limelight.ui.CompositorHeartbeat.forStream(holder, surfaceView);
             compositorHeartbeat.start();
         }
         if (refresh.refreshHeartbeat != null && !refresh.canKeepRefreshHeartbeat()) {
             refresh.stopRefreshHeartbeat();
         }
+    }
+
+    void pulseCompositorKeepalive(long durationMs) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            game.runOnUiThread(() -> pulseCompositorKeepalive(durationMs));
+            return;
+        }
+        autoCompositorPulse = true;
+        game.bitrateHandler.removeCallbacks(endCompositorPulse);
+        game.bitrateHandler.postDelayed(endCompositorPulse, durationMs);
+        updateCompositorHeartbeat();
+    }
+
+    void setAutoCompositorKeepalive(boolean active) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            game.runOnUiThread(() -> setAutoCompositorKeepalive(active));
+            return;
+        }
+        if (autoCompositorKeepalive == active) {
+            return;
+        }
+        autoCompositorKeepalive = active;
+        updateCompositorHeartbeat();
+    }
+
+    void clearAutoCompositorKeepalive() {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            game.runOnUiThread(this::clearAutoCompositorKeepalive);
+            return;
+        }
+        autoCompositorKeepalive = false;
+        autoCompositorPulse = false;
+        game.bitrateHandler.removeCallbacks(endCompositorPulse);
+        updateCompositorHeartbeat();
     }
 
     void enterPictureInPictureNow() {
@@ -356,8 +411,8 @@ final class GameVideoOutput {
         boolean squarish = !freeWindow && !largeScreen &&
                 PreferenceConfiguration.isSquarishScreen(game.getWindowManager().getDefaultDisplay());
         PreferenceConfiguration config = game.prefConfig != null ? game.prefConfig : new PreferenceConfiguration();
-        game.setRequestedOrientation(StreamOrientation.requested(game.streamOrientation, freeWindow, largeScreen, squarish,
-                config.onscreenController, game.keepsRequestedShape, config.width, config.height));
+        game.setRequestedOrientation(game.safeArea.requested(StreamOrientation.requested(game.streamOrientation, freeWindow, largeScreen, squarish,
+                config.onscreenController, game.keepsRequestedShape, config.width, config.height), freeWindow));
     }
 
     // A host that draws the stream on its virtual display starts it in the shape the Orientation
@@ -552,7 +607,7 @@ final class GameVideoOutput {
     boolean usesFullDisplayForVideo() {
         // Only the user's fill/follow choice or an exact panel size spans a notch, a preset one
         // included (nativeResolutionStream leaves that out); the cutout-safe entry keeps clear of it.
-        return game.prefConfig != null && (VideoScaling.coversArea(game.prefConfig.videoScaling) ||
+        return game.prefConfig != null && !VideoScaling.keepsCornersClear(game.prefConfig.videoScaling) && (VideoScaling.coversArea(game.prefConfig.videoScaling) ||
                 game.prefConfig.resolutionFollowsScreen || shouldIgnoreInsetsForResolution(game.prefConfig.width, game.prefConfig.height));
     }
 

@@ -78,6 +78,8 @@ class FrameLatencyStats {
     private final PresentJitter presentJitter = new PresentJitter();
     // Lowest latency and Balanced: watches the display's queue through the waits of handed-off frames.
     private DisplayQueueWatch displayQueueWatch;
+    // Self-detecting keepalive monitor for compositor stalls / post-handoff judder.
+    private CompositorWatch compositorWatch;
     // A flush's rows and drained frames are reused across flushes; only the latency thread flushes.
     private final StringBuilder csvRows = new StringBuilder(16 * 1024);
     private final ArrayList<Frame> csvDrain = new ArrayList<>(256);
@@ -347,6 +349,8 @@ class FrameLatencyStats {
             if (render) {
                 metrics.onOutputRendered(releaseNs, hasRenderCallback);
                 lastRenderRelease = frame;
+                CompositorWatch cw = compositorWatch;
+                if (cw != null) cw.onReleased(releaseNs, hasRenderCallback);
             }
             if (vrr && render && frame.outputNs > 0 && releaseNs >= frame.outputNs) {
                 frame.previousReleaseNs = lastReleaseNs;
@@ -487,6 +491,8 @@ class FrameLatencyStats {
 
     synchronized void setDisplayQueueWatch(DisplayQueueWatch watch) { displayQueueWatch = watch; }
 
+    synchronized void setCompositorWatch(CompositorWatch watch) { compositorWatch = watch; }
+
     // screenNs: when the frame reached the screen, 0 when unknown.
     private void rendered(long ptsUs, long renderNs, long callbackReceivedNs, long screenNs) {
         Frame frame = pending.get(ptsUs);
@@ -505,6 +511,10 @@ class FrameLatencyStats {
             }
             latencyProbe.onFrameRendered(frame.receiveNs, renderNs);
             presentJitter.record(presentedNs);
+            CompositorWatch cw = compositorWatch;
+            if (cw != null) {
+                cw.onRendered(frame.handoffNs, presentedNs);
+            }
             DisplayQueueWatch watch = displayQueueWatch;
             if (watch != null && frame.handoffNs != 0 && renderNs >= frame.handoffNs) {
                 watch.onRendered(renderNs - frame.handoffNs, renderNs);

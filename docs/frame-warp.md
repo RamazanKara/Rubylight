@@ -17,14 +17,16 @@ of a wide field of view, for a fraction of a millisecond of the host's GPU time 
 ## Turning it on
 
 It is a setting in Nightjar (Video, **Frame Warp**), off by default, and needs a host that
-lists it (`FrameWarpVersion` in serverinfo). The host's `frame_warp` setting (**All settings ›
+lists it (`FrameWarpProtocol` in serverinfo). The host's `frame_warp` setting (**All settings ›
 Picture › Frame pacing › Let devices use Frame Warp**, on by default) lets clients use it; the
 host does nothing for Frame Warp until a client asks.
 
 What a stream learned is kept for the next one: the host saves each game's gains, lags, stick
-curve and field of view in `frame_warp.json` in its configuration directory, by the app's uuid
-or else its name, for the 256 games streamed most recently. A later stream of that game applies
-the lags at once and locks the gains as soon as recent input confirms them.
+curve, field of view and gyro gain in `frame_warp.json` in its configuration directory, by the
+app's uuid or else its name, for the 256 games streamed most recently. A later stream of that
+game applies the lags at once and locks the gains as soon as recent input confirms them. A file
+from before 7.0 is read and rewritten in the new format; a file that cannot be read is set aside
+as `frame_warp.json.corrupt` and the game is learned afresh.
 
 ## How it works
 
@@ -42,7 +44,7 @@ the lags at once and locks the gains as soon as recent input confirms them.
 ### The request
 
 The client sends a request (0x5543) once the stream runs: on, the controller number whose right
-stick it tracks, and the widest HUD mask it takes.
+stick it tracks, the widest HUD mask it takes, and the pad whose gyro turns the camera.
 
 ### Input history
 
@@ -171,6 +173,37 @@ outermost pixels.
 The same shift is drawn again on refreshes between pictures, so a 60 fps stream turns smoothly
 on a 120 Hz screen.
 
+## Frame Warp 2
+
+Frame Warp 2 replaces the first Frame Warp, and it needs the current Nightjar and host together.
+A host from before 7.0 lists `FrameWarpVersion` instead of `FrameWarpProtocol`: Nightjar sends it
+nothing and says that Frame Warp needs the current version on the PC. An older Nightjar sees no
+Frame Warp on a 7.0 host, and the host ignores the older request if one comes. Either way the
+stream runs normally without Frame Warp, and the `frame_warp` settings on both sides keep their
+values.
+
+- **Faster lock.** Besides the four-second fit above, the host fits the gains and the lag as each
+  move comes in (recursive least squares, forgetting old moves faster while the fit is poor), and
+  the field of view in two passes (6 degree steps, then three parabola steps around the best), and
+  sends the model as soon as that fit explains 80% of the motion. A game's saved prior is
+  confirmed by the first turn.
+- **The gyro.** The pad's gyro turns the camera as the mouse and the right stick do: the host learns
+  its gain per radian, which of the pad's axes is the yaw, and the gyro's resting offset, and tags
+  every frame with the last gyro packet it reflects; Nightjar adds the gyro's turn the picture does
+  not show yet.
+- **Confidence.** Every frame carries how sure the host is that the camera moves the picture. A cut
+  to another scene, a move the model doesn't explain or a pointer on the host's screen (as Desktop
+  Duplication captures it; Windows Graphics Capture reports no pointer) drops it, and
+  Nightjar fades the shift out within 100 ms and back in over 180 ms when the camera returns, so a
+  pause menu or a cutscene is never pushed the wrong way.
+- **Cleaner edges.** The strip a shift uncovers samples just inside the edge, squeezed to a quarter,
+  and darkens along a smooth curve, so something crossing the edge doesn't appear twice. A point
+  whose source lies under the HUD looks up to two mask cells further back along the shift for the
+  scene before it keeps its own pixel, which removes the cut-out beside a crosshair or a minimap.
+
+Messages: the request (0x5543, 12 bytes) and the meta (0x5549, unreliable, one per frame);
+[the protocol](../client/docs/protocol/frame-warp.md#messages) has their formats.
+
 ## Accuracy limits
 
 - The shift is a camera turn: right all over the picture for a turn left or right, or up or
@@ -219,19 +252,20 @@ full rules for other hosts. Little-endian throughout.
 
 | Message | Bytes |
 |---|---|
-| Request 0x5543 | version 1, enabled 0/1, controller 0-15 or 0xFF, flags (bit 0: the client draws the lens), mask max width u16, 0, 0 |
+| Request 0x5543 | version 2, enabled 0/1, controller 0-15 or 0xFF, flags (bit 0: the client draws the lens, bit 1: the gyro turns the camera), mask max width u16, 0, 0, gyro controller, gyro axes, max offset u16 |
 | Model 0x5544 | version, flags (bit 0 mouse locked, bit 1 stick locked), generation u16, picture width u16, height u16, then f32: mouse gain x, y (picture px per count), stick gain x, y (px per second of full deflection after the curve), stick dead zone, stick exponent (1 to 3 in halves), max shift x, y; lag µs u32; fit f32; focal length f32 (picture px, 0 for none; absent from hosts before it was added, and clients from before it ignore it) |
 | Tags 0x5545 | version, count 1-4, model generation u16, then per tag: frame u32, mouse sum x i32, y i32, pad packet count u32, held µs u32 (0xFFFFFFFF none) |
 | Mask 0x5546 | version, kind (0 none, 1 runs), generation u16, width u16, height u16, then per row LEB128 run lengths alternating clear and set, starting clear |
+| Meta 0x5549 | version 2, flags, model generation u16, frame u32, camera confidence u16, HUD stability u16, gyro seq u32, gyro held µs u32, gyro gain f32 x 2, omega mrad/s i32 x 2, edge fade u8, HUD guard u8, gyro tag u16 |
 
 ## Where the code is
 
 | Part | Code |
 |---|---|
-| Wire formats, stick curve | `client/protocol/core/src/frame_warp.rs` |
+| Wire formats, stick curve | `client/protocol/core/src/frame_warp.rs`, `frame_warp_v2.rs` |
 | Host history, motion, lens, calibration, tags, mask choice | `rust/core/src/frame_warp/` |
 | Host GPU thumbnail and HUD passes | `rust/windows/graphics/src/compute_frame_warp.rs`, `rust/windows/abi/src/shaders/color.hlsl` |
 | Host wiring, setting and the per-game memory | `rust/host/src/stream/frame_warp.rs`, `rust/core/src/config/overrides.rs` |
-| Client counting and shift | `client/protocol/client/src/frame_warp.rs`, `input/queue.rs`, `control/session.rs` |
+| Client counting and shift | `client/protocol/client/src/frame_warp.rs`, `frame_warp_v2.rs`, `input/queue.rs`, `control/session.rs` |
 | Desktop presenters | `client/protocol/desktop/src/stream/` |
 | Android renderers | `client/app/src/main/jni/vulkan/`, `GlesUpscaler.java`, `pyrowave-renderer/` |

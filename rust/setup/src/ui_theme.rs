@@ -1,6 +1,5 @@
-//! Setup's 7.0 look: the colours it draws with (mirroring
-//! `rust/web/src/styles/tokens.css`), whether Windows is in dark app mode, a
-//! best-effort dark title bar, Per-Monitor-V2 DPI awareness and the brand
+//! Setup's 7.0 look: whether Windows is in dark app mode, a best-effort dark
+//! title bar, Per-Monitor-V2 DPI awareness and the brand
 //! icon task dialogs show. Everything here is best effort: a failure leaves
 //! Windows' default look and never stops setup.
 use windows::{
@@ -14,50 +13,6 @@ use windows::{
     },
     core::{BOOL, PCWSTR, s, w},
 };
-
-/// The 7.0 surface colours setup draws with, as RGB.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Palette {
-    pub bg: [u8; 3],
-    pub panel: [u8; 3],
-    pub ink: [u8; 3],
-    pub muted: [u8; 3],
-    pub line: [u8; 3],
-    pub accent: [u8; 3],
-    pub brand: [u8; 3],
-}
-
-/// Alabaster Mineral, the light theme.
-pub const LIGHT: Palette = Palette {
-    bg: [0xf3, 0xf4, 0xf7],
-    panel: [0xff, 0xff, 0xff],
-    ink: [0x11, 0x13, 0x18],
-    muted: [0x59, 0x61, 0x70],
-    line: [0xd8, 0xdc, 0xe4],
-    accent: [0xc8, 0x19, 0x42],
-    brand: [0xc4, 0x12, 0x42],
-};
-
-/// Obsidian Studio, the dark theme.
-pub const DARK: Palette = Palette {
-    bg: [0x09, 0x0a, 0x0d],
-    panel: [0x11, 0x13, 0x19],
-    ink: [0xf5, 0xf7, 0xfa],
-    muted: [0x9a, 0xa3, 0xb5],
-    line: [0x23, 0x28, 0x36],
-    accent: [0xce, 0x1e, 0x49],
-    brand: [0xc4, 0x12, 0x42],
-};
-
-/// The palette for Windows' app mode.
-pub fn palette(dark: bool) -> &'static Palette {
-    if dark { &DARK } else { &LIGHT }
-}
-
-/// `rgb` as a GDI COLORREF (0x00BBGGRR).
-pub fn colorref(rgb: [u8; 3]) -> u32 {
-    u32::from(rgb[0]) | u32::from(rgb[1]) << 8 | u32::from(rgb[2]) << 16
-}
 
 /// Whether apps are dark: `AppsUseLightTheme` is 0. Light when the value is
 /// missing, as on Windows 10 before 1809.
@@ -139,51 +94,6 @@ pub const BRAND_ICON: PCWSTR = PCWSTR(std::ptr::without_provenance(1));
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The first value of `--name` in `block`.
-    fn token(block: &str, name: &str) -> [u8; 3] {
-        let start = block.find(&format!("{name}:")).expect(name) + name.len() + 1;
-        let value = block[start..].split(';').next().unwrap().trim();
-        let hex = value.strip_prefix('#').expect(value);
-        assert_eq!(hex.len(), 6, "{name}: {value}");
-        [0, 2, 4].map(|at| u8::from_str_radix(&hex[at..at + 2], 16).unwrap())
-    }
-
-    fn from_tokens(block: &str) -> Palette {
-        Palette {
-            bg: token(block, "--bg"),
-            panel: token(block, "--panel"),
-            ink: token(block, "--ink"),
-            muted: token(block, "--muted"),
-            line: token(block, "--line"),
-            accent: token(block, "--accent"),
-            brand: token(block, "--brand"),
-        }
-    }
-
-    #[test]
-    fn the_palettes_are_the_70_tokens() {
-        let path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/src/styles/tokens.css");
-        let css = std::fs::read_to_string(&path).expect("rust/web/src/styles/tokens.css");
-        let dark_at = css
-            .find(":root[data-theme='dark']")
-            .expect("the dark block");
-        let system_at = css
-            .find("@media (prefers-color-scheme: dark)")
-            .expect("system dark");
-        assert_eq!(from_tokens(&css[..dark_at]), LIGHT);
-        assert_eq!(from_tokens(&css[dark_at..system_at]), DARK);
-        assert_eq!(from_tokens(&css[system_at..]), DARK);
-        assert_eq!(palette(false), &LIGHT);
-        assert_eq!(palette(true), &DARK);
-    }
-
-    #[test]
-    fn colours_become_colorrefs() {
-        assert_eq!(colorref([0xc4, 0x12, 0x42]), 0x0042_12c4);
-        assert_eq!(colorref(DARK.bg), 0x000d_0a09);
-    }
 
     #[test]
     fn theme_queries_never_fail_setup() {

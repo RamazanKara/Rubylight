@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">画面の向き</string>
-    <string name="summary_stream_orientation">ストリームの画面の向きです。「自動」ではスマートフォンは横向きのまま、タブレットは回転します。「横向き」「横向き（逆）」「縦向き」は向きを固定し、「デバイスに合わせて回転」はデバイスの向きに従います。</string>
+    <string name="summary_stream_orientation">ストリームの画面の向きです。「自動」ではスマートフォンは横向きのまま、タブレットは回転します。「横向き」「横向き（逆）」「縦向き」は向きを固定し、「デバイスに合わせて回転」はデバイスの向きに従います。 横向き（両方向）は、回転がロックされていてもスマートフォンに合わせて上下が反転します。</string>
     <string-array name="stream_orientation_names">
         <item>自動</item>
         <item>横向き</item>
         <item>縦向き</item>
         <item>デバイスに合わせて回転</item>
         <item>横向き（逆）</item>
+        <item>横向き（両方向）</item>
     </string-array>
     <string name="stream_orientation_scaled">この PC はストリーミング中にストリームの形を変更できないため、回転した画面に合わせて映像を表示します。</string>
     <string name="stream_orientation_decoder_limit">このデバイスのデコーダーは回転後のサイズに対応していないため、ストリームの形は変わらず、画面に合わせて表示します。</string>
+    <string name="stream_flip_screen">画面を 180° 反転</string>
+    <string name="stream_flip_unavailable">ウィンドウ表示中や外部ディスプレイでは画面を反転できません。</string>
 </resources>

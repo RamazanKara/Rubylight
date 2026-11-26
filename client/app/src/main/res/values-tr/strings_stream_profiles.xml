@@ -122,4 +122,11 @@
     <string name="game_preset_quality_summary" formatted="false">Bit hızını bilgisayarın değerinin (bilgisayarda yoksa ana ayarların) %150’sine ayarlar; üst sınır bilgisayarın sınırıdır. Kare hızlandırma ve uyarlanabilir yenileme değişmez; zayıf bağlantıda büyüyen kareler gecikmeyi artırabilir.</string>
     <string name="game_preset_custom">Özel</string>
     <string name="game_preset_custom_summary">Aşağıda ayarladığınız kendi değerleriniz.</string>
+    <string name="profiles_screen">Bu ekranın profili</string>
+    <string name="profiles_screen_none">Bu ekran için profil yok</string>
+    <string name="profiles_screen_summary">Nightjar şu ekranda: %1$s. Orada başlatılan yayın, ağdan ve kullanılan profilden önce bu profili kullanır.</string>
+    <string name="profiles_screen_built_in">Bu cihazın ekranı</string>
+    <string name="profiles_marker_screen">%1$s için saklandı</string>
+    <string name="profiles_screen_forget">Ekranı unut</string>
+    <string name="layers_part_profile_screen">profil %1$s, bu ekran için saklandı</string>
 </resources>

@@ -53,7 +53,9 @@ pub(super) fn handle_extension_packet(
         }
         // Frame Warp (0x5543): while offered, the host learns the game's
         // camera response and tags every frame for a client that asked;
-        // the pass below sends the model, mask and tags.
+        // the pass below sends the model, mask, tags and metas. The host runs
+        // Frame Warp 2 only: an older Nightjar's version 1 request is ignored
+        // and gets nothing back.
         butterpollo_media_policy::frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE => {
             let Ok(config) = p.config(h, s) else {
                 return true;
@@ -78,6 +80,12 @@ pub(super) fn handle_extension_packet(
                     }
                     let _ = control_wake.send(&[1]);
                 }
+                None if s.frame_warp.first_ignored() => tracing::info!(
+                    client = %s.launch.client.name,
+                    len = payload.len(),
+                    version = payload.first().copied(),
+                    "frame warp request ignored: not Frame Warp 2 (an older Nightjar?)"
+                ),
                 None => tracing::debug!(len = payload.len(), "invalid frame warp request"),
             }
         }
@@ -238,7 +246,8 @@ pub(super) fn send_extension_updates(
 ) {
     // Frame Warp for a client that asked (0x5543): the model and the HUD
     // mask reliably, then the frames' tags unreliably, as each tags
-    // message repeats the three frames before it.
+    // message repeats the three frames before it, and each frame's meta
+    // (0x5549) unreliably after its tags. Nothing here waits for the host.
     if s.frame_warp.enabled() {
         let outgoing = s.frame_warp.take_outgoing();
         let reliable = [
@@ -267,6 +276,18 @@ pub(super) fn send_extension_updates(
                 s,
                 butterpollo_media_policy::frame_warp::FRAME_WARP_TAGS_MESSAGE_TYPE,
                 &tags,
+            ) {
+                let _ = host.peer_mut(peer_id).send(
+                    0,
+                    &Packet::new(message, PacketKind::AlwaysUnreliable { sequenced: false }),
+                );
+            }
+        }
+        for meta in outgoing.metas {
+            if let Ok(message) = p.encrypt(
+                s,
+                butterpollo_media_policy::frame_warp::FRAME_WARP_V2_META_MESSAGE_TYPE,
+                &meta,
             ) {
                 let _ = host.peer_mut(peer_id).send(
                     0,

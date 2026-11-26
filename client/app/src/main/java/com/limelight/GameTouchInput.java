@@ -351,7 +351,7 @@ final class GameTouchInput {
         if (game.gameTouchControls != null && game.gameTouchControls.isEditing() &&
                 (event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != 0) return true;
         if (game.desktopGestures != null &&
-                game.desktopGestures.viewport().scale() != 1 && event.getPointerCount() > 0 &&
+                game.desktopGestures.viewport().isTransformed() && event.getPointerCount() > 0 &&
                 (event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != 0 &&
                 (!game.prefConfig.touchscreenTrackpad || event.getToolType(0) != MotionEvent.TOOL_TYPE_FINGER)) {
             MotionEvent translated = MotionEvent.obtain(event);

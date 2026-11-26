@@ -2,6 +2,6 @@
 <resources>
     <!-- Settings shows the sections and the chosen section side by side (layout-w840dp/activity_stream_settings.xml). -->
     <bool name="settings_two_pane">false</bool>
-    <!-- Keep TV video smooth (checkbox_tv_display_compatibility): on by default on a TV only. -->
+    <!-- Keep TV video smooth (checkbox_tv_display_compatibility): off by default; CompositorWatch activates it automatically when needed. -->
     <bool name="default_tv_display_compatibility">false</bool>
 </resources>

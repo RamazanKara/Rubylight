@@ -254,8 +254,9 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("KeyboardLayoutVersion", Reading::Read),
     ("PenBarrelRollVersion", Reading::Read),
     ("SecondScreenVersion", Reading::Read),
-    ("FrameWarpVersion", Reading::Read),
+    ("FrameWarpProtocol", Reading::Read),
     ("ControllerIdentityVersion", Reading::Read),
+    ("HdrDynamicControl", Reading::Read),
     ("RustHostInternetPlayVersion", Reading::Read),
     (
         "RustHostSessionCount",

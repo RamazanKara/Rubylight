@@ -21,7 +21,7 @@
 
 <div align="center">
 
-**[Download 6.4.3](https://github.com/RamazanKara/Rubylight/releases/tag/v6.4.3)** · [Get started](#get-started-in-three-steps) · [What you get](#what-you-get) · [Why Rubylight](#engineered-for-latency-and-smoothness) · [Nightjar](#nightjar-the-client-built-alongside-it) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
+**[Download 6.4.4](https://github.com/RamazanKara/Rubylight/releases/tag/v6.4.4)** · [Get started](#get-started-in-three-steps) · [What you get](#what-you-get) · [Why Rubylight](#engineered-for-latency-and-smoothness) · [Nightjar](#nightjar-the-client-built-alongside-it) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
 
 </div>
 
@@ -220,7 +220,7 @@ Rubylight speaks the Moonlight protocol and preserves its protocol version, so u
 
 ## Get started in three steps
 
-1. **Install.** Download and run `rubylight-setup-6.4.3.exe` from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v6.4.3). It sets up the Windows service, virtual display driver and virtual gamepad driver. To try Rubylight without installing, extract `rubylight-6.4.3-windows-x64.zip` and run **Start Rubylight.exe**.
+1. **Install.** Download and run `rubylight-setup-6.4.4.exe` from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v6.4.4). It sets up the Windows service, virtual display driver and virtual gamepad driver. To try Rubylight without installing, extract `rubylight-6.4.4-windows-x64.zip` and run **Start Rubylight.exe**.
 2. **Pair.** Open **https://localhost:47990** on the PC and create the console account. Nightjar scans the QR code on **Home**; for Moonlight, enter the PIN it shows on the console's **Devices** page.
 3. **Play.** Start **Desktop** or a game from your device, then scale resolution, frame rate, bitrate and HDR to match your screen and network.
 
@@ -322,6 +322,7 @@ Rubylight is licensed under **GPL-3.0**. Everyone who helped, with their GitHub 
 - KosmicKrisp, the Vulkan-on-Metal driver Nightjar for macOS bundles, is by **LunarG and the Mesa contributors** (MIT); the Vulkan loader and SPIRV-Tools are by **The Khronos Group** (Apache-2.0).
 - PyroWave and Granite are by **Themaister** (MIT); the PyroWave Moonlight protocol and clients are **joemossjr16's** work.
 - Composite DualSense haptics draw on **Nonary's** Vibepollo protocol and its DualSense rumble-stop fix, **Chase Payne's** libvirtualgamepad USB reports and **HIDMaestro contributors'** composite descriptors.
+- PlayStation controller speakers for Nonary's Moonlight and Nightjar's speaker over Bluetooth follow **Nonary's** speaker PCM format and **Chase Payne's** Bluetooth audio reports in Nonary's moonlight-qt, built on **mrFunkill's** DualSense research.
 - The virtual Steam Controller is **jlobue10's** profile in Nonary's libvirtualgamepad, and the host maps clients onto it as **Nonary's** Vibepollo does.
 - The DualShock 4 on ViGEmBus follows **Nonary's** Vibepollo, built on **LizardByte and the Sunshine contributors'** DualShock 4 emulation.
 - The virtual Switch 2 Pro Controller follows **Alia5's** libVIIPER, **Luiz Filipe Bandeira's and the contributors'** Solstice and **SDL's** Switch 2 driver by **Sam Lantinga and the SDL contributors** (zlib).

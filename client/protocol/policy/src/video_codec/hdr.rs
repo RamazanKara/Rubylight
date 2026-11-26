@@ -3,6 +3,8 @@
 //!
 //! Uses `rubylight_protocol::hdr::*` directly for wire HDR format bitflags.
 
+mod choice;
+pub use choice::HdrFormatChoice;
 use rubylight_protocol::hdr::{
     DOLBY_VISION, DOLBY_VISION_AV1, DOLBY_VISION_HEVC, DV_81, DV_84, DV_101, HLG, PQ, PYROWAVE_HLG,
 };

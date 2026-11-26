@@ -7,7 +7,7 @@ Before each case its preconditions are checked on this PC (see the catalog's
 header); a failed one stops the batch, as does exit code 3 (an AMD encoder
 hang: never retried). Each case writes into
 <out root>\\<date>\\<device>\\<id>\\ (output.log, the collected files and
-stream-timings.txt, the `stream timings` lines the host logs wrote during the
+stream-timings.txt, the `stream timings` and `video send gaps` lines the host logs wrote during the
 case), and the batch ends with summary.md there. --dry-run checks the
 preconditions and prints the plan without running anything or taking the
 GPU lock. Exits 0 if every case that ran passed (or exited 0 and needs review), 1 if one
@@ -332,7 +332,8 @@ def timing_lines(path, mark=(0, b'')):
         return []
     if len(data) >= size and data.startswith(head):
         data = data[size:]  # else rotated or new: all of it
-    return [line for line in data.decode('utf-8', 'replace').splitlines() if 'stream timings' in line]
+    return [line for line in data.decode('utf-8', 'replace').splitlines()
+            if 'stream timings' in line or 'video send gaps' in line]
 
 
 def collect(case, values, out):

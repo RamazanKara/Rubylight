@@ -122,4 +122,11 @@
     <string name="game_preset_quality_summary" formatted="false">Setzt die Bitrate auf 150 % der Bitrate des PCs, oder der Haupteinstellungen, wenn der PC keine hat, höchstens bis zum Limit des PCs. Frame-Pacing und adaptive Bildwiederholrate bleiben unverändert; bei schwacher Verbindung können die größeren Bilder die Verzögerung erhöhen.</string>
     <string name="game_preset_custom">Benutzerdefiniert</string>
     <string name="game_preset_custom_summary">Deine eigenen Werte, unten eingestellt.</string>
+    <string name="profiles_screen">Profil für diesen Bildschirm</string>
+    <string name="profiles_screen_none">Kein Profil für diesen Bildschirm</string>
+    <string name="profiles_screen_summary">Nightjar ist auf %1$s. Ein Stream, der dort startet, nutzt dieses Profil, noch vor dem Netzwerk und dem verwendeten Profil.</string>
+    <string name="profiles_screen_built_in">Bildschirm dieses Geräts</string>
+    <string name="profiles_marker_screen">Für %1$s gemerkt</string>
+    <string name="profiles_screen_forget">Bildschirm vergessen</string>
+    <string name="layers_part_profile_screen">Profil %1$s, für diesen Bildschirm gemerkt</string>
 </resources>

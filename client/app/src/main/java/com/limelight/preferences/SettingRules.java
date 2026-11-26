@@ -95,6 +95,9 @@ final class SettingRules {
                 return context.getString(R.string.tag_unused_without_any, context.getString(R.string.title_lower_bitrate),
                         context.getString(R.string.title_adaptive_quality_setting), context.getString(R.string.title_gpu_max_clocks));
             }
+            case HdrFormatChoice.PREF_KEY:
+                return prefs.getBoolean("checkbox_enable_hdr", false) ? null :
+                        context.getString(R.string.tag_unused_without, context.getString(R.string.title_enable_hdr));
             case "adaptive_quality_mode":
                 // GameAdaptation.supportsAdaptiveQuality: PyroWave streams have no automatic quality.
                 return pyroWaveChosen(prefs) && !"off".equals(prefs.getString(key, "off")) ?
@@ -307,11 +310,11 @@ final class SettingRules {
         return null;
     }
 
-    /** Video position moves a picture that leaves room: Fit or 1:1 pixels. */
+    /** Video position moves a picture that leaves room: Fit, Safe fit or 1:1 pixels. */
     static boolean videoAlignmentApplies(SharedPreferences prefs) {
         int mode = com.limelight.ui.VideoScaling.resolve(prefs.getString(com.limelight.ui.VideoScaling.PREF, null),
                 prefs.getBoolean(com.limelight.ui.VideoScaling.STRETCH_PREF, false));
-        return mode == com.limelight.ui.VideoScaling.FIT || mode == com.limelight.ui.VideoScaling.NATIVE;
+        return !com.limelight.ui.VideoScaling.coversArea(mode);
     }
 
     /** The PC renders at a scale of the stream only on its virtual display: a Display arrangement that asks for one. */

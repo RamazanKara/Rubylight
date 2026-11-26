@@ -41,6 +41,9 @@ pub struct DescribeInfo {
     /// The audio codecs the host sends (`a=x-rl-audio.codecs`, `audio_ext::CODEC_*` bits); 0
     /// when it names none, which is Opus only.
     pub audio_codecs: u8,
+    /// The Dolby codecs offered with `a=x-ss-audio-codec-offer` ([`super::dolby_ss`]); never
+    /// from a host that sends `a=x-rl-audio.codecs`, whose own negotiation comes first.
+    pub ss_audio_offer: Option<super::dolby_ss::Offer>,
     /// The 7.1.4 Opus layouts (`a=x-rl-audio.layout714` and `a=x-rl-audio.layout714Hq`).
     pub layout_714: Option<Layout>,
     pub layout_714_hq: Option<Layout>,
@@ -215,6 +218,11 @@ impl DescribeInfo {
                 audio_ext::CODECS_DESCRIBE_ATTRIBUTE,
                 audio_ext::CODECS_ALL,
             ),
+            ss_audio_offer: attribute(sdp, audio_ext::CODECS_DESCRIBE_ATTRIBUTE)
+                .is_none()
+                .then(|| attribute(sdp, super::dolby_ss::OFFER_ATTRIBUTE))
+                .flatten()
+                .and_then(super::dolby_ss::Offer::parse),
             layout_714: attribute(sdp, audio_ext::LAYOUT_714_DESCRIBE_ATTRIBUTE)
                 .and_then(Layout::parse),
             layout_714_hq: attribute(sdp, audio_ext::LAYOUT_714_HQ_DESCRIBE_ATTRIBUTE)

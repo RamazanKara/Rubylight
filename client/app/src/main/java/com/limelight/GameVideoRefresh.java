@@ -247,6 +247,7 @@ final class GameVideoRefresh {
 
     void stopRefreshSwitchPolling() {
         game.bitrateHandler.removeCallbacks(output.pollRefreshSwitch);
+        output.clearAutoCompositorKeepalive();
         stopRefreshHeartbeat();
         resetRefreshRecovery();
         if (refreshSwitchMonitor != null) refreshSwitchMonitor.poll(0, null, null, false);
@@ -262,6 +263,7 @@ final class GameVideoRefresh {
         checkHdrStatus();
         checkHdrRecomposition();
         checkVulkanPace();
+        checkCompositorWatch();
     }
 
     // When the screen has stayed off the rate voted for, says why on the overlay's status line
@@ -281,7 +283,7 @@ final class GameVideoRefresh {
 
     boolean canKeepRefreshHeartbeat() {
         return game.connected && game.foreground && !game.isFinishing() && !game.isDestroyed()
-                && !game.useArr && output.compositorHeartbeat == null
+                && !game.useArr
                 && (game.app == null || game.app.getRole() != NvApp.Role.INPUT_ONLY)
                 && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !game.isInPictureInPictureMode());
     }
@@ -358,9 +360,11 @@ final class GameVideoRefresh {
             refreshHeartbeat = null;
         }
         if (refreshHeartbeat == null) {
+            output.updateCompositorHeartbeat();
             refreshHeartbeat = new CompositorHeartbeat(holder);
             refreshHeartbeat.setRequestedFrameRate(voteHz);
             refreshHeartbeat.start();
+            output.updateCompositorHeartbeat();
             LimeLog.info("Refresh drop recovery: starting UI compositor heartbeat to hold " + voteHz + " Hz");
         }
         refreshRecoveryStage = 2;
@@ -376,6 +380,7 @@ final class GameVideoRefresh {
         }
         refreshHeartbeat.stop();
         refreshHeartbeat = null;
+        output.updateCompositorHeartbeat();
     }
 
     private void resetRefreshRecovery() {
@@ -416,6 +421,38 @@ final class GameVideoRefresh {
     private void checkVulkanPace() {
         if (game.decoderRenderer != null && game.decoderRenderer.takeVulkanBehind()) {
             game.overlays.hostNotice(HostNotices.Notice.VULKAN_BEHIND, R.string.stream_vulkan_behind);
+        }
+    }
+
+    private void checkCompositorWatch() {
+        if (game.decoderRenderer == null || !game.connected || game.isDestroyed()
+                || (game.app != null && game.app.getRole() == NvApp.Role.INPUT_ONLY)) {
+            return;
+        }
+        android.view.SurfaceView surfaceView = game.renderView == null ? null : game.renderView.getSurfaceView();
+        boolean hasVideoView = surfaceView != null
+                || (game.renderView != null && game.renderView.getTextureView() != null);
+        if (!game.foreground || game.isInPictureInPictureMode() || (hasVideoView && !game.surfaceCreated)) {
+            game.decoderRenderer.resetCompositorWatchWindow();
+            if (!game.decoderRenderer.isCompositorKeepaliveLockedOn()) {
+                output.clearAutoCompositorKeepalive();
+            }
+            return;
+        }
+        boolean overlayVisible = (game.overlays != null && game.overlays.isPerformanceOverlayVisible())
+                || refreshHeartbeat != null;
+        boolean manualOn = game.prefConfig != null && game.prefConfig.tvDisplayCompatibility;
+        int action = game.decoderRenderer.pollCompositorKeepaliveAction(overlayVisible, manualOn);
+        String event;
+        while ((event = game.decoderRenderer.takeCompositorWatchEvent()) != null) {
+            LimeLog.info(event);
+        }
+        if (action == com.limelight.binding.video.CompositorWatch.ACTION_PULSE) {
+            output.pulseCompositorKeepalive(500L);
+        } else if (action == com.limelight.binding.video.CompositorWatch.ACTION_KEEP_ON) {
+            output.setAutoCompositorKeepalive(true);
+        } else if (action == com.limelight.binding.video.CompositorWatch.ACTION_STOP) {
+            output.setAutoCompositorKeepalive(false);
         }
     }
 

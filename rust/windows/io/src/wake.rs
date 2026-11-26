@@ -478,7 +478,8 @@ pub fn suspend() -> Result<()> {
 }
 
 /// A `PowerCreateRequest` power request, held until dropped; `powercfg
-/// /requests` shows its reason.
+/// /requests` shows its reason. Windows also ends it when the process exits
+/// or crashes, which closes the handle.
 pub struct PowerRequest(windows::Win32::Foundation::HANDLE);
 
 // SAFETY: The handle is a kernel object handle, valid on any thread; only
@@ -486,9 +487,31 @@ pub struct PowerRequest(windows::Win32::Foundation::HANDLE);
 unsafe impl Send for PowerRequest {}
 
 impl PowerRequest {
+    /// Keeps the PC from sleeping.
     pub fn system_required(reason: &str) -> Result<Self> {
+        use windows::Win32::System::Power::PowerRequestSystemRequired;
+        Self::new(reason, &[PowerRequestSystemRequired])
+    }
+    /// Keeps the console display on, and the PC awake, without input for as
+    /// long as it is held, as for a stream: on the lock screen Windows
+    /// otherwise switches the display off after a minute, and a display that
+    /// is off gives capture no frame. Microsoft pairs the display request
+    /// with the system one so the PC cannot sleep under the display.
+    pub fn display_required(reason: &str) -> Result<Self> {
+        use windows::Win32::System::Power::{
+            PowerRequestDisplayRequired, PowerRequestSystemRequired,
+        };
+        Self::new(
+            reason,
+            &[PowerRequestSystemRequired, PowerRequestDisplayRequired],
+        )
+    }
+    fn new(
+        reason: &str,
+        kinds: &[windows::Win32::System::Power::POWER_REQUEST_TYPE],
+    ) -> Result<Self> {
         use windows::Win32::System::{
-            Power::{PowerCreateRequest, PowerRequestSystemRequired, PowerSetRequest},
+            Power::{PowerCreateRequest, PowerSetRequest},
             Threading::{POWER_REQUEST_CONTEXT_SIMPLE_STRING, REASON_CONTEXT, REASON_CONTEXT_0},
         };
         let mut text: Vec<u16> = reason.encode_utf16().chain([0]).collect();
@@ -502,9 +525,10 @@ impl PowerRequest {
         // SAFETY: `context` and the `text` it points to outlive the call, which copies them.
         let handle = unsafe { PowerCreateRequest(&context) }.context("PowerCreateRequest")?;
         let request = Self(handle);
-        // SAFETY: `handle` is the request just created, closed only by Drop.
-        unsafe { PowerSetRequest(handle, PowerRequestSystemRequired) }
-            .context("PowerSetRequest")?;
+        for kind in kinds {
+            // SAFETY: `handle` is the request just created, closed only by Drop.
+            unsafe { PowerSetRequest(handle, *kind) }.context("PowerSetRequest")?;
+        }
         Ok(request)
     }
 }

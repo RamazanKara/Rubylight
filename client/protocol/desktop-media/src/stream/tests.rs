@@ -162,6 +162,24 @@ fn hdr_streams_ask_a_rubylight_host_for_dolby_vision_where_the_rpus_are_read() {
 }
 
 #[test]
+fn the_hdr_format_choice_masks_what_desktop_asks_for() {
+    use nightjar_policy::video_codec::hdr::HdrFormatChoice;
+    use rubylight_protocol::hdr::{ALL, DV_101};
+    let both = VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_AV1_MAIN10;
+    let asked = |choice: HdrFormatChoice| {
+        let settings = Settings {
+            hdr: true,
+            hdr_format: choice,
+            ..Default::default()
+        };
+        settings_hdr_format(&settings, i32::from(ALL), both, true)
+    };
+    assert_eq!(asked(HdrFormatChoice::Auto), DV_101);
+    assert_eq!(asked(HdrFormatChoice::NoDolbyVision), 0);
+    assert_eq!(asked(HdrFormatChoice::Hdr10), 0);
+}
+
+#[test]
 fn the_doctor_offers_no_trial_while_the_client_hint_steers_the_bitrate() {
     let trial = nightjar_policy::health::BitrateTrial::default();
     let offer = |automatic| trial.offer(true, 20_000, true, automatic, false);

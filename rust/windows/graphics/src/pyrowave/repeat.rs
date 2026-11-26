@@ -169,6 +169,7 @@ struct OverlayKey {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct MetaKey {
     source: (u32, u32, Pixel),
+    display_in_hdr: Option<bool>,
     origin: u64,
     ready: Option<(usize, u64)>,
     luminance: [u32; 2],
@@ -186,6 +187,7 @@ impl MetaKey {
     ) -> Self {
         Self {
             source: (image.width, image.height, image.pixel),
+            display_in_hdr: image.gpu.display_in_hdr(),
             origin: image.origin,
             ready: image
                 .ready

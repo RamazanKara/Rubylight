@@ -9,6 +9,7 @@ import android.media.MediaFormat;
 import android.view.Display;
 
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.preferences.HdrFormatChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 
 import org.junit.After;
@@ -94,6 +95,29 @@ public class FrameWarpHdrFormatTest {
         MediaCodecDecoderRenderer renderer = renderer(prefs(true, true));
         assertEquals(0, renderer.pickHdrFormat(OFFERED, MoonBridge.VIDEO_FORMAT_H265_MAIN10, false, true));
         assertFalse("the user asked for Vulkan; its notice names that setting", renderer.vulkanForFrameWarp());
+    }
+
+    @Test
+    public void theHdrFormatChoiceNarrowsWhatThePickAsksFor() {
+        PreferenceConfiguration prefs = prefs(false, false);
+        prefs.hdrFormat = HdrFormatChoice.NO_DOLBY_VISION;
+        assertEquals(0, renderer(prefs).pickHdrFormat(OFFERED, MoonBridge.VIDEO_FORMAT_H265_MAIN10, false, false));
+    }
+
+    @Test
+    public void hdr10OnlyIsNotToldThatPyroWaveLeavesOutHdr10Plus() {
+        for (HdrFormatChoice choice : new HdrFormatChoice[] {HdrFormatChoice.AUTO, HdrFormatChoice.HDR10}) {
+            PreferenceConfiguration prefs = prefs(false, false);
+            prefs.hdrFormat = choice;
+            MediaCodecDecoderRenderer renderer = renderer(prefs);
+            Display display = ReflectionHelpers.getField(renderer, "outputDisplay");
+            Shadows.shadowOf(display).setDisplayHdrCapabilities(display.getDisplayId(), 750, 750, 0.5f,
+                    Display.HdrCapabilities.HDR_TYPE_HDR10, Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS);
+            renderer.pickHdrFormat(HdrFormatPolicy.PQ, MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE, false, false);
+            Object selector = ReflectionHelpers.getField(renderer, "codecSelector");
+            assertEquals(choice == HdrFormatChoice.AUTO ? HdrFormatPolicy.DrawnLimit.HDR10_PLUS :
+                    HdrFormatPolicy.DrawnLimit.NONE, ReflectionHelpers.getField(selector, "pyroWaveHdrLimit"));
+        }
     }
 
     @Test

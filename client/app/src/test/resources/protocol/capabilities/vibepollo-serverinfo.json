@@ -38,7 +38,7 @@
     "client_fec": "unsupported",
     "bandwidth_probe": "unsupported",
     "usb_forwarding": "unsupported",
-    "audio_passthrough": "unsupported",
+    "audio_passthrough": "unknown",
     "surround_714": "unsupported",
     "text_input": "unsupported",
     "client_keyboard_layout": "unsupported",

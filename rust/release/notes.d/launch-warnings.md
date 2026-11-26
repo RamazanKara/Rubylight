@@ -1,0 +1,2 @@
+# Launch notices
+- **The device hears about a setup fallback.** When a stream starts but the PC had to fall back (no virtual display driver, so the stream shows a physical display; a lowered display scale; a layout Windows would not apply), the launch reply now tells the device, which shows the notice once the stream runs. Devices that do not know the notice ignore it. Commands an app runs also get `SUNSHINE_CLIENT_PSMAP`, the device's controller slots that hold PlayStation controllers.

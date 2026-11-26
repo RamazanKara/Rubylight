@@ -17,7 +17,7 @@
     <string name="title_experimental_chipset_tuning">Tinh chỉnh chipset</string>
     <string name="summary_experimental_chipset_tuning">Có thể làm hỏng việc giải mã trên một số thiết bị. Cung cấp cho bộ giải mã MediaTek Dimensity và Samsung Exynos các cài đặt độ trễ thấp bổ sung nhằm giảm độ trễ giải mã; các chipset khác không bị ảnh hưởng. Hãy để tắt trừ khi bộ giải mã bị chậm.</string>
     <string name="title_tv_display_compatibility">Giữ video TV mượt</string>
-    <string name="summary_tv_display_compatibility">Dành cho TV và hộp TV mà hình bị giật, đứng, nhấp nháy hoặc khởi động lại sau một lúc nếu không có gì được vẽ đè lên hình, chẳng hạn lớp phủ hiệu năng. Mặc định bật trên TV. Tốn một chấm gần như đen ở góc trên bên trái, được vẽ lại mười lần mỗi giây.</string>
+    <string name="summary_tv_display_compatibility">Hãy tắt trên hầu hết các TV: Nightjar tự động bật lớp trình kết hợp vô hình nếu nhịp hiển thị bị khựng hoặc đứng hình. Bật tùy chọn này để ép dùng lớp đó ngay từ đầu trên các TV bị giật, nhấp nháy hoặc khởi động lại ngay lập tức.</string>
     <string name="scut_deleted_pc">Đã xóa PC</string>
     <string name="scut_not_paired">Chưa ghép đôi PC</string>
     <string name="scut_pc_not_found">Không tìm thấy PC</string>
@@ -571,4 +571,15 @@
     <string name="summary_hdr_shield_firmware_update">Cập nhật chương trình cơ sở trên NVIDIA SHIELD Android TV để bật HDR</string>
     <string name="full_range_vulkan_switched">Bộ giải mã đã bỏ dải màu đầy đủ. Đã chuyển sang Vulkan để giữ đúng mức đen.</string>
     <string name="full_range_vulkan_unavailable">Dải đầy đủ bị bỏ, không có Vulkan: màu đen có thể sai. Hãy tắt “Dải màu đầy đủ”.</string>
+    <string name="launch_warning_virtual_display_unavailable">Màn hình ảo của PC không khả dụng, nên luồng này hiển thị màn hình vật lý.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">Thiết bị này đã yêu cầu màn hình riêng của PC, nên luồng không dùng màn hình ảo.</string>
+    <string name="frame_warp_update_host">Frame Warp đã tắt: cần phiên bản hiện tại của Nightjar và ứng dụng phát trực tuyến trên PC.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: cần phiên bản hiện tại trên PC</string>
+    <string name="frame_warp_overlay_confidence">%1$s, độ tin cậy %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, độ tin cậy %2$s%%, con quay đã khóa</string>
+    <string name="title_hdr_format">Định dạng HDR</string>
+    <string name="summary_hdr_format">Tự động dùng định dạng HDR tốt nhất mà cả hai bên hỗ trợ; các lựa chọn khác bỏ Dolby Vision, hoặc mọi thứ ngoài HDR10. Hãy đổi nếu một định dạng hiển thị sai; với Chỉ HDR10, một số PC vẫn có thể gửi HDR10+.</string>
+    <string name="hdr_format_auto">Tự động</string>
+    <string name="hdr_format_no_dolby_vision">Không dùng Dolby Vision</string>
+    <string name="hdr_format_hdr10">Chỉ HDR10</string>
 </resources>

@@ -113,6 +113,12 @@ final class StreamMenuCatalog {
             if (o.scalingAvailable && o.localOutput) {
                 entries.add(action(Section.DISPLAY, Item.VIDEO_SCALING, R.string.video_scaling_title, R.drawable.ic_stretch));
             }
+            if (o.picturePositionAvailable && o.localOutput) {
+                entries.add(action(Section.DISPLAY, Item.PICTURE_POSITION, R.string.picture_position_title, R.drawable.ic_picture_position));
+            }
+            if (o.flipAvailable && o.localOutput) {
+                entries.add(action(Section.DISPLAY, Item.FLIP_SCREEN, R.string.stream_flip_screen, R.drawable.ic_screen_rotation));
+            }
             if (o.localOutput) {
                 entries.add(entry(Section.DISPLAY, Item.ZOOM, o.zoomEnabled ?
                         R.string.desktop_zoom_disable : R.string.desktop_zoom_enable, R.drawable.ic_zoom_in, o.zoomEnabled));

@@ -368,3 +368,57 @@ fn connection_status_follows_frame_loss() {
         [ControlEvent::ConnectionStatus(ConnectionStatus::Okay)]
     );
 }
+
+#[test]
+fn speaker_pcm_plays_only_when_asked_for_and_for_the_bound_owner() {
+    use crate::control::ps_speaker::Owners;
+    use rubylight_protocol::ps_speaker_pcm::SpeakerBlock;
+    let block = |sequence, owner| {
+        SpeakerBlock {
+            controller: 1,
+            generation: 3,
+            sequence,
+            sample_position: u64::from(sequence) * 2,
+            flags: 0,
+            owner,
+            samples: &[2; 8],
+        }
+        .encode()
+        .unwrap()
+    };
+    let speaker = |s: &mut ControlSession| -> Vec<crate::control::haptics::Pcm> {
+        s.take_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                ControlEvent::ControllerSpeaker(pcm) => Some(pcm),
+                _ => None,
+            })
+            .collect()
+    };
+    let t0 = Instant::now();
+    let mut unasked = session(SessionOptions::default());
+    unasked.start(t0);
+    unasked
+        .handle_datagram(t0, &from_host(1, 0x5602, &block(0, 7)))
+        .unwrap();
+    assert!(speaker(&mut unasked).is_empty());
+
+    let owners = std::sync::Arc::new(Owners::default());
+    let mut s = session(SessionOptions::default());
+    s.set_ps_speaker(owners.clone());
+    s.start(t0);
+    s.handle_datagram(t0, &from_host(1, 0x5602, &block(0, 7)))
+        .unwrap();
+    assert!(speaker(&mut s).is_empty(), "nothing bound");
+    owners.set(1, 7);
+    s.handle_datagram(t0, &from_host(2, 0x5602, &block(0, 8)))
+        .unwrap();
+    s.handle_datagram(t0, &from_host(3, 0x5602, &block(0, 7)))
+        .unwrap();
+    s.handle_datagram(t0, &from_host(4, 0x5602, &block(1, 7)))
+        .unwrap();
+    let played = speaker(&mut s);
+    assert_eq!(played.len(), 2);
+    assert_eq!((played[0].controller, played[0].frames()), (1, 2));
+    assert_eq!(played[1].sequence, played[0].sequence + 1);
+}

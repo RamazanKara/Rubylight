@@ -7,6 +7,8 @@ use sdl3_sys::everything::*;
 
 pub struct Pad {
     pub audio: Option<crate::controller_audio::Audio>,
+    /// A DualSense on Bluetooth playing speaker and haptics PCM in its audio reports.
+    pub bt_audio: Option<crate::dualsense_bt_audio::BtAudio>,
     pub id: SDL_JoystickID,
     pub handle: *mut SDL_Gamepad,
     /// Host controller slot: which controller this is, in the stream menu and the buttons page.
@@ -129,6 +131,22 @@ impl Pad {
             SDL_GetGamepadType(self.handle) == SDL_GAMEPAD_TYPE_PS5
                 && SDL_GetGamepadConnectionState(self.handle) == SDL_JOYSTICK_CONNECTION_WIRED
         }
+    }
+
+    /// A DualSense on Bluetooth, which plays speaker and haptics PCM through Sony's Bluetooth
+    /// audio reports (on Windows and Linux).
+    pub fn supports_bt_audio(&self) -> bool {
+        cfg!(any(windows, target_os = "linux"))
+            && unsafe {
+                SDL_GetGamepadType(self.handle) == SDL_GAMEPAD_TYPE_PS5
+                    && SDL_GetGamepadConnectionState(self.handle) == SDL_JOYSTICK_CONNECTION_WIRELESS
+            }
+    }
+
+    /// Whether the controller plays the stream's speaker and haptics PCM, over USB audio or
+    /// Bluetooth reports.
+    pub fn plays_pcm(&self) -> bool {
+        self.audio.is_some() || self.bt_audio.as_ref().is_some_and(|bt| bt.alive())
     }
 
     pub(super) fn report(&self) -> Report {

@@ -6,12 +6,19 @@
         <item>Preencher (cortar)</item>
         <item>Esticar</item>
         <item>Pixels 1:1</item>
+        <item>Ajuste seguro</item>
     </string-array>
-    <string name="video_scaling_help">Ajustar: a imagem inteira, com faixas quando a tela tem outro formato.\nPreencher (cortar): preenche a tela sem distorcer; as bordas que não cabem são cortadas.\nEsticar: preenche a tela; as formas podem parecer mais largas ou mais altas.\nPixels 1:1: um pixel da transmissão por pixel da tela. Uma transmissão menor ganha uma borda; uma maior é cortada.\nPosição do vídeo move uma imagem em Ajustar ou 1:1 para o topo. O zoom com pinça funciona em todos os modos, e o picture-in-picture sempre mostra a imagem inteira.</string>
+    <string name="video_scaling_help">Ajustar: a imagem inteira, com faixas quando a tela tem outro formato.\nPreencher (cortar): preenche a tela sem distorcer; as bordas que não cabem são cortadas.\nEsticar: preenche a tela; as formas podem parecer mais largas ou mais altas.\nPixels 1:1: um pixel da transmissão por pixel da tela. Uma transmissão menor ganha uma borda; uma maior é cortada.\nPosição do vídeo move uma imagem em Ajustar ou 1:1 para o topo. O zoom com pinça funciona em todos os modos, e o picture-in-picture sempre mostra a imagem inteira.
+Ajuste seguro: como Ajustar, mas longe de recortes da câmera e cantos arredondados.</string>
     <string name="title_video_alignment">Posição do vídeo</string>
     <string name="summary_video_alignment">Onde fica uma imagem em Ajustar ou 1:1: centro ou topo. Topo deixa livre o espaço abaixo da imagem.</string>
     <string-array name="video_alignment_names">
         <item>Centro</item>
         <item>Topo</item>
     </string-array>
+    <string name="picture_position_title">Posição da imagem</string>
+    <string name="picture_position_horizontal">Esquerda / direita</string>
+    <string name="picture_position_vertical">Cima / baixo</string>
+    <string name="picture_position_center">Centralizar</string>
+    <string name="summary_picture_position">Move a imagem para compensar um recorte da câmera ou bordas curvas, salvo para cada tela deste aparelho. Deixe centralizada, a menos que parte da imagem fique escondida.</string>
 </resources>

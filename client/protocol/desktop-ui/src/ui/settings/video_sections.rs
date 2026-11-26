@@ -1,6 +1,7 @@
 //! Settings rows for Recommended, Video, and Display & image sections.
 
 use super::*;
+use nightjar_policy::video_codec::hdr::HdrFormatChoice;
 
 pub(super) fn draw_video_sections(
     ui: &mut Ui,
@@ -302,6 +303,18 @@ pub(super) fn draw_video_sections(
             .response
     });
     setting_row(ui, s, rows, &["hdr"], "HDR", "Brighter highlights and richer color on an HDR screen. Turn it on if this screen shows HDR and HDR is on for the PC’s display.", |ui, s| toggle(ui, &mut s.hdr));
+    rows.when(s.hdr);
+    setting_row(ui, s, rows, &["hdr_format"], "HDR format", "Automatic uses the best HDR format both sides take; the others leave out Dolby Vision, or everything beyond HDR10. Change it if a format looks wrong; with HDR10 only some PCs may still send HDR10+.", |ui, s| {
+        Combo::from_id_salt("hdr-format").selected_text(hdr_format_name(s.hdr_format)).show_ui(ui, |ui| {
+            for choice in HdrFormatChoice::ALL {
+                // Only the Windows app asks for Dolby Vision.
+                if choice != HdrFormatChoice::NoDolbyVision || cfg!(windows) {
+                    ui.selectable_value(&mut s.hdr_format, choice, hdr_format_name(choice));
+                }
+            }
+        }).response
+    });
+    rows.always();
     // PyroWave's 4:4:4 is a codec of its own.
     rows.when(!s.codec.is_pyrowave());
     setting_row(ui, s, rows, &["prefer_yuv444", "experimental_packed_444"], "Sharper colored text", "Full color detail (4:4:4), so colored text and thin lines stay crisp. Turn it on if they look blurry; it takes more decoding power and needs PC and device support.", |ui, s| {

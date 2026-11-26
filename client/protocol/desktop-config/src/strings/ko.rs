@@ -1759,4 +1759,8 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Add this device’s battery percentage and local time to the compact performance overlay.", "이 기기의 배터리 잔량과 현재 시각을 간단한 성능 오버레이에 추가합니다."),
     ("macOS restricts Wi-Fi network names (SSIDs) without Location Services permission, so Wi-Fi connections match Other Wi-Fi instead of Home Wi-Fi.", "macOS에서는 위치 서비스 권한이 없으면 Wi-Fi 네트워크 이름(SSID)이 제한되므로 Wi-Fi 연결이 집 Wi-Fi 대신 기타 Wi-Fi와 일치합니다."),
     ("The clipboard on this device holds no text.", "이 기기의 클립보드에 텍스트가 없습니다."),
+    ("HDR format", "HDR 형식"),
+    ("No Dolby Vision", "Dolby Vision 제외"),
+    ("HDR10 only", "HDR10만"),
+    ("Automatic uses the best HDR format both sides take; the others leave out Dolby Vision, or everything beyond HDR10. Change it if a format looks wrong; with HDR10 only some PCs may still send HDR10+.", "자동은 양쪽이 지원하는 가장 좋은 HDR 형식을 사용하고, 다른 항목은 Dolby Vision 또는 HDR10을 넘는 모든 것을 뺍니다. 어떤 형식이 이상하게 보이면 바꾸세요. HDR10만을 골라도 일부 PC는 HDR10+를 보낼 수 있습니다."),
 ];

@@ -22,4 +22,6 @@
     <string name="hardware_gpu_fan_voltage">Napięcie: %1$s mV · Wentylator: %2$s RPM (%3$s%%)</string>
     <string name="hardware_gpu_power">Moc GPU: %1$s W · Moc karty: %2$s W</string>
     <string name="hardware_gpu_memory">VRAM: %1$s MB (%2$s%%)</string>
+    <string name="hardware_gpu_encoder_summary">Koder %1$s%%</string>
+    <string name="hardware_gpu_encoder">Koder wideo: %1$s%%</string>
 </resources>

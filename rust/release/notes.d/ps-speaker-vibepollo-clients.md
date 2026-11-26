@@ -1,0 +1,2 @@
+# Controller speaker for more clients
+- **PlayStation controller speakers for more Moonlight clients.** Clients that play a DualSense's speaker in Vibepollo's format, such as Nonary's Moonlight, now hear the game's controller speaker sound from Rubylight too, over the same USB DualSense the host already uses for waveform haptics. Each controller gets either this or Rubylight's own controller audio, never both, and touchpad and Steam Controller input is unchanged.

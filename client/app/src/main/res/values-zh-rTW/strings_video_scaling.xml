@@ -6,12 +6,19 @@
         <item>填滿（裁切）</item>
         <item>延展</item>
         <item>1:1 像素</item>
+        <item>安全區域符合</item>
     </string-array>
-    <string name="video_scaling_help">符合螢幕：顯示完整畫面，螢幕比例不同時會有黑邊。\n填滿（裁切）：在不變形的情況下填滿螢幕，超出的邊緣會被裁掉。\n延展：填滿螢幕；影像可能看起來較寬或較高。\n1:1 像素：串流的每個像素對應螢幕上的一個像素。較小的串流四周留邊，較大的串流會被裁切。\n「影像位置」可將符合螢幕或 1:1 的畫面移到頂端。雙指縮放在所有模式下都能使用，子母畫面一律顯示完整畫面。</string>
+    <string name="video_scaling_help">符合螢幕：顯示完整畫面，螢幕比例不同時會有黑邊。\n填滿（裁切）：在不變形的情況下填滿螢幕，超出的邊緣會被裁掉。\n延展：填滿螢幕；影像可能看起來較寬或較高。\n1:1 像素：串流的每個像素對應螢幕上的一個像素。較小的串流四周留邊，較大的串流會被裁切。\n「影像位置」可將符合螢幕或 1:1 的畫面移到頂端。雙指縮放在所有模式下都能使用，子母畫面一律顯示完整畫面。
+安全區域符合：與「符合螢幕」相同，但會避開相機開孔和螢幕圓角。</string>
     <string name="title_video_alignment">影像位置</string>
     <string name="summary_video_alignment">「符合螢幕」或「1:1 像素」畫面的位置：置中或頂端。「頂端」會把畫面下方的空間空出來。</string>
     <string-array name="video_alignment_names">
         <item>置中</item>
         <item>頂端</item>
     </string-array>
+    <string name="picture_position_title">畫面位置調整</string>
+    <string name="picture_position_horizontal">左 / 右</string>
+    <string name="picture_position_vertical">上 / 下</string>
+    <string name="picture_position_center">置中</string>
+    <string name="summary_picture_position">移動畫面以避開相機開孔或曲面螢幕邊緣，依本裝置的每個螢幕分別儲存。除非畫面有部分被遮住，否則維持置中即可。</string>
 </resources>

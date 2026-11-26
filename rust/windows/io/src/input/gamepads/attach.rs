@@ -538,8 +538,8 @@ impl Gamepads {
     }
     fn ensure_dualsense(&mut self, id: u16) -> Result<bool> {
         use butterpollo_input_policy::{
-            haptics,
             input_policy::{USBIP_DUALSENSE, VHF_DUALSENSE},
+            ps_speaker::wants_usb_dualsense,
         };
         if self.dualsenses.contains_key(&id) {
             return Ok(true);
@@ -563,7 +563,7 @@ impl Gamepads {
         let selected =
             self.policy
                 .controller_profile(self.profile, kind, caps, self.available, steam);
-        if !forced && (caps & haptics::CAPABILITY == 0 || selected != Some(VHF_DUALSENSE)) {
+        if !forced && (!wants_usb_dualsense(kind, caps) || selected != Some(VHF_DUALSENSE)) {
             return Ok(false);
         }
         if self.attaching.contains_key(&(AttachKind::DualSense, id)) {

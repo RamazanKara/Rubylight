@@ -121,6 +121,22 @@ final class HostStreamSettingDialogs {
                 }).setNegativeButton(android.R.string.cancel, null).show();
     }
 
+    static void showHdrFormat(HostStreamSettings.SettingsFragment fragment, HostStreamSettings activity) {
+        List<HdrFormatChoice> values = HdrFormatChoice.offered(activity, activity.overrides.hdrFormat);
+        String[] names = activity.getResources().getStringArray(R.array.hdr_format_names);
+        CharSequence[] items = new CharSequence[values.size() + 1];
+        items[0] = sameAs(activity, names[activity.global.hdrFormat.ordinal()]);
+        for (int i = 0; i < values.size(); i++) items[i + 1] = names[values.get(i).ordinal()];
+        HdrFormatChoice own = activity.overrides.hdrFormat;
+        int checked = own == null ? 0 : values.indexOf(own) < 0 ? -1 : values.indexOf(own) + 1;
+        new NavigationDialogBuilder(activity).setTitle(R.string.title_hdr_format)
+                .setSingleChoiceItems(items, checked, (dialog, which) -> {
+                    activity.overrides.hdrFormat = which == 0 ? null : values.get(which - 1);
+                    fragment.updateSummaries();
+                    dialog.dismiss();
+                }).setNegativeButton(android.R.string.cancel, null).show();
+    }
+
     static void showDisplayScale(HostStreamSettings.SettingsFragment fragment, HostStreamSettings activity) {
         int[] values = PreferenceConfiguration.VIRTUAL_DISPLAY_DPI_VALUES;
         CharSequence[] items = new CharSequence[values.length + 1];

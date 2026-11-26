@@ -28,7 +28,7 @@
     <string name="desktop_zoom_enable">Activar zoom y desplazamiento con dos dedos</string>
     <string name="desktop_zoom_disable">Desactivar zoom y desplazamiento con dos dedos</string>
     <string name="desktop_zoom_reset">Restablecer zoom</string>
-    <string name="desktop_zoom_help">Pellizca con dos dedos para ampliar hasta 4×; arrastra con dos dedos para desplazarte. Un dedo mantiene el modo táctil seleccionado. El desplazamiento con dos dedos se sustituye mientras los controles de zoom están activados.</string>
+    <string name="desktop_zoom_help">Pellizca con dos dedos para ampliar de 0,5× a 4×; arrastra dos dedos para mover la imagen libremente, incluso por los bordes negros. Un dedo mantiene el modo táctil seleccionado. El desplazamiento con dos dedos se sustituye mientras los controles de zoom están activados.</string>
     <string name="desktop_output">Salida de vídeo (reconecta la transmisión)</string>
     <string name="desktop_output_device">Este dispositivo</string>
     <string name="desktop_touchpad_help">El vídeo se muestra en tu pantalla externa. Usa esta pantalla como touchpad. El teclado, los botones del juego y el menú de transmisión siguen disponibles aquí.</string>

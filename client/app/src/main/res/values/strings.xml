@@ -424,7 +424,7 @@
     <string name="title_experimental_chipset_tuning">Chipset tuning</string>
     <string name="summary_experimental_chipset_tuning">Can break decoding on some devices. Gives MediaTek Dimensity and Samsung Exynos decoders extra low-latency settings meant to lower decoding delay; other chipsets are unaffected. Leave it off unless the decoder lags.</string>
     <string name="title_tv_display_compatibility">Keep TV video smooth</string>
-    <string name="summary_tv_display_compatibility">For TVs and TV boxes whose picture stutters after a while, freezes, flashes or restarts unless something is drawn over it, such as the performance overlay. On by default on TVs; it costs one nearly black dot in the top-left corner, redrawn ten times a second.</string>
+    <string name="summary_tv_display_compatibility">Keep this off on most TVs: Nightjar turns on an invisible compositor layer automatically if display pacing stalls or freezes. Turn it on to force that layer from the start on TVs that stutter, flash, or restart right away.</string>
     <string name="title_vendor_low_latency">Chipset low-latency mode</string>
     <string name="summary_vendor_low_latency">Uses the chipset’s own low-delay decoding. Leave it on; turn it off only to check whether it makes video unstable on this device.</string>
     <string name="title_codec_performance">Decoder performance hints</string>
@@ -616,4 +616,15 @@
     <string name="home_setup_dismiss">Dismiss</string>
     <string name="full_range_vulkan_switched">The decoder dropped full color range. Switched to Vulkan to keep black levels right.</string>
     <string name="full_range_vulkan_unavailable">Decoder dropped full color range, no Vulkan: blacks may be off. Turn off Full color range.</string>
+    <string name="launch_warning_virtual_display_unavailable">The PC’s virtual display is unavailable, so this stream shows its physical display.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">This device asked for the PC’s own display, so the stream does not use a virtual display.</string>
+    <string name="frame_warp_update_host">Frame Warp is off: it needs the current version of Nightjar and of the PC’s streaming app.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: needs the current version on the PC</string>
+    <string name="frame_warp_overlay_confidence">%1$s, confidence %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, confidence %2$s%%, gyro locked</string>
+    <string name="title_hdr_format">HDR format</string>
+    <string name="summary_hdr_format">Automatic uses the best HDR format both sides take; the others leave out Dolby Vision, or everything beyond HDR10. Change it if a format looks wrong; with HDR10 only some PCs may still send HDR10+.</string>
+    <string name="hdr_format_auto">Automatic</string>
+    <string name="hdr_format_no_dolby_vision">No Dolby Vision</string>
+    <string name="hdr_format_hdr10">HDR10 only</string>
 </resources>

@@ -105,8 +105,9 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <PipelineRatesVersion>1</PipelineRatesVersion>\
              <DisplayScaleVersion>1</DisplayScaleVersion>\
              <SecondScreenVersion>1</SecondScreenVersion>\
-             <FrameWarpVersion>1</FrameWarpVersion>\
+             <FrameWarpProtocol>2</FrameWarpProtocol>\
              <ControllerIdentityVersion>1</ControllerIdentityVersion>\
+             <HdrDynamicControl>1</HdrDynamicControl>\
              </root>"
         ),
         "{paired}"
@@ -169,8 +170,9 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <PipelineRatesVersion>1</PipelineRatesVersion>\
              <DisplayScaleVersion>1</DisplayScaleVersion>\
              <SecondScreenVersion>1</SecondScreenVersion>\
-             <FrameWarpVersion>1</FrameWarpVersion>\
+             <FrameWarpProtocol>2</FrameWarpProtocol>\
              <ControllerIdentityVersion>1</ControllerIdentityVersion>\
+             <HdrDynamicControl>1</HdrDynamicControl>\
              </root>"
         ),
         "{unpaired}"
@@ -310,7 +312,7 @@ async fn successful_launch_and_resume_xml_include_driver_readiness_and_the_calle
         for ready in [false, true] {
             let url = "rtspenc://[::1]:48010";
             let root = document(launch_response(
-                Ok((reply.into(), url.into())),
+                Ok((reply.into(), url.into(), None)),
                 1,
                 reply,
                 resume,

@@ -290,6 +290,9 @@ impl Streaming {
 
     /// How long the loop may sleep before the next picture is due.
     pub fn wait(&self) -> Wait {
+        if needs_immediate_redraw(self.needs_redraw, self.skipped_picture.is_some(), self.skipped.due_us()) {
+            return Wait::Now;
+        }
         let racing = if self.pacer.mode == PacingMode::BeamRace { self.racer.due_us() } else { None };
         let due = match (self.pacer.next_due(), racing) {
             (Some(picture), Some(slice)) => Some(picture.min(slice)),
@@ -402,5 +405,22 @@ impl Streaming {
             timeline.mid_row_age_ns = race::mid_row_age_ns(&scan, first, &decoded.bands);
         }
         timeline
+    }
+}
+
+fn needs_immediate_redraw(needs_redraw: bool, has_skipped_picture: bool, skipped_due: Option<u64>) -> bool {
+    needs_redraw && !has_skipped_picture && skipped_due.is_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::needs_immediate_redraw;
+
+    #[test]
+    fn immediate_redraw_wakes_only_without_pending_skipped_frame_or_backoff() {
+        assert!(needs_immediate_redraw(true, false, None));
+        assert!(!needs_immediate_redraw(false, false, None));
+        assert!(!needs_immediate_redraw(true, true, None));
+        assert!(!needs_immediate_redraw(true, false, Some(100)));
     }
 }

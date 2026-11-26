@@ -4,10 +4,13 @@ use super::{
     ANSWER_TIMEOUT, Admission, BIND_WAIT, CONNECT_TIMEOUT, Guests, JOIN_TIMEOUT, Leave,
     MAX_MESSAGE, Owner, PROTOCOL,
     guards::{Seat, SocketSlot},
+    keyframe_backoff::KeyframeBackoff,
 };
 use crate::{
     input::GuestHandle,
-    media::{self, Followers, Hooks, MediaHandle, Pacing, TransportEvent, TransportOptions},
+    media::{
+        self, Followers, Hooks, IdrReason, MediaHandle, Pacing, TransportEvent, TransportOptions,
+    },
     sdp::{self, OfferSpec, VideoCodec},
 };
 use anyhow::{Context, Result};
@@ -27,7 +30,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::{
     net::{IpAddr, SocketAddr, UdpSocket},
-    sync::{Arc, Weak, atomic::AtomicBool},
+    sync::{Arc, Mutex, Weak, atomic::AtomicBool},
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
@@ -91,11 +94,18 @@ struct Bridge {
     /// The owner's session, whose encoder makes the keyframes.
     session: Weak<Session>,
     link: UnboundedSender<Link>,
+    /// This guest's own wait between keyframes, within the guests' shared allowance.
+    backoff: Mutex<KeyframeBackoff>,
 }
 
 impl Bridge {
-    fn keyframe(&self) {
-        self.guests.keyframe(&self.session, Instant::now());
+    /// A keyframe for this guest, within its backoff; a connection or a return after an
+    /// outage needs a first picture and is not held back by it.
+    fn keyframe(&self, reason: IdrReason) {
+        let now = Instant::now();
+        let fresh = matches!(reason, IdrReason::Connected | IdrReason::Reconnected);
+        let mut backoff = self.backoff.lock().unwrap_or_else(|e| e.into_inner());
+        backoff.request(now, fresh, || self.guests.keyframe(&self.session, now));
     }
 
     fn event(&self, event: TransportEvent) {
@@ -103,7 +113,7 @@ impl Bridge {
         match event {
             TransportEvent::Connected => {
                 let _ = self.link.send(Link::Connected);
-                self.keyframe();
+                self.keyframe(IdrReason::Connected);
             }
             TransportEvent::Closed => {
                 let _ = self.link.send(Link::Closed);
@@ -112,7 +122,7 @@ impl Bridge {
                 data,
                 binary: false,
             } => match std::str::from_utf8(&data).map(classify_control) {
-                Ok(ControlMessage::KeyframeRequest) => self.keyframe(),
+                Ok(ControlMessage::KeyframeRequest) => self.keyframe(IdrReason::Pli),
                 Ok(ControlMessage::GamepadAnnouncement) => {
                     if let Some(input) = input {
                         input.gamepad(data, false, Instant::now());
@@ -145,7 +155,7 @@ impl Bridge {
 
     fn hooks(self: &Arc<Self>) -> Hooks {
         let (idr, event) = (self.clone(), self.clone());
-        Hooks::new(move |_| idr.keyframe(), move |e| event.event(e))
+        Hooks::new(move |reason| idr.keyframe(reason), move |e| event.event(e))
     }
 }
 
@@ -324,6 +334,7 @@ async fn guest(
         input: owner.input.guest(id, permission),
         session: owner.session.clone(),
         link,
+        backoff: Mutex::default(),
     });
     let started = {
         let (h, owner, bridge) = (h.clone(), owner.clone(), bridge.clone());

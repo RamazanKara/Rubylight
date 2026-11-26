@@ -1760,4 +1760,8 @@ sudo sysctl -w net.core.rmem_max={2}"),
     ("Add this device’s battery percentage and local time to the compact performance overlay.", "Fügt dem kompakten Leistungs-Overlay den Akkustand und die Ortszeit dieses Geräts hinzu."),
     ("macOS restricts Wi-Fi network names (SSIDs) without Location Services permission, so Wi-Fi connections match Other Wi-Fi instead of Home Wi-Fi.", "macOS schränkt WLAN-Namen (SSIDs) ohne Standortdienste-Berechtigung ein, sodass WLAN-Verbindungen „Anderes WLAN“ statt „Heim-WLAN“ zugeordnet werden."),
     ("The clipboard on this device holds no text.", "Die Zwischenablage dieses Geräts enthält keinen Text."),
+    ("HDR format", "HDR-Format"),
+    ("No Dolby Vision", "Ohne Dolby Vision"),
+    ("HDR10 only", "Nur HDR10"),
+    ("Automatic uses the best HDR format both sides take; the others leave out Dolby Vision, or everything beyond HDR10. Change it if a format looks wrong; with HDR10 only some PCs may still send HDR10+.", "Automatisch nutzt das beste HDR-Format, das beide Seiten beherrschen; die anderen lassen Dolby Vision oder alles über HDR10 hinaus weg. Ändere es, wenn ein Format falsch aussieht; bei „Nur HDR10“ senden manche PCs trotzdem HDR10+."),
 ];

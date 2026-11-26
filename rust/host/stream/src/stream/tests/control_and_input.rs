@@ -114,6 +114,7 @@ fn the_control_pass_sends_feedback_through_the_rumble_filter() {
             |_| allowed,
             true,
             &[0; 16],
+            &mut Default::default(),
             &mut pcm,
             &mut arbiter,
             &mut rumble,

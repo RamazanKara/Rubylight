@@ -46,11 +46,13 @@ public final class HostStreamProfile {
     public Boolean hostFrameTimes, dropLateFrames;
     /** RTX HDR and RTX Video enhancement turned on or off for this PC's streams; null follows its app setting. */
     public Boolean rtxHdr, rtxVideo;
+    /** The "HDR format" row; null follows the layers below. */
+    public HdrFormatChoice hdrFormat;
 
     /** The values a set can hold; each one falls through on its own. */
     public enum Field {
         RESOLUTION, REFRESH, BITRATE, CODEC, UPSCALING, SHARPNESS, HDR, VRR, YUV444, FULL_RANGE, PACING,
-        VIRTUAL_DISPLAY, RENDER_SCALE, DISPLAY_SCALE, RTX_HDR, RTX_VIDEO
+        VIRTUAL_DISPLAY, RENDER_SCALE, DISPLAY_SCALE, RTX_HDR, RTX_VIDEO, HDR_FORMAT
     }
 
     static final String[] PACING_VALUES = {"latency", "balanced", "cap-fps", "smoothness"};
@@ -121,7 +123,7 @@ public final class HostStreamProfile {
         return nativeResolution == null && refreshRateX100 == null && bitrate == null && renderScale == null &&
                 displayScale == null && codec == null && virtualDisplay == null && hdr == null && fullRange == null &&
                 yuv444 == null && vrr == null && realVrr == null && upscalingMode == null && upscalingSharpness == null && pacing == null &&
-                hostFrameTimes == null && dropLateFrames == null && rtxHdr == null && rtxVideo == null;
+                hostFrameTimes == null && dropLateFrames == null && rtxHdr == null && rtxVideo == null && hdrFormat == null;
     }
 
     public boolean has(Field field) {
@@ -141,6 +143,7 @@ public final class HostStreamProfile {
             case DISPLAY_SCALE: return displayScale != null;
             case RTX_HDR: return rtxHdr != null;
             case RTX_VIDEO: return rtxVideo != null;
+            case HDR_FORMAT: return hdrFormat != null;
             default: return renderScale != null;
         }
     }
@@ -174,6 +177,7 @@ public final class HostStreamProfile {
             case DISPLAY_SCALE: displayScale = from.displayScale; break;
             case RTX_HDR: rtxHdr = from.rtxHdr; break;
             case RTX_VIDEO: rtxVideo = from.rtxVideo; break;
+            case HDR_FORMAT: hdrFormat = from.hdrFormat; break;
             default: renderScale = from.renderScale; break;
         }
     }
@@ -217,6 +221,7 @@ public final class HostStreamProfile {
         if (codec != null) config.videoFormat = codec;
         if (virtualDisplay != null) config.virtualDisplay = virtualDisplay;
         if (hdr != null) config.enableHdr = hdr;
+        if (hdrFormat != null) config.hdrFormat = hdrFormat;
         if (fullRange != null) config.fullRange = fullRange;
         // A layer's yuv444 is Sharper colored text: Automatic tries native 4:4:4, then packed full chroma.
         if (yuv444 != null) {
@@ -258,6 +263,7 @@ public final class HostStreamProfile {
         if (codec == global.videoFormat) codec = null;
         if (virtualDisplay != null && virtualDisplay == global.virtualDisplay) virtualDisplay = null;
         if (hdr != null && hdr == global.enableHdr) hdr = null;
+        if (hdrFormat == global.hdrFormat) hdrFormat = null;
         if (fullRange != null && fullRange == global.fullRange) fullRange = null;
         if (yuv444 != null && yuv444 == global.enableYuv444) yuv444 = null;
         if (vrr != null && vrr == global.vrr && (realVrr == null || realVrr == global.realVrr)) vrr = realVrr = null;
@@ -278,6 +284,7 @@ public final class HostStreamProfile {
         if (codec != null) out.append(";codec=").append(codec.name());
         if (virtualDisplay != null) out.append(";virtual=").append(virtualDisplay);
         if (hdr != null) out.append(";hdr=").append(hdr);
+        if (hdrFormat != null) out.append(";hdr_format=").append(hdrFormat.value);
         if (fullRange != null) out.append(";full_range=").append(fullRange);
         if (yuv444 != null) out.append(";yuv444=").append(yuv444);
         if (vrr != null) out.append(";vrr=").append(vrr);
@@ -374,6 +381,9 @@ public final class HostStreamProfile {
             case "hdr":
                 profile.hdr = parseBoolean(field);
                 break;
+            case "hdr_format":
+                profile.hdrFormat = HdrFormatChoice.require(field);
+                break;
             case "full_range":
                 profile.fullRange = parseBoolean(field);
                 break;
@@ -448,7 +458,7 @@ public final class HostStreamProfile {
         boolean changed = nativeResolution != null || width != null || height != null
                 || refreshRateX100 != null || codec != null
                 || hdr != null || fullRange != null || yuv444 != null
-                || rtxHdr != null || rtxVideo != null;
+                || rtxHdr != null || rtxVideo != null || hdrFormat != null;
         nativeResolution = null;
         width = null;
         height = null;
@@ -459,6 +469,7 @@ public final class HostStreamProfile {
         yuv444 = null;
         rtxHdr = null;
         rtxVideo = null;
+        hdrFormat = null;
         return changed;
     }
 

@@ -1759,4 +1759,8 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Add this device’s battery percentage and local time to the compact performance overlay.", "Thêm phần trăm pin và giờ địa phương của thiết bị này vào lớp phủ hiệu năng thu gọn."),
     ("macOS restricts Wi-Fi network names (SSIDs) without Location Services permission, so Wi-Fi connections match Other Wi-Fi instead of Home Wi-Fi.", "macOS hạn chế tên mạng Wi-Fi (SSID) khi không có quyền Dịch vụ định vị, nên các kết nối Wi-Fi sẽ khớp với Wi-Fi khác thay vì Wi-Fi gia đình."),
     ("The clipboard on this device holds no text.", "Bảng nhớ tạm trên thiết bị này không có văn bản."),
+    ("HDR format", "Định dạng HDR"),
+    ("No Dolby Vision", "Không dùng Dolby Vision"),
+    ("HDR10 only", "Chỉ HDR10"),
+    ("Automatic uses the best HDR format both sides take; the others leave out Dolby Vision, or everything beyond HDR10. Change it if a format looks wrong; with HDR10 only some PCs may still send HDR10+.", "Tự động dùng định dạng HDR tốt nhất mà cả hai bên hỗ trợ; các lựa chọn khác bỏ Dolby Vision, hoặc mọi thứ ngoài HDR10. Hãy đổi nếu một định dạng hiển thị sai; với Chỉ HDR10, một số PC vẫn có thể gửi HDR10+."),
 ];

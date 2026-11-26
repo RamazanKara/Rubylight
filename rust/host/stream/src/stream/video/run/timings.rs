@@ -249,7 +249,13 @@ impl TimingsWindow {
         webrtc_sender: &Option<Box<dyn crate::webrtc_bridge::WebRtcVideoSink>>,
     ) {
         // Sorted after the lock the sender records into is released.
-        let window = s.stats.performance.lock().unwrap().window(Instant::now());
+        let (window, send_gaps) = {
+            let mut performance = s.stats.performance.lock().unwrap();
+            (
+                performance.window(Instant::now()),
+                performance.send_gaps.take(),
+            )
+        };
         let timing = window.snapshot();
         let link = s.link_rate_snapshot();
         // Congestion control (`congestion_control`, or its shadow run): state,
@@ -409,6 +415,25 @@ impl TimingsWindow {
             cc_feedback_bytes = cc_u64("feedback_bytes"),
             "stream timings"
         );
+        // Each sent frame's gap against the frame period (`send_gaps`), beside the
+        // microphone's and the pointer's arrival gaps: whether the host sent evenly.
+        if send_gaps.frames > 0 {
+            let to_ms = |us: u32| f64::from(us) / 1000.;
+            tracing::info!(
+                client = %s.launch.client.name,
+                frames = send_gaps.frames,
+                period_ms = to_ms(send_gaps.period_us),
+                bunched = send_gaps.bunched,
+                short = send_gaps.short,
+                on_time = send_gaps.on_time,
+                late = send_gaps.late,
+                skipped = send_gaps.skipped,
+                pauses = send_gaps.pauses,
+                jitter_ms = to_ms(send_gaps.jitter_us),
+                max_gap_ms = to_ms(send_gaps.max_gap_us),
+                "video send gaps"
+            );
+        }
     }
 
     pub(super) fn record_claim_age(

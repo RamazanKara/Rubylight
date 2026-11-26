@@ -538,6 +538,47 @@ public class NvConnectionHostNoticeTest {
                 NvConnectionHapticsFlagTest.CapturingBridge.hostFeatures);
     }
 
+    private static Object frameWarpField(String name) {
+        // MoonBridgeForwarders, which MoonBridge extends, keeps the next stream's Frame Warp request
+        return ReflectionHelpers.getStaticField(MoonBridge.class.getSuperclass(), name);
+    }
+
+    // A PC whose streaming app has an older Frame Warp than this Nightjar's (FrameWarpVersion without
+    // FrameWarpProtocol): with the setting on, the stream does not ask for it, the user is told why each stream, and
+    // the overlay names the update. A PC without Frame Warp, or the setting off, says nothing.
+    @Test
+    public void anOldFrameWarpPcIsNotAskedAndTheUserIsToldToUpdate() throws Exception {
+        String update = RuntimeEnvironment.getApplication().getString(R.string.frame_warp_update_host);
+        String oldWarp = SUNSHINE.replace("</root>", "<FrameWarpVersion>1</FrameWarpVersion></root>");
+        String currentWarp = SUNSHINE.replace("</root>",
+                "<FrameWarpVersion>2</FrameWarpVersion><FrameWarpProtocol>2</FrameWarpProtocol></root>");
+        float[] numbers = new float[MoonBridge.FRAME_WARP_STATUS_NUMBERS];
+        android.content.SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(
+                RuntimeEnvironment.getApplication());
+        try {
+            assertTrue(prefs.edit().putBoolean("checkbox_frame_warp", true).commit());
+            assertEquals(Collections.singletonList(update), stream(oldWarp, false));
+            assertEquals(Boolean.FALSE, frameWarpField("frameWarpRequested"));
+            assertEquals(MoonBridge.FRAME_WARP_UPDATE_HOST, MoonBridge.frameWarpStatus(numbers));
+            assertEquals("told again on the next stream", Collections.singletonList(update), stream(oldWarp, false));
+            // A PC without Frame Warp is no PC to update, and a current one is asked
+            assertEquals(Collections.emptyList(), stream(SUNSHINE, false));
+            assertEquals(Boolean.FALSE, frameWarpField("frameWarpRequested"));
+            assertEquals(MoonBridge.FRAME_WARP_NOT_OFFERED, MoonBridge.frameWarpStatus(numbers));
+            assertEquals(Collections.emptyList(), stream(currentWarp, false));
+            assertEquals(Boolean.TRUE, frameWarpField("frameWarpRequested"));
+            assertEquals(Boolean.FALSE, frameWarpField("frameWarpHostTooOld"));
+            // With the setting off, nothing is asked or said
+            assertTrue(prefs.edit().putBoolean("checkbox_frame_warp", false).commit());
+            assertEquals(Collections.emptyList(), stream(oldWarp, false));
+            assertEquals(Boolean.FALSE, frameWarpField("frameWarpRequested"));
+            assertEquals(MoonBridge.FRAME_WARP_OFF, MoonBridge.frameWarpStatus(numbers));
+        } finally {
+            prefs.edit().remove("checkbox_frame_warp").commit();
+            MoonBridge.requestFrameWarp(false, false, false);
+        }
+    }
+
     @Test
     public void tenBitSdrGivingWayToPackedDoesNotEmitSdr10NotAccepted() throws Exception {
         Application app = RuntimeEnvironment.getApplication();

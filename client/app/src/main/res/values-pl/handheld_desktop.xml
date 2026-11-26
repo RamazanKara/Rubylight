@@ -28,7 +28,7 @@
     <string name="desktop_zoom_enable">Włącz powiększanie i przesuwanie gestem</string>
     <string name="desktop_zoom_disable">Wyłącz powiększanie i przesuwanie gestem</string>
     <string name="desktop_zoom_reset">Resetuj powiększenie</string>
-    <string name="desktop_zoom_help">Rozsuń dwa palce, aby powiększyć do 4×; przeciągnij dwoma palcami, aby przesunąć. Jeden palec działa w wybranym trybie dotyku. Przewijanie dwoma palcami jest zastępowane, gdy powiększanie jest włączone.</string>
+    <string name="desktop_zoom_help">Rozsuń lub zsuń dwa palce, aby powiększać od 0,5× do 4×; przeciągnij dwoma palcami, aby swobodnie przesuwać obraz, także na czarne pasy. Jeden palec działa w wybranym trybie dotyku. Przewijanie dwoma palcami jest zastępowane, gdy powiększanie jest włączone.</string>
     <string name="desktop_output">Wyjście wideo (ponownie łączy strumień)</string>
     <string name="desktop_output_device">To urządzenie</string>
     <string name="desktop_touchpad_help">Wideo jest na ekranie zewnętrznym. Używaj tego ekranu jako touchpada. Klawiatura, przyciski gry i menu strumienia są nadal dostępne tutaj.</string>

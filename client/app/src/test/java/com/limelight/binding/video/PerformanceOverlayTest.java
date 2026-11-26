@@ -49,6 +49,34 @@ public class PerformanceOverlayTest {
     }
 
     @Test
+    public void frameWarpLineAddsTheConfidenceAndGyroAndNamesAPcToUpdate() {
+        Context us = context(Locale.US);
+        assertEquals("before the PC's first confidence the line is as it was",
+                "Frame Warp: locked 0.35 px/count, lag 33 ms, shift 12.3 px (peak 40.0)",
+                PerformanceOverlay.frameWarpText(us, MoonBridge.FRAME_WARP_MOUSE,
+                        new float[] {0.346f, 33.4f, 12.3f, 40f, -1f, 0f}));
+        assertEquals("Frame Warp: locked 0.35 px/count, lag 33 ms, shift 12.3 px (peak 40.0), confidence 96%",
+                PerformanceOverlay.frameWarpText(us, MoonBridge.FRAME_WARP_MOUSE,
+                        new float[] {0.346f, 33.4f, 12.3f, 40f, 0.958f, 0f}));
+        assertEquals("Frame Warp: learning, confidence 40%, gyro locked",
+                PerformanceOverlay.frameWarpText(us, MoonBridge.FRAME_WARP_LEARNING, new float[] {0f, 0f, 0f, 0f, 0.4f, 1f}));
+        assertEquals("Frame Warp: needs the current version on the PC",
+                PerformanceOverlay.frameWarpText(us, MoonBridge.FRAME_WARP_UPDATE_HOST,
+                        new float[MoonBridge.FRAME_WARP_STATUS_NUMBERS]));
+        String german = PerformanceOverlay.frameWarpText(context(Locale.GERMANY), MoonBridge.FRAME_WARP_STICK,
+                new float[] {1200f, 16.6f, 0f, 8.5f, 0.5f, 1f});
+        assertTrue(german, german.startsWith("Frame Warp: erfasst 1200 px/s") && german.endsWith(", Gyro erfasst"));
+        for (Locale locale : new Locale[] {Locale.US, Locale.GERMANY, Locale.JAPAN}) {
+            for (int status : new int[] {MoonBridge.FRAME_WARP_LEARNING, MoonBridge.FRAME_WARP_MOUSE,
+                    MoonBridge.FRAME_WARP_UPDATE_HOST}) {
+                String line = PerformanceOverlay.frameWarpText(context(locale), status,
+                        new float[] {1f, 1f, 1f, 1f, 1f, 1f});
+                assertFalse(line, line.contains("Experimental") || line.contains("Frame Warp 1"));
+            }
+        }
+    }
+
+    @Test
     public void statisticsSeparatesMeasuredStagesInReadableLines() {
         String text = PerformanceOverlay.statisticsText(context(Locale.US), "1920×1080 · AV1 · HDR",
                 59.94f, 60, 20.4f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
@@ -527,6 +555,17 @@ public class PerformanceOverlayTest {
         assertTrue(text.contains("Voltage: 950 mV · Fan: 0 RPM (0.0%)"));
         assertTrue(text.contains("GPU power: 28.0 W · Board power: 40.0 W"));
         assertTrue(text.contains("VRAM: 2679 MB (13.1%)"));
+        assertFalse("no encoder line without a reading", text.contains("Video encoder"));
+    }
+
+    @Test
+    public void encoderLoadShowsOnlyWhereThePcSendsIt() throws Exception {
+        HardwareMetrics metrics = HardwareMetrics.parse("{\"version\":1,\"sampled_at_unix_ms\":1,\"interval_ms\":1000," +
+                "\"cpu\":{},\"gpus\":[{\"id\":-5,\"name\":\"NVIDIA\",\"metrics\":{\"gpu_usage_percent\":60,\"gpu_encoder_percent\":22.5}}]}");
+        String compact = PerformanceOverlay.withHardwareMetrics(context(Locale.US), "S", metrics, false).toString();
+        assertTrue(compact, compact.endsWith("PC GPU -5: 60.0% · — °C · — W · Encoder 22.5%"));
+        String debug = PerformanceOverlay.withHardwareMetrics(context(Locale.US), "S", metrics, true).toString();
+        assertTrue(debug, debug.contains("Video encoder: 22.5%"));
     }
 
     @Test

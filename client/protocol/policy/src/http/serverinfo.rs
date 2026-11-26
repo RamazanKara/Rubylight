@@ -234,6 +234,7 @@ impl ServerInfo {
             network_path_version: -1,
             cursor_shape_version: -1,
             frame_warp_version: -1,
+            frame_warp_protocol: -1,
             native_api_version: -1,
             power_action_version: -1,
             hdr_formats: -1,

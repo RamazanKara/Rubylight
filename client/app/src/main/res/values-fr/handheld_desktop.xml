@@ -28,7 +28,7 @@
     <string name="desktop_zoom_enable">Activer le zoom et le panoramique par pincement</string>
     <string name="desktop_zoom_disable">Désactiver le zoom et le panoramique par pincement</string>
     <string name="desktop_zoom_reset">Réinitialiser le zoom</string>
-    <string name="desktop_zoom_help">Pincez avec deux doigts pour zoomer jusqu’à 4× ; faites glisser deux doigts pour vous déplacer. Un seul doigt conserve le mode tactile sélectionné. Le défilement à deux doigts est remplacé tant que les commandes de zoom sont activées.</string>
+    <string name="desktop_zoom_help">Pincez avec deux doigts pour zoomer de 0,5× à 4× ; faites glisser deux doigts pour déplacer l’image librement, y compris sur les bordures noires. Un seul doigt conserve le mode tactile sélectionné. Le défilement à deux doigts est remplacé tant que les commandes de zoom sont activées.</string>
     <string name="desktop_output">Sortie vidéo (reconnecte le stream)</string>
     <string name="desktop_output_device">Cet appareil</string>
     <string name="desktop_touchpad_help">La vidéo s’affiche sur votre écran externe. Utilisez cet écran comme pavé tactile. Le clavier, les boutons de jeu et le menu du stream restent disponibles ici.</string>

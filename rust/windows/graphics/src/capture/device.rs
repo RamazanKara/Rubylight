@@ -3,7 +3,7 @@
 
 use super::{
     Display, adapter_pnp_id, displays, gpus, hardware_adapter, headless_candidate, output,
-    probe_skips_display, select_display,
+    preference_orders, probe_skips_display, select_display,
 };
 use crate::text::from_wide;
 use anyhow::{Context, Result, bail};
@@ -147,6 +147,34 @@ impl Device {
             pnp_id,
         )
     }
+    /// Capture's device for the named display on the GPU with `luid`, as
+    /// `idd-push` opens it on the GPU that renders Rubylight's virtual display
+    /// whichever adapter Windows lists the display under.
+    pub fn for_display_on(name: &str, luid: (u32, i32)) -> Result<Self> {
+        let choices = displays()?;
+        let mut display = select_display(&choices, name)?
+            .cloned()
+            .with_context(|| format!("{name} is not on the desktop"))?;
+        // SAFETY: The factory, adapters and output are live COM objects returned by these
+        // calls, and GetDesc1 returns an owned struct.
+        unsafe {
+            let factory: IDXGIFactory4 = CreateDXGIFactory1()?;
+            let output = Some(
+                factory
+                    .EnumAdapters1(display.adapter_index)?
+                    .EnumOutputs(display.output_index)?
+                    .cast()?,
+            );
+            let adapter: IDXGIAdapter1 = factory
+                .EnumAdapterByLuid(windows::Win32::Foundation::LUID {
+                    LowPart: luid.0,
+                    HighPart: luid.1,
+                })
+                .with_context(|| format!("the GPU {:08x}:{:08x} is not listed", luid.1, luid.0))?;
+            display.adapter = from_wide(&adapter.GetDesc1()?.Description);
+            Self::create(&adapter, output, display)
+        }
+    }
     fn with_display(display: Option<Display>, adapter_name: &str, pnp_id: &str) -> Result<Self> {
         // SAFETY: The factory, adapters and outputs are live COM objects returned by these calls,
         // and each GetDesc1 returns an owned struct.
@@ -227,12 +255,18 @@ impl Device {
                 }
                 bail!("{}", encoder_gpu::Refusal::NoGpu);
             }
-            // With no GPU chosen, the adapter a stream pins to (on a PC that
-            // mixes vendors the AMD or NVIDIA one with the most video memory),
-            // else AMD first, then NVIDIA. Neither leaves the first one, which
-            // the encoder refuses.
+            // With no GPU chosen, the adapter a stream pins to (on a PC with
+            // several GPUs the discrete AMD or NVIDIA one), else AMD first,
+            // then NVIDIA. Neither leaves the first one, which the encoder
+            // refuses.
             let descs: Vec<DXGI_ADAPTER_DESC1> = candidates.iter().map(|c| c.2).collect();
-            let (index, adapter, _, description) = candidates.remove(headless_candidate(&descs));
+            let orders = if descs.len() > 1 {
+                preference_orders()
+            } else {
+                Vec::new()
+            };
+            let (index, adapter, _, description) =
+                candidates.remove(headless_candidate(&descs, &orders));
             let display = Display {
                 device_id: String::new(),
                 display_name: String::new(),

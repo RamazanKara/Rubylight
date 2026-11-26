@@ -128,6 +128,10 @@ MIT License
 Copyright (c) 2026 mattxslv
 ```
 
+## PlayStation controller speaker
+
+The speaker PCM message `0x5602` and the 20-byte speaker binding (input packet `0x55000009`) follow Nonary's wire format and rules in [Nonary/moonlight-common-c pull request 2](https://github.com/Nonary/moonlight-common-c/pull/2) (`src/ControllerSpeakerPcm.h`, merge `8101f711`) and [Nonary/vibeshine pull request 337](https://github.com/Nonary/vibeshine/pull/337) (`src/controller_speaker_pcm.h` and `docs/controller_speaker_pcm.md`, merge `c90dadd2`), both GPL-3.0-or-later; `client/protocol/core/src/ps_speaker_pcm.rs`, `rust/core/input-policy/src/ps_speaker.rs` and `client/protocol/client/src/control/ps_speaker.rs` are Rubylight's own Rust implementation of it. Nightjar desktop's DualSense speaker over Bluetooth (`client/protocol/desktop-media/src/dualsense_bt_audio.rs`: report `0x36`'s layout, the 512-to-480 frame resampling and the Opus settings) is ported from [Nonary's moonlight-qt fork](https://github.com/Nonary/moonlight-qt) by Chase Payne, `app/streaming/input/dualsensebtaudio.h` at commit [`b72d0c2`](https://github.com/Nonary/moonlight-qt/commit/b72d0c205ac0ecf8ddcb126b36c9324f9e8f77c3) (GPL-3.0-or-later, used here under GPL-3.0), whose protocol research is mrFunkill's [decky-dualsense-wired](https://github.com/mrFunkill/decky-dualsense-wired/blob/main/research/FINDINGS.md). Its checksum is the standard CRC-32, written independently. The licence text is the repository's `LICENSE`.
+
 ## Nightjar desktop's Fullscreen mode rule from SDL
 
 The desktop Settings screen predicts the display mode Windows' Fullscreen takes by SDL 3's `SDL_GetClosestFullscreenDisplayMode` (`src/video/SDL_video.c`, SDL 3.4.20, [libsdl-org/SDL](https://github.com/libsdl-org/SDL), zlib license, Copyright (C) 1997-2026 Sam Lantinga): `closest_fullscreen_mode` in `client/protocol/desktop-ui/src/ui/settings/choices.rs` follows its loop over the display's modes. The zlib notice is quoted with the port in that file and kept in `third-party/licenses/SDL-LICENSE.txt`.

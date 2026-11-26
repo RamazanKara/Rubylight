@@ -34,7 +34,7 @@ public final class StreamMenu {
     public enum Item {
         KEYBOARD, PC_KEYBOARD, OVERLAY, MICROPHONE, NIGHT_MODE, HEADPHONE_SURROUND,
         TOUCH_MODE, MOUSE_CURSOR, CONTROLLER_MOUSE, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, MIC_BUTTON, MENU_BUTTON, GAME_CONTROLS, KEYBOARD_KEYS,
-        VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
+        VIDEO_SCALING, PICTURE_POSITION, FLIP_SCREEN, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, RATE_CHANGE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
         HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE,
         USB_DEVICES, GUESTS, FILES, HOST_WEB_UI, HOST_STATUS,
@@ -96,6 +96,8 @@ public final class StreamMenu {
         public boolean onscreenControls, gameControls, keyboardKeysShown;
         /** Stretching can change live: local MediaCodec video without an upscaler. */
         public boolean scalingAvailable;
+        /** The picture can be moved by hand, and a landscape window flipped over: video on this phone's own screen. */
+        public boolean picturePositionAvailable, flipAvailable;
         public boolean zoomEnabled;
         public boolean zoomed;
         public boolean pictureInPicture;

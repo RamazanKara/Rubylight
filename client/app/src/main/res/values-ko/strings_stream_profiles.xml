@@ -120,4 +120,11 @@
     <string name="game_preset_quality_summary" formatted="false">비트레이트를 PC의 값(PC에 값이 없으면 기본 설정의 값)의 150%로 설정합니다. PC 한도까지입니다. 프레임 페이싱과 적응형 주사율은 바뀌지 않으며, 연결이 약하면 커진 프레임 때문에 지연이 늘 수 있습니다.</string>
     <string name="game_preset_custom">사용자 지정</string>
     <string name="game_preset_custom_summary">아래에서 직접 설정한 값입니다.</string>
+    <string name="profiles_screen">이 화면의 프로필</string>
+    <string name="profiles_screen_none">이 화면용 프로필 없음</string>
+    <string name="profiles_screen_summary">Nightjar가 %1$s에 있습니다. 여기서 시작한 스트림은 네트워크와 사용 중인 프로필보다 우선하여 이 프로필을 사용합니다.</string>
+    <string name="profiles_screen_built_in">이 기기의 화면</string>
+    <string name="profiles_marker_screen">%1$s용</string>
+    <string name="profiles_screen_forget">화면 지정 해제</string>
+    <string name="layers_part_profile_screen">프로필 %1$s(이 화면용)</string>
 </resources>

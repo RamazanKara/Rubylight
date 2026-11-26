@@ -148,3 +148,55 @@ fn the_body_stops_when_a_stream_runs_or_starts() {
         assert_eq!(checks.load(std::sync::atomic::Ordering::Relaxed), 1);
     });
 }
+
+async fn pyrowave(f: &Fixture, paired: bool) -> (StatusCode, HeaderMap, usize) {
+    let response = router(f.host.clone(), true)
+        .layer(Extension(f.connection(paired)))
+        .oneshot(
+            Request::builder()
+                .uri("/pyrowave-bandwidth-probe")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (parts, body) = response.into_parts();
+    let body = to_bytes(body, 2 * probe::PYROWAVE_BYTES as usize)
+        .await
+        .unwrap();
+    (parts.status, parts.headers, body.len())
+}
+
+#[tokio::test]
+async fn the_pyrowave_probe_waits_for_streams_and_its_cooldown() {
+    let f = Fixture::new();
+    let (status, ..) = pyrowave(&f, false).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "an unpaired client");
+    let client = f.client(u32::MAX);
+
+    let (status, _, length) = pyrowave(&f, true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(length, probe::PYROWAVE_BYTES as usize);
+
+    let (status, headers, _) = pyrowave(&f, true).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "within the cooldown");
+    let wait: u64 = headers[header::RETRY_AFTER]
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(
+        (1..=probe::PYROWAVE.cooldown.as_secs()).contains(&wait),
+        "{wait}"
+    );
+    // The other probe keeps its own cooldown and budget.
+    let (status, ..) = get(&f, true, "?bytes=65536").await;
+    assert_eq!(status, StatusCode::OK);
+
+    // A stream that runs or starts takes precedence, before the cooldown is checked.
+    let session = f.session(client, Role::Stream);
+    let (status, _, length) = pyrowave(&f, true).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(length, "Stop streaming before testing bandwidth".len());
+    drop(session);
+}

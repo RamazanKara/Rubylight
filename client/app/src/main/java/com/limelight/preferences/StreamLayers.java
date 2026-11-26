@@ -1,16 +1,20 @@
 package com.limelight.preferences;
 
+import com.limelight.nvstream.jni.NightjarPolicyJni;
+
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
  * The stream values a stream starts with. Layers, highest first: this game, this PC, a named
- * profile (the one in use, or the one chosen for the network), then the main settings. Each value
- * comes from the highest layer that sets it. On mobile data, the optional bitrate limit then caps
- * the bitrate. A layer that is missing or can't be read is skipped and reported, never silently.
+ * profile (the one kept for this screen, else the one chosen for the network, else the one in use),
+ * then the main settings. Each value comes from the highest layer that sets it. On mobile data, the
+ * optional bitrate limit then caps the bitrate. A layer that is missing or can't be read is skipped
+ * and reported, never silently.
  */
 public final class StreamLayers {
     /** Where a value comes from. */
@@ -20,7 +24,7 @@ public final class StreamLayers {
     public enum Network { MOBILE, HOME_WIFI, WIFI, OTHER }
 
     /** Why a profile was picked. */
-    public enum Reason { NONE, IN_USE, NETWORK }
+    public enum Reason { NONE, IN_USE, NETWORK, SCREEN }
 
     public enum Problem {
         /** The profile picked (by hand or for the network) no longer exists; the main settings apply. */
@@ -46,6 +50,8 @@ public final class StreamLayers {
         public int mobileLimitKbps;
         /** The bitrate of the main settings, for the mobile data limit. */
         public int mainBitrate;
+        /** The screen the stream starts on ({@link StreamScreen#of}); null when unknown. */
+        public StreamScreen screen;
     }
 
     public static final class Result {
@@ -54,6 +60,8 @@ public final class StreamLayers {
         final EnumMap<HostStreamProfile.Field, Source> sources = new EnumMap<>(HostStreamProfile.Field.class);
         public final List<Problem> problems = new ArrayList<>();
         public Network network = Network.OTHER;
+        /** The screen the stream started on, which its restarts keep; null when Android could not say. */
+        public StreamScreen screen;
         /** The profile applied, or null. */
         public String profileId, profileName;
         /** Why {@link #profileId} was applied; for {@link Problem#PROFILE_MISSING} or INVALID, why it was picked. */
@@ -101,9 +109,12 @@ public final class StreamLayers {
     public static Result resolve(Input in) {
         Result result = new Result();
         result.network = in.network;
+        result.screen = in.screen;
         StreamProfiles.Snapshot profiles = in.profiles;
-        String picked = null;
-        if (profiles.auto) {
+        String picked = screenProfile(profiles, in.screen);
+        if (picked != null) {
+            result.reason = Reason.SCREEN;
+        } else if (profiles.auto) {
             if (in.network == Network.WIFI && !in.wifiNameKnown && !profiles.homeWifi.isEmpty() &&
                     profiles.rule(Network.HOME_WIFI) != null) {
                 result.problems.add(Problem.HOME_WIFI_UNKNOWN);
@@ -161,6 +172,51 @@ public final class StreamLayers {
         return result;
     }
 
+    /**
+     * The profile kept for {@code screen}, as {@code nightjar_policy::display_profile} decides on both apps; null when
+     * no profile is kept for it, or the screen is unknown. Profiles without a screen never reach the native call.
+     */
+    public static String screenProfile(StreamProfiles.Snapshot profiles, StreamScreen screen) {
+        if (screen == null || profiles.screens.isEmpty()) return null;
+        return profileOf(NightjarPolicyJni.displayProfile(screenRequest(profiles.screens, screen)));
+    }
+
+    /** The request {@code protocol/android/src/display_profile.rs} reads. */
+    static String screenRequest(Map<String, StreamScreen> screens, StreamScreen screen) {
+        StringBuilder json = new StringBuilder("{\"rules\":[");
+        for (Map.Entry<String, StreamScreen> rule : screens.entrySet()) {
+            if (json.charAt(json.length() - 1) != '[') json.append(',');
+            json.append("{\"profile\":").append(quote(rule.getKey())).append(",\"display\":")
+                    .append(display(rule.getValue())).append('}');
+        }
+        return json.append("],\"screen\":").append(display(screen)).append('}').toString();
+    }
+
+    private static String display(StreamScreen screen) {
+        return "{\"id\":" + quote(screen.id) + ",\"name\":" + quote(screen.name) + "}";
+    }
+
+    static String quote(String text) {
+        StringBuilder out = new StringBuilder("\"");
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '"' || c == '\\') out.append('\\').append(c);
+            else if (c < 0x20) out.append(String.format(Locale.ROOT, "\\u%04x", (int) c));
+            else out.append(c);
+        }
+        return out.append('"').toString();
+    }
+
+    /** {@code {"profile":"3"}} gives "3"; {@code {"profile":null}}, an error answer or none gives null. */
+    static String profileOf(String answer) {
+        String marker = "\"profile\":\"";
+        int at = answer == null ? -1 : answer.indexOf(marker);
+        if (at < 0) return null;
+        int start = at + marker.length();
+        int end = answer.indexOf('"', start);
+        return end < 0 ? null : answer.substring(start, end);
+    }
+
     private static HostStreamProfile read(String stored, Problem problem, Result result) {
         if (stored == null) return null;
         try {
@@ -177,7 +233,8 @@ public final class StreamLayers {
         out.append("network ").append(result.network.name().toLowerCase(Locale.ROOT));
         if (result.profileId != null) {
             out.append(", profile #").append(result.profileId).append(" (")
-                    .append(result.reason == Reason.NETWORK ? "for network" : "in use").append(')');
+                    .append(result.reason == Reason.NETWORK ? "for network" :
+                            result.reason == Reason.SCREEN ? "for screen" : "in use").append(')');
         }
         if (result.pcApplied) out.append(", PC values");
         if (result.gameApplied) out.append(", game values");

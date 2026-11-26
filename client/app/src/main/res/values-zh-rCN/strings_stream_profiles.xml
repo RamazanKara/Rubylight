@@ -120,4 +120,11 @@
     <string name="game_preset_quality_summary" formatted="false">将码率设为电脑码率的 150%（电脑未设置时取主设置的码率），上限为电脑的限制。帧调度和自适应刷新率不变；连接较弱时，更大的帧可能增加延迟。</string>
     <string name="game_preset_custom">自定义</string>
     <string name="game_preset_custom_summary">你在下方设置的自定义值。</string>
+    <string name="profiles_screen">此屏幕的配置</string>
+    <string name="profiles_screen_none">此屏幕无配置</string>
+    <string name="profiles_screen_summary">Nightjar 位于 %1$s。在此开始的串流会使用此配置，优先于网络和当前配置。</string>
+    <string name="profiles_screen_built_in">本设备的屏幕</string>
+    <string name="profiles_marker_screen">用于 %1$s</string>
+    <string name="profiles_screen_forget">忘记屏幕</string>
+    <string name="layers_part_profile_screen">配置 %1$s（用于此屏幕）</string>
 </resources>

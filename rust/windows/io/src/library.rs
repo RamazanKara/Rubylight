@@ -22,6 +22,10 @@ pub struct SourceStatus {
     pub name: &'static str,
     pub state: &'static str,
     pub errors: Vec<String>,
+    /// Windows named no signed-in user, so the source's games were not read (Microsoft Store
+    /// and Xbox at the sign-in screen): [`Discovery::skipped`], not "not installed".
+    #[serde(skip)]
+    pub signed_out: bool,
 }
 pub struct Discovery {
     pub sources: Vec<SourceStatus>,
@@ -188,11 +192,20 @@ fn local(settings: &library::Settings, games: &mut Vec<Game>, errors: &mut Vec<S
 }
 
 impl Discovery {
-    /// The sources the settings turned off, which the scan did not read.
+    /// The sources the scan did not read: turned off in the settings, or not readable while no
+    /// user is signed in ([`Self::signed_out`]).
     pub fn skipped(&self) -> impl Iterator<Item = Source> + '_ {
         self.sources
             .iter()
-            .filter(|status| status.state == "disabled")
+            .filter(|status| status.state == "disabled" || status.signed_out)
+            .map(|status| status.source)
+    }
+    /// The sources not read because Windows named no signed-in user: their games keep the state
+    /// an earlier scan found (`Scan::carrying`).
+    pub fn signed_out(&self) -> impl Iterator<Item = Source> + '_ {
+        self.sources
+            .iter()
+            .filter(|status| status.signed_out)
             .map(|status| status.source)
     }
 }
@@ -241,6 +254,7 @@ pub fn discover(settings: &library::Settings) -> Discovery {
                 name: source.name(),
                 state: "disabled",
                 errors: vec![],
+                signed_out: false,
             });
             continue;
         }
@@ -252,6 +266,7 @@ pub fn discover(settings: &library::Settings) -> Discovery {
         } else {
             registry_errors.clone()
         };
+        let mut signed_out = false;
         let available = match source {
             Source::Steam => launchers::scan_steam(&mut games, &mut errors),
             Source::Epic => launchers::scan_epic(&program_data, &mut games, &mut errors),
@@ -274,6 +289,7 @@ pub fn discover(settings: &library::Settings) -> Discovery {
             Source::Microsoft => {
                 // Packages, not the registry: the scan reports its own errors.
                 let scan = store::discover();
+                signed_out = scan.signed_out;
                 errors.extend(scan.errors);
                 games.extend(scan.games);
                 scan.available
@@ -298,6 +314,7 @@ pub fn discover(settings: &library::Settings) -> Discovery {
                 "unavailable"
             },
             errors,
+            signed_out,
         });
     }
     Discovery {

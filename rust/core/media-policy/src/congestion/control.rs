@@ -210,8 +210,10 @@ impl Control {
         let budget = crate::adaptive_bitrate::WireBudget::of(stream);
         let period = crate::reconfigure::Mode::of(stream).period();
         let (min, max) = Self::bounds(&budget, floor, ceiling, 20, period);
+        let mut cc = Congestion::new(min, max);
+        cc.set_frame_period(period);
         Self {
-            cc: Some(Congestion::new(min, max)),
+            cc: Some(cc),
             shadow,
             budget: Some(budget),
             ceiling_kbps: ceiling,
@@ -340,6 +342,7 @@ impl Control {
         };
         let (min, max) = Self::bounds(budget, self.floor_kbps, self.ceiling_kbps, fec, period);
         cc.set_bounds(min, max);
+        cc.set_frame_period(period);
         let decision = cc.tick(now_us, rtt, fec.min(u32::MAX as usize) as u32);
         let (ceiling, floor) = (self.ceiling_kbps, self.floor_kbps);
         self.wanted = decision.video_bps.map(|bps| {

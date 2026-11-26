@@ -10,6 +10,7 @@ layout(push_constant) uniform PushConstants {
     vec4 warp;     // Frame Warp (video_warp.frag): xy = shift of the picture's centre as fractions of the picture, z = 1 to keep the HUD mask in place
     vec4 warpRect; // Frame Warp: xy = UV of the picture's top-left corner, zw = its UV size (the crop less any padding)
     vec4 warpLens; // Frame Warp: the lens terms the rest of the picture is turned through, xy = k, zw = n (0, 0, 1, 1 for a flat picture)
+    vec4 warpV2;   // Frame Warp's row (frame_warp_v2_pc.h): x = edge fill strength, y = HUD probe reach in mask cells, zw informational
 } pc;
 
 const float OUTPUT_PASSTHROUGH = 0.0;

@@ -64,8 +64,9 @@ int32_t Renderer::setWarpShift(int index, const FrameWarpApi *warp, int32_t mask
     slot.shiftMapped[1] = out[1];
     slot.shiftMapped[2] = code >= 0 && code == mask ? 1.0f : 0.0f;
     slot.shiftMapped[3] = 0.0f;
-    // vec4 lens
+    // vec4 lens, then vec4 v2
     std::memcpy(slot.shiftMapped + 4, out + 4, 4 * sizeof(float));
+    frameWarpV2Row(out, slot.shiftMapped + 8);
     return code;
 }
 

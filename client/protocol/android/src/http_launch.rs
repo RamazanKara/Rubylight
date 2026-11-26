@@ -92,6 +92,7 @@ fn parse_launch_request(v: &Value) -> Result<LaunchRequest, Error> {
             .unwrap_or_default()
             .to_owned(),
         gamepad_mask: v["gamepad_mask"].as_u64().unwrap_or(0) as u32,
+        playstation_mask: v["playstation_mask"].as_u64().unwrap_or(0) as u32,
         persist_gamepads: v["persist_gamepads"].as_bool().unwrap_or(false),
         fec,
         rate_change: v["rate_change"].as_bool().unwrap_or(false),
@@ -100,6 +101,7 @@ fn parse_launch_request(v: &Value) -> Result<LaunchRequest, Error> {
         display_luminance,
         rtx_hdr: v["rtx_hdr"].as_bool(),
         rtx_video: v["rtx_video"].as_bool(),
+        hdr_static_only: v["hdr_static_only"].as_bool().unwrap_or(false),
     })
 }
 
@@ -167,6 +169,9 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarHttpJni_launchApp
             Ok(Some(launched)) => ok_json(json!({
                 "ok": true,
                 "session_url": launched.rtsp_session_url,
+                // Already checked and cleaned by the shared parser (launch_warning.rs).
+                "warning_code": launched.warning.as_ref().map(|w| w.code.as_str()),
+                "warning_message": launched.warning.as_ref().and_then(|w| w.message.as_deref()),
             })),
             Ok(None) => ok_json(json!({
                 "ok": false,

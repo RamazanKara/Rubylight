@@ -17,7 +17,7 @@
     <string name="title_experimental_chipset_tuning">晶片組調校</string>
     <string name="summary_experimental_chipset_tuning">在某些裝置上可能導致無法解碼。為 MediaTek 天璣和三星 Exynos 解碼器加入額外的低延遲設定，旨在降低解碼延遲；其他晶片組不受影響。除非解碼器跟不上，否則請保持關閉。</string>
     <string name="title_tv_display_compatibility">保持電視畫面流暢</string>
-    <string name="summary_tv_display_compatibility">適用於畫面過一段時間就卡頓、凍結、閃爍或重新啟動的電視和電視盒，前提是畫面上沒有繪製任何內容，例如效能覆蓋層。電視上預設開啟。代價是左上角一個近乎黑色的小點，每秒重繪十次。</string>
+    <string name="summary_tv_display_compatibility">大多數電視上請保持關閉：如果顯示節奏停滯或凍結，Nightjar 會自動啟用不可見的合成器圖層。在開始串流後立即出現卡頓、閃爍或重新啟動的電視上，可開啟以從頭強制啟用該圖層。</string>
     <string name="scut_deleted_pc">已刪除電腦</string>
     <string name="scut_not_paired">電腦未配對</string>
     <string name="scut_pc_not_found">找不到電腦</string>
@@ -571,4 +571,15 @@
     <string name="summary_hdr_shield_firmware_update">更新 NVIDIA SHIELD Android TV 上的韌體以啟用 HDR</string>
     <string name="full_range_vulkan_switched">解碼器捨棄了全範圍色彩，已切換到 Vulkan 以維持正確的黑階。</string>
     <string name="full_range_vulkan_unavailable">解碼器捨棄了全範圍色彩且無法使用 Vulkan，黑色可能不正確。請關閉「全範圍色彩」。</string>
+    <string name="launch_warning_virtual_display_unavailable">電腦的虛擬顯示器無法使用，因此此串流顯示其實體顯示器。</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">此裝置要求使用電腦本身的顯示器，因此串流不使用虛擬顯示器。</string>
+    <string name="frame_warp_update_host">Frame Warp 已關閉：需要最新版本的 Nightjar 與電腦上的串流應用程式。</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp：電腦需要最新版本</string>
+    <string name="frame_warp_overlay_confidence">%1$s，信賴度 %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s，信賴度 %2$s%%，陀螺儀已鎖定</string>
+    <string name="title_hdr_format">HDR 格式</string>
+    <string name="summary_hdr_format">「自動」使用兩端都支援的最佳 HDR 格式；其他選項會去掉 Dolby Vision，或 HDR10 以外的一切。某種格式顯示異常時請更改；選擇「僅 HDR10」後，部分電腦仍可能傳送 HDR10+。</string>
+    <string name="hdr_format_auto">自動</string>
+    <string name="hdr_format_no_dolby_vision">不使用 Dolby Vision</string>
+    <string name="hdr_format_hdr10">僅 HDR10</string>
 </resources>

@@ -14,9 +14,10 @@ cbuffer Direct : register(b1) {
     uint directFlags;
     // Frame Warp (stream/frame_warp.rs): the shift in fractions of the picture, then the HUD
     // mask's size in cells (0 for none). All zero draws the picture where it is. Then its lens
-    // terms (0, 0, 1, 1 for a flat picture).
+    // terms (0, 0, 1, 1 for a flat picture), then its edge fill and HUD probe (`WarpDraw::v2_row`).
     float4 warp;
     float4 warpLens;
+    float4 warpV2;
 };
 // A D3D11VA 4:4:4 surface of the decoder, read in place (a slice of its texture array).
 Texture2DArray<float4> surfaceArray : register(t5);

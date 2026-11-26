@@ -164,7 +164,7 @@ export const settings: Setting[] = [
     key: 'hardware_metrics_selection',
     label: 'Hardware metrics selection',
     description: 'Which readings to send. Leave it empty to send every supported reading.',
-    details: 'To send only some readings, add their identifiers: cpu_usage_percent, gpu_usage_percent, gpu_clock_mhz, gpu_memory_clock_mhz, gpu_temperature_c, gpu_hotspot_temperature_c, gpu_memory_temperature_c, gpu_voltage_mv, gpu_fan_rpm, gpu_fan_percent, gpu_power_w, gpu_board_power_w, gpu_vram_used_mb, gpu_vram_usage_percent.',
+    details: 'To send only some readings, add their identifiers: cpu_usage_percent, gpu_usage_percent, gpu_encoder_percent, gpu_clock_mhz, gpu_memory_clock_mhz, gpu_temperature_c, gpu_hotspot_temperature_c, gpu_memory_temperature_c, gpu_voltage_mv, gpu_fan_rpm, gpu_fan_percent, gpu_power_w, gpu_board_power_w, gpu_vram_used_mb, gpu_vram_usage_percent.',
     category: 'general',
     group: 'Hardware metrics',
     control: { kind: 'list', placeholder: 'cpu_usage_percent' },

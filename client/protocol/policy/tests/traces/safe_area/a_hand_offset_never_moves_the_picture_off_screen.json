@@ -1,0 +1,26 @@
+{
+  "rust": "safe_area::Geometry",
+  "java": "com.limelight.ui.SafeAreaPolicy",
+  "new": null,
+  "calls": [
+    {"call": "offset_px", "args": [0, 2400, 240, 1920], "expect": 0},
+    {"call": "offset_px", "args": [50, 2400, 240, 1920], "expect": 120},
+    {"call": "offset_px", "args": [-50, 2400, 240, 1920], "expect": -120},
+    {"call": "offset_px", "args": [150, 2400, 240, 1920], "expect": 240},
+    {"call": "offset_px", "args": [400, 2400, 240, 1920], "expect": 240},
+    {"call": "offset_px", "args": [-400, 2400, 300, 1920], "expect": -300},
+    {"call": "offset_px", "args": [1, 999, 0, 10], "expect": 0},
+    {"call": "offset_px", "args": [-1, 1999, 900, 10], "expect": -1},
+    {"call": "offset_px", "args": [100, 2400, 0, 2400], "expect": 0},
+    {"call": "offset_px", "args": [100, 2400, -100, 2600], "expect": 0},
+    {"call": "offset_px", "args": [100, 0, 0, 0], "expect": 0},
+    {"call": "offset_px", "args": [-150, 1080, 0, 608], "expect": 0},
+    {"call": "offset_px", "args": [120, 1080, 236, 608], "expect": 129},
+    {"call": "offset_px", "args": [-120, 1080, 236, 608], "expect": -129},
+    {"call": "clamp_offset", "args": [0], "expect": 0},
+    {"call": "clamp_offset", "args": [149], "expect": 149},
+    {"call": "clamp_offset", "args": [151], "expect": 150},
+    {"call": "clamp_offset", "args": [-151], "expect": -150},
+    {"call": "clamp_offset", "args": [-1000], "expect": -150}
+  ]
+}

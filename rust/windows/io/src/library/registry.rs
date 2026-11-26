@@ -115,11 +115,17 @@ pub(super) fn installed(errors: &mut Vec<String>) -> Vec<Installed> {
             key,
             name: get("DisplayName"),
             publisher: get("Publisher"),
-            folder: PathBuf::from(get("InstallLocation")),
+            folder: folder_of(&get("InstallLocation")),
             uninstall: get("UninstallString"),
         }
     })
     .collect()
+}
+
+/// A folder as a registry value names it, without the quotes or spaces some installers put
+/// around it.
+pub(super) fn folder_of(value: &str) -> PathBuf {
+    PathBuf::from(value.trim().trim_matches('"').trim())
 }
 
 pub(super) fn folders(key: &str, errors: &mut Vec<String>) -> Vec<(String, PathBuf)> {
@@ -135,7 +141,7 @@ pub(super) fn folders(key: &str, errors: &mut Vec<String>) -> Vec<(String, PathB
             ]
             .into_iter()
             .find_map(|name| registry_string(root, &path, name))
-            .map(|folder| (id, PathBuf::from(folder)))
+            .map(|folder| (id, folder_of(&folder)))
         })
         .collect()
 }

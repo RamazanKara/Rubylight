@@ -159,6 +159,12 @@ pub enum InputEvent {
         vendor: u16,
         product: u16,
     },
+    /// Nonary's 20-byte speaker binding (`rubylight_protocol::ps_speaker_pcm::Binding`), sent
+    /// just before a PlayStation controller's arrival on a stream with speaker PCM.
+    SpeakerBinding {
+        number: u8,
+        owner: u64,
+    },
     Touch {
         event: u8,
         pointer_id: u32,
@@ -247,6 +253,7 @@ impl InputEvent {
             Self::Controller { .. } => magic::MULTI_CONTROLLER,
             Self::ControllerArrival { .. } => magic::CONTROLLER_ARRIVAL,
             Self::ControllerIdentity { .. } => magic::CONTROLLER_IDENTITY,
+            Self::SpeakerBinding { .. } => rubylight_protocol::ps_speaker_pcm::BINDING_MAGIC,
             Self::Touch { .. } => magic::TOUCH,
             Self::Pen {
                 roll: rubylight_protocol::pen::ROLL_UNKNOWN,
@@ -360,6 +367,12 @@ impl InputEvent {
                 le16(out, vendor);
                 le16(out, product);
                 out.extend_from_slice(&[0, 0]);
+            }
+            // `Binding::encode`: slot, version 1, owner.
+            Self::SpeakerBinding { number, owner } => {
+                le16(out, u16::from(number));
+                le16(out, rubylight_protocol::ps_speaker_pcm::BINDING_VERSION);
+                out.extend_from_slice(&owner.to_le_bytes());
             }
             Self::Touch {
                 event,
@@ -507,6 +520,7 @@ impl InputEvent {
             }
             Self::ControllerArrival { number, .. }
             | Self::ControllerIdentity { number, .. }
+            | Self::SpeakerBinding { number, .. }
             | Self::ControllerTouch { number, .. }
             | Self::ControllerBattery { number, .. } => {
                 channel::GAMEPAD_BASE + number % MAX_CONTROLLERS

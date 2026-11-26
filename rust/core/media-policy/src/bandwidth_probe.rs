@@ -44,36 +44,77 @@ pub fn parse(bytes: Option<&str>) -> Result<u32> {
     Ok(bytes)
 }
 
-/// Each client's probes: [`COOLDOWN`] between two, [`BUDGET_BYTES`] per
-/// [`BUDGET_WINDOW`].
+/// The time between two probes of a client, and the bytes it may fetch in a window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Policy {
+    pub cooldown: Duration,
+    pub budget_bytes: u64,
+    pub window: Duration,
+}
+
+impl Default for Policy {
+    /// `/bandwidth-probe`'s: [`COOLDOWN`] between two, [`BUDGET_BYTES`] per [`BUDGET_WINDOW`].
+    fn default() -> Self {
+        Self {
+            cooldown: COOLDOWN,
+            budget_bytes: BUDGET_BYTES,
+            window: BUDGET_WINDOW,
+        }
+    }
+}
+
+/// The fixed size of `/pyrowave-bandwidth-probe`, which takes no `bytes`.
+pub const PYROWAVE_BYTES: u32 = 32 << 20;
+/// `/pyrowave-bandwidth-probe`'s limits: one probe per client every 15 seconds, two a minute.
+pub const PYROWAVE: Policy = Policy {
+    cooldown: Duration::from_secs(15),
+    budget_bytes: 2 * PYROWAVE_BYTES as u64,
+    window: Duration::from_secs(60),
+};
+
+/// Each client's probes, held to a [`Policy`] (by default `/bandwidth-probe`'s).
 #[derive(Debug, Default)]
 pub struct Limiter {
     clients: HashMap<String, Vec<(Instant, u64)>>,
+    policy: Policy,
 }
 
 impl Limiter {
+    /// A limiter that holds each client to `policy`.
+    pub fn new(policy: Policy) -> Self {
+        Self {
+            clients: HashMap::new(),
+            policy,
+        }
+    }
+
     /// Admits a probe of `bytes` for `client`, or says how long until one fits.
     pub fn admit(&mut self, client: &str, bytes: u32, now: Instant) -> Result<(), Duration> {
+        let Policy {
+            cooldown,
+            budget_bytes,
+            window,
+        } = self.policy;
         // Forget what left the window, for every client: the map stays small.
         self.clients.retain(|_, probes| {
-            probes.retain(|(at, _)| now.saturating_duration_since(*at) < BUDGET_WINDOW);
+            probes.retain(|(at, _)| now.saturating_duration_since(*at) < window);
             !probes.is_empty()
         });
         let probes = self.clients.entry(client.to_owned()).or_default();
         if let Some((last, _)) = probes.last() {
             let since = now.saturating_duration_since(*last);
-            if since < COOLDOWN {
-                return Err(COOLDOWN - since);
+            if since < cooldown {
+                return Err(cooldown - since);
             }
         }
         let mut used: u64 = probes.iter().map(|(_, bytes)| bytes).sum();
         let mut retry = Duration::ZERO;
         for (at, spent) in probes.iter() {
-            if used + u64::from(bytes) <= BUDGET_BYTES {
+            if used + u64::from(bytes) <= budget_bytes {
                 break;
             }
             used -= spent;
-            retry = BUDGET_WINDOW.saturating_sub(now.saturating_duration_since(*at));
+            retry = window.saturating_sub(now.saturating_duration_since(*at));
         }
         if !retry.is_zero() {
             return Err(retry);
@@ -114,6 +155,31 @@ mod tests {
         // A refused probe doesn't count.
         assert_eq!(
             limiter.admit("b", MIN_BYTES, start + BUDGET_WINDOW + COOLDOWN),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn pyrowave_probes_wait_their_own_cooldown_and_budget() {
+        let start = Instant::now();
+        let mut limiter = Limiter::new(PYROWAVE);
+        assert_eq!(limiter.admit("a", PYROWAVE_BYTES, start), Ok(()));
+        let soon = start + Duration::from_secs(1);
+        assert_eq!(
+            limiter.admit("a", PYROWAVE_BYTES, soon),
+            Err(Duration::from_secs(14))
+        );
+        let second = start + PYROWAVE.cooldown;
+        assert_eq!(limiter.admit("a", PYROWAVE_BYTES, second), Ok(()));
+        // Two in the minute: the third waits until the first leaves it.
+        let third = second + PYROWAVE.cooldown;
+        assert_eq!(
+            limiter.admit("a", PYROWAVE_BYTES, third),
+            Err(PYROWAVE.window - Duration::from_secs(30))
+        );
+        assert_eq!(limiter.admit("b", PYROWAVE_BYTES, third), Ok(()));
+        assert_eq!(
+            limiter.admit("a", PYROWAVE_BYTES, start + PYROWAVE.window),
             Ok(())
         );
     }

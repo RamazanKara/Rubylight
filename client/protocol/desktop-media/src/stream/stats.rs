@@ -348,10 +348,9 @@ impl Streaming {
                 |lead| format!("ready {:.2} ms before its refresh", f64::from(lead) / 1000.0))));
         }
         // With the setting on: what the PC's model learnt and the shift, or that the PC refused it.
-        let frame_warp_line = match (&self.frame_warp, self.facts.frame_warp_refused) {
-            (Some(presenter), _) => Some(frame_warp::status_line(Some(&presenter.status()))),
-            (None, true) => Some(frame_warp::status_line(None)),
-            (None, false) => None,
+        let frame_warp_line = match &self.frame_warp {
+            Some(presenter) => Some(frame_warp::status_line(Some(&presenter.status()))),
+            None => self.facts.frame_warp_refused.line(),
         };
         if let Some(line) = &frame_warp_line {
             lines.push(("Frame Warp".into(), line.clone()));

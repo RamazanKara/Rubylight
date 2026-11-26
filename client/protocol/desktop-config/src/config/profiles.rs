@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub use nightjar_policy::display_profile::DisplayMatcher;
+
 use super::labels;
 use super::migrate::{fold_lower_bitrate, fold_tell_host, normalize_values};
 use super::Settings;
@@ -83,6 +85,19 @@ pub struct Profile {
     pub id: u64,
     pub name: String,
     pub settings: Overrides,
+    /// The resolution scale in percent this profile keeps, plain data for the stream settings'
+    /// scale control; None (every profile saved before 7.0) leaves the resolution to `settings`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution_scale_pct: Option<u8>,
+    /// The screen this profile is kept for: a stream started there picks it (`Profiles::selected`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_matcher: Option<DisplayMatcher>,
+}
+
+impl Profile {
+    pub fn new(id: u64, name: impl Into<String>, settings: Overrides) -> Self {
+        Self { id, name: name.into(), settings, resolution_scale_pct: None, display_matcher: None }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,10 +111,17 @@ pub struct Profiles {
     pub wifi: Option<u64>,
     pub home_wifi: Vec<String>,
     pub mobile_limit_kbps: u32,
+    /// The screen Nightjar's window is on now, set by the app as the window moves; never saved.
+    /// None (not known yet) leaves the choice to the network and the profile in use.
+    #[serde(skip)]
+    pub screen: Option<DisplayMatcher>,
 }
 
 impl Profiles {
     pub fn selected(&self, network: crate::network_types::Kind) -> Option<u64> {
+        if let Some(id) = self.for_screen() {
+            return Some(id);
+        }
         let rule = if self.automatic {
             match network {
                 crate::network_types::Kind::Mobile => self.mobile,
@@ -111,6 +133,29 @@ impl Profiles {
             None
         };
         rule.or(self.active)
+    }
+
+    /// The profile kept for the screen the window is on now, which a stream there uses ahead of
+    /// the network choice and the profile in use.
+    pub fn for_screen(&self) -> Option<u64> {
+        nightjar_policy::display_profile::pick(
+            self.entries.iter().map(|p| (p.id, p.display_matcher.as_ref())),
+            self.screen.as_ref(),
+        )
+    }
+
+    /// Keeps profile `id` for `screen`, or for no screen with None. A screen calls up one profile,
+    /// so another profile kept for the same screen lets it go.
+    pub fn keep_for_screen(&mut self, id: u64, screen: Option<&DisplayMatcher>) {
+        for profile in &mut self.entries {
+            if profile.id == id {
+                profile.display_matcher = screen.cloned();
+            } else if let (Some(screen), Some(kept)) = (screen, &profile.display_matcher)
+                && kept.matches(screen)
+            {
+                profile.display_matcher = None;
+            }
+        }
     }
 
     pub fn settings(&self, base: &Settings, network: crate::network_types::Kind) -> Settings {
@@ -159,7 +204,7 @@ impl Profiles {
             .unwrap_or(0)
             .checked_add(1)
             .ok_or(labels::PROFILE_NO_IDS)?;
-        self.entries.push(Profile { id, name: name.trim().to_owned(), settings });
+        self.entries.push(Profile::new(id, name.trim(), settings));
         Ok(id)
     }
 

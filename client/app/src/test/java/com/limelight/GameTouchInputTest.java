@@ -368,6 +368,49 @@ public class GameTouchInputTest {
         assertEquals(java.util.Arrays.asList("down 1", "up 1"), connection.buttons);
     }
 
+    @Test
+    public void draggingAtOneXTransformsDirectAndNativeInputIntoMovedEdgesAndBlackBorders() {
+        for (boolean nativeTouch : new boolean[] {false, true}) {
+            RecordingConnection connection = new RecordingConnection();
+            Game game = game(connection);
+            View background = layout(game, 0, 0);
+            StreamView stream = ReflectionHelpers.getField(game, "streamView");
+            com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream, () -> { }, () -> { });
+            desktop.setEnabled(true);
+            desktop.viewport().resize(800, 400);
+            // At 1.0x, pull the upper-right corner (800, 0) inward to the center (400, 200) of streamView.
+            desktop.viewport().pan(-400, 200);
+            ReflectionHelpers.setField(game, "desktopGestures", desktop);
+            ReflectionHelpers.setField(game, "nativeTouchEnabled", nativeTouch);
+            ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
+
+            touch(game, background, MotionEvent.ACTION_DOWN, 500, 250);
+            touch(game, background, MotionEvent.ACTION_UP, 500, 250);
+            if (nativeTouch) assertArrayEquals(new float[] {1.0f, 0.0f}, connection.touches.get(0), .00001f);
+            else assertArrayEquals(new int[] {800, 0, 800, 400}, connection.positions.get(0));
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
+        }
+
+        // Fit 600x400 centered at offsetX=100 inside 800x400 container, zoomed 1.25x so video covers left border.
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        View background = new View(game);
+        background.layout(0, 0, 800, 400);
+        StreamView stream = new StreamView(game);
+        stream.layout(100, 0, 700, 400);
+        ReflectionHelpers.setField(game, "streamView", stream);
+        com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream, () -> { }, () -> { });
+        desktop.setEnabled(true);
+        desktop.viewport().setBounds(600, 400, 800, 400, 100, 0);
+        desktop.viewport().zoom(1.25f, 300, 200); // x = -75 -> left video edge sits at x=25 in left black border
+        ReflectionHelpers.setField(game, "desktopGestures", desktop);
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
+        touch(game, background, MotionEvent.ACTION_DOWN, 25, 200);
+        touch(game, background, MotionEvent.ACTION_UP, 25, 200);
+        assertArrayEquals(new int[] {0, 200, 600, 400}, connection.positions.get(0));
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
+    }
+
     static com.limelight.ui.DesktopGestures enableZoom(Game game) {
         StreamView stream = ReflectionHelpers.getField(game, "streamView");
         com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream,

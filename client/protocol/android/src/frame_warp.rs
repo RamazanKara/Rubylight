@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use nightjar_core::control::ClientMessage;
 use nightjar_core::frame_warp::{FrameWarp, Mask, Model, Status, Warp, FLAT, FRAME_WARP_REQUEST_MESSAGE_TYPE};
+use nightjar_core::frame_warp_v2::meta_flags;
 
 use crate::engine;
 
@@ -32,13 +33,16 @@ pub const MASK_MAX_WIDTH: u16 = 1024;
 pub const FRAME_RING: usize = 128;
 
 /// [`FrameWarpApi::version`]; `frame_warp_api.h` checks it.
-pub const API_VERSION: u32 = 3;
+pub const API_VERSION: u32 = 4;
 /// The floats `warp` and `peek` write: the centre's shift as fractions of the picture (x, y) and
 /// in picture pixels (x, y), then the lens terms `[k.x, k.y, n.x, n.y]`
-/// (`nightjar_core::frame_warp::source`). `frame_warp_api.h` and `MoonBridge` say the same.
-pub const WARP_FLOATS: usize = 8;
-/// What they write for a picture drawn as it is: no shift, through the lens of a flat picture.
-pub const WARP_STILL: [f32; WARP_FLOATS] = [0.0, 0.0, 0.0, 0.0, FLAT[0], FLAT[1], FLAT[2], FLAT[3]];
+/// (`nightjar_core::frame_warp::source`), then the shader row ([`Warp::v2`]: the edge fill's
+/// strength, the HUD probe's reach in mask cells, the confidence and the meta's flags).
+/// `frame_warp_api.h` and `MoonBridge` say the same.
+pub const WARP_FLOATS: usize = 12;
+/// What they write for a picture drawn as it is: no shift, through the lens of a flat picture, and
+/// a row of zeros (a shader reads no row without a shift).
+pub const WARP_STILL: [f32; WARP_FLOATS] = [0.0, 0.0, 0.0, 0.0, FLAT[0], FLAT[1], FLAT[2], FLAT[3], 0.0, 0.0, 0.0, 0.0];
 /// `warp` codes besides a mask generation (0 to 65535).
 pub const WARP_NO_MASK: i32 = -1;
 pub const WARP_INACTIVE: i32 = -2;
@@ -58,8 +62,12 @@ pub const STATUS_MOUSE: i32 = 3;
 pub const STATUS_STICK: i32 = 4;
 /// Asked for, but this stream's renderer cannot draw it ([`decline`]).
 pub const STATUS_DECLINED: i32 = 5;
-/// Numbers [`status_numbers`] writes: gain, lag ms, shift px, peak px.
-pub const STATUS_NUMBERS: usize = 4;
+/// Numbers [`status_numbers`] writes: gain, lag ms, shift px, peak px, then the confidence the
+/// shift is faded by (0 to 1; -1 before the host's first meta) and 1 while the host has the gyro
+/// locked.
+pub const STATUS_NUMBERS: usize = 6;
+/// The numbers of a line that shows none: no confidence yet.
+pub const NO_NUMBERS: [f32; STATUS_NUMBERS] = [0.0, 0.0, 0.0, 0.0, -1.0, 0.0];
 
 /// Presentation times (µs) with the frame numbers queued with them, newest last.
 #[derive(Debug)]
@@ -175,8 +183,8 @@ pub fn frame_for_pts(pts_us: i64) -> Option<u32> {
 
 /// The shift for `frame` drawn now, as `warp` of [`API`] gives it: the code, and the centre's
 /// shift as fractions of the picture (x, y) and in picture pixels (x, y), then the lens terms the
-/// rest of the picture is turned through ([`WARP_FLOATS`]). Inactive without a stream's Frame
-/// Warp or a frame number.
+/// rest of the picture is turned through, then the shader row ([`WARP_FLOATS`]).
+/// Inactive without a stream's Frame Warp or a frame number.
 pub fn warp_for(frame: Option<u32>) -> (i32, [f32; WARP_FLOATS]) {
     match (current(), frame) {
         (Some(warp), Some(frame)) => encode_warp(&warp.warp(frame)),
@@ -229,7 +237,8 @@ pub fn encode_warp(warp: &Warp) -> (i32, [f32; WARP_FLOATS]) {
     }
     let code = warp.mask_generation.map_or(WARP_NO_MASK, i32::from);
     let [kx, ky, nx, ny] = warp.lens;
-    (code, [warp.uv[0], warp.uv[1], warp.pixels[0], warp.pixels[1], kx, ky, nx, ny])
+    let [edge, probe, confidence, flags] = warp.v2;
+    (code, [warp.uv[0], warp.uv[1], warp.pixels[0], warp.pixels[1], kx, ky, nx, ny, edge, probe, confidence, flags])
 }
 
 /// Writes `mask` as one byte per cell, [`CELL_SET`] or [`CELL_CLEAR`], rows from the top, into
@@ -282,7 +291,8 @@ pub fn status(numbers: &mut [f32; STATUS_NUMBERS]) -> i32 {
 
 /// The overlay's state and numbers: `numbers` gets the gain (picture px per mouse count, or
 /// per second of full stick), the game's lag in ms, the latest shift and the last second's
-/// peak, picture px.
+/// peak, picture px, then once the host sent its first meta, the confidence and the gyro's lock
+/// ([`STATUS_NUMBERS`]).
 pub fn status_numbers(
     requested: bool,
     offered: bool,
@@ -290,7 +300,7 @@ pub fn status_numbers(
     status: Option<&Status>,
     numbers: &mut [f32; STATUS_NUMBERS],
 ) -> i32 {
-    *numbers = [0.0; STATUS_NUMBERS];
+    *numbers = NO_NUMBERS;
     if !requested {
         return STATUS_OFF;
     }
@@ -303,6 +313,7 @@ pub fn status_numbers(
     let Some(status) = status else {
         return STATUS_LEARNING;
     };
+    numbers[4..].copy_from_slice(&confidence_numbers(status));
     let shift = status.pixels[0].hypot(status.pixels[1]);
     let (state, gain) = match status.model {
         Some(model) if model.mouse_locked => (STATUS_MOUSE, axis_gain(model.mouse_gain)),
@@ -310,8 +321,20 @@ pub fn status_numbers(
         _ => return STATUS_LEARNING,
     };
     let lag_ms = status.model.map_or(0.0, |m| m.lag_us as f32 / 1000.0);
-    *numbers = [gain, lag_ms, shift, status.peak.max(shift)];
+    numbers[..4].copy_from_slice(&[gain, lag_ms, shift, status.peak.max(shift)]);
     state
+}
+
+/// The confidence the shift is faded by and whether the host has the gyro locked, from the host's
+/// latest meta; `[-1, 0]` before the first.
+fn confidence_numbers(status: &Status) -> [f32; 2] {
+    match status.v2.meta {
+        None => [NO_NUMBERS[4], NO_NUMBERS[5]],
+        Some(meta) => [
+            status.v2.confidence.clamp(0.0, 1.0),
+            f32::from(u8::from(meta.has(meta_flags::GYRO_LOCKED))),
+        ],
+    }
 }
 
 /// One number for a gain per axis: the larger, as a turn mostly moves along one.
@@ -353,10 +376,10 @@ pub struct FrameWarpApi {
     pub version: u32,
     /// The frame queued with presentation time `pts_us` (µs), or -1.
     pub frame_for_pts: extern "C" fn(pts_us: i64) -> i64,
-    /// The shift for `frame` (-1 for unknown) drawn now: writes uv x, uv y, px x, px y and the
-    /// lens terms k.x, k.y, n.x, n.y to `out` ([`WARP_FLOATS`] floats) and returns the HUD mask
-    /// generation to draw with, [`WARP_NO_MASK`], or [`WARP_INACTIVE`] to draw the picture as it
-    /// is ([`WARP_STILL`] written).
+    /// The shift for `frame` (-1 for unknown) drawn now: writes uv x, uv y, px x, px y, the lens
+    /// terms k.x, k.y, n.x, n.y and the shader row to `out` ([`WARP_FLOATS`] floats) and returns
+    /// the HUD mask generation to draw with, [`WARP_NO_MASK`], or [`WARP_INACTIVE`] to draw the
+    /// picture as it is ([`WARP_STILL`] written).
     pub warp: unsafe extern "C" fn(frame: i64, out: *mut f32) -> i32,
     /// The HUD mask when its generation is not `known` (-1 for none): writes width and height
     /// and, given room, the cells (one byte each, rows from the top) and returns the generation;

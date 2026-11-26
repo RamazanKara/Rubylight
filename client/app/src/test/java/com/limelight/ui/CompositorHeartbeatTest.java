@@ -129,4 +129,31 @@ public class CompositorHeartbeatTest {
         assertFalse(dot.isImportantForAccessibility());
         heartbeat.stop();
     }
+
+    @Test
+    public void streamFallbackUsesNearZeroAlphaOnePixelAndOneSecondInterval() {
+        FrameLayout window = new FrameLayout(RuntimeEnvironment.getApplication());
+        CompositorHeartbeat heartbeat = CompositorHeartbeat.forStream(window, null);
+        assertFalse(heartbeat.usesSurfaceControl());
+        assertTrue(heartbeat.matchesStreamTarget(window, null));
+        assertFalse(heartbeat.matchesStreamTarget(new FrameLayout(RuntimeEnvironment.getApplication()), null));
+        View dot = heartbeat.dot();
+        assertNotNull(dot);
+
+        heartbeat.start();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(1, dot.getLayoutParams().width);
+        assertEquals(1, dot.getLayoutParams().height);
+        assertEquals(CompositorHeartbeat.FALLBACK_ALPHA_ONE, color(dot));
+
+        idle(CompositorHeartbeat.STREAM_INTERVAL_MS - 100L);
+        assertEquals("must not tick before 1000 ms", CompositorHeartbeat.FALLBACK_ALPHA_ONE, color(dot));
+        idle(100L);
+        assertEquals(CompositorHeartbeat.FALLBACK_ALPHA_TWO, color(dot));
+
+        heartbeat.stop();
+        assertFalse(heartbeat.matchesStreamTarget(window, null));
+        shadowOf(Looper.getMainLooper()).idle();
+        assertNull(dot.getParent());
+    }
 }

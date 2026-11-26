@@ -4,24 +4,24 @@ use super::*;
 use alloc::vec;
 
 #[test]
-fn request_round_trips_and_rejects_bad_fields() {
+fn request_prefix_round_trips_and_rejects_bad_fields() {
     let request = FrameWarpRequest {
         enabled: true,
         controller: Some(3),
         mask_max_width: 960,
         lens: false,
     };
-    assert_eq!(request.encode(), [1, 1, 3, 0, 0xC0, 0x03, 0, 0]);
-    assert_eq!(FrameWarpRequest::decode(&request.encode()), Some(request));
+    assert_eq!(request.encode_prefix(), [1, 1, 3, 0, 0xC0, 0x03, 0, 0]);
+    assert_eq!(FrameWarpRequest::decode_prefix(&request.encode_prefix()), Some(request));
     // A client that draws the lens says so in the flags; their other bits are ignored.
     let lens = FrameWarpRequest {
         lens: true,
         ..request
     };
-    assert_eq!(lens.encode(), [1, 1, 3, 1, 0xC0, 0x03, 0, 0]);
-    assert_eq!(FrameWarpRequest::decode(&lens.encode()), Some(lens));
+    assert_eq!(lens.encode_prefix(), [1, 1, 3, 1, 0xC0, 0x03, 0, 0]);
+    assert_eq!(FrameWarpRequest::decode_prefix(&lens.encode_prefix()), Some(lens));
     assert_eq!(
-        FrameWarpRequest::decode(&[1, 1, 3, 0xFE, 0xC0, 0x03, 0, 0]),
+        FrameWarpRequest::decode_prefix(&[1, 1, 3, 0xFE, 0xC0, 0x03, 0, 0]),
         Some(request)
     );
     let none = FrameWarpRequest {
@@ -30,14 +30,14 @@ fn request_round_trips_and_rejects_bad_fields() {
         mask_max_width: 0,
         lens: false,
     };
-    assert_eq!(FrameWarpRequest::decode(&none.encode()), Some(none));
-    assert_eq!(FrameWarpRequest::decode(&[0, 1, 0, 0, 0, 0, 0, 0]), None);
-    assert_eq!(FrameWarpRequest::decode(&[1, 2, 0, 0, 0, 0, 0, 0]), None);
-    assert_eq!(FrameWarpRequest::decode(&[1, 1, 16, 0, 0, 0, 0, 0]), None);
-    assert_eq!(FrameWarpRequest::decode(&[1, 1, 0, 0, 0x01, 0x08, 0, 0]), None);
-    assert_eq!(FrameWarpRequest::decode(&[1, 1, 0, 0, 0, 0, 0]), None);
-    // A later version may append.
-    assert!(FrameWarpRequest::decode(&[2, 1, 0, 0, 0, 0, 0, 0, 9]).is_some());
+    assert_eq!(FrameWarpRequest::decode_prefix(&none.encode_prefix()), Some(none));
+    assert_eq!(FrameWarpRequest::decode_prefix(&[0, 1, 0, 0, 0, 0, 0, 0]), None);
+    assert_eq!(FrameWarpRequest::decode_prefix(&[1, 2, 0, 0, 0, 0, 0, 0]), None);
+    assert_eq!(FrameWarpRequest::decode_prefix(&[1, 1, 16, 0, 0, 0, 0, 0]), None);
+    assert_eq!(FrameWarpRequest::decode_prefix(&[1, 1, 0, 0, 0x01, 0x08, 0, 0]), None);
+    assert_eq!(FrameWarpRequest::decode_prefix(&[1, 1, 0, 0, 0, 0, 0]), None);
+    // The whole request appends.
+    assert!(FrameWarpRequest::decode_prefix(&[2, 1, 0, 0, 0, 0, 0, 0, 9]).is_some());
 }
 
 #[test]

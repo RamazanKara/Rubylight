@@ -258,6 +258,7 @@ mod tests {
             base_decodable: color_probe::Base::software(),
             packed_modes: 0,
             gamepad_mask: 0,
+            playstation_mask: 0,
             prepared_controllers: String::new(),
             resume: false,
             join: false,

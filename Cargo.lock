@@ -384,7 +384,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "butterpollo"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "butterpollo-config",
@@ -410,7 +410,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-config"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -421,7 +421,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-crypto"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "aes",
  "anyhow",
@@ -486,7 +486,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-input-policy"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "butterpollo-config",
@@ -500,7 +500,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-media-policy"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "butterpollo-config",
@@ -519,7 +519,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-probes"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "butterpollo-config",
@@ -545,7 +545,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-session"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "butterpollo-config",
@@ -576,7 +576,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-setup"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "butterpollo-config",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-stream"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "axum",
@@ -644,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-vulkan-layer"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "embed-resource",
  "windows",
@@ -652,7 +652,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-web"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "axum",
@@ -689,7 +689,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-webrtc"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "axum",
@@ -714,7 +714,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-win-abi"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "bindgen",
  "windows",
@@ -722,7 +722,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-win-display"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "butterpollo-config",
@@ -741,7 +741,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-win-graphics"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "butterpollo-config",
@@ -763,7 +763,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-win-io"
-version = "6.4.3"
+version = "6.4.4"
 dependencies = [
  "anyhow",
  "butterpollo-config",

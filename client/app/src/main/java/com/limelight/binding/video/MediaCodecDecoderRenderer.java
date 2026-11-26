@@ -97,6 +97,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     final DecoderQueuePolicy.Residency residency = new DecoderQueuePolicy.Residency();
     final DecoderQueuePolicy.InFlight inFlight = new DecoderQueuePolicy.InFlight();
     final DecoderQueuePolicy.Debt debt = new DecoderQueuePolicy.Debt();
+    final CompositorWatch compositorWatch = new CompositorWatch();
     Handler latencyHandler;
     BufferedWriter latencyCsv;
     volatile List<String> lowLatencyKeysVendor = new ArrayList<>();
@@ -143,6 +144,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         this.outputDisplay = outputDisplay;
         this.outputVsyncAvailable = outputDisplay.getDisplayId() == Display.DEFAULT_DISPLAY;
         this.frameLatencyStats = new FrameLatencyStats(prefs.vrr);
+        this.frameLatencyStats.setCompositorWatch(this.compositorWatch);
         codecSelector.init(activity, prefs, crashListener, consecutiveCrashCount, requestedHdr,
                 glRenderer, perfListener, outputDisplay);
     }
@@ -235,6 +237,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     public float[] getFrameRates() { vulkanHelper.drainVulkanPresentReports(vulkanRenderer); return frameLatencyStats.getFrameRates(System.nanoTime()); }
     public com.limelight.nvstream.DecodeTiming takeDecodeTiming(int fps) { return frameLatencyStats.takeDecodeTiming(System.nanoTime(), fps); }
     public void resetDecodeTiming() { frameLatencyStats.resetDecodeTiming(); }
+    public void resetCompositorWatchWindow() { compositorWatch.resetWindow(); }
+    public int pollCompositorKeepaliveAction(boolean overlayVisible, boolean manualKeepaliveOn) {
+        vulkanHelper.drainVulkanPresentReports(vulkanRenderer);
+        return compositorWatch.poll(System.nanoTime(), overlayVisible, manualKeepaliveOn);
+    }
+    public String takeCompositorWatchEvent() { return compositorWatch.takeEvent(); }
+    public boolean isCompositorKeepaliveLockedOn() { return compositorWatch.isLockedOn(); }
     public void setRenderTarget(Surface renderTarget, int width, int height) { this.renderTarget = renderTarget; renderWidth = width; renderHeight = height; }
     private void setupUpscaling() { vulkanHelper.setupUpscaling(); }
     static String pyroWaveModeName(UpscalingPolicy.Mode mode, String bilinearName) { return MediaCodecVulkanHelper.pyroWaveModeName(mode, bilinearName); }

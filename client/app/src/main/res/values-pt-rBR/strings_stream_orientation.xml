@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Orientação</string>
-    <string name="summary_stream_orientation">Para que lado a transmissão pode girar. Automática mantém celulares na horizontal e deixa tablets girarem; Horizontal, Horizontal invertido e Vertical travam a orientação; Girar com o dispositivo acompanha o dispositivo.</string>
+    <string name="summary_stream_orientation">Para que lado a transmissão pode girar. Automática mantém celulares na horizontal e deixa tablets girarem; Horizontal, Horizontal invertido e Vertical travam a orientação; Girar com o dispositivo acompanha o dispositivo. Paisagem (ambos os lados) vira junto com o celular, mesmo com a rotação bloqueada.</string>
     <string-array name="stream_orientation_names">
         <item>Automática</item>
         <item>Horizontal</item>
         <item>Vertical</item>
         <item>Girar com o dispositivo</item>
         <item>Horizontal invertido</item>
+        <item>Paisagem (ambos os lados)</item>
     </string-array>
     <string name="stream_orientation_scaled">Este PC mantém o formato da transmissão enquanto ela dura, então a imagem é ajustada à tela girada.</string>
     <string name="stream_orientation_decoder_limit">O decodificador deste dispositivo não aceita o tamanho girado, então a transmissão mantém o formato e é ajustada à tela.</string>
+    <string name="stream_flip_screen">Girar tela 180°</string>
+    <string name="stream_flip_unavailable">Girar a tela não está disponível em janela nem em tela externa.</string>
 </resources>

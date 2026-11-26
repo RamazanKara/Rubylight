@@ -329,7 +329,7 @@ If a Radeon setting is greyed out, its state says why: some need a one-time setu
 
 **Help → Log analysis** reads the newest part of the host log on the host itself and explains the encoder, capture, network and driver failures it recognises, each with how often and when it last happened and a link to its section here. It sends nothing anywhere.
 
-Use **Logs → Download log** for the host log, or **Download support bundle** (on **Help** and **Logs**) for a ZIP with logs, configuration diagnostics and any crash dump. Review the contents before posting them publicly.
+Use **Logs → Download log** for the host log, or **Download support bundle** (on **Help** and **Logs**) for a ZIP with the logs and configuration diagnostics. The bundle replaces IP and MAC addresses, user names and folders, the PC's, devices' and games' names and secrets with marks such as `[lan-ip]`, `[user]` and `[device-1]`, and keeps error codes, GPU, driver, codec and timings. The newest crash memory dump comes only when you turn on **Include the crash memory dump**: a memory dump holds whatever Rubylight had in memory, which can't be redacted, so share it only with someone you trust. Review the contents before posting them publicly.
 
 | File | Default location |
 | --- | --- |

@@ -14,7 +14,7 @@ impl SessionThread<'_> {
     #[rustfmt::skip]
     pub(super) fn teardown(&self, result: Result<()>, workers: Workers, leases: Leases) {
         let SessionThread { m, h, s } = *self;
-        let Leases { com, priority, streaming, stream_preparation, app_window, latest, encoder } = leases;
+        let Leases { com, priority, display_power, streaming, stream_preparation, app_window, latest, encoder } = leases;
         let Workers {
             client_commands,
             audio,
@@ -100,6 +100,8 @@ impl SessionThread<'_> {
         #[cfg(any(test, feature = "test-support"))]
         drop(fixture_preparation);
         drop(streaming);
+        // The display may switch off again once the stream is gone (#117).
+        drop(display_power);
         drop(priority);
         drop(com);
         // The encoders' reused frame buffers go with the last stream that used them; this

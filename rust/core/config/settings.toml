@@ -8,6 +8,7 @@
 hardware_metrics = [
   "cpu_usage_percent",
   "gpu_usage_percent",
+  "gpu_encoder_percent",
   "gpu_clock_mhz",
   "gpu_memory_clock_mhz",
   "gpu_temperature_c",
@@ -1501,7 +1502,7 @@ category = "general"
 group = "Hardware metrics"
 label = "Hardware metrics selection"
 description = "Which readings to send. Leave it empty to send every supported reading."
-details = "To send only some readings, add their identifiers: cpu_usage_percent, gpu_usage_percent, gpu_clock_mhz, gpu_memory_clock_mhz, gpu_temperature_c, gpu_hotspot_temperature_c, gpu_memory_temperature_c, gpu_voltage_mv, gpu_fan_rpm, gpu_fan_percent, gpu_power_w, gpu_board_power_w, gpu_vram_used_mb, gpu_vram_usage_percent."
+details = "To send only some readings, add their identifiers: cpu_usage_percent, gpu_usage_percent, gpu_encoder_percent, gpu_clock_mhz, gpu_memory_clock_mhz, gpu_temperature_c, gpu_hotspot_temperature_c, gpu_memory_temperature_c, gpu_voltage_mv, gpu_fan_rpm, gpu_fan_percent, gpu_power_w, gpu_board_power_w, gpu_vram_used_mb, gpu_vram_usage_percent."
 inactive_hint = "Turn on Send hardware metrics to client to use this setting."
 control = { kind = "list", placeholder = "cpu_usage_percent" }
 visible_when = { on = "hardware_metrics", default = true }
@@ -3196,7 +3197,7 @@ category = "hdr"
 group = "HDR"
 label = "Keep HDR highlights in SDR streams"
 description = "SDR streams of an HDR desktop keep bright detail instead of clipping it, but white looks a little grey. Costs GPU time per frame; try it for HDR games on an SDR screen."
-details = "Uses ITU-R BT.2446-1 Method B for a 1000-nit picture: 203 nits is about 86 % signal, and neutral light of 1000 nits and above is white. On an RX 7900 XT it adds about 0.05 ms per 4K frame of grey content and about 0.5 ms of saturated content with the compute conversion, about 0.9 ms without it. HDR streams and SDR desktops are unaffected. A change applies from the next stream."
+details = "Uses ITU-R BT.2446-1 Method B for the display's peak brightness (400 to 2000 nits, 1000 when it reports none): neutral light at that peak and above is white, and 203 nits is about 86 % signal on a 1000-nit display and about 76 % on a 2000-nit one. On an RX 7900 XT it adds about 0.05 ms per 4K frame of grey content and about 0.5 ms of saturated content with the compute conversion, about 0.9 ms without it. HDR streams and SDR desktops are unaffected. A change applies from the next stream."
 control = { kind = "toggle" }
 console = { group = "Displays and HDR", label = "Keep HDR highlights in SDR streams", control = "bool" }
 rust_accessor = { kind = "bool", method = "hdr_sdr_tone_map", doc = "BT.2446 Method B for SDR streams of an HDR desktop (`hdr_sdr_tone_map`, off by default)." }

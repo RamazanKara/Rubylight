@@ -207,4 +207,20 @@ public class HostKeyboardTest {
         assertEquals(-50, HostKeyboard.offset(1000, 974, 24), 0);
         assertEquals(0, HostKeyboard.offset(100, 974, 24), 0);
     }
+
+    @Test
+    public void aTapIntoZoomedOrPannedBottomBorderStillPansAboveKeyboard() {
+        // Vertically letterboxed stream (streamHeight=1200 at top=400 in parent=2000) panned down into bottom border.
+        keyboard.onPress(1.25f, 1_000);
+        keyboard.onFocus(0);
+        keyboard.onVisibility(true, 1_100);
+        // focus = 400 + 1.25 * 1200 = 1900, visibleBottom = 2000 - 900 = 1100, margin = 24 -> pan = -824.
+        assertEquals(-824, keyboard.pan(2000, 900, 400, 1200, 24), 0);
+
+        keyboard.onVisibility(false, 2_000);
+        keyboard.onPress(Float.POSITIVE_INFINITY, 3_000);
+        keyboard.onFocus(0);
+        keyboard.onVisibility(true, 3_100);
+        assertEquals(0, keyboard.pan(2000, 900, 400, 1200, 24), 0);
+    }
 }

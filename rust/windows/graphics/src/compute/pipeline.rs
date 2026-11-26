@@ -283,10 +283,11 @@ impl OutputLayout {
 }
 
 pub(super) fn validate_colour_input(values: &[u32; 20]) -> Result<()> {
-    // cbuffer Config: pixel=4, hdr=5. scRGB/FP16 has an SDR path, PQ does not.
+    // cbuffer Config: pixel=4, hdr=5, toneMap=17. scRGB/FP16 has an SDR
+    // path, PQ only through the tone mapping.
     anyhow::ensure!(
-        values[4] != 2 || values[5] != 0,
-        "HDR surface supplied to an SDR converter"
+        values[4] != 2 || values[5] != 0 || values[17] != 0,
+        "HDR surface supplied to an SDR converter (hdr_sdr_tone_map is off)"
     );
     Ok(())
 }

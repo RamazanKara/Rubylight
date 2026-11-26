@@ -198,9 +198,11 @@ pub(crate) fn constants(
     values[11] = u32::from(config.chroma_packing);
     values[12..].copy_from_slice(&pointer_constants(pointer));
     values[17] = u32::from(config.sdr_tone_map);
+    values[19] = tone_map_peak(0);
     values
 }
-/// [`constants`] for one captured picture, whose display decides `sdrDesktop`.
+/// [`constants`] for one captured picture, whose display decides `sdrDesktop`
+/// and `toneMapPeak`.
 pub(crate) fn frame_constants(
     config: &butterpollo_media_policy::rtsp::Negotiated,
     image: &GpuImage,
@@ -209,7 +211,28 @@ pub(crate) fn frame_constants(
     let source = (image.width, image.height, image.pixel);
     let mut values = constants(config, source, luminance, image.cursor.as_ref());
     values[18] = sdr_desktop(image.pixel, image.gpu.display_in_hdr());
+    values[19] = source_peak(config.sdr_tone_map && !config.hdr, image);
     values
+}
+/// `cbuffer Config`'s `toneMapPeak`: log2 of the tone mapping's source peak,
+/// the display's reported `maximum_nits` within `hdr_peak_brightness`'s 400
+/// to 2000 nits (BT.2100's range for the HLG system gamma), and 1000 nits,
+/// Method B's own, when the display reports none.
+pub(crate) fn tone_map_peak(maximum_nits: u16) -> u32 {
+    let nits = match maximum_nits {
+        0 => 1000.,
+        nits => f32::from(nits).clamp(400., 2000.),
+    };
+    nits.log2().to_bits()
+}
+/// [`tone_map_peak`] of `image`'s display, read only for an SDR stream with
+/// the tone mapping on (`tone_mapped`) of an HDR capture.
+fn source_peak(tone_mapped: bool, image: &GpuImage) -> u32 {
+    if tone_mapped && image.pixel != Pixel::Bgra8 {
+        tone_map_peak(image.gpu.hdr_metadata().maximum_nits)
+    } else {
+        tone_map_peak(0)
+    }
 }
 /// Windows hands over FP16 for some SDR displays too (advanced colour, beside
 /// a virtual display); those keep their SDR codes instead of being tone-mapped.
@@ -256,10 +279,11 @@ fn validate_source(
     source: (u32, u32, Pixel),
 ) -> Result<()> {
     // An HDR desktop hands an SDR stream FP16 frames, which the shader
-    // takes back to sRGB; only PQ has no SDR path. Refusing FP16 failed
-    // every fallback from the compute queue on such a desktop.
-    if !config.hdr && source.2 == Pixel::Rgba10Pq {
-        bail!("HDR surface supplied to an SDR converter");
+    // takes back to sRGB; PQ has an SDR path only through the tone mapping.
+    // Refusing FP16 failed every fallback from the compute queue on such a
+    // desktop.
+    if !config.hdr && source.2 == Pixel::Rgba10Pq && !config.sdr_tone_map {
+        bail!("HDR surface supplied to an SDR converter (hdr_sdr_tone_map is off)");
     }
     Ok(())
 }
@@ -292,6 +316,12 @@ fn prepare_source_views(
     let sdr = sdr_desktop(image.pixel, image.gpu.display_in_hdr());
     if values[18] != sdr {
         values[18] = sdr;
+        *dirty = true;
+    }
+    // `toneMap` and `hdr`, as `constants` set them.
+    let peak = source_peak(values[17] != 0 && values[5] == 0, image);
+    if values[19] != peak {
+        values[19] = peak;
         *dirty = true;
     }
     let source = source_view(sources, gpu, image)?;

@@ -85,17 +85,17 @@ fn completed_planar_slots_retain_resources_until_their_views_are_replaced() -> R
 }
 
 #[test]
-fn pq_input_is_rejected_only_for_sdr_output() {
-    for pixel in 0..=2 {
-        for hdr in 0..=1 {
-            let mut values = [0; 20];
-            values[4] = pixel;
-            values[5] = hdr;
-            assert_eq!(
-                validate_colour_input(&values).is_ok(),
-                pixel != 2 || hdr != 0
-            );
-        }
+fn pq_input_is_rejected_only_for_sdr_output_without_tone_mapping() {
+    for i in 0..12 {
+        let (pixel, hdr, tone_map) = (i % 3, i / 3 % 2, i / 6);
+        let mut values = [0; 20];
+        values[4] = pixel;
+        values[5] = hdr;
+        values[17] = tone_map;
+        assert_eq!(
+            validate_colour_input(&values).is_ok(),
+            pixel != 2 || hdr != 0 || tone_map != 0
+        );
     }
 }
 

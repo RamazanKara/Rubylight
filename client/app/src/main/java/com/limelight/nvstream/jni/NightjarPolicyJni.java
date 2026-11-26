@@ -296,6 +296,7 @@ public final class NightjarPolicyJni {
     public static final int QUEUE_SLAB_DISPLAY_WATCH = 5;
     public static final int QUEUE_SLAB_PRESENT_SCHEDULER = 6;
     public static final int QUEUE_SLAB_RECOVERY_BACKOFF = 7;
+    public static final int QUEUE_SLAB_COMPOSITOR_WATCH = 8;
 
     public static native long queueSlabCreate(int kind);
     public static native void queueSlabDestroy(int kind, long handle);
@@ -320,6 +321,8 @@ public final class NightjarPolicyJni {
                                                      boolean vrr, int streamFrameRateMilliHz, long refreshNs);
     public static native long displayQueueOp(int op, long handle, long a, long b, boolean flag);
     public static native String displayQueueTakeEvent(long handle);
+    public static native long compositorWatchOp(int op, long handle, long a, long b, boolean flag);
+    public static native String compositorWatchTakeEvent(long handle);
 
     public static native boolean presentSchedulerIsLate(long handle, long hostUs, long readyNs,
                                                         long contentIntervalNs);
@@ -422,6 +425,7 @@ public final class NightjarPolicyJni {
             int hostFormats, int displayMask, int dolbyVisionDecoders, int videoFormats);
     public static native boolean hdrFormatNeedsHlgProbe(
             boolean pyroWave, int hostFormats, int displayMask, int surfaceOrdinal);
+    public static native int hdrFormatMask(int hostFormats, int choiceOrdinal);
     public static native int hdrFormatSurface(int op, int hostFormats, int surfaceOrdinal, int windowOrdinal);
     public static native boolean hdrFormatPassesHdr10Plus(int displayMask, int transferCode);
     public static native boolean hdrFormatPyroWaveHlgRefusedByDisplay(
@@ -463,4 +467,11 @@ public final class NightjarPolicyJni {
             int capabilities, boolean dolbyVisionCorrupts, boolean dolbyVisionAv1Corrupts, int hdrFormat);
     public static native long videoRecordFrameGap(int gap, long newDecoderDrops);
     public static native int videoThermalState(int level, boolean holdsBitrate, boolean easesLoad);
+
+    /**
+     * The profile kept for a screen (`protocol/android/src/display_profile.rs`): {@code {"rules":[{"profile":"3",
+     * "display":{"id":"builtin","name":""}}],"screen":{"id":"builtin","name":""}}} answers {@code {"profile":"3"}},
+     * or {@code {"profile":null}} when no profile is kept for the screen.
+     */
+    public static native String displayProfile(String request);
 }

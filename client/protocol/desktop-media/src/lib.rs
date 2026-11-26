@@ -16,6 +16,7 @@ pub mod clipboard;
 pub mod controller_audio;
 pub mod controller_mouse;
 pub mod dmabuf;
+pub mod dualsense_bt_audio;
 pub mod full_chroma;
 pub mod gamepad;
 #[cfg(windows)]
@@ -41,6 +42,9 @@ pub mod shortcuts_runtime;
 pub mod stream;
 pub mod timing_csv;
 pub mod usb;
+pub mod usb_arbitration;
+#[cfg(any(windows, test))]
+pub mod usb_windows;
 #[cfg(target_os = "linux")]
 pub mod usb_linux;
 #[cfg(any(windows, test, feature = "test-support"))]

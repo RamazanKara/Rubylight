@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Orientamento</string>
-    <string name="summary_stream_orientation">In che verso può ruotare lo stream. Automatico tiene i telefoni in orizzontale e lascia ruotare i tablet; Orizzontale, Orizzontale invertito e Verticale lo bloccano; «Ruota con il dispositivo» segue il dispositivo.</string>
+    <string name="summary_stream_orientation">In che verso può ruotare lo stream. Automatico tiene i telefoni in orizzontale e lascia ruotare i tablet; Orizzontale, Orizzontale invertito e Verticale lo bloccano; «Ruota con il dispositivo» segue il dispositivo. Orizzontale (entrambi i lati) si capovolge con il telefono anche con la rotazione bloccata.</string>
     <string-array name="stream_orientation_names">
         <item>Automatico</item>
         <item>Orizzontale</item>
         <item>Verticale</item>
         <item>Ruota con il dispositivo</item>
         <item>Orizzontale invertito</item>
+        <item>Orizzontale (entrambi i lati)</item>
     </string-array>
     <string name="stream_orientation_scaled">Questo PC mantiene la forma dello stream finché è attivo, quindi l’immagine viene adattata allo schermo ruotato.</string>
     <string name="stream_orientation_decoder_limit">Il decoder di questo dispositivo non supporta la dimensione ruotata, quindi lo stream mantiene la sua forma e viene adattato.</string>
+    <string name="stream_flip_screen">Capovolgi schermo di 180°</string>
+    <string name="stream_flip_unavailable">Il capovolgimento non è disponibile in finestra o su uno schermo esterno.</string>
 </resources>

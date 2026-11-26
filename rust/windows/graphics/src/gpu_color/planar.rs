@@ -460,10 +460,15 @@ mod tests {
             .is_ok()
         );
 
-        // SDR accepts BGRA8 and scRGB FP16, but rejects PQ10.
+        // SDR accepts BGRA8 and scRGB FP16, and PQ10 only tone-mapped.
         assert!(validate_source(&sdr_444, (1920, 1080, Pixel::Bgra8)).is_ok());
         assert!(validate_source(&sdr_444, (1920, 1080, Pixel::RgbaF16)).is_ok());
         assert!(validate_source(&sdr_444, (1920, 1080, Pixel::Rgba10Pq)).is_err());
+        let tone_mapped = butterpollo_media_policy::rtsp::Negotiated {
+            sdr_tone_map: true,
+            ..sdr_444.clone()
+        };
+        assert!(validate_source(&tone_mapped, (1920, 1080, Pixel::Rgba10Pq)).is_ok());
         assert!(validate_source(&hdr_420, (1920, 1080, Pixel::Rgba10Pq)).is_ok());
 
         // Luminance dirty flag tracks changes accurately.

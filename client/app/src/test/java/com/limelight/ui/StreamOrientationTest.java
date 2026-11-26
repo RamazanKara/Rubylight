@@ -22,7 +22,7 @@ public class StreamOrientationTest {
     public void unknownOrMissingValuesAreAutomatic() {
         assertEquals(StreamOrientation.AUTO, StreamOrientation.fromValue(null));
         assertEquals(StreamOrientation.AUTO, StreamOrientation.fromValue("sideways"));
-        for (int mode = StreamOrientation.AUTO; mode <= StreamOrientation.REVERSE_LANDSCAPE; mode++) {
+        for (int mode = StreamOrientation.AUTO; mode <= StreamOrientation.LANDSCAPE_FLIP; mode++) {
             assertEquals(mode, StreamOrientation.fromValue(StreamOrientation.value(mode)));
         }
         assertEquals(StreamOrientation.REVERSE_LANDSCAPE, StreamOrientation.fromValue("reverse_landscape"));
@@ -53,9 +53,32 @@ public class StreamOrientationTest {
         assertEquals(LAND, StreamOrientation.requested(StreamOrientation.LANDSCAPE, false, false, true, false, true, 1840, 2208));
         assertEquals(REV_LAND, StreamOrientation.requested(StreamOrientation.REVERSE_LANDSCAPE, false, true, false, false, true, 2560, 1600));
         // Split screen, desktop windows and video on another display cannot be turned by the app.
-        for (int mode = StreamOrientation.AUTO; mode <= StreamOrientation.REVERSE_LANDSCAPE; mode++) {
+        for (int mode = StreamOrientation.AUTO; mode <= StreamOrientation.LANDSCAPE_FLIP; mode++) {
             assertEquals(ANY, StreamOrientation.requested(mode, true, false, false, false, true, 2400, 1080));
         }
+    }
+
+    @Test
+    public void landscapeEitherSideFollowsTheSensorButNeverTurnsToPortrait() {
+        assertEquals(StreamOrientation.LANDSCAPE_FLIP, StreamOrientation.fromValue("landscape_flip"));
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, phone(StreamOrientation.LANDSCAPE_FLIP));
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+                StreamOrientation.requested(StreamOrientation.LANDSCAPE_FLIP, false, true, false, false, true, 2560, 1600));
+        assertArrayEquals(new int[] {2400, 1080}, StreamOrientation.launchSize(StreamOrientation.LANDSCAPE_FLIP, true, true, 2400, 1080));
+        assertFalse(StreamOrientation.followsRotation(StreamOrientation.LANDSCAPE_FLIP, true));
+    }
+
+    @Test
+    public void flipTurnsTheShownLandscapeOver() {
+        // A phone: landscape is rotation 90, reverse landscape 270; portrait has nothing to flip.
+        assertEquals(REV_LAND, StreamOrientation.flipped(1, true));
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, StreamOrientation.flipped(3, true));
+        assertEquals(-1, StreamOrientation.flipped(0, true));
+        assertEquals(-1, StreamOrientation.flipped(2, true));
+        // A tablet or handheld whose panel is landscape at rotation 0.
+        assertEquals(REV_LAND, StreamOrientation.flipped(0, false));
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, StreamOrientation.flipped(2, false));
+        assertEquals(-1, StreamOrientation.flipped(1, false));
     }
 
     @Test

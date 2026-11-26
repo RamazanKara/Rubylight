@@ -320,8 +320,23 @@ pub(super) fn token_authenticated(
     let Some(credentials) = credentials.as_ref() else {
         return false;
     };
-    auth::read(&h.aliases.lock().unwrap())
-        .is_ok_and(|tokens| auth::permits(&tokens, secret, &credentials.username, path, method))
+    // A token reaches only what the catalogue offers now: a scope saved before its route left the
+    // catalogue (`/api/password` and `/api/browse` did) no longer works.
+    let catalog = super::token_catalog();
+    auth::read(&h.aliases.lock().unwrap()).is_ok_and(|mut tokens| {
+        for token in &mut tokens {
+            token.scopes.retain_mut(|scope| {
+                catalog
+                    .iter()
+                    .find(|offered| offered.path == scope.path)
+                    .is_some_and(|offered| {
+                        scope.methods.retain(|m| offered.methods.contains(m));
+                        !scope.methods.is_empty()
+                    })
+            });
+        }
+        auth::permits(&tokens, secret, &credentials.username, path, method)
+    })
 }
 
 /// A state-changing request with Basic credentials needs no CSRF token
@@ -497,7 +512,11 @@ pub(super) async fn status(h: &Shared, headers: &HeaderMap, connection: &Connect
     // administrator runs this program with --creds.
     if configured
         && !authenticated
-        && butterpollo_stream::network::from_this_pc(connection.peer)
+        && butterpollo_stream::network::browser_on_this_pc(
+            connection.peer,
+            connection.local,
+            headers,
+        )
         && let Ok(program) = std::env::current_exe()
     {
         status["creds_program"] = program.display().to_string().into();
@@ -546,12 +565,18 @@ pub(super) fn refresh(
         return error(StatusCode::METHOD_NOT_ALLOWED, "POST required");
     }
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
-    let token = headers
+    let header_token = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Refresh "))
-        .map(str::to_owned)
-        .or_else(|| cookie(headers, "__Host-apollo_refresh"))
+        .map(str::to_owned);
+    let cookie_token = header_token
+        .is_none()
+        .then(|| cookie(headers, "__Host-apollo_refresh"))
+        .flatten();
+    let from_cookie = cookie_token.is_some();
+    let token = header_token
+        .or(cookie_token)
         .unwrap_or_else(|| text("refresh_token").into());
     let previous = {
         let sessions = h.web_sessions.lock().unwrap();
@@ -563,6 +588,13 @@ pub(super) fn refresh(
             })
             .map(|(_, s)| s.clone())
     };
+    // The browser sends the refresh cookie with any request to the console, so a refresh that
+    // rests on it needs the page's CSRF token: the session's, or the anonymous one
+    // `/api/csrf-token` hands a tab whose access cookie lapsed. A token sent in a header or the
+    // body is a script's, which no other site can make the browser send.
+    if from_cookie && !refresh_csrf_matches(headers, previous.as_ref().map(|s| s.csrf.as_str())) {
+        return error(StatusCode::BAD_REQUEST, "CSRF token required");
+    }
     match previous {
         Some(s) => issued(
             h,
@@ -574,6 +606,22 @@ pub(super) fn refresh(
         ),
         None => error(StatusCode::UNAUTHORIZED, "refresh token expired"),
     }
+}
+
+/// Whether a cookie refresh carries the page's CSRF token: `session`'s, or the anonymous token in
+/// `__Host-apollo_anon_csrf`.
+fn refresh_csrf_matches(headers: &HeaderMap, session: Option<&str>) -> bool {
+    let Some(got) = headers.get("X-CSRF-Token").and_then(|v| v.to_str().ok()) else {
+        return false;
+    };
+    !got.is_empty()
+        && [
+            session.map(str::to_owned),
+            cookie(headers, "__Host-apollo_anon_csrf"),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|expected| crypto::equal(expected.as_bytes(), got.as_bytes()))
 }
 
 pub(super) fn logout(h: &Shared, headers: &HeaderMap) -> Response {

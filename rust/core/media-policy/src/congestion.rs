@@ -9,7 +9,8 @@
 //! half as WebRTC's `goog_cc` runs it), written for this host:
 //!
 //! - **Inter-arrival groups**: packets sent within [`BURST_US`] of a group's first form one
-//!   group; each completed group gives a send delta and an arrival delta against the one before.
+//!   group (half a frame above 120 fps, [`crate::pacing_high_hz`]); each completed group gives
+//!   a send delta and an arrival delta against the one before.
 //! - **Trendline filter**: the accumulated one-way delay variation, smoothed, and its slope over
 //!   the last [`TRENDLINE_WINDOW`] groups by least squares.
 //! - **Overuse detector**: the slope, scaled, against an adaptive threshold that tracks it
@@ -331,6 +332,20 @@ impl Congestion {
         };
         self.delay_bps = clamp(self.delay_bps);
         self.loss_bps = clamp(self.loss_bps);
+    }
+
+    /// The stream's frame period: above 120 fps the inter-arrival groups shrink to half a frame
+    /// ([`crate::pacing_high_hz::group_burst_us`]). A change forgets the open groups.
+    pub fn set_frame_period(&mut self, period: std::time::Duration) {
+        let burst = crate::pacing_high_hz::group_burst_us(period);
+        if burst != self.inter.burst_us() {
+            self.inter.set_burst_us(burst);
+        }
+    }
+
+    /// The inter-arrival group window, µs.
+    pub fn group_burst_us(&self) -> u64 {
+        self.inter.burst_us()
     }
 
     /// One report, at host time `now_us`. `bytes` is its payload size.

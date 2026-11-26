@@ -491,3 +491,34 @@ fn connecting_a_guest_requests_keyframe_immediately_without_prior_throttle_burn(
     // A second request within KEYFRAME_INTERVAL is throttled (confirming why pre-ICE burn broke it).
     assert!(!guests.keyframe(&Arc::downgrade(&session), now + Duration::from_millis(100)));
 }
+
+#[test]
+fn a_lossy_guest_backs_off_and_the_owner_gets_fewer_keyframes() {
+    use butterpollo_session::session::Role;
+    use butterpollo_stream::state::test_support::Fixture;
+    use keyframe_backoff::KeyframeBackoff;
+    let f = Fixture::new();
+    let session = f.session(f.client(u32::MAX), Role::Stream);
+    let weak = Arc::downgrade(&session);
+    let guests = Guests::default();
+    let start = Instant::now();
+    let mut lossy = KeyframeBackoff::default();
+    assert!(lossy.request(start, true, || guests.keyframe(&weak, start)));
+    // Its transport asks every 250 ms for 30 s. The shared 2 s allowance alone let 15 through;
+    // with its backoff it has 5, at 2, 6, 14, 22 and 30 s.
+    let granted = (1..=120u64)
+        .filter(|i| {
+            let now = start + Duration::from_millis(i * 250);
+            lossy.request(now, false, || guests.keyframe(&weak, now))
+        })
+        .count();
+    assert_eq!(granted, 5);
+    // A guest that joins meanwhile gets its first picture within the shared allowance.
+    let mut joining = KeyframeBackoff::default();
+    let now = start + Duration::from_millis(32_500);
+    assert!(joining.request(now, true, || guests.keyframe(&weak, now)));
+    // And the lossy guest's return after an outage is not held back by its backoff.
+    let back = start + Duration::from_millis(35_000);
+    assert!(!lossy.ready(back));
+    assert!(lossy.request(back, true, || guests.keyframe(&weak, back)));
+}

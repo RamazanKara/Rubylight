@@ -1,0 +1,2 @@
+## en
+- Frame Warp 2: Frame Warp locks on sooner, follows gyro aiming as well as the mouse and right stick, fades out on pause menus and cutscenes, and fills the screen edge and the space beside the HUD without doubled outlines. It replaces the first Frame Warp and needs this Nightjar and the current version on the PC together: with an older PC the stream runs without Frame Warp and Nightjar says the PC needs updating. The Frame Warp setting keeps its value.

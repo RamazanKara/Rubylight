@@ -4,9 +4,9 @@
 use std::ops::RangeInclusive;
 
 /// Total Android settings rows documented in `settings.toml`.
-pub const ANDROID_SETTING_COUNT: usize = 192;
+pub const ANDROID_SETTING_COUNT: usize = 194;
 /// Total Desktop `Settings` fields declared in `settings.toml`.
-pub const DESKTOP_SETTING_COUNT: usize = 147;
+pub const DESKTOP_SETTING_COUNT: usize = 148;
 
 /// Default Hold Guide to open the stream menu duration in milliseconds.
 pub const DEFAULT_GUIDE_MENU_HOLD_MS: u32 = 1000;
@@ -157,6 +157,12 @@ pub const SHARED_SETTINGS: &[SharedSetting] = &[
         android_key: "checkbox_enable_hdr",
         desktop_key: "hdr",
         tier: "main",
+        scope: "layer",
+    },
+    SharedSetting {
+        android_key: "list_hdr_format",
+        desktop_key: "hdr_format",
+        tier: "more",
         scope: "layer",
     },
     SharedSetting {

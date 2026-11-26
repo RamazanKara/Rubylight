@@ -1759,4 +1759,8 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("Add this device’s battery percentage and local time to the compact performance overlay.", "Ajoute le pourcentage de batterie et l’heure locale de cet appareil à la superposition des performances compacte."),
     ("macOS restricts Wi-Fi network names (SSIDs) without Location Services permission, so Wi-Fi connections match Other Wi-Fi instead of Home Wi-Fi.", "macOS restreint les noms de réseau Wi-Fi (SSID) sans l’autorisation Service de localisation ; les connexions Wi-Fi correspondent donc à Autre Wi-Fi au lieu de Wi-Fi domestique."),
     ("The clipboard on this device holds no text.", "Le presse-papiers de cet appareil ne contient aucun texte."),
+    ("HDR format", "Format HDR"),
+    ("No Dolby Vision", "Sans Dolby Vision"),
+    ("HDR10 only", "HDR10 uniquement"),
+    ("Automatic uses the best HDR format both sides take; the others leave out Dolby Vision, or everything beyond HDR10. Change it if a format looks wrong; with HDR10 only some PCs may still send HDR10+.", "Automatique utilise le meilleur format HDR pris en charge des deux côtés ; les autres choix écartent Dolby Vision, ou tout ce qui dépasse HDR10. Changez-le si un format s’affiche mal ; avec HDR10 uniquement, certains PC peuvent encore envoyer du HDR10+."),
 ];

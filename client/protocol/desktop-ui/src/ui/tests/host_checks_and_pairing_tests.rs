@@ -371,7 +371,7 @@ fn a_games_page_is_one_play_beside_favourite_over_its_rows() {
 fn a_games_page_offers_the_profile_only_with_profiles() {
     let mut f = game_page_with_profiles(&[]);
     assert!(!shows(&f, "Active profile"), "{:?}", f.drawn);
-    f.l.profiles.entries.push(crate::config::Profile { id: 1, name: "Quiet".into(), settings: Default::default() });
+    f.l.profiles.entries.push(crate::config::Profile::new(1, "Quiet", Default::default()));
     f.settle();
     assert!(shows(&f, "Active profile") && shows(&f, "Main settings"), "{:?}", f.drawn);
     f.l.profiles.active = Some(1);

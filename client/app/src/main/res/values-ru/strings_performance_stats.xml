@@ -22,4 +22,6 @@
     <string name="hardware_gpu_fan_voltage">Напряжение: %1$s мВ · Вентилятор: %2$s об/мин (%3$s%%)</string>
     <string name="hardware_gpu_power">Мощность GPU: %1$s Вт · Мощность платы: %2$s Вт</string>
     <string name="hardware_gpu_memory">Видеопамять: %1$s МБ (%2$s%%)</string>
+    <string name="hardware_gpu_encoder_summary">Кодировщик %1$s%%</string>
+    <string name="hardware_gpu_encoder">Видеокодировщик: %1$s%%</string>
 </resources>

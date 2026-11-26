@@ -44,6 +44,10 @@ public class StreamView extends FrameLayout {
         return surfaceView.getHolder();
     }
 
+    public SurfaceView getSurfaceView() {
+        return surfaceView;
+    }
+
     public TextureView getTextureView() {
         return textureView;
     }
@@ -170,18 +174,27 @@ public class StreamView extends FrameLayout {
 
     public StreamView(Context context) {
         super(context);
+        init();
     }
 
     public StreamView(Context context, AttributeSet attrs) {
         super(context, attrs);
+        init();
     }
 
     public StreamView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
+        init();
     }
 
     public StreamView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
+        init();
+    }
+
+    private void init() {
+        setClipChildren(false);
+        setClipToPadding(false);
     }
 
     @Override
@@ -345,6 +358,39 @@ public class StreamView extends FrameLayout {
             }
             return result;
         }
+    }
+
+    // Picture position (StreamSafeAreaController): thousandths of the parent's sides to move the
+    // laid-out video by, kept on screen, as a translation under the soft keyboard's pan. Touch
+    // maps through getX() and getY(), which include it.
+    private int offsetPermilleX, offsetPermilleY, offsetX, offsetY;
+    private float keyboardPan;
+
+    public void setPictureOffset(int permilleX, int permilleY) {
+        if (permilleX == offsetPermilleX && permilleY == offsetPermilleY) return;
+        offsetPermilleX = permilleX;
+        offsetPermilleY = permilleY;
+        requestLayout();
+    }
+
+    /** The picture position's vertical move in pixels, which the keyboard pan starts from. */
+    public int pictureOffsetY() { return offsetY; }
+
+    public float keyboardPan() { return keyboardPan; }
+
+    public void setKeyboardPan(float pan) {
+        keyboardPan = pan;
+        setTranslationY(offsetY + pan);
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        super.onLayout(changed, l, t, r, b);
+        android.view.View parent = getParent() instanceof android.view.View ? (android.view.View) getParent() : null;
+        offsetX = parent == null ? 0 : SafeAreaPolicy.offsetPx(offsetPermilleX, parent.getWidth(), l, r - l);
+        offsetY = parent == null ? 0 : SafeAreaPolicy.offsetPx(offsetPermilleY, parent.getHeight(), t, b - t);
+        setTranslationX(offsetX);
+        setTranslationY(offsetY + keyboardPan);
     }
 
     @Override

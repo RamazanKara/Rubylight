@@ -5,12 +5,14 @@
 //! `DecoderRecoveryBackoff`, `MediaCodecDecoderRenderer` via `policy_video_queue.rs`) and policy
 //! tests.
 
+pub mod compositor_watch;
 pub mod debt;
 pub mod display_watch;
 pub mod gate;
 #[cfg(test)]
 mod tests;
 
+pub use compositor_watch::{CompositorAction, CompositorWatch};
 pub use debt::{Debt, Residency};
 pub use display_watch::{DisplayQueueWatch, PresentSchedulerState};
 pub use gate::{DisplayGate, RecentLevel};

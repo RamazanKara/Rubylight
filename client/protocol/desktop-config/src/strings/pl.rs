@@ -1759,4 +1759,8 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Add this device’s battery percentage and local time to the compact performance overlay.", "Dodaje poziom naładowania baterii i czas lokalny tego urządzenia do kompaktowej nakładki wydajności."),
     ("macOS restricts Wi-Fi network names (SSIDs) without Location Services permission, so Wi-Fi connections match Other Wi-Fi instead of Home Wi-Fi.", "System macOS ogranicza dostęp do nazw sieci Wi-Fi (SSID) bez uprawnień Usług lokalizacji, dlatego połączenia Wi-Fi pasują do opcji Inna sieć Wi-Fi zamiast Domowa sieć Wi-Fi."),
     ("The clipboard on this device holds no text.", "Schowek tego urządzenia nie zawiera tekstu."),
+    ("HDR format", "Format HDR"),
+    ("No Dolby Vision", "Bez Dolby Vision"),
+    ("HDR10 only", "Tylko HDR10"),
+    ("Automatic uses the best HDR format both sides take; the others leave out Dolby Vision, or everything beyond HDR10. Change it if a format looks wrong; with HDR10 only some PCs may still send HDR10+.", "Automatycznie używa najlepszego formatu HDR obsługiwanego przez obie strony; pozostałe opcje pomijają Dolby Vision albo wszystko poza HDR10. Zmień to, gdy któryś format wygląda źle; przy „Tylko HDR10” niektóre PC mogą nadal wysyłać HDR10+."),
 ];

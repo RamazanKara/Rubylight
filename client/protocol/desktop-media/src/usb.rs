@@ -5,11 +5,14 @@
 //! the picker explains why). On Linux isochronous devices prefer the kernel's USB/IP server
 //! ([`usb_linux`](crate::usb_linux)) when available and fall back to libusb's asynchronous
 //! isochronous transfers ([`iso`]) otherwise; macOS serves all devices through libusb ([`iso`]).
+//! A Linux device libusb may not open goes to the kernel's USB/IP server instead; a Windows
+//! device another driver holds goes through usbipd-win when the user asks for it
+//! (`usb_windows`). A controller being forwarded pauses as a gamepad
+//! ([`usb_arbitration`](crate::usb_arbitration)).
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use nightjar_core::control::SendError;
 use nightjar_core::http::{Availability, Feature, HostCapabilities, NativeCapabilities, Reason};
@@ -20,9 +23,14 @@ use rusb::UsbContext;
 
 use crate::strings::{en, tr, trf};
 
+mod auto;
 mod iso;
 mod libusb;
 mod winusb;
+
+pub use auto::auto_key;
+#[cfg(target_os = "linux")]
+pub(crate) use auto::note_password_refused;
 
 const CLASS_HUB: u8 = 9;
 
@@ -87,6 +95,18 @@ impl Blocked {
     }
 }
 
+/// What usbipd-win can do for a device Windows has another driver on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UsbipdOffer {
+    /// Nothing: the device opens without it, or usbipd-win doesn't list it.
+    #[default]
+    None,
+    /// usbipd-win isn't installed; it would forward the device with Windows' driver left on.
+    NotInstalled,
+    /// usbipd-win lists it: the user may forward it through usbipd-win.
+    Ready,
+}
+
 /// A device plugged in here, as the picker shows it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Local {
@@ -97,6 +117,23 @@ pub struct Local {
     pub blocked: Option<Blocked>,
     /// Linux's usbip-host serves it, not libusb: it has isochronous endpoints.
     pub kernel: bool,
+    /// Windows: what usbipd-win can do for it while another driver has it.
+    pub usbipd: UsbipdOffer,
+}
+
+/// Why `local` can't be forwarded as it is, with what usbipd-win would change about that.
+pub fn blocked_message(local: &Local) -> Option<String> {
+    let blocked = local.blocked.as_ref()?.message();
+    Some(match (&local.usbipd, local.blocked.as_ref()?) {
+        (UsbipdOffer::NotInstalled, _) => format!("{blocked} {}", tr("Or install usbipd-win, then press Refresh, to forward it while Windows keeps its own driver.")),
+        (UsbipdOffer::Ready, Blocked::NoWinUsb(driver)) => trf("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", &[driver]),
+        _ => blocked,
+    })
+}
+
+/// The hub ports in Linux's busid (`1-2.4` is 2, 4).
+pub fn ports_of(busid: &str) -> Vec<u8> {
+    busid.split_once('-').map(|(_, ports)| ports.split('.').filter_map(|p| p.parse().ok()).collect()).unwrap_or_default()
 }
 
 /// Linux's name for the device at `ports` on `bus`: `1-2.4`.
@@ -120,10 +157,38 @@ fn sysfs_name(busid: &str) -> Option<String> {
     }
 }
 
-/// The devices plugged in here, hubs left out, without opening any of them.
+/// The devices plugged in here, hubs left out, without opening any of them; on Windows, with
+/// what usbipd-win can do for those another driver has.
 pub fn list() -> Result<Vec<Local>, String> {
     let context = rusb::Context::new().map_err(|e| trf("USB devices could not be listed: {}", &[&e]))?;
-    list_with(&context)
+    #[allow(unused_mut)]
+    let mut local = list_with(&context)?;
+    #[cfg(windows)]
+    offer_usbipd(&mut local);
+    Ok(local)
+}
+
+/// Marks the devices another driver has that usbipd-win could forward. Runs `usbipd state` only
+/// when there is such a device and usbipd-win is installed.
+#[cfg(windows)]
+fn offer_usbipd(local: &mut [Local]) {
+    let blocked = |l: &Local| matches!(l.blocked, Some(Blocked::NoWinUsb(_)));
+    if !local.iter().any(blocked) { return; }
+    let Some(cli) = crate::usb_windows::Cli::find() else {
+        local.iter_mut().filter(|l| blocked(l)).for_each(|l| l.usbipd = UsbipdOffer::NotInstalled);
+        return;
+    };
+    use crate::usb_windows::Usbipd;
+    let (state, nodes) = match (cli.state(), crate::usb_winusb::nodes()) {
+        (Ok(state), Ok(nodes)) => (state, nodes),
+        (Err(e), _) | (_, Err(e)) => return eprintln!("nightjar: USB: {e}"),
+    };
+    for device in local.iter_mut().filter(|l| blocked(l)) {
+        // Only a device Nightjar can tell from every other: one Windows node at its port.
+        let ids = crate::usb_winusb::instance_ids(&nodes, device.vid, device.pid, &ports_of(&device.busid));
+        let listed = matches!(ids.as_slice(), [id] if crate::usb_windows::find(&state, id).is_some_and(|d| d.busid().is_some()));
+        if listed { device.usbipd = UsbipdOffer::Ready; }
+    }
 }
 
 /// Enumerates devices using a caller-owned `rusb::Context` so background polling avoids
@@ -159,7 +224,7 @@ fn list_with(context: &rusb::Context) -> Result<Vec<Local>, String> {
         #[cfg(not(target_os = "linux"))]
         let kernel = false;
         let name = name.unwrap_or_else(|| format!("USB device {vid:04x}:{pid:04x}"));
-        out.push(Local { busid, vid, pid, name, blocked, kernel });
+        out.push(Local { busid, vid, pid, name, blocked, kernel, usbipd: UsbipdOffer::None });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.busid.cmp(&b.busid)));
     Ok(out)
@@ -191,7 +256,81 @@ pub fn open(local: &Local) -> Result<Arc<dyn UsbDevice>, String> {
             }
         }
     }
-    libusb::open_device(&device, &local.busid, local.vid, local.pid).map_err(open_error)
+    let opened = libusb::open_device(&device, &local.busid, local.vid, local.pid);
+    #[cfg(target_os = "linux")]
+    let kernel = || {
+        let system = crate::usb_linux::System::real();
+        if let Some(missing) = system.missing() {
+            eprintln!("nightjar: USB {}: libusb may not open it and Linux's USB/IP server can't take over: {missing:?}", local.busid);
+            return None;
+        }
+        eprintln!("nightjar: USB {}: libusb may not open it; handing it to Linux's USB/IP server", local.busid);
+        Some(system.open(&local.busid, local.vid, local.pid).map(|device| device as Arc<dyn UsbDevice>))
+    };
+    #[cfg(not(target_os = "linux"))]
+    let kernel = || None;
+    open_or_kernel(opened, kernel)
+}
+
+/// Opens `local` through usbipd-win, which the user asked for: Windows keeps its own driver on
+/// it, and usbipd-win lends it while it is attached ([`crate::usb_windows`]).
+#[cfg(windows)]
+fn open_usbipd(local: &Local) -> Result<Arc<dyn UsbDevice>, String> {
+    let cli = crate::usb_windows::Cli::find().ok_or_else(|| tr("usbipd-win isn’t installed. Install it, then press Refresh.").to_owned())?;
+    let journal = crate::usb_windows::Journal::real()?;
+    let nodes = crate::usb_winusb::nodes()?;
+    let instance_id = match crate::usb_winusb::instance_ids(&nodes, local.vid, local.pid, &ports_of(&local.busid)).as_slice() {
+        [] => return Err(tr("The device was unplugged.").to_owned()),
+        [id] => id.clone(),
+        _ => return Err(tr("Two identical devices are on the same port number of different USB controllers, so Nightjar can’t tell them apart for usbipd-win. Plug one into another port, then press Refresh.").to_owned()),
+    };
+    let picked = crate::usb_windows::Picked { busid: local.busid.clone(), vid: local.vid, pid: local.pid, instance_id, class: device_class(local) };
+    crate::usb_windows::open_with(Arc::new(cli), journal, crate::usb_windows::LOOPBACK, &picked).map(|device| device as Arc<dyn UsbDevice>)
+}
+
+#[cfg(not(windows))]
+fn open_usbipd(_: &Local) -> Result<Arc<dyn UsbDevice>, String> {
+    Err(trf("The device could not be opened: {}", &[&"usbipd-win"]))
+}
+
+/// bDeviceClass of `local`, or its first interface's class when that is 0, read from the
+/// descriptors libusb lists without opening it; 0 when it can't tell.
+#[cfg(windows)]
+fn device_class(local: &Local) -> u8 {
+    let Ok(context) = rusb::Context::new() else { return 0 };
+    let Ok(devices) = context.devices() else { return 0 };
+    let device = devices.iter().find(|d| busid(d.bus_number(), &d.port_numbers().unwrap_or_default()) == local.busid
+        && d.device_descriptor().is_ok_and(|desc| (desc.vendor_id(), desc.product_id()) == (local.vid, local.pid)));
+    device.map_or(0, |device| match device.device_descriptor().map(|d| d.class_code()) {
+        Ok(class) if class != 0 => class,
+        _ => device.active_config_descriptor().ok()
+            .and_then(|config| config.interfaces().next().and_then(|i| i.descriptors().next()).map(|s| s.class_code()))
+            .unwrap_or(0),
+    })
+}
+
+/// How a device is opened for an attachment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Route {
+    /// libusb, WinUSB or Linux's usbip-host, as [`open`] chooses.
+    Direct,
+    /// usbipd-win, which the user asked for ([`open_usbipd`]).
+    Usbipd,
+}
+
+/// libusb's answer for a device, with Linux's own USB/IP server ([`usb_linux`](crate::usb_linux))
+/// taking over when libusb was refused permission (`EACCES`, no udev rule gives the user the
+/// device): `kernel` opens it there, or is None when that can't run on this computer. The udev
+/// advice stays when there is no such fallback, and follows the fallback's own failure.
+fn open_or_kernel<T>(opened: Result<T, rusb::Error>, kernel: impl FnOnce() -> Option<Result<T, String>>) -> Result<T, String> {
+    match opened {
+        Err(rusb::Error::Access) => match kernel() {
+            Some(Ok(device)) => Ok(device),
+            Some(Err(why)) => Err(format!("{why} {}", open_error(rusb::Error::Access))),
+            None => Err(open_error(rusb::Error::Access)),
+        },
+        other => other.map_err(open_error),
+    }
 }
 
 fn open_error(e: rusb::Error) -> String {
@@ -227,6 +366,14 @@ pub struct Panel {
     auto_changed: bool,
     /// Dropped with the panel, which ends the thread that attaches `auto`'s devices.
     auto_thread: Option<std::sync::mpsc::Sender<()>>,
+    /// The devices (by [`auto_key`]) whose password prompt was cancelled: the automatic attach
+    /// leaves them alone until the user attaches one by hand or ticks Automatic again.
+    quiet: Arc<Mutex<Vec<String>>>,
+    /// What this stream's forwarded devices are claimed as ([`crate::usb_arbitration`]), so
+    /// the panel's end gives every controller among them back.
+    owner: u64,
+    /// The shares Nightjar left in usbipd-win when it stopped, as the last list found them.
+    usbipd_left: Arc<AtomicUsize>,
 }
 
 #[derive(Default)]
@@ -262,48 +409,12 @@ impl Drop for OpeningGuard<'_> {
     }
 }
 
-/// How often the automatic attach looks for newly plugged-in devices.
-const AUTO_POLL: Duration = Duration::from_secs(2);
-/// Wait before retrying an automatic attach that failed while still plugged in.
-const AUTO_RETRY_COOLDOWN: Duration = Duration::from_secs(10);
-
-/// What the automatic list remembers a device by: its vendor and product id, so that it
-/// matches on any port (Android's UsbForwarding.autoKey writes the same).
-pub fn auto_key(vid: u16, pid: u16) -> String {
-    format!("{vid:04x}:{pid:04x}")
-}
-
-/// The devices of `local` to attach automatically now: on the list, forwardable, not attached
-/// or being opened, and either unseen since plug-in (`tried` has no entry) or past their failed
-/// retry cooldown (`Some(retry_at) <= now`). `tried` forgets unplugged devices.
-fn auto_due(
-    local: &[Local],
-    auto: &[String],
-    busy: impl Fn(&str) -> bool,
-    tried: &mut HashMap<String, Option<Instant>>,
-    now: Instant,
-) -> Vec<Local> {
-    tried.retain(|busid, _| local.iter().any(|l| l.busid == *busid));
-    let mut due = Vec::new();
-    for device in local {
-        if device.blocked.is_some() || !auto.contains(&auto_key(device.vid, device.pid)) { continue; }
-        if busy(&device.busid) { continue; }
-        match tried.get(&device.busid) {
-            Some(None) => continue,
-            Some(Some(retry_at)) if now < *retry_at => continue,
-            _ => {}
-        }
-        tried.insert(device.busid.clone(), None);
-        due.push(device.clone());
-    }
-    due
-}
-
 /// Opens and attaches `local`, which the caller marked as being opened; returns whether attach
-/// succeeded, and records any failure on the panel.
-fn attach_tracked(forwarder: &Forwarder, opening: &Mutex<Opening>, local: &Local) -> bool {
+/// succeeded, and records any failure on the panel. A cancelled password prompt puts `local` on
+/// `quiet` ([`auto::hushed_on_refusal`]).
+fn attach_tracked(forwarder: &Forwarder, owner: u64, route: Route, opening: &Mutex<Opening>, quiet: &Mutex<Vec<String>>, local: &Local) -> bool {
     let _guard = OpeningGuard { opening, busid: local.busid.clone() };
-    match attach_now(forwarder, local) {
+    match auto::hushed_on_refusal(quiet, local, || attach_now(forwarder, owner, route, local)) {
         Ok(_) => true,
         Err(e) => {
             opening.lock().unwrap_or_else(PoisonError::into_inner).failed = Some(e);
@@ -318,86 +429,11 @@ impl Panel {
         let mut panel = Self {
             forwarder: Arc::new(forwarder), local: None, error: None, opening: Arc::default(),
             listing: Arc::new(AtomicBool::new(false)), listed: Arc::default(),
-            auto: Arc::new(Mutex::new(auto)), auto_changed: false, auto_thread: None,
+            auto: Arc::new(Mutex::new(auto)), auto_changed: false, auto_thread: None, quiet: Arc::default(),
+            owner: crate::usb_arbitration::Registry::global().owner(), usbipd_left: Arc::default(),
         };
         panel.start_auto();
         panel
-    }
-
-    fn auto(&self) -> MutexGuard<'_, Vec<String>> {
-        self.auto.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Whether `local` is attached automatically when it is plugged in.
-    pub fn is_auto(&self, local: &Local) -> bool {
-        self.auto().contains(&auto_key(local.vid, local.pid))
-    }
-
-    /// Adds `local` to the automatic list or takes it off; the thread attaches an added one.
-    pub fn set_auto(&mut self, local: &Local, on: bool) {
-        let key = auto_key(local.vid, local.pid);
-        {
-            let mut auto = self.auto();
-            if on == auto.contains(&key) { return; }
-            if on { auto.push(key); } else { auto.retain(|k| *k != key); }
-        }
-        self.auto_changed = true;
-        if on { self.start_auto(); }
-    }
-
-    /// The automatic list after the user changed it, once, for saving.
-    pub fn take_auto_change(&mut self) -> Option<Vec<String>> {
-        std::mem::take(&mut self.auto_changed).then(|| self.auto().clone())
-    }
-
-    /// Starts the thread that attaches the automatic list's devices, while the list has any.
-    fn start_auto(&mut self) {
-        if self.auto_thread.is_some() || self.auto().is_empty() { return; }
-        let (stop, stopped) = std::sync::mpsc::channel::<()>();
-        let (forwarder, opening, auto) = (self.forwarder.clone(), self.opening.clone(), self.auto.clone());
-        let spawned = std::thread::Builder::new().name("usb-auto".into()).spawn(move || {
-            let mut tried = HashMap::new();
-            let mut context: Option<rusb::Context> = None;
-            loop {
-                let wanted = auto.lock().unwrap_or_else(PoisonError::into_inner).clone();
-                if context.is_none() {
-                    match rusb::Context::new() {
-                        Ok(c) => context = Some(c),
-                        Err(e) => eprintln!("nightjar: USB: {}", trf("USB devices could not be listed: {}", &[&e])),
-                    }
-                }
-                if let Some(ctx) = context.as_ref() {
-                    match list_with(ctx) {
-                        Ok(local) => {
-                            let busy = |busid: &str| {
-                                opening.lock().unwrap_or_else(PoisonError::into_inner).busids.iter().any(|b| b == busid)
-                                    || forwarder.list().iter().any(|a| a.is_active() && a.busid == busid)
-                            };
-                            let now = Instant::now();
-                            for device in auto_due(&local, &wanted, busy, &mut tried, now) {
-                                if !opening.lock().unwrap_or_else(PoisonError::into_inner).try_start(&device.busid) {
-                                    continue;
-                                }
-                                eprintln!("nightjar: USB {}: attaching {} automatically", device.busid, device.name);
-                                if !attach_tracked(&forwarder, &opening, &device) {
-                                    tried.insert(device.busid, Some(Instant::now() + AUTO_RETRY_COOLDOWN));
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("nightjar: USB: {e}");
-                            context = None;
-                        }
-                    }
-                }
-                // The channel closes with the panel: the stream ended.
-                if !matches!(stopped.recv_timeout(AUTO_POLL), Err(std::sync::mpsc::RecvTimeoutError::Timeout)) { return; }
-            }
-        });
-        match spawned {
-            Ok(_) => self.auto_thread = Some(stop),
-            Err(e) => self.error = Some(trf("USB devices can't be attached automatically: {}", &[&e])),
-        }
     }
 
     fn opening(&self) -> MutexGuard<'_, Opening> {
@@ -435,8 +471,7 @@ impl Panel {
         if self.listing.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
             return;
         }
-        let listing = self.listing.clone();
-        let listed = self.listed.clone();
+        let (listing, listed, usbipd_left) = (self.listing.clone(), self.listed.clone(), self.usbipd_left.clone());
         let spawned = std::thread::Builder::new().name("usb-list".into()).spawn(move || {
             struct Clear<'a>(&'a AtomicBool);
             impl Drop for Clear<'_> {
@@ -445,6 +480,11 @@ impl Panel {
             let _clear = Clear(&listing);
             let result = list();
             *listed.lock().unwrap_or_else(PoisonError::into_inner) = Some(result);
+            // After the list, which shouldn't wait for usbipd-win's answer.
+            #[cfg(windows)]
+            usbipd_left.store(crate::usb_windows::leftovers(), Ordering::Relaxed);
+            #[cfg(not(windows))]
+            let _ = &usbipd_left;
         });
         if let Err(e) = spawned {
             self.listing.store(false, Ordering::Release);
@@ -484,14 +524,51 @@ impl Panel {
         }
     }
 
+    /// Forwards `local` through usbipd-win, as the user asked (Windows has another driver on it).
+    pub fn attach_usbipd_busid(&mut self, busid: &str) {
+        if let Some(device) = self.local().iter().find(|d| d.busid == busid).cloned() {
+            self.start_attach(&device, Route::Usbipd);
+        }
+    }
+
+    /// Attaches `local`, as the user asked: its password may be asked for again.
     pub fn attach(&mut self, local: &Local) {
+        self.unhush(local);
+        self.start_attach(local, Route::Direct);
+    }
+
+    /// The shares Nightjar left in usbipd-win when it stopped (as the last list found them), and
+    /// whether they are being given back. Picks up how the last giving back went: a failure is
+    /// the panel's error, and the list is read again.
+    pub fn usbipd_left(&mut self) -> (usize, bool) {
+        #[cfg(windows)]
+        if let Some(given) = crate::usb_windows::take_given_back() {
+            if let Err(e) = given { self.error = Some(e); }
+            self.refresh();
+        }
+        #[cfg(windows)]
+        let giving = crate::usb_windows::giving_back();
+        #[cfg(not(windows))]
+        let giving = false;
+        (self.usbipd_left.load(Ordering::Relaxed), giving)
+    }
+
+    /// Gives back what Nightjar left shared in usbipd-win, as the user asked (Windows asks for
+    /// administrator rights).
+    pub fn give_back_usbipd(&mut self) {
+        self.error = None;
+        #[cfg(windows)]
+        crate::usb_windows::give_back_in_background();
+    }
+
+    fn start_attach(&mut self, local: &Local, route: Route) {
         self.error = None;
         if !self.opening().try_start(&local.busid) { return; }
         // Opening devices (SetupAPI/libusb string reads, WinUSB handles, usbip-host bind) runs off the drawing thread.
         let busid = local.busid.clone();
-        let (forwarder, opening, local) = (self.forwarder.clone(), self.opening.clone(), local.clone());
+        let (forwarder, opening, quiet, local, owner) = (self.forwarder.clone(), self.opening.clone(), self.quiet.clone(), local.clone(), self.owner);
         let spawned = std::thread::Builder::new().name("usb-open".into()).spawn(move || {
-            let _ = attach_tracked(&forwarder, &opening, &local);
+            let _ = attach_tracked(&forwarder, owner, route, &opening, &quiet, &local);
         });
         if let Err(e) = spawned {
             self.opening().finish(&busid);
@@ -537,15 +614,30 @@ pub fn refusal(availability: Availability) -> Option<&'static str> {
 }
 
 impl Drop for Panel {
-    /// The stream is over: a device still being opened finds the forwarder ended.
+    /// The stream is over: a device still being opened finds the forwarder ended, and every
+    /// controller forwarded during it is read here again.
     fn drop(&mut self) {
         self.forwarder.end();
+        crate::usb_arbitration::Registry::global().release_owner(self.owner);
     }
 }
 
-/// Opens `local` and asks the PC to attach it; what failed, for the user.
-fn attach_now(forwarder: &Forwarder, local: &Local) -> Result<u32, String> {
-    let attached = open(local).and_then(|device| forwarder.attach(device, &local.name).map_err(|e| attach_error(&e)));
+/// How long opening a device waits for the gamepads to let go of it, should it be one.
+const ARBITRATION_WAIT: Duration = Duration::from_millis(500);
+
+/// Opens `local` and asks the PC to attach it; what failed, for the user. A controller among
+/// them is paused here from now until the attachment ends ([`crate::usb_arbitration`]).
+fn attach_now(forwarder: &Forwarder, owner: u64, route: Route, local: &Local) -> Result<u32, String> {
+    use crate::usb_arbitration::{Arbitrated, Forwarded, Registry};
+    let claim = Registry::global().claim(owner, Forwarded::new(local.vid, local.pid, &local.busid));
+    if !claim.wait_applied(ARBITRATION_WAIT) {
+        eprintln!("nightjar: USB {}: the controllers did not let go in time; opening it anyway", local.busid);
+    }
+    let opened = match route {
+        Route::Direct => open(local),
+        Route::Usbipd => open_usbipd(local),
+    };
+    let attached = opened.and_then(|device| forwarder.attach(Arbitrated::new(device, claim), &local.name).map_err(|e| attach_error(&e)));
     match &attached {
         Ok(request_id) => eprintln!("nightjar: USB {}: asked the PC to attach {} ({:04x}:{:04x}), request {request_id}", local.busid, local.name, local.vid, local.pid),
         Err(e) => eprintln!("nightjar: USB {}: attaching {} failed: {e}", local.busid, local.name),

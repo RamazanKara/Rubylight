@@ -121,8 +121,8 @@ pub enum ClientMessage {
     /// A clipboard item or the hello that starts the host's copies (0x5508), as
     /// [`super::clipboard_sync::ClipboardSync`] makes them.
     ClipboardSync(rubylight_protocol::clipboard_sync::Frame),
-    /// Starts or stops Frame Warp (0x5543): the host's model, tags and HUD mask.
-    FrameWarpRequest(rubylight_protocol::frame_warp::FrameWarpRequest),
+    /// Starts or stops Frame Warp (0x5543): the host's model, tags, HUD mask and meta.
+    FrameWarpRequest(rubylight_protocol::frame_warp_v2::RequestV2),
     /// When each video packet arrived, for the host's congestion control (0x5547).
     TransportFeedback(rubylight_protocol::transport_feedback::TransportFeedback),
 }
@@ -286,8 +286,10 @@ impl ClientMessage {
             | Self::ControllerAudioStatus { .. }
             | Self::Usb(_)
             | Self::ClipboardSync(_)
-            | Self::FrameWarpRequest(_)
             | Self::TransportFeedback(_) => Some(self.message_type()),
+            // A host before 7.0 announced 0x5543 to 0x5546 but not the meta, and took a request
+            // this client no longer sends: it gets none.
+            Self::FrameWarpRequest(_) => Some(ptype::FRAME_WARP_V2_META),
             _ => None,
         }
     }

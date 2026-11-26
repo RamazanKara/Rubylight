@@ -1,0 +1,1 @@
+- **One game, one card, across PCs.** A game Playnite lists on one PC and a store lists on another (Steam, Epic Games, EA app, Ubisoft Connect, GOG, Battle.net or Xbox) now shows once in Nightjar's library instead of twice: the host gives the Playnite game the store's id of the installed game with the same title.

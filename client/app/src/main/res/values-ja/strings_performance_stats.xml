@@ -22,4 +22,6 @@
     <string name="hardware_gpu_fan_voltage">電圧: %1$s mV · ファン: %2$s RPM（%3$s%%）</string>
     <string name="hardware_gpu_power">GPU 電力: %1$s W · ボード電力: %2$s W</string>
     <string name="hardware_gpu_memory">VRAM: %1$s MB（%2$s%%）</string>
+    <string name="hardware_gpu_encoder_summary">エンコーダー %1$s%%</string>
+    <string name="hardware_gpu_encoder">ビデオエンコーダー: %1$s%%</string>
 </resources>

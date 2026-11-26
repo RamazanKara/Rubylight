@@ -187,11 +187,20 @@ final class StreamSettingsDisplayOptions {
         if (!foundHdr10) {
             LimeLog.info("Excluding HDR toggle based on display capabilities");
             fragment.removeSetting("checkbox_enable_hdr");
+            fragment.removeSetting(HdrFormatChoice.PREF_KEY);
         } else if (PreferenceConfiguration.isShieldAtvFirmwareWithBrokenHdr()) {
             LimeLog.info("Disabling HDR toggle on old broken SHIELD TV firmware");
             hdr.setEnabled(false);
             hdr.setChecked(false);
             hdr.setSummary(R.string.summary_hdr_shield_firmware_update);
+        }
+
+        if (foundHdr10 && !HdrPolicy.hasDolbyVision(HdrPolicy.displayHdrTypes(display))) {
+            // A stored No Dolby Vision stays, listed: it counts again on a Dolby Vision screen.
+            String stored = ((ListPreference) fragment.findPreference(HdrFormatChoice.PREF_KEY)).getValue();
+            if (!HdrFormatChoice.NO_DOLBY_VISION.value.equals(stored)) {
+                removeValue(fragment, HdrFormatChoice.PREF_KEY, HdrFormatChoice.NO_DOLBY_VISION.value, () -> { });
+            }
         }
 
         // Add a listener to the FPS and resolution preference

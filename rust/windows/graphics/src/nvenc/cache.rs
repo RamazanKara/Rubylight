@@ -57,6 +57,7 @@ struct OverlayKey {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MetaKey {
     source: (u32, u32, Pixel),
+    display_in_hdr: Option<bool>,
     origin: u64,
     ready: Option<(usize, u64)>,
     luminance: [u32; 2],
@@ -68,6 +69,7 @@ impl MetaKey {
     fn from_inputs(image: &GpuImage, luminance: [f32; 2], overlay: Option<&Overlay>) -> Self {
         Self {
             source: (image.width, image.height, image.pixel),
+            display_in_hdr: image.gpu.display_in_hdr(),
             origin: image.origin,
             ready: image
                 .ready
@@ -145,6 +147,7 @@ mod tests {
     fn sample_meta() -> MetaKey {
         MetaKey {
             source: (1920, 1080, Pixel::Bgra8),
+            display_in_hdr: Some(true),
             origin: 42,
             ready: Some((0x1000, 7)),
             luminance: [100.0_f32.to_bits(), 1.0_f32.to_bits()],
@@ -172,6 +175,10 @@ mod tests {
 
         let mut changed = base;
         changed.source.0 = 2560;
+        assert_ne!(base, changed);
+
+        let mut changed = base;
+        changed.display_in_hdr = Some(false);
         assert_ne!(base, changed);
 
         let mut changed = base;

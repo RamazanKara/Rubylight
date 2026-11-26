@@ -34,6 +34,7 @@ import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.binding.video.CrashAccounting;
 import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.DisplayFrameRatePolicy;
+import com.limelight.binding.video.HdrFormatPolicy;
 import com.limelight.binding.video.HdrPolicy;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
@@ -51,10 +52,12 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.nvstream.jni.NightjarPolicyJni;
+import com.limelight.preferences.HdrFormatChoice;
 import com.limelight.preferences.ControllersChoice;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.StreamLayers;
+import com.limelight.preferences.StreamScreen;
 import com.limelight.ui.AdaptiveLayout;
 import com.limelight.ui.ConnectingScreen;
 import com.limelight.ui.DesktopGestures;
@@ -129,13 +132,15 @@ final class GameStreamUiSetup {
                 game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID),
                 HostCapabilityCache.load(game, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID)),
                 game.getIntent().getStringExtra(Game.EXTRA_APP_UUID),
-                game.getIntent().getIntExtra(Game.EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID), startNetwork);
+                game.getIntent().getIntExtra(Game.EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID), startNetwork,
+                startNetwork == null ? null : StreamScreen.from(game.getIntent()));
         if (DualScreen.isSecond(game.getIntent())) {
             DualScreen.configureSecond(game.prefConfig, game.getWindowManager().getDefaultDisplay());
         }
         game.prefConfig.experimentalPacked444 = PackedFallback.effective(
                 game.prefConfig.experimentalPacked444, game.getIntent().getBooleanExtra(Game.EXTRA_PACKED_OFF, false));
         game.getIntent().putExtra(Game.EXTRA_STREAM_NETWORK, game.prefConfig.layers.network.name());
+        if (game.prefConfig.layers.screen != null) game.prefConfig.layers.screen.putInto(game.getIntent());
         HdrPolicy.setDebugHlgOnly(BuildConfig.DEBUG, game.prefConfig.debugHdrHlgOnly);
         game.overlays.showStreamLayers(game.prefConfig, startNetwork == null);
         game.streamRecovery.readRecoveryBudget(SystemClock.elapsedRealtime());
@@ -179,6 +184,7 @@ final class GameStreamUiSetup {
         });
         game.streamView.setOnKeyListener(game);
         game.streamView.setInputCallbacks(game);
+        game.safeArea.attach(game.streamView);
         game.adaptiveLayout = AdaptiveLayout.attach(game, game.findViewById(android.R.id.content));
         game.adaptiveLayout.setInsetsObserver(game.keyboardInput::onWindowInsets);
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
@@ -282,7 +288,8 @@ final class GameStreamUiSetup {
         if (mediaStream && game.prefConfig.enableHdr) {
             HdrPolicy.Refusal refusal = HdrPolicy.displayRefusal(
                     game.videoOutput.getVideoDisplay(), true,
-                    cachedCaps == null ? 0 : cachedCaps.hdrFormats(),
+                    // Masked as the pick is: HLG cannot stand in under "HDR10 only".
+                    HdrFormatPolicy.masked(cachedCaps == null ? 0 : cachedCaps.hdrFormats(), game.prefConfig.hdrFormat),
                     MediaCodecDecoderRenderer.vulkanSurface(game.prefConfig, false));
             willStreamHdr = refusal == HdrPolicy.Refusal.NONE;
             if (!willStreamHdr) game.overlays.refuseHdr(refusal);
@@ -418,6 +425,7 @@ final class GameStreamUiSetup {
                 .setBitrateLimit(StreamRateChanges.clientLimitKbps(
                         game.prefConfig.layers == null ? null : game.prefConfig.layers.network, game.prefConfig.mobileBitrateLimit))
                 .setFecChoice(game.prefConfig.fecChoice).setRateChange(!smallStream)
+                .setHdrStaticOnly(game.prefConfig.hdrFormat == HdrFormatChoice.HDR10)
                 .setEnableSops(!smallStream && game.prefConfig.enableSops)
                 .enableLocalAudioPlayback(smallStream || game.prefConfig.playHostAudio)
                 .setMaxPacketSize(1392).setRemoteConfiguration(StreamConfiguration.STREAM_CFG_AUTO)
@@ -426,6 +434,7 @@ final class GameStreamUiSetup {
                 .setSharpColor(mediaStream && (game.prefConfig.enableYuv444 || game.prefConfig.experimentalPacked444),
                         game.prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE)
                 .setAttachedGamepadMask(gamepadMask)
+                .setPlayStationGamepadMask(ControllerHandler.getAttachedPlayStationMask(game))
                 .setClientRefreshRateX100(clientRefreshRateX100(launchRefreshRateX100, streamRefreshRate, game.desiredRefreshRate))
                 .setVirtualDisplay(!smallStream && game.prefConfig.virtualDisplay, game.prefConfig.virtualDisplayScale)
                 .setVirtualDisplayDpi(game.prefConfig.virtualDisplayDpi)
@@ -462,6 +471,9 @@ final class GameStreamUiSetup {
         game.desktopGestures = new DesktopGestures(game, game.streamView,
                 game.touchInput::cancelHostTouchInput, game.touchInput::clickRightMouseButton);
         game.trackpadPointer.setViewport(game.desktopGestures.viewport());
+        game.desktopGestures.setOnTransformChanged(() -> {
+            if (game.trackpadPointer != null) game.trackpadPointer.syncCursor();
+        });
         if (game.app.getRole() != NvApp.Role.REMOTE_MONITOR) {
             String profile = TouchLayout.profileKey(
                     game.getIntent().getStringExtra(Game.EXTRA_PC_UUID), game.app.getAppUuid(), game.app.getAppId());

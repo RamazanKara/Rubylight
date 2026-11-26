@@ -96,6 +96,8 @@ public class PreferenceConfiguration extends SettingsCatalogGen {
     public boolean tellHostLinkSpeed = true;
     /** The video FEC asked for at launch from a PC that lets the client choose it; the PC's own by default. */
     public FecChoice fecChoice = FecChoice.HOST;
+    /** "HDR format": what an HDR stream may ask for (list_hdr_format). */
+    public HdrFormatChoice hdrFormat = HdrFormatChoice.AUTO;
     /** Whether the bitrate is automatic for the stream's size and rate. */
     public boolean automaticBitrate;
     /** Link test before the first bitrate (Experimental). */
@@ -415,7 +417,14 @@ public class PreferenceConfiguration extends SettingsCatalogGen {
     /** The settings for a stream of a game from this PC with all layers resolved. */
     public static PreferenceConfiguration readPreferences(Context context, String hostUuid, HostCapabilities caps,
                                                           String appUuid, int appId, StreamLayers.Network network) {
-        return PreferenceReader.readLayered(context, hostUuid, caps, appUuid, appId, network);
+        return readPreferences(context, hostUuid, caps, appUuid, appId, network, null);
+    }
+
+    /** As above; a stream that restarts names the screen it started on with its network. */
+    public static PreferenceConfiguration readPreferences(Context context, String hostUuid, HostCapabilities caps,
+                                                          String appUuid, int appId, StreamLayers.Network network,
+                                                          StreamScreen screen) {
+        return PreferenceReader.readLayered(context, hostUuid, caps, appUuid, appId, network, screen);
     }
 
     /** The codec for all PCs, or the device's own choice when that is PyroWave too. */
@@ -545,6 +554,10 @@ public class PreferenceConfiguration extends SettingsCatalogGen {
 
     static boolean migrateReceiveDecodePriorityDefault(SharedPreferences prefs) {
         return PreferenceMigrations.migrateReceiveDecodePriorityDefault(prefs);
+    }
+
+    static boolean migrateSubmitHintDefault(SharedPreferences prefs) {
+        return PreferenceMigrations.migrateSubmitHintDefault(prefs);
     }
 
     static void retireEngineChoice(SharedPreferences prefs) {

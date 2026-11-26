@@ -72,6 +72,8 @@ pub struct LaunchPlan {
     pub pacing: PacingMode,
     pub vrr: bool,
     pub gamepad_mask: u32,
+    /// The PlayStation controllers among the gamepads (`psmap`).
+    pub playstation_mask: u32,
     pub prepared_controllers: String,
     /// The settings layer that made the "Controllers" choice, for the start's notice when it is Off.
     pub controllers_from: crate::app_types::ControllersFrom,
@@ -185,8 +187,9 @@ pub struct Facts {
     /// Frame Warp's state, shared with the session, while the PC offered it to a stream with the
     /// setting on (`connect::frame_warp_for`).
     pub frame_warp: Option<Arc<nightjar_core::frame_warp::FrameWarp>>,
-    /// The setting is on for a played stream and the PC does not offer Frame Warp.
-    pub frame_warp_refused: bool,
+    /// Why a played stream with the setting on runs without Frame Warp: the PC does not offer
+    /// it, or its streaming app needs updating (`Refusal::None` otherwise).
+    pub frame_warp_refused: super::frame_warp_v2::Refusal,
     #[cfg_attr(not(windows), allow(dead_code))] pub wlan_streaming: bool,
 }
 

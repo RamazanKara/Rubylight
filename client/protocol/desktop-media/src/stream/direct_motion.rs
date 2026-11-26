@@ -175,10 +175,11 @@ struct Frozen {
     rules: Option<Rules>,
     /// The loop's controllers, from before its present until after it.
     pads: Option<Lent>,
-    /// Keys and mouse buttons sent DOWN from the filter and not yet released.
-    sent_keys: HashSet<u16>,
-    sent_buttons: HashSet<u8>,
 }
+
+/// Filter-sent DOWN inputs, separate from `Frozen` so `take_sent_down` never blocks under `Loan::pads`.
+#[derive(Default)]
+struct SentDown { keys: HashSet<u16>, buttons: HashSet<u8> }
 
 /// The main loop's controllers on loan.
 struct Lent(Gamepads);
@@ -208,6 +209,7 @@ struct Shared {
     /// Keys and controller events the main loop has not handled yet.
     queued: AtomicU32,
     frozen: Arc<Mutex<Frozen>>,
+    sent_down: Mutex<SentDown>,
     sent_direct: AtomicU64,
     sent_queued: AtomicU64,
     /// Keys, clicks, wheel turns and controller events that left from the filter.
@@ -333,16 +335,14 @@ unsafe fn route(shared: &Shared, event: &mut SDL_Event) -> bool {
             Verdict::Ordered => {
                 let own = !touchpad
                     && !(kind != SDL_EVENT_MOUSE_WHEEL && shared.touch && matches!(event.button.which, SDL_TOUCH_MOUSEID | SDL_PEN_MOUSEID));
-                let sent = shared.direct(|rules, frozen| {
+                let sent = shared.direct(|rules, _| {
                     let clicks = direct_click(Some(rules), held, own)?;
-                    shared.input.input(|q| match kind {
-                        SDL_EVENT_MOUSE_WHEEL => send_wheel(&event.wheel, q),
-                        // A button the PC doesn't get: the main loop drops it too.
-                        _ => if let Some(button) = mouse_button_code(event.button.button, clicks.nav_buttons) {
-                            if event.button.down { frozen.sent_buttons.insert(button); } else { frozen.sent_buttons.remove(&button); }
-                            let _ = q.send_mouse_button(button, event.button.down);
-                        },
-                    });
+                    if kind == SDL_EVENT_MOUSE_WHEEL {
+                        shared.input.input(|q| send_wheel(&event.wheel, q));
+                    } else if let Some(button) = mouse_button_code(event.button.button, clicks.nav_buttons) {
+                        set_sent(&mut lock(&shared.sent_down).buttons, button, event.button.down);
+                        shared.input.input(|q| { let _ = q.send_mouse_button(button, event.button.down); });
+                    }
                     Some(())
                 });
                 if sent.is_some() {
@@ -359,12 +359,10 @@ unsafe fn route(shared: &Shared, event: &mut SDL_Event) -> bool {
             SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP if event.key.repeat => mark(event, 0, None),
             SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP => {
                 let k = event.key;
-                let sent = shared.direct(|rules, frozen| {
+                let sent = shared.direct(|rules, _| {
                     let key = direct_key(Some(rules), held, k.scancode, k.r#mod, k.down)?;
-                    if k.down { frozen.sent_keys.insert(key.code); } else { frozen.sent_keys.remove(&key.code); }
-                    shared.input.input(|q| {
-                        let _ = q.send_keyboard(0x8000 | key.code, k.down, key.modifiers, key.flags);
-                    });
+                    set_sent(&mut lock(&shared.sent_down).keys, key.code, k.down);
+                    shared.input.input(|q| { let _ = q.send_keyboard(0x8000 | key.code, k.down, key.modifiers, key.flags); });
                     Some(())
                 });
                 if sent.is_some() {
@@ -636,6 +634,7 @@ impl DirectMotion {
             ordered: AtomicU32::new(0),
             queued: AtomicU32::new(0),
             frozen: Arc::new(Mutex::new(Frozen::default())),
+            sent_down: Mutex::new(SentDown::default()),
             sent_direct: AtomicU64::new(0),
             sent_queued: AtomicU64::new(0),
             sent_input: AtomicU64::new(0),
@@ -769,15 +768,16 @@ impl DirectMotion {
     }
 
     /// Takes keys and mouse buttons sent DOWN directly by the filter so `raise_all_keys()` releases them.
-    pub fn take_sent_down(&self) -> (HashSet<u16>, HashSet<u8>) {
-        let mut f = lock(&self.shared.frozen);
-        (std::mem::take(&mut f.sent_keys), std::mem::take(&mut f.sent_buttons))
-    }
-    pub fn is_sent_key_down(&self, code: u16) -> bool { lock(&self.shared.frozen).sent_keys.contains(&code) }
-    pub fn is_sent_button_down(&self, button: u8) -> bool { lock(&self.shared.frozen).sent_buttons.contains(&button) }
-    pub fn clear_sent_key(&self, code: u16) { lock(&self.shared.frozen).sent_keys.remove(&code); }
-    pub fn clear_sent_button(&self, button: u8) { lock(&self.shared.frozen).sent_buttons.remove(&button); }
+    pub fn take_sent_down(&self) -> (HashSet<u16>, HashSet<u8>) { take_sent_down_from(&self.shared.sent_down) }
+    pub fn is_sent_key_down(&self, code: u16) -> bool { lock(&self.shared.sent_down).keys.contains(&code) }
+    pub fn is_sent_button_down(&self, button: u8) -> bool { lock(&self.shared.sent_down).buttons.contains(&button) }
+    pub fn clear_sent_key(&self, code: u16) { lock(&self.shared.sent_down).keys.remove(&code); }
+    pub fn clear_sent_button(&self, button: u8) { lock(&self.shared.sent_down).buttons.remove(&button); }
 }
+
+fn set_sent<T: Eq + std::hash::Hash>(set: &mut HashSet<T>, item: T, down: bool) { if down { set.insert(item); } else { set.remove(&item); } }
+
+fn take_sent_down_from(sent_down: &Mutex<SentDown>) -> (HashSet<u16>, HashSet<u8>) { let mut d = lock(sent_down); (std::mem::take(&mut d.keys), std::mem::take(&mut d.buttons)) }
 
 impl Drop for DirectMotion {
     fn drop(&mut self) {

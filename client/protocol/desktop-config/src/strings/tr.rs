@@ -1759,4 +1759,8 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Add this device’s battery percentage and local time to the compact performance overlay.", "Kompakt performans katmanına bu cihazın pil yüzdesini ve yerel saati ekler."),
     ("macOS restricts Wi-Fi network names (SSIDs) without Location Services permission, so Wi-Fi connections match Other Wi-Fi instead of Home Wi-Fi.", "macOS, Konum Servisleri izni olmadan Wi-Fi ağ adlarını (SSID) kısıtlar; bu nedenle Wi-Fi bağlantıları Ev Wi-Fi’ı yerine Diğer Wi-Fi ile eşleşir."),
     ("The clipboard on this device holds no text.", "Bu cihazın panosunda metin yok."),
+    ("HDR format", "HDR biçimi"),
+    ("No Dolby Vision", "Dolby Vision olmadan"),
+    ("HDR10 only", "Yalnızca HDR10"),
+    ("Automatic uses the best HDR format both sides take; the others leave out Dolby Vision, or everything beyond HDR10. Change it if a format looks wrong; with HDR10 only some PCs may still send HDR10+.", "Otomatik, iki tarafın da desteklediği en iyi HDR biçimini kullanır; diğer seçenekler Dolby Vision’ı veya HDR10 ötesindeki her şeyi çıkarır. Bir biçim yanlış görünürse değiştirin; Yalnızca HDR10 seçiliyken bazı bilgisayarlar yine de HDR10+ gönderebilir."),
 ];

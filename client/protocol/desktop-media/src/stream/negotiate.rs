@@ -338,6 +338,13 @@ pub(super) fn hdr_format(hdr: bool, host_formats: i32, formats: u32, packed444: 
     }
 }
 
+/// [`hdr_format`] for a stream with these settings, whose "HDR format" choice narrows the host's
+/// formats first.
+pub(super) fn settings_hdr_format(settings: &Settings, host_formats: i32, formats: u32, reads_dolby_vision: bool) -> u8 {
+    let host_formats = settings.hdr_format.mask(host_formats);
+    hdr_format(settings.hdr, host_formats, formats, settings.experimental_packed_444, reads_dolby_vision)
+}
+
 /// The Windows draw pass reads Dolby Vision RPUs for its tone map, unless `NIGHTJAR_D3D11_PASS=0`
 /// leaves the pictures to SDL. Nothing else does.
 #[cfg(windows)]

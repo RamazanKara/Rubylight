@@ -231,7 +231,7 @@ impl SessionThread<'_> {
             let waiting_since = Instant::now();
             let deadline = waiting_since + Duration::from_secs(10);
             let mut next_diagnostics = waiting_since + Duration::from_secs(1);
-            let mut woken = false;
+            let mut wakes = 0;
             prepared.log_display_diagnostics("first frame wait");
             loop {
                 // No frame, encoder or filter is owned during startup.
@@ -244,14 +244,13 @@ impl SessionThread<'_> {
                 if now >= next_diagnostics {
                     next_diagnostics = now + Duration::from_secs(1);
                     prepared.log_display_diagnostics("first frame wait");
-                    // An off console display leaves an IddCx path committed
-                    // inactive with no swap chain: no frame can arrive until
-                    // it is woken, as a client's first mouse move does.
-                    if !woken
-                        && now.duration_since(waiting_since) >= Duration::from_secs(1)
-                        && prepared.display_swap_chain() == Some(false)
-                    {
-                        woken = true;
+                    // An off console display, as on a locked PC (#117), gives no
+                    // frame: Windows stops composing a physical display and
+                    // leaves a virtual one's IddCx path without a swap chain.
+                    // Wake it as a client's first mouse move does, on the lock
+                    // screen's desktop when locked, a few times while it powers up.
+                    if butterpollo_media_policy::cold_launch::wake_now(now.duration_since(waiting_since), wakes, prepared.display_swap_chain()) {
+                        wakes += 1;
                         if let Err(error) = butterpollo_win_io::wake::wake_console("first frame wait") {
                             tracing::warn!(error = %format!("{error:#}"), "could not wake the console display while waiting for the first frame");
                         }

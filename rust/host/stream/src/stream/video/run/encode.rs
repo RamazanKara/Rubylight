@@ -73,9 +73,10 @@ pub(super) fn encode_frame(
     direct_encoder_input: bool,
 ) -> Result<EncodeStep> {
     let SessionThread { m, s, .. } = *thread;
-    // RTX HDR uses its own SDR white and scale; otherwise follow Windows' SDR brightness for HDR and FP16.
+    // RTX HDR uses its own SDR white and scale; otherwise follow Windows' SDR brightness for HDR
+    // and an HDR desktop (FP16, or PQ that an SDR stream tone-maps).
     let wanted_luminance = enhancer.luminance().or_else(|| {
-        (stream.hdr || image.pixel == butterpollo_win_graphics::capture::Pixel::RgbaF16)
+        (stream.hdr || image.pixel != butterpollo_win_graphics::capture::Pixel::Bgra8)
             .then(|| (image.gpu.sdr_white_nits(), 1.0))
     });
     if let Some((white, scale)) = wanted_luminance

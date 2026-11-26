@@ -17,7 +17,7 @@
     <string name="title_experimental_chipset_tuning">Ajuste do chipset</string>
     <string name="summary_experimental_chipset_tuning">Pode impedir a decodificação em alguns dispositivos. Dá aos decodificadores MediaTek Dimensity e Samsung Exynos ajustes extras de baixa latência feitos para reduzir o atraso de decodificação; outros chipsets não são afetados. Deixe desligado, a menos que o decodificador fique para trás.</string>
     <string name="title_tv_display_compatibility">Manter o vídeo da TV fluido</string>
-    <string name="summary_tv_display_compatibility">Para TVs e TV boxes cuja imagem trava, congela, pisca ou reinicia com o tempo se nada for desenhado sobre ela, como a sobreposição de desempenho. Ativado por padrão em TVs. Custa um ponto quase preto no canto superior esquerdo, redesenhado dez vezes por segundo.</string>
+    <string name="summary_tv_display_compatibility">Deixe desativado na maioria das TVs: o Nightjar ativa automaticamente uma camada invisível do compositor se o ritmo de exibição travar ou congelar. Ative para forçar essa camada desde o início em TVs que engasgam, piscam ou reiniciam imediatamente.</string>
     <string name="scut_deleted_pc">PC excluído</string>
     <string name="scut_not_paired">PC não pareado</string>
     <string name="scut_pc_not_found">PC não encontrado</string>
@@ -571,4 +571,15 @@
     <string name="summary_hdr_shield_firmware_update">Atualize o firmware da sua NVIDIA SHIELD Android TV para ativar o HDR</string>
     <string name="full_range_vulkan_switched">O decodificador ignorou a faixa completa. Mudou para Vulkan para manter os pretos certos.</string>
     <string name="full_range_vulkan_unavailable">Faixa completa ignorada e sem Vulkan: pretos errados. Desative “Faixa de cor completa”.</string>
+    <string name="launch_warning_virtual_display_unavailable">A tela virtual do PC não está disponível, então esta transmissão mostra a tela física.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">Este dispositivo pediu a tela do próprio PC, então a transmissão não usa uma tela virtual.</string>
+    <string name="frame_warp_update_host">Frame Warp está desligado: precisa da versão atual do Nightjar e do app de streaming do PC.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: precisa da versão atual no PC</string>
+    <string name="frame_warp_overlay_confidence">%1$s, confiança %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, confiança %2$s%%, giroscópio travado</string>
+    <string name="title_hdr_format">Formato HDR</string>
+    <string name="summary_hdr_format">Automático usa o melhor formato HDR aceito pelos dois lados; as outras opções deixam de fora o Dolby Vision ou tudo além do HDR10. Mude se um formato ficar errado; com Somente HDR10, alguns PCs ainda podem enviar HDR10+.</string>
+    <string name="hdr_format_auto">Automático</string>
+    <string name="hdr_format_no_dolby_vision">Sem Dolby Vision</string>
+    <string name="hdr_format_hdr10">Somente HDR10</string>
 </resources>

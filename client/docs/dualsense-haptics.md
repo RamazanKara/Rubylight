@@ -1,4 +1,4 @@
-# USB DualSense audio and haptics
+# DualSense audio and haptics
 
 [Nightjar docs](index.md) › [Controllers](index.md#controllers) · [Controls](controls.md#dualsense-and-usb) · [Settings](settings.md)
 
@@ -20,6 +20,14 @@ For gyro aiming and radial menus, enable controller motion in Nightjar and confi
 
 The Android log reports `DualSense USB waveform backend ready` only after a silent USB audio transfer succeeds. If the phone's USB implementation cannot provide that output, Nightjar keeps ordinary controller feedback and does not advertise waveform support. Reconnect to retry after an output failure.
 
+## Bluetooth on Windows and Linux
+
+Nightjar for Windows and Linux also plays the controller speaker and waveform haptics on a DualSense or DualSense Edge connected by Bluetooth, with the same **USB DualSense audio and haptics** switch. It sends Sony's Bluetooth audio reports (one every 10.67 ms, the speaker as a 160 kb/s Opus packet and the haptics at 3 kHz) through its own connection to the controller, while SDL keeps its input, rumble, lights and triggers. A silent report at stream start checks that the controller takes them; if it does not, the controller keeps ordinary rumble. Reports go only while the host sends sound or haptics, and speaker sound alone leaves ordinary rumble working. Over Bluetooth there is no headset routing and no controller microphone.
+
+## Hosts that send Nonary's speaker format
+
+With a host that sends a PlayStation controller's speaker in Nonary's format (message `0x5602`, as Vibepollo does) and offers neither Rubylight's controller speaker (`0x5533`) nor Foundation Sunshine's touchpad packets, Nightjar for Windows and Linux asks for it (connection feature `0x08`) while the switch is on. Before each arrival of a DualSense that plays sound, over USB or Bluetooth, it sends a 20-byte binding (input packet `0x55000009`) with a fresh owner and capability `0x4000`, and plays only the blocks of that owner, in order. A Steam Controller's `0x4000` is left alone, and Rubylight hosts keep `0x5533`.
+
 ## Troubleshooting missing feedback
 
 After reproducing the problem, use **Settings → App → Report a problem** without closing the app. Include the phone and Android version, controller model, USB connection, exact host version and game. On Vibepollo, also check that the optional **DualSense USB audio and haptics** installer component is installed and the host presents a DualSense to the game. A client setting alone cannot enable the host's audio endpoint or a game's native effects.
@@ -30,7 +38,7 @@ A pending USB controller's input waits for its type and capabilities to be queue
 
 ## Limitations
 
-- **USB only.** Android's standard Bluetooth controller path does not expose raw waveform output. This option does not convert the samples into phone vibration or ordinary rumble.
+- **USB only on Android.** Android without root lets no app send Sony's Bluetooth audio reports to a controller, so there the speaker and waveform haptics need USB; Nightjar does not work around this. This option does not convert the samples into phone vibration or ordinary rumble. macOS plays them over USB only too.
 - **Additional audio needs a host that supports it (Rubylight).** With a waveform-only host, use another audio device for sound and microphone input. Disable this option and reconnect the controller to restore Android's normal USB audio ownership.
 - **Host and game support are required.** Advertising the extension does not generate effects on a host or in a game that does not send waveform samples.
 - **Device compatibility.** The USB backend checks the controller's descriptors and transfer support. Unsupported USB configurations retain ordinary feedback. Automated checks cover packets and sample handling; physical sound, haptics and headset switching still need validation on the target devices.

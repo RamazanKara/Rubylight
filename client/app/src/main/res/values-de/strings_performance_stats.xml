@@ -21,4 +21,6 @@
     <string name="hardware_gpu_fan_voltage">Spannung: %1$s mV · Lüfter: %2$s U/min (%3$s%%)</string>
     <string name="hardware_gpu_power">GPU-Leistung: %1$s W · Board-Leistung: %2$s W</string>
     <string name="hardware_gpu_memory">VRAM: %1$s MB (%2$s%%)</string>
+    <string name="hardware_gpu_encoder_summary">Encoder %1$s%%</string>
+    <string name="hardware_gpu_encoder">Video-Encoder: %1$s%%</string>
 </resources>

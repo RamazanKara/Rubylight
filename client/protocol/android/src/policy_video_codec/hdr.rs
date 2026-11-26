@@ -374,6 +374,16 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarPolicyJni_hdrForm
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarPolicyJni_hdrFormatMask(
+    _: JNIEnv,
+    _: JClass,
+    host_formats: jint,
+    choice_ordinal: jint,
+) -> jint {
+    hdr::HdrFormatChoice::from_ordinal(choice_ordinal).mask(host_formats)
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarPolicyJni_hdrFormatSurface(
     _: JNIEnv,
     _: JClass,

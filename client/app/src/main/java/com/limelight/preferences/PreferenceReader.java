@@ -44,7 +44,8 @@ final class PreferenceReader {
     }
 
     static PreferenceConfiguration readLayered(Context context, String hostUuid, HostCapabilities caps,
-                                               String appUuid, int appId, StreamLayers.Network network) {
+                                               String appUuid, int appId, StreamLayers.Network network,
+                                               StreamScreen screen) {
         PreferenceConfiguration config = readGlobal(context);
         if (hostUuid != null) config.applyLowerBitrate(AutoBitrateChoice.forPc(context, hostUuid));
         PreferenceConfiguration.FormatOption allPcsFormat = config.videoFormat;
@@ -54,7 +55,9 @@ final class PreferenceReader {
         if (network == null) {
             StreamNetwork.fill(context, input);
         } else {
+            // A restart or a second stream picks as its stream did when it started.
             input.network = network;
+            input.screen = screen;
         }
         StreamLayers.Result layers = StreamLayers.resolve(input);
         config.layers = layers;
@@ -118,6 +121,9 @@ final class PreferenceReader {
         }
         if (PreferenceMigrations.migrateReceiveDecodePriorityDefault(prefs)) {
             com.limelight.LimeLog.info("Decoder priority for receiving switched to its new default: on");
+        }
+        if (PreferenceMigrations.migrateSubmitHintDefault(prefs)) {
+            com.limelight.LimeLog.info("Speed up frame hand-off switched to its new default: on");
         }
         FoldedChoice.migrate(prefs);
         PreferenceConfiguration config = new PreferenceConfiguration();
@@ -271,6 +277,8 @@ final class PreferenceReader {
         config.oscSteamControls = prefs.getBoolean(OSC_STEAM_CONTROLS_PREF_STRING, OSC_STEAM_CONTROLS_DEFAULT);
         config.enableHdr = prefs.getBoolean(ENABLE_HDR_PREF_STRING, DEFAULT_ENABLE_HDR)
                 && !PreferenceConfiguration.isShieldAtvFirmwareWithBrokenHdr();
+        config.hdrFormat = HdrFormatChoice.fromPreference(
+                prefs.getString(HdrFormatChoice.PREF_KEY, HdrFormatChoice.AUTO.value));
         config.enableSdr10Bit = prefs.getBoolean(ENABLE_SDR10_PREF_STRING, DEFAULT_ENABLE_SDR10);
         config.enablePip = prefs.getBoolean(ENABLE_PIP_PREF_STRING, DEFAULT_ENABLE_PIP);
         config.autoReconnect = prefs.getBoolean(AUTO_RECONNECT_PREF_STRING, DEFAULT_AUTO_RECONNECT);

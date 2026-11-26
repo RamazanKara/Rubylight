@@ -17,7 +17,7 @@
     <string name="title_experimental_chipset_tuning">Yonga seti ayarı</string>
     <string name="summary_experimental_chipset_tuning">Bazı cihazlarda kod çözmeyi bozabilir. MediaTek Dimensity ve Samsung Exynos kod çözücülerine, kod çözme gecikmesini azaltmaya yönelik ek düşük gecikme ayarları verir; diğer yonga setleri etkilenmez. Kod çözücü geride kalmıyorsa kapalı bırakın.</string>
     <string name="title_tv_display_compatibility">TV videosu akıcı kalsın</string>
-    <string name="summary_tv_display_compatibility">Görüntünün üzerine performans katmanı gibi bir şey çizilmediğinde zamanla takılan, donan, yanıp sönen veya yeniden başlayan televizyonlar ve TV kutuları için. Televizyonlarda varsayılan olarak açıktır. Maliyeti, sol üst köşede saniyede on kez yeniden çizilen neredeyse siyah bir nokta.</string>
+    <string name="summary_tv_display_compatibility">Çoğu TV\'de kapalı bırakın: Görüntü zamanlaması takılır veya donarsa Nightjar görünmez bir kompozitör katmanını otomatik olarak açar. Hemen takılan, yanıp sönen veya yeniden başlayan TV\'lerde bu katmanı baştan zorlamak için açın.</string>
     <string name="scut_deleted_pc">Bilgisayar silindi</string>
     <string name="scut_not_paired">Bilgisayar eşleştirilmedi</string>
     <string name="scut_pc_not_found">Bilgisayar bulunamadı</string>
@@ -571,4 +571,15 @@
     <string name="summary_hdr_shield_firmware_update">HDR’yi etkinleştirmek için NVIDIA SHIELD Android TV’nizin ürün yazılımını güncelleyin</string>
     <string name="full_range_vulkan_switched">Kod çözücü tam aralığı bıraktı. Siyahlar doğru kalsın diye Vulkan\'a geçildi.</string>
     <string name="full_range_vulkan_unavailable">Tam aralık bırakıldı, Vulkan yok: siyahlar yanlış olabilir. “Tam renk aralığı”nı kapatın.</string>
+    <string name="launch_warning_virtual_display_unavailable">Bilgisayarın sanal ekranı kullanılamıyor, bu yüzden bu yayın fiziksel ekranını gösteriyor.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">Bu cihaz bilgisayarın kendi ekranını istedi, bu yüzden yayın sanal ekran kullanmıyor.</string>
+    <string name="frame_warp_update_host">Frame Warp kapalı: Nightjar’ın ve bilgisayardaki yayın uygulamasının güncel sürümü gerekiyor.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: bilgisayarda güncel sürüm gerekiyor</string>
+    <string name="frame_warp_overlay_confidence">%1$s, güven %%%2$s</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, güven %%%2$s, jiroskop kilitli</string>
+    <string name="title_hdr_format">HDR biçimi</string>
+    <string name="summary_hdr_format">Otomatik, iki tarafın da desteklediği en iyi HDR biçimini kullanır; diğer seçenekler Dolby Vision’ı veya HDR10 ötesindeki her şeyi çıkarır. Bir biçim yanlış görünürse değiştirin; Yalnızca HDR10 seçiliyken bazı bilgisayarlar yine de HDR10+ gönderebilir.</string>
+    <string name="hdr_format_auto">Otomatik</string>
+    <string name="hdr_format_no_dolby_vision">Dolby Vision olmadan</string>
+    <string name="hdr_format_hdr10">Yalnızca HDR10</string>
 </resources>

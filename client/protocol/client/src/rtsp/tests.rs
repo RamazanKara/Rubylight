@@ -1,5 +1,6 @@
 //! Unit tests for the RTSP handshake state machine, extensions, encrypted framing and helpers.
 
+mod dolby_ss;
 mod packed;
 
 use super::transport::{rtsp_iv, ENCRYPTED_HEADER, ENCRYPTED_RTSP_BIT};

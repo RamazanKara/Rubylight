@@ -244,6 +244,7 @@ public class SettingsCatalogGen {
     static final String PC_PROFILES_OVERRIDES_PREF_STRING = "pc_profiles_overrides";
     static final String AUTO_RECONNECT_DEFAULT_ON_PREF_STRING = "auto_reconnect_default_on";
     static final String RECEIVE_DECODE_PRIORITY_DEFAULT_ON_PREF_STRING = "receive_decode_priority_default_on";
+    static final String SUBMIT_HINT_DEFAULT_ON_PREF_STRING = "submit_hint_default_on";
     static final String CODEC_LOW_LATENCY_CORRUPTION_OFF_PREF_STRING = "codec_low_latency_corruption_off";
     static final String OVERLAY_MODE_PREF_STRING = "performance_overlay_mode";
     static final String OVERLAY_POSITION_PREF_STRING = "performance_overlay_position";

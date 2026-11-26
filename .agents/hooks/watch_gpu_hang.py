@@ -36,6 +36,34 @@ EXIT_CODE_3_RE = re.compile(
 )
 
 
+HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.DOTALL | re.MULTILINE)
+SEGMENT_SPLIT_RE = re.compile(r"(?:&&|\|\||[;|\n])")
+READER_WORDS = frozenset({
+    "sed", "cat", "grep", "rg", "head", "tail", "less", "more", "awk", "echo", "printf", "git",
+    "diff", "wc", "ls", "find", "type", "get-content", "select-string", "code", "notepad",
+})
+
+
+def runs_watched_runner(cmd: str) -> bool:
+    """True when a command segment runs a watched runner, not when it only mentions one.
+
+    Heredoc bodies and segments led by a reader (sed, cat, grep, git, echo...) are skipped, so
+    reading `tools/hw/run.py` or writing a note that names `soak.py` never counts as a run.
+    """
+    body = HEREDOC_RE.sub("", cmd)
+    for segment in SEGMENT_SPLIT_RE.split(body):
+        words = segment.strip().split()
+        if not words:
+            continue
+        while words and "=" in words[0] and not words[0].startswith(("-", "/", "\\")):
+            words = words[1:]  # leading VAR=value assignments
+        if not words or words[0].lower().rsplit("/", 1)[-1] in READER_WORDS:
+            continue
+        if WATCHED_CMD_RE.search(" ".join(words)):
+            return True
+    return False
+
+
 def _check_transcript_exit_3(payload: dict[str, Any]) -> bool:
     transcript_raw = payload.get("transcript_path") or payload.get("transcriptPath")
     if not isinstance(transcript_raw, str) or not transcript_raw:
@@ -159,7 +187,7 @@ def process_post_tool(payload: dict[str, Any], *, agents_dir: pathlib.Path) -> b
     tool_name, cmd = _extract_tool_and_cmd(payload)
     if tool_name not in SHELL_TOOLS:
         return False
-    if not cmd or not WATCHED_CMD_RE.search(cmd):
+    if not cmd or not runs_watched_runner(cmd):
         return False
     if not _is_exit_code_3(payload):
         return False

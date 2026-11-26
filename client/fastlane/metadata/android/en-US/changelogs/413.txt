@@ -1,0 +1,5 @@
+- Pinch to zoom freely (0.5x–4x) and drag the stream past black borders so corner controls stay reachable.
+- Fixes startup crash on devices with no 24-bit colour + depth mode.
+- Adds HDR format under More video settings (turn Dolby Vision off or stream plain HDR10 only).
+- Speed up frame hand-off is now on by default.
+- Keep TV video smooth activates automatically without a visible corner dot when TV display pacing stalls; toggle remains for starting with it on.

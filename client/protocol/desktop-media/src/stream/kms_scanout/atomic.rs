@@ -5,7 +5,7 @@ use nightjar_core::control::HdrMetadata;
 use crate::kms::drm::{self, Card, Framebuffer, ModeInfo, Props};
 use crate::kms::plan::{self, Layout, Object, Plane, Value};
 
-use super::{caps_of, picture_rect, Engaged, OverlayPlane, Scanout, Viewport, Wishes};
+use super::{caps_of, picture_rect, Engaged, FbCache, FbKey, OverlayPlane, Scanout, Viewport, Wishes, FB_CACHE_CAPACITY};
 
 impl Scanout {
     /// The first picture (its framebuffer `fb`): the card's state now, the layout a test commit
@@ -15,7 +15,7 @@ impl Scanout {
         &mut self,
         layout: plan::FbLayout,
         fb: Framebuffer,
-        (surface, generation): (u32, crate::dmabuf::Generation),
+        (key, generation, pool): (FbKey, crate::dmabuf::Generation, crate::dmabuf::FramesRef),
         visible: (i32, i32),
         (hdr, color): (Option<HdrMetadata>, (i32, i32)),
         viewport: &Viewport<'_>,
@@ -60,9 +60,11 @@ impl Scanout {
         let next_fb = fb.id;
         let vrr_on = plan::vrr_engaged(&caps_of(&snapshot.connector, &snapshot.crtc), self.wishes.vrr);
         let (fmt, modifier) = (layout.format, layout.modifier);
+        let mut fbs = FbCache::new(FB_CACHE_CAPACITY);
+        fbs.insert(key, (fb, layout), |_| true);
         let mut engaged = Engaged {
-            snapshot, layout: layouts[0].clone(), format: (fmt, modifier), generation: Some(generation),
-            fbs: vec![(surface, fb, layout)], retired: Vec::new(), next_fb, shown_fb: 0, rect, shown_rect: None,
+            snapshot, layout: layouts[0].clone(), format: (fmt, modifier), generation: Some(generation), pool,
+            fbs, retired: Vec::new(), fbs_made: 1, fbs_reused: 0, next_fb, shown_fb: 0, rect, shown_rect: None,
             on_screen: None,
             overlay: OverlayPlane { plane: 0, buffers: overlay_buffers, front: 0, shown: false, change: None, last_canvas: Vec::new() },
             background: None, hdr, color, blobs: Vec::new(), restore: Vec::new(), props_dirty: true, vrr_on,

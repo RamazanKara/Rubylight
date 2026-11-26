@@ -25,6 +25,39 @@ pub(super) async fn pair(
 pub(super) fn another_device_pairing(existing: Option<(&str, bool)>, certificate: &str) -> bool {
     existing.is_some_and(|(theirs, active)| active && theirs != certificate)
 }
+/// How many tray pairing notices one peer (an IPv4 address or an IPv6 /64, which a whole home
+/// network may share) raises in [`NOTICE_WINDOW`]: enough for a request cancelled and tried again
+/// or a second device of the same network, few enough that a device asking again and again
+/// doesn't flood the desktop. The console lists every request.
+const NOTICE_BURST: usize = 3;
+const NOTICE_WINDOW: Duration = Duration::from_secs(30);
+type Notices = std::collections::BTreeMap<std::net::IpAddr, Vec<Instant>>;
+static NOTICES: std::sync::Mutex<Notices> = std::sync::Mutex::new(Notices::new());
+
+/// Whether `peer` may raise the tray's pairing notice at `now`, and if so, counts it. Only a
+/// notice that shows counts.
+pub(super) fn may_notify(notices: &mut Notices, peer: std::net::IpAddr, now: Instant) -> bool {
+    notices.retain(|_, shown| {
+        shown.retain(|at| now.saturating_duration_since(*at) < NOTICE_WINDOW);
+        !shown.is_empty()
+    });
+    let shown = notices
+        .entry(crate::network::peer_group(peer.to_canonical()))
+        .or_default();
+    if shown.len() >= NOTICE_BURST {
+        return false;
+    }
+    shown.push(now);
+    true
+}
+
+/// Whether two peers count as one for the pairing limits: the same IPv4 address, or the same IPv6
+/// /64, whose privacy addresses one device rotates through.
+fn same_peer(a: std::net::IpAddr, b: std::net::IpAddr) -> bool {
+    let group = |ip: std::net::IpAddr| crate::network::peer_group(ip.to_canonical());
+    group(a) == group(b)
+}
+
 pub fn pairing_id(id: &str, peer: std::net::IpAddr) -> String {
     format!(
         "{}_{}",
@@ -105,7 +138,10 @@ pub async fn do_pair(
             .unwrap()
             .sessions
             .values()
-            .filter(|p| p.peer == Some(peer) && p.created.elapsed() < Duration::from_secs(300))
+            .filter(|p| {
+                p.peer.is_some_and(|theirs| same_peer(theirs, peer))
+                    && p.created.elapsed() < Duration::from_secs(300)
+            })
             .count()
             >= 2
         {
@@ -173,8 +209,12 @@ pub async fn do_pair(
             if pins.len() >= 32 {
                 bail!("pairing request limit reached");
             }
-            let address_key = id.rsplit_once('_').unwrap().1;
-            if pins.keys().filter(|key| key.ends_with(address_key)).count() >= 2 {
+            if pins
+                .values()
+                .filter(|pending| same_peer(pending.address, peer))
+                .count()
+                >= 2
+            {
                 bail!("pairing request limit reached for this address");
             }
             pins.insert(
@@ -209,8 +249,10 @@ pub async fn do_pair(
             created,
         };
         tracing::info!(client=%name,%peer,"Pairing PIN required in the web interface");
-        let (title, text) = crate::state::pairing_notice(&name, peer);
-        butterpollo_win_io::tray::notify_pairing(&id, &title, &text);
+        if may_notify(&mut NOTICES.lock().unwrap(), peer, Instant::now()) {
+            let (title, text) = crate::state::pairing_notice(&name, peer);
+            butterpollo_win_io::tray::notify_pairing(&id, &title, &text);
+        }
         let response = tokio::time::timeout(Duration::from_secs(300), receiver).await;
         drop(guard);
         let (pin, name, permission, approver) = response
@@ -450,4 +492,49 @@ pub(super) async fn unpair(
     end_device(&h, device);
     release_device(&h, device);
     xml(200, &[("unpaired", "1".into())], None)
+}
+
+#[cfg(test)]
+mod notice_tests {
+    use super::*;
+
+    #[test]
+    fn one_peer_raises_three_tray_notices_per_30_seconds_across_its_ipv6_prefix() {
+        let mut notices = Notices::new();
+        let start = Instant::now();
+        let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+        assert!(may_notify(&mut notices, ip("fd00:1:2:3::1"), start));
+        // A request tried again and a second device of the same /64 still raise theirs.
+        let soon = start + Duration::from_secs(5);
+        assert!(may_notify(&mut notices, ip("fd00:1:2:3::1"), soon));
+        assert!(may_notify(&mut notices, ip("fd00:1:2:3:aaaa::9"), soon));
+        // A fourth within the window, from any address of the prefix, waits.
+        assert!(!may_notify(&mut notices, ip("fd00:1:2:3:bbbb::7"), soon));
+        // Another prefix and an IPv4 peer have their own count, however the address is written.
+        assert!(may_notify(&mut notices, ip("fd00:1:2:4::1"), soon));
+        for _ in 0..NOTICE_BURST {
+            assert!(may_notify(&mut notices, ip("::ffff:192.168.4.9"), soon));
+        }
+        assert!(!may_notify(&mut notices, ip("192.168.4.9"), soon));
+        // The first notice leaves the window: one more may show.
+        assert!(may_notify(
+            &mut notices,
+            ip("fd00:1:2:3::2"),
+            start + NOTICE_WINDOW
+        ));
+        assert!(!may_notify(
+            &mut notices,
+            ip("fd00:1:2:3::2"),
+            start + NOTICE_WINDOW
+        ));
+    }
+
+    #[test]
+    fn the_pairing_limits_count_an_ipv6_prefix_as_one_peer() {
+        let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+        assert!(same_peer(ip("fd00:1:2:3::1"), ip("fd00:1:2:3:ffff::2")));
+        assert!(!same_peer(ip("fd00:1:2:3::1"), ip("fd00:1:2:4::1")));
+        assert!(same_peer(ip("::ffff:10.0.0.2"), ip("10.0.0.2")));
+        assert!(!same_peer(ip("10.0.0.2"), ip("10.0.0.3")));
+    }
 }

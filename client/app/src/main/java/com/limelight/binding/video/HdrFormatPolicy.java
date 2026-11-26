@@ -3,6 +3,7 @@ package com.limelight.binding.video;
 import android.media.MediaFormat;
 
 import com.limelight.nvstream.jni.NightjarPolicyJni;
+import com.limelight.preferences.HdrFormatChoice;
 
 /**
  * The HDR format beyond stock HDR10 that this client asks a Rubylight 3.0 host for
@@ -99,6 +100,11 @@ public final class HdrFormatPolicy {
     public static final int OFFER_FLAGS = PYROWAVE_HLG | DV_81_FULL_RANGE;
 
     public static final String MIME_DOLBY_VISION = "video/dolby-vision";
+
+    /** The host's HdrFormats as the "HDR format" choice may ask from them. */
+    public static int masked(int hostFormats, HdrFormatChoice choice) {
+        return NightjarPolicyJni.hdrFormatMask(hostFormats, choice == null ? 0 : choice.ordinal());
+    }
 
     /**
      * @param hostFormats  the host's HdrFormats bits and offer flags (serverinfo), 0 when it lists none

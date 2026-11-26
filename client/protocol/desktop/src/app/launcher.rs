@@ -107,6 +107,7 @@ impl App {
         }
         if another_display(kind) {
             self.gui.set_refresh(display_of(self.window).refresh_hz);
+            self.launcher.profiles.screen = screen_of(self.window);
         }
         // SAFETY: SDL cursor calls on the main thread.
         match self.pointer.input(pointer_input(event)) {
@@ -157,6 +158,25 @@ impl App {
         self.attempts.reap();
         for ended in self.attempts.drain_teardowns() {
             self.push_teardown(ended);
+        }
+        // A controller paused while it was forwarded over USB comes back after the stream.
+        if self.pads.arbitration_due() {
+            for why in self.pads.arbitrate(None) {
+                self.launcher.notify(tr("Controller not connected"), why.message());
+            }
+        }
+        // What Nightjar left shared in usbipd-win when it stopped: asked about once at start.
+        #[cfg(windows)]
+        {
+            use nightjar_desktop_media::usb_windows;
+            if let Some(count) = usb_windows::take_start_notice() {
+                self.launcher.ask_after(Dialog::ConfirmUsbGiveBack { count });
+            }
+            match usb_windows::take_given_back() {
+                Some(Ok(count)) if count > 0 => self.launcher.toast(trf("USB devices given back to Windows: {}", &[&count])),
+                Some(Err(why)) => self.launcher.notify(tr("USB devices"), why),
+                _ => {}
+            }
         }
         #[cfg(target_os = "linux")]
         self.apply_renderer_choice();

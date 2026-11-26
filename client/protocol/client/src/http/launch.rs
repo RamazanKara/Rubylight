@@ -3,6 +3,7 @@
 
 use super::apps::AppRole;
 use super::capabilities::{Family, Feature, HostCapabilities};
+use super::launch_warning::LaunchWarning;
 use super::luminance::DisplayLuminance;
 use super::transport::encode_query;
 use super::{
@@ -60,6 +61,9 @@ pub struct LaunchRequest {
     /// Rubylight's prepared controller list (`rlControllers`), empty for none.
     pub prepared_controllers: String,
     pub gamepad_mask: u32,
+    /// The slots in `gamepad_mask` that hold PlayStation controllers (`psmap`), so a host can
+    /// prepare DualShock or DualSense pads for them; sent masked by `gamepad_mask`.
+    pub playstation_mask: u32,
     pub persist_gamepads: bool,
     /// The video FEC to ask for (`rlFecPercentage`); `None`, and any host without
     /// `Feature::ClientFec`, keep the host's own.
@@ -82,6 +86,9 @@ pub struct LaunchRequest {
     pub rtx_hdr: Option<bool>,
     /// RTX Video enhancement for this stream (`rlRtxVideo`), as `rtx_hdr`.
     pub rtx_video: Option<bool>,
+    /// "HDR10 only": asks an HDR stream without HDR10+ and HDR Vivid (`rlHdrDynamic=0`). Sent
+    /// only to hosts with [`HostCapabilities::hdr_dynamic_control`].
+    pub hdr_static_only: bool,
 }
 
 impl Default for LaunchRequest {
@@ -111,6 +118,7 @@ impl Default for LaunchRequest {
             ri_key_id: 0,
             prepared_controllers: String::new(),
             gamepad_mask: 0,
+            playstation_mask: 0,
             persist_gamepads: false,
             fec: None,
             rate_change: false,
@@ -119,6 +127,7 @@ impl Default for LaunchRequest {
             display_luminance: None,
             rtx_hdr: None,
             rtx_video: None,
+            hdr_static_only: false,
         }
     }
 }
@@ -425,6 +434,9 @@ impl LaunchRequest {
         q.push_str(&format!(
             "&remoteControllersBitmap={gamepads}&gcmap={gamepads}"
         ));
+        // Additive: hosts that do not read it ignore it.
+        let playstation = self.playstation_mask & gamepads & 0xFFFF;
+        q.push_str(&format!("&psmap={playstation}"));
         let persist = self.role != AppRole::RemoteMonitor && self.persist_gamepads;
         q.push_str(&format!("&gcpersist={}", u8::from(persist)));
         // The display's luminance as Moonlight V+ sends it to Sunshine-family hosts; a Rubylight
@@ -462,6 +474,12 @@ impl LaunchRequest {
                 q.push_str(&format!("&{name}={value}"));
             }
         }
+        if self.hdr_static_only && self.hdr && !input_only && caps.hdr_dynamic_control() {
+            q.push_str(&format!(
+                "&{}=0",
+                rubylight_protocol::hdr::DYNAMIC_LAUNCH_PARAMETER
+            ));
+        }
         q.push_str(CORE_LAUNCH_PARAMETERS);
         q
     }
@@ -472,6 +490,8 @@ impl LaunchRequest {
 pub struct Launched {
     /// `sessionUrl0`: the RTSP URL (rtsp:// or rtspenc://); missing on old GFE.
     pub rtsp_session_url: Option<String>,
+    /// A non-fatal setup fallback to show once the stream runs ([`LaunchWarning`]).
+    pub warning: Option<LaunchWarning>,
 }
 
 /// Reads a launch (`resume` false) or resume reply; None when the host answered 0.
@@ -483,6 +503,7 @@ pub fn parse_launch_reply(text: &str, resume: bool) -> Result<Option<Launched>, 
     }
     Ok(Some(Launched {
         rtsp_session_url: root.find_text("sessionUrl0"),
+        warning: super::launch_warning::parse(text, &root),
     }))
 }
 

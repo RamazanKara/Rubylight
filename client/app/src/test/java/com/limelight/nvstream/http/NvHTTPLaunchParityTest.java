@@ -135,6 +135,16 @@ public class NvHTTPLaunchParityTest {
     }
 
     @Test
+    public void hdr10OnlyAsksAHostThatCanToLeaveOutDynamicMetadata() throws Exception {
+        ConnectionContext context = context("rubylight-30-serverinfo.xml");
+        context.hostCaps = TestHosts.caps(TestHosts.serverInfo("rubylight-30-serverinfo.xml")
+                .replace("</root>", "<HdrDynamicControl>1</HdrDynamicControl></root>"));
+        assertNull(query(context, true).queryParameter("rlHdrDynamic"));
+        context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(60).setHdrStaticOnly(true).build();
+        assertEquals("0", query(context, true).queryParameter("rlHdrDynamic"));
+    }
+
+    @Test
     public void theFecChoiceGoesOnlyToAHostThatTakesIt() throws Exception {
         assertFalse(context("butterpollo-serverinfo.xml").hostCaps.has(HostCapabilities.Feature.CLIENT_FEC));
         assertTrue(context("rubylight-30-serverinfo.xml").hostCaps.has(HostCapabilities.Feature.CLIENT_FEC));

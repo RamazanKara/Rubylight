@@ -1759,4 +1759,8 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("Add this device’s battery percentage and local time to the compact performance overlay.", "將此裝置的電池電量和本地時間加入精簡效能覆蓋層中。"),
     ("macOS restricts Wi-Fi network names (SSIDs) without Location Services permission, so Wi-Fi connections match Other Wi-Fi instead of Home Wi-Fi.", "macOS 在未授予「定位服務」權限時會限制讀取 Wi-Fi 網路名稱（SSID），因此 Wi-Fi 連線會比對「其他 Wi-Fi」而非「家用 Wi-Fi」。"),
     ("The clipboard on this device holds no text.", "此裝置的剪貼簿中沒有文字。"),
+    ("HDR format", "HDR 格式"),
+    ("No Dolby Vision", "不使用 Dolby Vision"),
+    ("HDR10 only", "僅 HDR10"),
+    ("Automatic uses the best HDR format both sides take; the others leave out Dolby Vision, or everything beyond HDR10. Change it if a format looks wrong; with HDR10 only some PCs may still send HDR10+.", "「自動」使用兩端都支援的最佳 HDR 格式；其他選項會去掉 Dolby Vision，或 HDR10 以外的一切。某種格式顯示異常時請更改；選擇「僅 HDR10」後，部分電腦仍可能傳送 HDR10+。"),
 ];

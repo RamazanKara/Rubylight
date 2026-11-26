@@ -5,8 +5,8 @@
 //! milliseconds each); a local fuzz run raises it to about a minute per target.
 
 use crate::{
-    audio_ext, control, controller_identity, cursor_shape, fec_report, frame_warp, keyboard_layout, pairing_uri,
-    pen, phase_lock, pipeline_rates, rate_change, roaming, steam_controller, text_input, transport_feedback, usb, usbip,
+    audio_ext, control, controller_identity, cursor_shape, fec_report, frame_warp, frame_warp_v2, keyboard_layout, pairing_uri,
+    pen, phase_lock, pipeline_rates, ps_speaker_pcm, rate_change, roaming, steam_controller, text_input, transport_feedback, usb, usbip,
 };
 use alloc::{string::String, vec, vec::Vec};
 use proptest::collection::vec;
@@ -264,21 +264,6 @@ round_trip!(
     |v| v.encode()
 );
 round_trip!(
-    frame_warp_request,
-    (any::<bool>(), any::<u8>(), 0u16..2100, any::<bool>()).prop_map(|(enabled, controller, mask_max_width, lens)| {
-        frame_warp::FrameWarpRequest {
-            enabled,
-            controller: (controller < 20).then_some(controller),
-            mask_max_width,
-            lens,
-        }
-        .encode()
-        .to_vec()
-    }),
-    |b| frame_warp::FrameWarpRequest::decode(b),
-    |v| Some(v.encode().to_vec())
-);
-round_trip!(
     frame_warp_tags,
     (any::<u16>(), vec(any::<(u32, i32, i32, u32, u32)>(), 1..5)).prop_map(|(generation, tags)| {
         frame_warp::Tags {
@@ -362,6 +347,53 @@ round_trip!(
     ),
     |b| frame_warp::Mask::decode(b),
     |v| v.encode()
+);
+round_trip!(
+    frame_warp_v2_request,
+    (any::<[u8; 4]>(), 0u16..2100, any::<u8>(), any::<u8>(), 0u16..1100).prop_map(
+        |([flags, controller, gyro_controller, enabled], width, axes, _, max_offset)| {
+            let mut wire = frame_warp_v2::RequestV2::new(frame_warp::FrameWarpRequest {
+                enabled: enabled & 1 != 0,
+                controller: (controller < 20).then_some(controller),
+                mask_max_width: width,
+                lens: flags & 1 != 0,
+            })
+            .encode();
+            wire[3] = flags;
+            wire[8] = gyro_controller;
+            wire[9] = axes;
+            wire[10..12].copy_from_slice(&max_offset.to_le_bytes());
+            wire.to_vec()
+        }
+    ),
+    |b| frame_warp_v2::RequestV2::decode(b),
+    |v| Some(v.encode().to_vec())
+);
+round_trip!(
+    frame_warp_v2_meta,
+    (any::<[u8; 4]>(), any::<[u32; 4]>(), any::<[i32; 2]>(), any::<[f32; 2]>()).prop_map(
+        |([flags, edge, guard, _], [frame, seq, held, packed], omega, gain)| {
+            frame_warp_v2::FrameWarpV2Meta {
+                flags,
+                model_generation: packed as u16,
+                frame,
+                camera_confidence: (packed >> 16) as u16,
+                hud_stability: packed.rotate_left(7) as u16,
+                gyro_seq: seq,
+                gyro_held_us: held,
+                gyro_gain: gain.map(|g| if g.is_finite() { g % frame_warp::MAX_GAIN } else { 0.0 }),
+                omega_mrad_s: omega,
+                edge_fade_strength: edge,
+                hud_guard: guard % 10,
+                gyro_tag: (seq >> 16) as u16,
+            }
+            .encode()
+            .map(|m| m.to_vec())
+            .unwrap_or_default()
+        }
+    ),
+    |b| frame_warp_v2::FrameWarpV2Meta::decode(b),
+    |v| v.encode().map(|m| m.to_vec())
 );
 round_trip!(
     fec_report,
@@ -499,6 +531,65 @@ round_trip!(
     raw(pipeline_rates::PIPELINE_RATES_REPORT_BYTES),
     |b| pipeline_rates::PipelineRatesReport::decode(b),
     |v| Some(v.encode().to_vec())
+);
+round_trip!(
+    ps_speaker_block,
+    (
+        0u16..18,
+        any::<u32>(),
+        any::<u32>(),
+        prop_oneof![any::<u64>(), Just(u64::MAX - 240)],
+        0u16..3,
+        any::<u64>(),
+        vec(byte(), 0..964),
+    )
+        .prop_map(
+            |(controller, generation, sequence, sample_position, flags, owner, samples)| {
+                ps_speaker_pcm::SpeakerBlock {
+                    controller,
+                    generation,
+                    sequence,
+                    sample_position,
+                    flags,
+                    owner,
+                    samples: &samples,
+                }
+                .encode()
+                .unwrap_or_default()
+            }
+        ),
+    |b| ps_speaker_pcm::SpeakerBlock::decode(b).map(|k| {
+        (
+            k.controller,
+            k.generation,
+            k.sequence,
+            k.sample_position,
+            k.flags,
+            k.owner,
+            k.samples.to_vec(),
+        )
+    }),
+    |v| ps_speaker_pcm::SpeakerBlock {
+        controller: v.0,
+        generation: v.1,
+        sequence: v.2,
+        sample_position: v.3,
+        flags: v.4,
+        owner: v.5,
+        samples: &v.6,
+    }
+    .encode()
+);
+round_trip!(
+    ps_speaker_binding,
+    (0u16..18, any::<u64>()).prop_map(|(slot, owner)| {
+        ps_speaker_pcm::Binding { slot, owner }
+            .encode()
+            .map(|b| b.to_vec())
+            .unwrap_or_default()
+    }),
+    |b| ps_speaker_pcm::Binding::decode(b),
+    |v| v.encode().map(|b| b.to_vec())
 );
 round_trip!(
     rate_change_request,

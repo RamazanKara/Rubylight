@@ -1,0 +1,54 @@
+{
+  "cases": [
+    {
+      "name": "Windows profile folder",
+      "input": "Settings saved to C:\\Users\\alice\\AppData\\Roaming\\Nightjar\\settings.json",
+      "expect": "Settings saved to C:\\Users\\[user]\\AppData\\Roaming\\Nightjar\\settings.json"
+    },
+    {
+      "name": "Windows path escaped in a debug string",
+      "input": "path=\"C:\\\\Users\\\\alice\\\\Videos\\\\clip.mp4\"",
+      "expect": "path=\"C:\\\\Users\\\\[user]\\\\Videos\\\\clip.mp4\""
+    },
+    {
+      "name": "lower case, forward slashes and a name past ASCII",
+      "input": "opened c:/users/Ålice/Documents",
+      "expect": "opened c:/users/[user]/Documents"
+    },
+    {
+      "name": "a name with spaces before a separator",
+      "input": "Crash dump C:\\Users\\John Smith\\AppData\\Local\\Nightjar\\logs\\nightjar-crash-1.dmp written",
+      "expect": "Crash dump C:\\Users\\[user]\\AppData\\Local\\Nightjar\\logs\\nightjar-crash-1.dmp written"
+    },
+    {
+      "name": "Documents and Settings",
+      "input": "Profile C:\\Documents and Settings\\bob\\Desktop",
+      "expect": "Profile C:\\Documents and Settings\\[user]\\Desktop"
+    },
+    {
+      "name": "macOS home folder",
+      "input": "Log folder /Users/alice/Library/Logs/Nightjar",
+      "expect": "Log folder /Users/[user]/Library/Logs/Nightjar"
+    },
+    {
+      "name": "Linux home folder",
+      "input": "Config /home/alice/.config/nightjar/settings.toml loaded",
+      "expect": "Config /home/[user]/.config/nightjar/settings.toml loaded"
+    },
+    {
+      "name": "a path that ends at the name",
+      "input": "HOME=/home/alice ready",
+      "expect": "HOME=/home/[user] ready"
+    },
+    {
+      "name": "a drive letter after a letter past ASCII",
+      "input": "éC:\\Users\\bob\\x",
+      "expect": "éC:\\Users\\[user]\\x"
+    },
+    {
+      "name": "a drive letter inside a word and other folders stay",
+      "input": "abc:\\Users\\x D:\\Games\\Steam /usr/share/nightjar",
+      "expect": "abc:\\Users\\x D:\\Games\\Steam /usr/share/nightjar"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import android.media.MediaFormat;
 import android.view.Display;
 
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.preferences.HdrFormatChoice;
 
 import org.junit.Test;
 
@@ -26,6 +27,22 @@ public class HdrFormatPolicyTest {
     private static final HdrFormatPolicy.DrawnSurface DIRECT = HdrFormatPolicy.DrawnSurface.NONE;
     private static final HdrFormatPolicy.DrawnSurface DRAWN_PQ = HdrFormatPolicy.DrawnSurface.PQ_ONLY;
     private static final HdrFormatPolicy.DrawnSurface VULKAN = HdrFormatPolicy.DrawnSurface.PQ_HLG;
+
+    @Test
+    public void theHdrFormatChoiceMasksWhatIsAskedFor() {
+        int offered = HdrFormatPolicy.ALL | HdrFormatPolicy.OFFER_FLAGS;
+        // Automatic is exactly the request without the setting.
+        assertEquals(offered, HdrFormatPolicy.masked(offered, HdrFormatChoice.AUTO));
+        int noDolbyVision = HdrFormatPolicy.masked(offered, HdrFormatChoice.NO_DOLBY_VISION);
+        int hdr10 = HdrFormatPolicy.masked(offered, HdrFormatChoice.HDR10);
+        assertEquals(HdrFormatPolicy.PQ | HdrFormatPolicy.HLG | HdrFormatPolicy.PYROWAVE_HLG, noDolbyVision);
+        assertEquals(HdrFormatPolicy.PQ | HdrFormatPolicy.PYROWAVE_HLG, hdr10);
+        int[] hlgOnly = {HLG};
+        assertEquals(HdrFormatPolicy.HLG, HdrFormatPolicy.pick(noDolbyVision, hlgOnly, TV_DECODERS, TV_FORMATS, DIRECT));
+        assertEquals(0, HdrFormatPolicy.pick(hdr10, hlgOnly, TV_DECODERS, TV_FORMATS, DIRECT));
+        assertEquals(0, HdrFormatPolicy.pick(noDolbyVision, TV, TV_DECODERS, TV_FORMATS, DIRECT));
+        assertEquals(0, HdrFormatPolicy.pick(hdr10, TV, TV_DECODERS, TV_FORMATS, DIRECT));
+    }
 
     @Test
     public void theBitsAreTheProtocolsAndEachDolbyVisionProfileHasOneCodec() {

@@ -179,6 +179,7 @@ final class MediaCodecSession {
 
         // After reconfiguration, we must resubmit CSD buffers
         r.decodeLoop.clearCsdOnConfigure();
+        r.compositorWatch.resetWindow();
 
         setFrameRenderedListener();
 
@@ -684,7 +685,7 @@ final class MediaCodecSession {
         r.vulkanHelper.closeUpscaler();
         r.telemetry.stopLatencyThread();
         r.refreshSlots.close(); r.vsyncPacer.holdStamp.close(); r.residency.close(); r.debt.close();
-        r.inFlight.close(); r.framePresenter.displayQueue.close(); r.presentScheduler.close();
+        r.inFlight.close(); r.framePresenter.displayQueue.close(); r.presentScheduler.close(); r.compositorWatch.close();
         if (r.recoveryBackoff != null) r.recoveryBackoff.close();
     }
 

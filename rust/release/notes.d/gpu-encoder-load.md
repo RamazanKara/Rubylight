@@ -1,0 +1,2 @@
+# Video encoder load and GPU readings beyond AMD
+- **Video encoder load in the stream overlay.** Hardware metrics gain `gpu_encoder_percent`, the load of the GPU's video encoder, read per GPU from Windows' GPU performance counters. NVIDIA and Intel GPUs now report GPU usage, encoder load and VRAM too; AMD GPUs keep their full set of readings. Intel GPUs that report their media engines as video decode have no encoder reading.

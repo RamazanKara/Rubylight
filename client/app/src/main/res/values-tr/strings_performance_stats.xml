@@ -22,4 +22,6 @@
     <string name="hardware_gpu_fan_voltage">Voltaj: %1$s mV · Fan: %2$s RPM (%%%3$s)</string>
     <string name="hardware_gpu_power">GPU gücü: %1$s W · Kart gücü: %2$s W</string>
     <string name="hardware_gpu_memory">VRAM: %1$s MB (%%%2$s)</string>
+    <string name="hardware_gpu_encoder_summary">Kodlayıcı %1$s%%</string>
+    <string name="hardware_gpu_encoder">Video kodlayıcı: %1$s%%</string>
 </resources>

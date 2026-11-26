@@ -1,5 +1,12 @@
 use super::*;
+use crate::stream::frame_warp_v2::Fill;
 use nightjar_core::frame_warp::{Tag, Tags};
+use nightjar_core::frame_warp_v2::{edge_v2, hud_probe};
+
+/// A `warpV2` row with the edge fill's `strength` and the HUD probe's `reach`.
+fn fill_row(strength: f32, reach: f32) -> [f32; 4] {
+    [strength, reach, 1.0, 0.0]
+}
 
 fn mask(width: u16, height: u16, set: impl Fn(u16, u16) -> bool) -> Mask {
     let mut mask = Mask::new(1, width, height);
@@ -12,7 +19,7 @@ fn mask(width: u16, height: u16, set: impl Fn(u16, u16) -> bool) -> Mask {
 }
 
 /// What every shader path samples for the output point `uv`, and how bright it draws it (the
-/// module documentation).
+/// module documentation; `frameWarpShifted` in frame_warp.hlsl).
 fn sample_at(draw: &WarpDraw, uv: [f32; 2]) -> ([f32; 2], f32) {
     let on_hud = |p: [f32; 2]| {
         draw.mask().is_some_and(|hud| {
@@ -23,11 +30,14 @@ fn sample_at(draw: &WarpDraw, uv: [f32; 2]) -> ([f32; 2], f32) {
     if on_hud(uv) {
         return (uv, 1.0);
     }
+    let row = draw.v2_row();
     let turned = if draw.lens == FLAT { [uv[0] - draw.shift[0], uv[1] - draw.shift[1]] } else { source(uv, draw.shift, draw.lens) };
-    let (sampled, fade) = edge(turned);
-    // The HUD's own pixels, which would draw it again beside itself: the point itself instead.
+    let (sampled, fade) = edge_v2(turned, row[0]);
+    // The HUD's own pixels, which would draw it again beside itself: the scene the probe finds
+    // back along the shift, or the point itself.
     if on_hud(sampled) {
-        return (uv, 1.0);
+        let cells = draw.mask().map_or([0.0; 2], |hud| [f32::from(hud.mask.width), f32::from(hud.mask.height)]);
+        return hud_probe(turned, draw.shift, cells, row[1] as u32, row[0], on_hud).unwrap_or((uv, 1.0));
     }
     (sampled, fade)
 }
@@ -141,18 +151,21 @@ fn the_mesh_samples_and_darkens_where_the_shaders_do() {
     // Past one edge, past two (both darkening in a corner, alike along a slanted line), past
     // the darkening, and past a whole picture.
     let shifts = [[0.1, 0.0], [-0.05, 0.2], [0.3, -0.3], [-1.5, 0.0], [0.05, 0.03], [-0.06, -0.02], [0.12, -0.1], [0.02, 0.07]];
-    for shift in shifts {
+    // No darkening, the default and the darkest fill; the triangles draw no probe.
+    for (shift, strength) in shifts.into_iter().flat_map(|shift| [0.0, 0.9, 1.0].map(|strength| (shift, strength))) {
         for with_hud in [false, true] {
-            let draw = WarpDraw { shift, hud: with_hud.then(|| hud.clone()), ..WarpDraw::default() };
-            mesh.build(draw.shift, draw.lens, draw.mask().map_or(&[][..], |hud| hud.areas()));
+            let draw = WarpDraw { shift, hud: with_hud.then(|| hud.clone()), v2: fill_row(strength, 0.0), ..WarpDraw::default() };
+            mesh.build(draw.shift, draw.lens, draw.mask().map_or(&[][..], |hud| hud.areas()), Fill::of(draw.v2_row()));
+            // The smoothstep is drawn as `RAMP_CUTS` straight pieces.
+            let slack = 1e-4 + 0.0125 * strength;
             // Off every multiple of 0.01, where the shifted cells' edges are.
             for j in 0..50 {
                 for i in 0..50 {
                     let at = [(i as f32 + 0.37) / 50.0, (j as f32 + 0.37) / 50.0];
                     let (uv, fade) = mesh_sample(&mesh, at).expect("the triangles cover the destination");
                     let (want_uv, want_fade) = sample_at(&draw, at);
-                    assert!(close(uv, want_uv) && (fade - want_fade).abs() < 1e-4,
-                        "{shift:?} hud {with_hud} at {at:?}: {uv:?} {fade}, not {want_uv:?} {want_fade}");
+                    assert!(close(uv, want_uv) && (fade - want_fade).abs() < slack,
+                        "{shift:?} {strength} hud {with_hud} at {at:?}: {uv:?} {fade}, not {want_uv:?} {want_fade}");
                 }
             }
         }
@@ -178,8 +191,8 @@ fn the_mesh_turns_a_picture_through_a_lens_as_the_shaders_do() {
     draws.push(([0.05, -0.02], [-1.7, 0.4, 1.01, 1.3]));
     for (shift, lens) in draws {
         for with_hud in [false, true] {
-            let draw = WarpDraw { shift, lens, hud: with_hud.then(|| hud.clone()) };
-            mesh.build(draw.shift, draw.lens, draw.mask().map_or(&[][..], |hud| hud.areas()));
+            let draw = WarpDraw { shift, lens, hud: with_hud.then(|| hud.clone()), v2: fill_row(0.9, 0.0) };
+            mesh.build(draw.shift, draw.lens, draw.mask().map_or(&[][..], |hud| hud.areas()), Fill::of(draw.v2_row()));
             // What the cells' chords may be off by (`lens_cells`), across a cell's diagonal
             // and over a triangle: `LENS_ERROR` unless the turn takes more cells than drawn.
             let cells = lens_cells(shift, lens) as f32;
@@ -200,8 +213,10 @@ fn the_mesh_turns_a_picture_through_a_lens_as_the_shaders_do() {
                     }
                     compared += 1;
                     let (uv, fade) = mesh_sample(&mesh, at).expect("the triangles cover the destination");
-                    // The fill darkens by 35% over 8% of the picture.
-                    assert!((uv[0] - want_uv[0]).abs() < slack && (uv[1] - want_uv[1]).abs() < slack && (fade - want_fade).abs() < 6.0 * slack,
+                    // The fill darkens by up to 90% over 8% of the picture, at most 17 times as fast
+                    // as it moves, along a smoothstep drawn as `RAMP_CUTS` straight pieces.
+                    let dark = 20.0 * slack + 0.0125;
+                    assert!((uv[0] - want_uv[0]).abs() < slack && (uv[1] - want_uv[1]).abs() < slack && (fade - want_fade).abs() < dark,
                         "{shift:?} {lens:?} hud {with_hud} at {at:?}: {uv:?} {fade}, not {want_uv:?} {want_fade} within {slack}");
                 }
             }
@@ -219,23 +234,27 @@ fn the_mesh_turns_a_picture_through_a_lens_as_the_shaders_do() {
 }
 
 #[test]
-fn a_point_whose_shifted_source_is_hud_samples_itself() {
+fn a_point_whose_shifted_source_is_hud_takes_the_scene_beside_it_or_itself() {
     // A HUD on cell (5, 5) of 10x10; turning right by 0.2 would draw it again at x 0.7..0.8.
     let hud = Arc::new(Hud::new(Arc::new(mask(10, 10, |x, y| x == 5 && y == 5))));
-    let draw = WarpDraw { shift: [0.2, 0.0], hud: Some(hud), ..WarpDraw::default() };
+    let draw = WarpDraw { shift: [0.2, 0.0], hud: Some(hud), v2: fill_row(0.9, 0.0), ..WarpDraw::default() };
     assert_eq!(sample_at(&draw, [0.75, 0.55]), ([0.75, 0.55], 1.0), "the scene, not the HUD again");
     assert_eq!(sample_at(&draw, [0.55, 0.55]), ([0.55, 0.55], 1.0), "the HUD in place");
     let (uv, fade) = sample_at(&draw, [0.65, 0.55]);
     assert!(close(uv, [0.45, 0.55]) && fade == 1.0, "the rest shifts: {uv:?} {fade}");
+    // Reaching two cells, the probe takes the scene a cell back along the shift instead.
+    let probing = WarpDraw { v2: fill_row(0.9, 2.0), ..draw.clone() };
+    let (uv, fade) = sample_at(&probing, [0.75, 0.55]);
+    assert!(close(uv, [0.45, 0.55]) && fade == 1.0, "the scene beside the HUD: {uv:?} {fade}");
     // On the left edge, turning right by 0.15: x 0.2 would sample the HUD at x 0.05, and x 0.12
-    // the HUD mirrored in the edge fill, at x 0.03 (and darkened).
+    // the HUD reflected in the edge fill, at x 0.0075 (and darkened); the probe meets it too.
     let edge_hud = Arc::new(Hud::new(Arc::new(mask(10, 10, |x, y| x == 0 && y == 5))));
-    let draw = WarpDraw { shift: [0.15, 0.0], hud: Some(edge_hud), ..WarpDraw::default() };
+    let draw = WarpDraw { shift: [0.15, 0.0], hud: Some(edge_hud), v2: fill_row(0.9, 2.0), ..WarpDraw::default() };
     assert_eq!(sample_at(&draw, [0.2, 0.55]), ([0.2, 0.55], 1.0));
-    assert_eq!(sample_at(&draw, [0.12, 0.55]), ([0.12, 0.55], 1.0), "nor the mirrored HUD");
-    // The SDL renderer path's triangles draw the same.
+    assert_eq!(sample_at(&draw, [0.12, 0.55]), ([0.12, 0.55], 1.0), "nor the reflected HUD");
+    // The SDL renderer path's triangles draw the same (they never probe).
     let mut mesh = Mesh::default();
-    mesh.build(draw.shift, draw.lens, draw.mask().unwrap().areas());
+    mesh.build(draw.shift, draw.lens, draw.mask().unwrap().areas(), Fill::of(draw.v2_row()));
     for at in [[0.2, 0.55], [0.12, 0.55]] {
         let (uv, fade) = mesh_sample(&mesh, at).unwrap();
         assert!(close(uv, at) && (fade - 1.0).abs() < 1e-6, "{at:?}: {uv:?} {fade}");
@@ -243,20 +262,23 @@ fn a_point_whose_shifted_source_is_hud_samples_itself() {
 }
 
 #[test]
-fn the_edge_fill_mirrors_and_darkens_rather_than_repeating_the_edge() {
-    // Turning right by a tenth of the picture: its left tenth shows the picture mirrored.
-    let draw = WarpDraw { shift: [0.1, 0.0], ..WarpDraw::default() };
+fn the_edge_fill_squeezes_a_reflection_and_darkens_it_along_a_smoothstep() {
+    // Turning right by a tenth of the picture at strength 0.9: its left tenth shows the picture's
+    // first fortieth squeezed back from the edge, not a mirror of its first tenth.
+    let draw = WarpDraw { shift: [0.1, 0.0], v2: fill_row(0.9, 0.0), ..WarpDraw::default() };
     let (uv, fade) = sample_at(&draw, [0.02, 0.5]);
-    assert!(close(uv, [0.08, 0.5]) && (fade - 0.65).abs() < 1e-6, "{uv:?} {fade}");
+    assert!(close(uv, [0.02, 0.5]) && (fade - 0.1).abs() < 1e-6, "{uv:?} {fade}");
     let (uv, fade) = sample_at(&draw, [0.07, 0.5]);
-    assert!(close(uv, [0.03, 0.5]) && (fade - (1.0 - 0.35 * 0.375)).abs() < 1e-6, "{uv:?} {fade}");
+    let d: f32 = 0.375;
+    assert!(close(uv, [0.0075, 0.5]) && (fade - (1.0 - 0.9 * d * d * (3.0 - 2.0 * d))).abs() < 1e-6, "{uv:?} {fade}");
     assert_eq!(sample_at(&draw, [0.5, 0.5]).1, 1.0, "the picture itself as it is");
+    assert_eq!(sample_at(&WarpDraw { v2: fill_row(0.0, 0.0), ..draw }, [0.02, 0.5]).1, 1.0, "strength 0 does not darken");
 }
 
 #[test]
 fn the_geometry_maps_the_source_rectangle_as_sdl_does() {
     let mut mesh = Mesh::default();
-    mesh.build([0.0, 0.0], FLAT, &[]);
+    mesh.build([0.0, 0.0], FLAT, &[], Fill { strength: 0.9 });
     let whole = |x: f32, y: f32| Corner { at: [x, y], uv: [x, y], fade: 1.0 };
     assert_eq!(mesh.corners, [whole(0.0, 0.0), whole(1.0, 0.0), whole(1.0, 1.0), whole(0.0, 1.0)], "no shift is one quad");
     // A 1920x1080 picture in a 1920x1088 texture, drawn half size at (10, 20).
@@ -282,12 +304,12 @@ fn a_shifted_present_reuses_the_meshs_buffers() {
     // grow to the most once. Through a lens too.
     let shifts = [([0.05, -0.03], FLAT), ([0.04, -0.02], [0.1, -0.04, 1.0, 1.01]), ([-0.01, 0.0], FLAT)];
     for (shift, lens) in shifts {
-        mesh.build(shift, lens, &areas);
+        mesh.build(shift, lens, &areas, Fill { strength: 0.9 });
         mesh.geometry(source, (64.0, 36.0), source);
     }
     let buffers = (mesh.corners.as_ptr(), mesh.indices.as_ptr(), mesh.vertices.as_ptr());
     for (shift, lens) in shifts {
-        mesh.build(shift, lens, &areas);
+        mesh.build(shift, lens, &areas, Fill { strength: 0.9 });
         mesh.geometry(source, (64.0, 36.0), source);
         assert_eq!((mesh.corners.as_ptr(), mesh.indices.as_ptr(), mesh.vertices.as_ptr()), buffers, "{shift:?}");
     }
@@ -305,15 +327,14 @@ fn every_hlsl_presenter_includes_the_one_definition_and_direct3d_gets_it_spliced
         assert!(!source.contains("hudMask.Load"), "{name} reads the mask itself");
         let spliced = hlsl(source.as_bytes());
         let spliced = std::str::from_utf8(&spliced).unwrap();
-        assert!(!spliced.contains("#include") && spliced.contains("float2 frameWarpEdge("), "{name}");
+        assert!(!spliced.contains("#include") && spliced.contains("float2 frameWarpEdgeV2(") && spliced.contains("float2 frameWarpProbe("), "{name}");
+        assert!(crate::stream::frame_warp_v2::rows_end_block(&source[source.find("float4 warp;").expect(name)..]), "{name} declares the three rows");
     }
     assert!(matches!(hlsl(b"float4 x;"), Cow::Borrowed(_)), "a shader without it is left alone");
     let twice = hlsl(b"a\n#include \"frame_warp.hlsl\"\nb\n#include \"frame_warp.hlsl\"\nc");
     assert_eq!(twice.as_ref(), format!("a\n{HLSL}\nb\n{HLSL}\nc").as_bytes());
-    // The shaders darken as nightjar_core's edge does.
-    let darken = format!("1 - {} * saturate(max(outside.x, outside.y) / {})", nightjar_core::frame_warp::EDGE_DARKEN, EDGE_RAMP);
-    assert!(HLSL.contains(&darken), "frame_warp.hlsl's fade is not `{darken}`");
-    // And keep a point whose shifted source is on the HUD where it is, as `sample_at` does.
+    // The edge fill and the probe are frame_warp_v2's (`frame_warp_v2::tests`); a point whose
+    // shifted source stays on the HUD keeps its place, as `sample_at` does.
     assert!(HLSL.contains("if (frameWarpHud(source, size)) return q;"), "frame_warp.hlsl draws the HUD's ghost");
     // A flat picture is shifted as it was before lenses, and a lens holds the same least depth.
     assert!(HLSL.contains("if (frameWarpFlat()) return q - shift;"), "frame_warp.hlsl turns a flat picture");
@@ -324,17 +345,17 @@ fn every_hlsl_presenter_includes_the_one_definition_and_direct3d_gets_it_spliced
 #[test]
 fn the_warp_row_is_zero_without_a_shift_and_names_the_mask_only_when_bound() {
     let hud = Arc::new(Hud::new(Arc::new(mask(64, 36, |x, _| x == 0))));
-    let still = WarpDraw { shift: [0.0, 0.0], lens: [0.1, 0.0, 1.0, 1.01], hud: Some(hud.clone()) };
+    let still = WarpDraw { shift: [0.0, 0.0], lens: [0.1, 0.0, 1.0, 1.01], hud: Some(hud.clone()), ..WarpDraw::default() };
     assert_eq!((still.row(true), still.lens_row()), ([0.0; 4], FLAT));
     assert!(still.mask().is_none(), "no shift binds no mask");
     let draw = WarpDraw { shift: [0.01, -0.02], hud: Some(hud), ..WarpDraw::default() };
     assert_eq!(draw.row(true), [0.01, -0.02, 64.0, 36.0]);
     assert_eq!(draw.row(false), [0.01, -0.02, 0.0, 0.0], "a mask that could not be bound is none");
     assert_eq!(draw.lens_row(), FLAT, "a flat picture");
-    let inactive = Warp { pixels: [0.001, 0.0], uv: [0.000_001, 0.0], lens: [0.1, 0.0, 1.0, 1.01], active: false, mask_generation: None };
+    let inactive = Warp { pixels: [0.001, 0.0], uv: [0.000_001, 0.0], lens: [0.1, 0.0, 1.0, 1.01], active: false, mask_generation: None , ..Warp::default() };
     assert!(WarpDraw::of(&inactive, None).is_identity());
     assert_eq!(WarpDraw::of(&inactive, None).lens, FLAT);
-    let without_mask = Warp { pixels: [5.0, 0.0], uv: [0.005, 0.0], lens: [0.02, 0.0, 1.0, 1.0001], active: true, mask_generation: None };
+    let without_mask = Warp { pixels: [5.0, 0.0], uv: [0.005, 0.0], lens: [0.02, 0.0, 1.0, 1.0001], active: true, mask_generation: None , ..Warp::default() };
     assert_eq!(WarpDraw::of(&without_mask, None).lens_row(), [0.02, 0.0, 1.0, 1.0001], "the lens goes to the shaders");
     let held = Arc::new(Hud::new(Arc::new(Mask::new(1, 1, 1))));
     assert!(WarpDraw::of(&without_mask, Some(&held)).hud.is_none(), "the predictor knows no mask");
@@ -487,30 +508,33 @@ fn the_overlay_line_says_what_locked_and_how_far_it_shifts() {
     assert_eq!(status_line(Some(&Status::default())), "learning");
     let fitting = Status { model: Some(Model { confidence: 0.42, ..Model::default() }), ..Status::default() };
     assert_eq!(status_line(Some(&fitting)), "learning (42% fit)");
-    let mouse = Status { model: Some(Model { mouse_gain: [0.94, -0.5], ..locked_mouse() }), pixels: [12.0, 0.0], peak: 41.0, ..Status::default() };
-    assert_eq!(status_line(Some(&mouse)), "locked 0.94 px/count, lag 38 ms, shift 12 px (peak 41)");
+    // The host sure of the camera (`frame_warp_v2::tests` has the rest of what it says).
+    let v2 = nightjar_core::frame_warp_v2::Status { confidence: 1.0, ..Default::default() };
+    let mouse = Status { model: Some(Model { mouse_gain: [0.94, -0.5], ..locked_mouse() }), pixels: [12.0, 0.0], peak: 41.0, v2, ..Status::default() };
+    assert_eq!(status_line(Some(&mouse)), "locked 0.94 px/count, 100% sure, lag 38 ms, shift 12 px (peak 41)");
     let both = Status {
         model: Some(Model { stick_locked: true, stick_gain: [-900.0, 400.0], ..locked_mouse() }),
         pixels: [3.0, 4.0],
         peak: 5.0,
         mask_cells: 120,
+        v2,
         ..Status::default()
     };
-    assert_eq!(status_line(Some(&both)), "locked 0.50 px/count, 900 px/s, lag 38 ms, shift 5 px (peak 5), HUD 120 cells");
-    let lens = Status { model: Some(Model { focal: 500.0, ..locked_mouse() }), ..Status::default() };
-    assert_eq!(status_line(Some(&lens)), "locked 0.50 px/count, 90 degree lens, lag 38 ms, shift 0 px (peak 0)");
+    assert_eq!(status_line(Some(&both)), "locked 0.50 px/count, 900 px/s, 100% sure, lag 38 ms, shift 5 px (peak 5), HUD 120 cells");
+    let lens = Status { model: Some(Model { focal: 500.0, ..locked_mouse() }), v2, ..Status::default() };
+    assert_eq!(status_line(Some(&lens)), "locked 0.50 px/count, 90 degree lens, 100% sure, lag 38 ms, shift 0 px (peak 0)");
 }
 
 #[test]
 fn the_notice_is_said_once_per_pc_until_frame_warp_runs_there() {
     let mut pc = HostRecord::default();
     let text = "This PC doesn’t offer Frame Warp, so Nightjar streams without it.";
-    assert_eq!(frame_warp_notice(&mut pc, false, true), (Some(text.to_owned()), true), "the first time");
-    assert_eq!(frame_warp_notice(&mut pc, false, true), (None, false), "then not again");
-    assert_eq!(frame_warp_notice(&mut pc, false, false), (None, false), "the setting off changes nothing");
-    assert_eq!(frame_warp_notice(&mut pc, true, false), (None, true), "it runs there now");
-    assert_eq!(frame_warp_notice(&mut pc, true, false), (None, false));
-    assert_eq!(frame_warp_notice(&mut pc, false, true), (Some(text.to_owned()), true), "and is said again once it is gone");
+    assert_eq!(frame_warp_notice(&mut pc, false, Refusal::NotOffered), (Some(text.to_owned()), true), "the first time");
+    assert_eq!(frame_warp_notice(&mut pc, false, Refusal::NotOffered), (None, false), "then not again");
+    assert_eq!(frame_warp_notice(&mut pc, false, Refusal::None), (None, false), "the setting off changes nothing");
+    assert_eq!(frame_warp_notice(&mut pc, true, Refusal::None), (None, true), "it runs there now");
+    assert_eq!(frame_warp_notice(&mut pc, true, Refusal::None), (None, false));
+    assert_eq!(frame_warp_notice(&mut pc, false, Refusal::NotOffered), (Some(text.to_owned()), true), "and is said again once it is gone");
 }
 
 #[test]

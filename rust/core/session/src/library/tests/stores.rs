@@ -51,6 +51,31 @@ fn ea_content_ids_are_read_from_xml_and_escaped_for_the_launcher() {
     assert!(ea("<DiPManifest><contentIDs>", Path::new("E:/Games"), "EA").is_err());
 }
 
+/// Without Origin's `origin2` scheme the EA app's own `link2ea` scheme starts the game.
+#[test]
+fn ea_link2ea_launches_the_first_content_id() {
+    assert_eq!(
+        ea_link2ea("OFB-EAST:109552316").command(),
+        "link2ea://launchgame/OFB-EAST%3A109552316?platform=PCWIN"
+    );
+}
+
+#[test]
+fn a_folder_is_the_same_whatever_its_case_slashes_or_quotes() {
+    let folder = r"D:\Games\EA Games\Battlefield 2042";
+    for other in [
+        r"d:\games\ea games\battlefield 2042",
+        "D:/Games/EA Games/Battlefield 2042/",
+        r#""D:\Games\EA Games\Battlefield 2042\""#,
+        r" D:\Games\EA Games\Battlefield 2042 ",
+    ] {
+        assert!(same_folder(folder, other), "{other}");
+    }
+    assert!(!same_folder(r"D:\Games\EA Games\Battlefield", folder));
+    assert!(!same_folder("", ""), "an empty folder is no folder");
+    assert!(!same_folder(r#""""#, ""));
+}
+
 #[test]
 fn battlenet_database_and_registered_products_share_verified_commands() {
     let database = battlenet_database(PRODUCT_DB).unwrap();

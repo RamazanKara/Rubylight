@@ -37,6 +37,7 @@ public class StreamConfiguration {
     private HostDisplayChoice hostDisplay;
     // The video FEC to ask a PC that lets the client choose; null sends nothing.
     private FecChoice fecChoice;
+    private boolean hdrStaticOnly;
     private boolean rateChange;
     private HdrBrightness displayLuminance;
     private int bitrate;
@@ -65,6 +66,7 @@ public class StreamConfiguration {
     // PyroWave is the chosen codec, whose 4:4:4 is its own.
     private boolean pyroWaveChosen;
     private int attachedGamepadMask;
+    private int playStationGamepadMask;
     private int colorRange;
     private int colorSpace;
     private boolean persistGamepadsAfterDisconnect;
@@ -165,6 +167,12 @@ public class StreamConfiguration {
             return this;
         }
 
+        /** "HDR10 only": asks a PC that can for a stream without HDR10+ and HDR Vivid. */
+        public StreamConfiguration.Builder setHdrStaticOnly(boolean staticOnly) {
+            config.hdrStaticOnly = staticOnly;
+            return this;
+        }
+
         public StreamConfiguration.Builder setFecChoice(FecChoice choice) {
             config.fecChoice = choice;
             return this;
@@ -204,6 +212,12 @@ public class StreamConfiguration {
 
         public StreamConfiguration.Builder setAttachedGamepadMask(int attachedGamepadMask) {
             config.attachedGamepadMask = attachedGamepadMask;
+            return this;
+        }
+
+        // The PlayStation controllers' slots (psmap); the launch masks them by the gamepad mask.
+        public StreamConfiguration.Builder setPlayStationGamepadMask(int playStationGamepadMask) {
+            config.playStationGamepadMask = playStationGamepadMask;
             return this;
         }
 
@@ -356,6 +370,10 @@ public class StreamConfiguration {
         return bitrateLimitKbps;
     }
 
+    public boolean getHdrStaticOnly() {
+        return hdrStaticOnly;
+    }
+
     public FecChoice getFecChoice() {
         return fecChoice;
     }
@@ -454,6 +472,10 @@ public class StreamConfiguration {
 
     public int getAttachedGamepadMask() {
         return attachedGamepadMask;
+    }
+
+    public int getPlayStationGamepadMask() {
+        return playStationGamepadMask;
     }
 
     public boolean getPersistGamepadsAfterDisconnect() {

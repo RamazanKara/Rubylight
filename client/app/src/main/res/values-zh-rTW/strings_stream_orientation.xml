@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">螢幕方向</string>
-    <string name="summary_stream_orientation">串流畫面可以轉向哪個方向。「自動」讓手機保持橫向，平板可以旋轉；「橫向」、「反向橫向」和「直向」會鎖定方向；「隨裝置旋轉」跟隨裝置。</string>
+    <string name="summary_stream_orientation">串流畫面可以轉向哪個方向。「自動」讓手機保持橫向，平板可以旋轉；「橫向」、「反向橫向」和「直向」會鎖定方向；「隨裝置旋轉」跟隨裝置。 橫向（雙向）即使鎖定旋轉，也會隨手機翻轉。</string>
     <string-array name="stream_orientation_names">
         <item>自動</item>
         <item>橫向</item>
         <item>直向</item>
         <item>隨裝置旋轉</item>
         <item>反向橫向</item>
+        <item>橫向（雙向）</item>
     </string-array>
     <string name="stream_orientation_scaled">這部電腦在串流期間保持串流形狀，因此畫面會縮放以符合旋轉後的螢幕。</string>
     <string name="stream_orientation_decoder_limit">此裝置的解碼器不支援旋轉後的尺寸，因此串流保持原有形狀並符合螢幕。</string>
+    <string name="stream_flip_screen">螢幕翻轉 180°</string>
+    <string name="stream_flip_unavailable">視窗模式或外接顯示器上無法翻轉螢幕。</string>
 </resources>

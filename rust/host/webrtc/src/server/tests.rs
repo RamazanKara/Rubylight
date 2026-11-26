@@ -55,6 +55,7 @@ async fn a_page_that_tries_again_on_its_socket_can_report_its_failure_again() {
         address: ([192, 168, 1, 9], 5000).into(),
         local: ([192, 168, 1, 2], 8000).into(),
         this_pc: false,
+        opened: Opened::PlainApp,
     };
     let Registered {
         id,
@@ -161,6 +162,7 @@ async fn a_connection_task_that_panics_or_is_aborted_frees_its_slots() {
         address: ([192, 168, 1, 9], 5000).into(),
         local: ([192, 168, 1, 2], 8000).into(),
         this_pc: false,
+        opened: Opened::PlainApp,
     };
     let ip = peer.address.ip();
     // A connection with a pairing request, as a TV waiting for its PIN has.
@@ -278,6 +280,7 @@ fn capabilities_are_sent_again_when_the_probe_or_the_rate_setting_changes() {
         address: ([192, 168, 1, 9], 5000).into(),
         local: ([192, 168, 1, 2], 8000).into(),
         this_pc: false,
+        opened: Opened::PlainApp,
     };
     let Registered {
         id,
@@ -435,6 +438,7 @@ async fn console_revocation_is_not_starved_by_continuous_websocket_pong_frames()
                             address: addr,
                             local: addr,
                             this_pc: true,
+                            opened: Opened::Tls,
                         };
                         let sign_in = ConsoleSignIn {
                             client_id,
@@ -554,6 +558,7 @@ async fn full_session_inbox_reports_error_on_answer_and_stop() {
         address: ([192, 168, 1, 9], 5000).into(),
         local: ([192, 168, 1, 2], 8000).into(),
         this_pc: false,
+        opened: Opened::PlainApp,
     };
     let Registered {
         id,

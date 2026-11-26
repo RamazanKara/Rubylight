@@ -164,6 +164,16 @@ public interface MoonBridgeConstants {
     int FRAME_WARP_STICK = 4;
     /** frameWarpStatus(): asked for, but this stream draws without it (a renderer declined). */
     int FRAME_WARP_OFF_FOR_STREAM = 5;
+    /**
+     * frameWarpStatus(): the setting is on and the PC's streaming app is too old for this Nightjar's Frame Warp
+     * (HostCapabilities.Reason.UPDATE_HOST). Java's own, from requestFrameWarp(); the engine never returns it.
+     */
+    int FRAME_WARP_UPDATE_HOST = 6;
+    /**
+     * The numbers frameWarpStatus() writes: gain, lag ms, shift px, peak px, the PC's confidence (-1 before it sent
+     * one) and 1 while the PC has the gyro locked.
+     */
+    int FRAME_WARP_STATUS_NUMBERS = 6;
     /** frameWarpForPts() and the native table: draw the picture as it is. */
     int FRAME_WARP_INACTIVE = -2;
     /** frameWarpForPts(): shift the whole picture, there is no HUD mask. */
@@ -174,8 +184,11 @@ public interface MoonBridgeConstants {
     int FRAME_WARP_MASK_CLEARED = -2;
     /** frameWarpMask(): the cells array is too small; size holds what it needs. */
     int FRAME_WARP_MASK_TOO_SMALL = -3;
-    /** The floats frameWarpForPts() and frameWarpPeekForPts() write, as the native table's warp() and peek(). */
-    int FRAME_WARP_FLOATS = 8;
+    /**
+     * The floats frameWarpForPts() and frameWarpPeekForPts() write, as the native table's warp() and peek(): the shift,
+     * the lens terms, then the shader row (GlesFrameWarpV2).
+     */
+    int FRAME_WARP_FLOATS = 12;
     /** frameWarpInputState(): set while the tracked right stick is deflected. */
     long FRAME_WARP_STICK_DEFLECTED = 1L << 32;
 

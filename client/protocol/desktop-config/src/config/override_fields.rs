@@ -176,6 +176,7 @@ settings_fields!(
     plain virtual_display,
     plain host_display,
     plain error_correction,
+    plain hdr_format,
     plain rtx_hdr,
     plain rtx_video,
     plain link_probe,

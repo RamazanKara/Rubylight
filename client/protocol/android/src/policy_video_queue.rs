@@ -7,8 +7,8 @@ use jni::JNIEnv;
 use jni::objects::{JClass, JLongArray, JString};
 use jni::sys::{JNI_FALSE, jboolean, jdouble, jint, jlong, jstring};
 use nightjar_policy::video_queue::{
-    self, Debt, DecoderRecoveryBackoff, DisplayGate, DisplayQueueWatch, HungDecoderAction,
-    InFlight, PresentSchedulerState, RecentLevel, Residency,
+    self, CompositorWatch, Debt, DecoderRecoveryBackoff, DisplayGate, DisplayQueueWatch,
+    HungDecoderAction, InFlight, PresentSchedulerState, RecentLevel, Residency,
 };
 
 use crate::policy::jbool;
@@ -24,6 +24,7 @@ static IN_FLIGHT_SLAB: MutexSlab<InFlight> = MutexSlab::new();
 static DISPLAY_WATCH_SLAB: MutexSlab<DisplayQueueWatch> = MutexSlab::new();
 static PRESENT_SCHEDULER_SLAB: MutexSlab<PresentSchedulerState> = MutexSlab::new();
 static RECOVERY_BACKOFF_SLAB: MutexSlab<DecoderRecoveryBackoff> = MutexSlab::new();
+static COMPOSITOR_WATCH_SLAB: MutexSlab<CompositorWatch> = MutexSlab::new();
 
 fn opt_jstring(env: &JNIEnv, text: Option<String>) -> jstring {
     match text {
@@ -33,7 +34,8 @@ fn opt_jstring(env: &JNIEnv, text: Option<String>) -> jstring {
 }
 
 // --- Slab Lifecycle (0=Residency, 1=DisplayGate, 2=RecentLevel, 3=Debt, 4=InFlight,
-//                      5=DisplayQueueWatch, 6=PresentSchedulerState, 7=DecoderRecoveryBackoff) ---
+//                      5=DisplayQueueWatch, 6=PresentSchedulerState, 7=DecoderRecoveryBackoff,
+//                      8=CompositorWatch) ---
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarPolicyJni_queueSlabCreate(
@@ -49,7 +51,8 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarPolicyJni_queueSl
         4 => IN_FLIGHT_SLAB.insert(InFlight::new()),
         5 => DISPLAY_WATCH_SLAB.insert(DisplayQueueWatch::new()),
         6 => PRESENT_SCHEDULER_SLAB.insert(PresentSchedulerState::new()),
-        _ => RECOVERY_BACKOFF_SLAB.insert(DecoderRecoveryBackoff::new()),
+        7 => RECOVERY_BACKOFF_SLAB.insert(DecoderRecoveryBackoff::new()),
+        _ => COMPOSITOR_WATCH_SLAB.insert(CompositorWatch::new()),
     }
 }
 
@@ -68,7 +71,8 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarPolicyJni_queueSl
         4 => _ = IN_FLIGHT_SLAB.remove(handle),
         5 => _ = DISPLAY_WATCH_SLAB.remove(handle),
         6 => _ = PRESENT_SCHEDULER_SLAB.remove(handle),
-        _ => _ = RECOVERY_BACKOFF_SLAB.remove(handle),
+        7 => _ = RECOVERY_BACKOFF_SLAB.remove(handle),
+        _ => _ = COMPOSITOR_WATCH_SLAB.remove(handle),
     }
 }
 
@@ -372,6 +376,48 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarPolicyJni_display
     handle: jlong,
 ) -> jstring {
     let event = DISPLAY_WATCH_SLAB
+        .with(handle, |w| w.take_event())
+        .flatten();
+    opt_jstring(&env, event)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarPolicyJni_compositorWatchOp(
+    _: JNIEnv,
+    _: JClass,
+    op: jint,
+    handle: jlong,
+    a: jlong,
+    b: jlong,
+    flag: jboolean,
+) -> jlong {
+    COMPOSITOR_WATCH_SLAB
+        .with(handle, |w| match op {
+            0 => {
+                w.reset_window();
+                0
+            }
+            1 => {
+                w.on_released(a.max(0) as u64, flag != JNI_FALSE);
+                0
+            }
+            2 => {
+                w.on_rendered(a.max(0) as u64, b.max(0) as u64, b.max(0) as u64);
+                0
+            }
+            3 => jlong::from(w.poll(a.max(0) as u64, flag != JNI_FALSE, b != 0) as i32),
+            _ => i64::from(w.is_locked_on()),
+        })
+        .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarPolicyJni_compositorWatchTakeEvent(
+    env: JNIEnv,
+    _: JClass,
+    handle: jlong,
+) -> jstring {
+    let event = COMPOSITOR_WATCH_SLAB
         .with(handle, |w| w.take_event())
         .flatten();
     opt_jstring(&env, event)

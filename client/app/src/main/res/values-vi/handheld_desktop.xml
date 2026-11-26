@@ -28,7 +28,7 @@
     <string name="desktop_zoom_enable">Bật thu phóng và kéo bằng hai ngón tay</string>
     <string name="desktop_zoom_disable">Tắt thu phóng và kéo bằng hai ngón tay</string>
     <string name="desktop_zoom_reset">Đặt lại thu phóng</string>
-    <string name="desktop_zoom_help">Chụm hai ngón tay để phóng to tối đa 4×; kéo hai ngón tay để di chuyển khung nhìn. Một ngón tay vẫn dùng chế độ cảm ứng đã chọn. Cuộn bằng hai ngón tay bị thay thế khi bật điều khiển thu phóng.</string>
+    <string name="desktop_zoom_help">Chụm hai ngón tay để thu phóng từ 0,5× đến 4×; kéo hai ngón tay để di chuyển khung hình tự do, kể cả qua các viền đen. Một ngón tay vẫn dùng chế độ cảm ứng đã chọn. Cuộn bằng hai ngón tay bị thay thế khi bật điều khiển thu phóng.</string>
     <string name="desktop_output">Đầu ra video (kết nối lại stream)</string>
     <string name="desktop_output_device">Thiết bị này</string>
     <string name="desktop_touchpad_help">Video đang hiển thị trên màn hình ngoài. Hãy dùng màn hình này làm bàn di chuột. Bàn phím, nút trò chơi và menu stream vẫn có ở đây.</string>

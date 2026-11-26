@@ -107,7 +107,7 @@ fn keys_for(id: &str) -> &'static [u32] {
 }
 
 /// Snapshot raw profile-own presence of every DRS key belonging to `id` before modification.
-pub(crate) fn snapshot_keys(
+pub fn snapshot_keys(
     store: &mut impl Store,
     id: &str,
 ) -> Result<Option<RawSettingKeys>, BackendError> {
@@ -125,10 +125,7 @@ pub(crate) fn snapshot_keys(
 
 /// Restore journaled raw DRS key presence/values (including deleting absent keys or restoring
 /// FRL values above `0x3FF`).
-pub(crate) fn restore_raw_keys(
-    store: &mut impl Store,
-    entry: &Entry,
-) -> Result<bool, BackendError> {
+pub fn restore_raw_keys(store: &mut impl Store, entry: &Entry) -> Result<bool, BackendError> {
     let fail = |e: anyhow::Error| BackendError(format!("{e:#}"));
     if let Some(keys) = &entry.raw {
         for &(key, original) in keys {

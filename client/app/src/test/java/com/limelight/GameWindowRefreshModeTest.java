@@ -495,6 +495,74 @@ public class GameWindowRefreshModeTest {
     }
 
     @Test
+    @Config(sdk = 35, shadows = {GameFrameRateTest.FrameRateSurface.class, RefreshSwitchMonitorTest.FakePanel.class})
+    public void refreshHeartbeatTakesPrecedenceOverKeepaliveAndRestoresKeepaliveOnStop() {
+        Display.Mode m60 = RefreshSwitchMonitorTest.mode(1, 60f);
+        Display.Mode m144 = RefreshSwitchMonitorTest.mode(2, 144f);
+        RefreshSwitchMonitorTest.FakePanel.set(m144, m60, m144);
+        Game activity = Robolectric.buildActivity(Game.class).get();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.width = 2400;
+        prefs.height = 1080;
+        prefs.fps = 120;
+        prefs.tvDisplayCompatibility = true;
+        android.widget.FrameLayout holder = new android.widget.FrameLayout(activity);
+        StreamView view = new StreamView(activity);
+        view.initializeSurface(false);
+        holder.addView(view);
+        attachOverlayViews(activity, holder);
+        ReflectionHelpers.setField(activity, "prefConfig", prefs);
+        ReflectionHelpers.setField(activity, "streamView", view);
+        ReflectionHelpers.setField(activity, "renderView", view);
+        ReflectionHelpers.setField(activity, "connected", true);
+        ReflectionHelpers.setField(activity, "foreground", true);
+        ReflectionHelpers.setField(activity, "panelMaxRefreshRate", 144f);
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "prepareDisplayForRendering");
+
+        SurfaceTexture texture = new SurfaceTexture(0);
+        Surface surface = new Surface(texture);
+        try {
+            ReflectionHelpers.setField(activity, "videoSurface", surface);
+            ReflectionHelpers.setField(activity, "surfaceCreated", true);
+            vote(activity, surface);
+            activity.videoOutput.updateCompositorHeartbeat();
+            assertNotNull("TV keepalive starts before #168 activates", activity.videoOutput.compositorHeartbeat);
+            assertTrue(activity.videoOutput.compositorHeartbeat.running());
+
+            ReflectionHelpers.callInstanceMethod(activity.videoOutput, "startRefreshSwitchPolling");
+            RefreshSwitchMonitorTest.FakePanel.set(m60, m60, m144);
+            GameFrameRateTest.FrameRateSurface voteShadow = Shadow.extract(surface);
+            voteShadow.frameRate = 0f;
+            activity.videoOutput.refresh.pollRefreshSwitchTick();
+            ShadowSystemClock.advanceBy(Duration.ofMillis(com.limelight.binding.video.RefreshSwitchDiagnosis.Watcher.SETTLE_MS));
+            activity.videoOutput.refresh.pollRefreshSwitchTick();
+            ShadowSystemClock.advanceBy(Duration.ofMillis(com.limelight.binding.video.RefreshSwitchDiagnosis.Watcher.SETTLE_MS));
+            activity.videoOutput.refresh.pollRefreshSwitchTick();
+
+            assertNotNull("#168 refreshHeartbeat should start cleanly even with keepalive enabled",
+                    activity.videoOutput.refresh.refreshHeartbeat);
+            assertTrue(activity.videoOutput.refresh.refreshHeartbeat.running());
+            assertNull("Keepalive should yield while #168 refreshHeartbeat owns the workaround",
+                    activity.videoOutput.compositorHeartbeat);
+
+            ReflectionHelpers.callInstanceMethod(activity.videoOutput, "stopRefreshSwitchPolling");
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertNull(activity.videoOutput.refresh.refreshHeartbeat);
+            assertNotNull("Keepalive should resume once #168 refreshHeartbeat stops",
+                    activity.videoOutput.compositorHeartbeat);
+            assertTrue(activity.videoOutput.compositorHeartbeat.running());
+        } finally {
+            ReflectionHelpers.setField(activity, "connected", false);
+            activity.videoOutput.updateCompositorHeartbeat();
+            ReflectionHelpers.callInstanceMethod(activity.videoOutput, "stopRefreshSwitchPolling");
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            RefreshSwitchMonitorTest.FakePanel.clear();
+            surface.release();
+            texture.release();
+        }
+    }
+
+    @Test
     public void fractionalLaunchRefreshRateIsPreservedInClientRefreshRateX100() {
         // Issue #119: explicit fractional stream rate (e.g. 120.04 on nominal 120.0 Hz Fold7)
         // must survive into RTSP clientRefreshRateX100 instead of being overwritten with 12000.

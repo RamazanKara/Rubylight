@@ -117,10 +117,10 @@ public class GameTvDisplayCompatibilityTest {
         assertSame("in the window that holds the video", game.renderView.getParent(), dot.getParent());
         assertEquals(View.VISIBLE, dot.getVisibility());
         int first = color(dot);
-        idle(100);
+        idle(CompositorHeartbeat.STREAM_INTERVAL_MS);
         int second = color(dot);
         assertNotEquals(first, second);
-        idle(100);
+        idle(CompositorHeartbeat.STREAM_INTERVAL_MS);
         assertEquals(first, color(dot));
         assertFalse(dot.isFocusable());
         assertFalse(dot.isClickable());
@@ -204,5 +204,78 @@ public class GameTvDisplayCompatibilityTest {
         idle(300);
         assertEquals(children, window.getChildCount());
         assertNull(game.videoOutput.compositorHeartbeat);
+    }
+
+    @Test
+    public void autoPulseShowsBrieflyAndAutoKeepaliveHoldsUntilStopped() {
+        Game game = connecting(false);
+        start(game);
+        assertNull(game.videoOutput.compositorHeartbeat);
+
+        game.videoOutput.pulseCompositorKeepalive(500L);
+        shadowOf(Looper.getMainLooper()).idle();
+        assertNotNull("500 ms pulse starts keepalive", dot(game));
+        idle(500);
+        assertNull("pulse clears after 500 ms", game.videoOutput.compositorHeartbeat);
+
+        game.videoOutput.setAutoCompositorKeepalive(true);
+        shadowOf(Looper.getMainLooper()).idle();
+        assertNotNull("auto keepalive holds on", dot(game));
+        idle(2000);
+        assertNotNull("auto keepalive stays active beyond pulse duration", dot(game));
+
+        game.videoOutput.setAutoCompositorKeepalive(false);
+        shadowOf(Looper.getMainLooper()).idle();
+        assertNull("auto keepalive stops cleanly", game.videoOutput.compositorHeartbeat);
+    }
+
+    @Test
+    public void surfaceViewTargetWaitsForSurfaceCreatedAndStopsOnDestroy() {
+        Game game = connecting(true);
+        game.streamView.initializeSurface(false);
+        assertFalse(game.surfaceCreated);
+        start(game);
+        assertNull("must wait until SurfaceView surfaceCreated before attaching keepalive",
+                game.videoOutput.compositorHeartbeat);
+
+        game.surfaceCreated = true;
+        game.videoOutput.updateCompositorHeartbeat();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertNotNull("keepalive starts once surfaceCreated is true", game.videoOutput.compositorHeartbeat);
+        assertTrue(game.videoOutput.compositorHeartbeat.running());
+
+        game.surfaceCreated = false;
+        game.videoOutput.updateCompositorHeartbeat();
+        assertNull("keepalive stops cleanly when SurfaceView surface destroys",
+                game.videoOutput.compositorHeartbeat);
+    }
+
+    @Test
+    public void textureViewWaitsForSurfaceCreatedAndPauseClearsUnlockedAutoKeepalive() {
+        Game game = connecting(true);
+        game.streamView.initializeSurface(true);
+        start(game);
+        assertNull("TextureView must wait until surfaceCreated is true",
+                game.videoOutput.compositorHeartbeat);
+
+        game.surfaceCreated = true;
+        game.videoOutput.updateCompositorHeartbeat();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertNotNull(game.videoOutput.compositorHeartbeat);
+
+        game.surfaceCreated = false;
+        game.videoOutput.updateCompositorHeartbeat();
+        assertNull(game.videoOutput.compositorHeartbeat);
+
+        game.prefConfig.tvDisplayCompatibility = false;
+        game.surfaceCreated = true;
+        game.videoOutput.setAutoCompositorKeepalive(true);
+        shadowOf(Looper.getMainLooper()).idle();
+        assertNotNull(game.videoOutput.compositorHeartbeat);
+
+        game.onPause();
+        assertNull("pause clears unlocked keepalive synchronously", game.videoOutput.compositorHeartbeat);
+        game.onResume();
+        assertNull("unlocked keepalive does not resume after pause", game.videoOutput.compositorHeartbeat);
     }
 }

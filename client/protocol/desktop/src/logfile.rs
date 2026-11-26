@@ -69,8 +69,8 @@ pub fn open_folder() -> Result<(), String> {
 /// Settings → App → Report a problem's file, beside the logs (Android's `ProblemReport`).
 pub const REPORT: &str = "nightjar-problem.txt";
 
-/// Write `header`, then this run's log and the run before's, to [`REPORT`] in `dir`, and return
-/// its path. The logs are redacted as they are written; the report is scrubbed once more for a
+/// Write `header`, then this run's log and the run before's and the names of the crash dumps, to
+/// [`REPORT`] in `dir`, and return its path. The logs are redacted as they are written; the report is scrubbed once more for a
 /// PC's name or address learned after its line was written. A missing log is left out.
 pub fn write_report(dir: &Path, header: &str) -> io::Result<PathBuf> {
     let mut text = String::from(header);
@@ -87,10 +87,38 @@ pub fn write_report(dir: &Path, header: &str) -> io::Result<PathBuf> {
             Err(e) => return Err(io::Error::new(e.kind(), format!("{name}: {e}"))),
         }
     }
+    let dumps = crash_dumps(dir);
+    if !dumps.is_empty() {
+        text.push_str("
+
+Crash dumps in the logs folder, listed and not included:
+");
+        for (name, bytes) in dumps {
+            text.push_str(&format!("{name}: {} KiB
+", bytes.div_ceil(1024)));
+        }
+    }
     let path = dir.join(REPORT);
     std::fs::create_dir_all(dir)?;
     std::fs::write(&path, nightjar_core::report::redact::scrub(&text))?;
     Ok(path)
+}
+
+/// The crash dumps beside the logs (`crash_dump.rs` on Windows) by name, oldest first, with their
+/// size. A report names them only: a dump holds the threads' stacks.
+fn crash_dumps(dir: &Path) -> Vec<(String, u64)> {
+    let mut dumps: Vec<(String, u64)> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let dump = name.starts_with("nightjar-crash-") && name.ends_with(".dmp");
+            Some((name, entry.metadata().ok()?.len())).filter(|_| dump)
+        })
+        .collect();
+    dumps.sort();
+    dumps
 }
 
 /// Move `nightjar.log` to `nightjar.prev.log`, replacing the old prev.

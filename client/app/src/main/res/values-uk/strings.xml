@@ -17,7 +17,7 @@
     <string name="title_experimental_chipset_tuning">Налаштування чипсета</string>
     <string name="summary_experimental_chipset_tuning">На деяких пристроях може порушити декодування. Дає декодерам MediaTek Dimensity і Samsung Exynos додаткові налаштування низької затримки, що мають зменшити затримку декодування; інші чипсети не зачіпаються. Залиште вимкненим, якщо декодер не відстає.</string>
     <string name="title_tv_display_compatibility">Плавне відео на ТБ</string>
-    <string name="summary_tv_display_compatibility">Для телевізорів і ТБ-приставок, у яких зображення з часом смикається, зависає, блимає або перезапускається, якщо поверх зображення нічого не намальовано, наприклад оверлей продуктивності. За замовчуванням увімкнено на телевізорах. Ціна — одна майже чорна точка в лівому верхньому куті, яка перемальовується десять разів на секунду.</string>
+    <string name="summary_tv_display_compatibility">На більшості ТБ залиште вимкненим: Nightjar автоматично ввімкне невидимий шар композитора, якщо виведення кадрів застопориться або завмре. Увімкніть, щоб примусово активувати цей шар із самого початку на ТБ, які одразу смикаються, блимають чи перезавантажуються.</string>
     <string name="scut_deleted_pc">ПК видалено</string>
     <string name="scut_not_paired">ПК не сполучено</string>
     <string name="scut_pc_not_found">ПК не знайдено</string>
@@ -571,4 +571,15 @@
     <string name="summary_hdr_shield_firmware_update">Оновіть прошивку NVIDIA SHIELD Android TV, щоб увімкнути HDR</string>
     <string name="full_range_vulkan_switched">Декодер відкинув повний діапазон. Увімкнено Vulkan, щоб чорний був правильним.</string>
     <string name="full_range_vulkan_unavailable">Повний діапазон відкинуто, Vulkan нема: чорний може бути хибним. Вимкніть цей діапазон.</string>
+    <string name="launch_warning_virtual_display_unavailable">Віртуальний дисплей ПК недоступний, тому ця трансляція показує його фізичний дисплей.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">Цей пристрій запросив власний дисплей ПК, тому трансляція не використовує віртуальний дисплей.</string>
+    <string name="frame_warp_update_host">Frame Warp вимкнено: потрібна поточна версія Nightjar і застосунку для трансляції на ПК.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: потрібна поточна версія на ПК</string>
+    <string name="frame_warp_overlay_confidence">%1$s, впевненість %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, впевненість %2$s%%, гіроскоп зафіксовано</string>
+    <string name="title_hdr_format">Формат HDR</string>
+    <string name="summary_hdr_format">«Автоматично» бере найкращий формат HDR, який підтримують обидві сторони; інші варіанти прибирають Dolby Vision або все понад HDR10. Змініть, якщо якийсь формат виглядає неправильно; з «Лише HDR10» деякі ПК все одно можуть надсилати HDR10+.</string>
+    <string name="hdr_format_auto">Автоматично</string>
+    <string name="hdr_format_no_dolby_vision">Без Dolby Vision</string>
+    <string name="hdr_format_hdr10">Лише HDR10</string>
 </resources>

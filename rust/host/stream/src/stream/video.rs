@@ -645,6 +645,9 @@ struct Leases {
     // encoder, capture and display leases finish tearing down; dropping them earlier
     // lowers GPU scheduling priority while D3D12/NVENC teardown is still in flight.
     streaming: Option<butterpollo_win_graphics::timing::StreamingScope>,
+    // Keeps the console display on for the whole stream (issue #117), released on
+    // every way out; Windows ends it too if the process exits or crashes.
+    display_power: Option<butterpollo_win_io::wake::PowerRequest>,
     priority: Option<Priority>,
     com: Option<ComGuard>,
 }
@@ -728,6 +731,7 @@ impl Media {
                     }
                     leases.com = Some(ComGuard::new()?);
                     leases.priority = Some(Priority::new());
+                    leases.display_power = stream_display_power();
                     leases.streaming = Some(crate::win_bridge::enter_streaming_scope());
                     let Some(config) = session.configure(&mut workers)? else {
                         return Ok(());
@@ -766,6 +770,16 @@ impl Media {
                 session.teardown(result, workers, leases);
             })
     }
+}
+
+/// The display-required power request a video stream holds; a refusal is
+/// logged and the stream goes on.
+fn stream_display_power() -> Option<butterpollo_win_io::wake::PowerRequest> {
+    butterpollo_win_io::wake::PowerRequest::display_required("Rubylight is streaming this PC")
+        .inspect_err(|error| {
+            tracing::warn!(error = %format!("{error:#}"), "the console display may switch off during the stream");
+        })
+        .ok()
 }
 
 fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {

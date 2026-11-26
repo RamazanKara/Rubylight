@@ -17,7 +17,7 @@
     <string name="title_experimental_chipset_tuning">チップセット調整</string>
     <string name="summary_experimental_chipset_tuning">一部のデバイスではデコードできなくなることがあります。MediaTek Dimensity と Samsung Exynos のデコーダーに、デコードの遅延を減らすための追加の低遅延設定を適用します。ほかのチップセットには影響しません。デコーダーが遅れる場合以外はオフのままにしてください。</string>
     <string name="title_tv_display_compatibility">テレビの映像を滑らかに保つ</string>
-    <string name="summary_tv_display_compatibility">映像の上に何も描画されていないと時間が経つとカクついたり、フリーズ・ちらつき・再起動したりするテレビやテレビボックス向けです。パフォーマンス オーバーレイなど、映像の上に何かが描かれると起きなくなる場合に使います。テレビではデフォルトでオンになります。コストは、左上隅にほぼ黒い点を1つ、1秒に10回描き直すことです。</string>
+    <string name="summary_tv_display_compatibility">ほとんどのテレビではオフのままにしてください。表示のペーシングが停滞またはフリーズすると、Nightjar が見えないコンポジターレイヤーを自動的に有効にします。開始直後からカクつき、ちらつき、再起動が起きるテレビではオンにして最初から強制してください。</string>
     <string name="scut_deleted_pc">PC は削除されています</string>
     <string name="scut_not_paired">PC はペアリングされていません</string>
     <string name="scut_pc_not_found">PC が見つかりません</string>
@@ -571,4 +571,15 @@
     <string name="summary_hdr_shield_firmware_update">HDR を有効にするには NVIDIA SHIELD Android TV のファームウェアを更新してください</string>
     <string name="full_range_vulkan_switched">デコーダーがフルレンジを適用しないため、黒レベルを保つようVulkanに切り替えました。</string>
     <string name="full_range_vulkan_unavailable">フルレンジが適用されずVulkanも使えません。黒がおかしい場合は「フルレンジカラー」をオフに。</string>
+    <string name="launch_warning_virtual_display_unavailable">PCの仮想ディスプレイを使用できないため、このストリームは物理ディスプレイを表示します。</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">このデバイスがPC本体のディスプレイを要求したため、ストリームは仮想ディスプレイを使用しません。</string>
+    <string name="frame_warp_update_host">Frame Warp はオフです: 最新バージョンの Nightjar と PC のストリーミングアプリが必要です。</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: PC に最新バージョンが必要です</string>
+    <string name="frame_warp_overlay_confidence">%1$s、信頼度 %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s、信頼度 %2$s%%、ジャイロ確定</string>
+    <string name="title_hdr_format">HDR 形式</string>
+    <string name="summary_hdr_format">「自動」は両方が対応する最良の HDR 形式を使い、ほかの項目は Dolby Vision、または HDR10 を超えるすべてを省きます。表示がおかしい形式があれば変更してください。「HDR10 のみ」でも HDR10+ を送る PC があります。</string>
+    <string name="hdr_format_auto">自動</string>
+    <string name="hdr_format_no_dolby_vision">Dolby Vision なし</string>
+    <string name="hdr_format_hdr10">HDR10 のみ</string>
 </resources>

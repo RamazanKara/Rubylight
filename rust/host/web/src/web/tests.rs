@@ -483,3 +483,183 @@ async fn parallel_valid_basic_requests_coalesce_and_parallel_wrong_guesses_stop_
         "peer must remain locked out after hitting SignIns::LIMIT"
     );
 }
+
+/// One request to the console from this PC's loopback, with `headers` and a JSON `body`.
+async fn console_request(
+    f: &butterpollo_stream::state::test_support::Fixture,
+    method: &str,
+    uri: &str,
+    headers: &[(&str, &str)],
+    body: Option<Value>,
+) -> axum::response::Response {
+    use axum::{Extension, body::Body, http::Request};
+    use tower::ServiceExt;
+    let mut builder = Request::builder().method(method).uri(uri);
+    if body.is_some() {
+        builder = builder.header("Content-Type", "application/json");
+    }
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
+    }
+    let body = body.map_or_else(Body::empty, |body| Body::from(body.to_string()));
+    router(f.host.clone())
+        .layer(Extension(f.connection(true)))
+        .oneshot(builder.body(body).unwrap())
+        .await
+        .unwrap()
+}
+
+fn signed_up(f: &butterpollo_stream::state::test_support::Fixture) {
+    let credentials = Credentials::new("user".into(), "password1").unwrap();
+    f.host.save_credentials(&credentials).unwrap();
+    *f.host.credentials.write().unwrap() = Some(credentials);
+}
+
+#[tokio::test]
+async fn a_first_password_through_a_proxy_on_this_pc_is_refused() {
+    let f = butterpollo_stream::state::test_support::Fixture::new();
+    let password =
+        json!({"newUsername": "user", "newPassword": "new-pass", "confirmNewPassword": "new-pass"});
+    // nginx, cloudflared or `tailscale serve` on this PC connect over loopback for a browser
+    // anywhere; their headers give them away.
+    for proxied in [
+        &[("X-Forwarded-For", "203.0.113.9")][..],
+        &[("Forwarded", "for=203.0.113.9;proto=https")],
+        &[("Host", "console.example.com")],
+        &[("Host", "localhost:443")],
+    ] {
+        let response =
+            console_request(&f, "POST", "/api/password", proxied, Some(password.clone())).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{proxied:?}");
+        assert!(f.host.credentials.read().unwrap().is_none(), "{proxied:?}");
+    }
+    // A browser on this PC still sets it.
+    let response = console_request(
+        &f,
+        "POST",
+        "/api/password",
+        &[("Host", "localhost:47984")],
+        Some(password),
+    )
+    .await;
+    crate::test_support::value(response, StatusCode::OK).await;
+    assert!(f.host.credentials.read().unwrap().is_some());
+}
+
+#[tokio::test]
+async fn a_cookie_refresh_needs_the_pages_csrf_token() {
+    let f = butterpollo_stream::state::test_support::Fixture::new();
+    signed_up(&f);
+    let login = console_request(
+        &f,
+        "POST",
+        "/api/auth/login",
+        &[],
+        Some(json!({"username": "user", "password": "password1"})),
+    )
+    .await;
+    let session = crate::test_support::value(login, StatusCode::OK).await;
+    let refresh_cookie = |s: &Value| {
+        format!(
+            "__Host-apollo_refresh={}",
+            s["refresh_token"].as_str().unwrap()
+        )
+    };
+    // The cookie alone, as a form on another site makes the browser send it, is refused.
+    for headers in [
+        vec![("Cookie", refresh_cookie(&session))],
+        vec![
+            ("Cookie", refresh_cookie(&session)),
+            ("X-CSRF-Token", "not-the-token".into()),
+        ],
+    ] {
+        let headers: Vec<(&str, &str)> = headers.iter().map(|(n, v)| (*n, v.as_str())).collect();
+        let response = console_request(&f, "POST", "/api/auth/refresh", &headers, None).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{headers:?}");
+    }
+    // With the session's token it renews.
+    let csrf = session["csrf_token"].as_str().unwrap().to_owned();
+    let cookie = refresh_cookie(&session);
+    let response = console_request(
+        &f,
+        "POST",
+        "/api/auth/refresh",
+        &[("Cookie", &cookie), ("X-CSRF-Token", &csrf)],
+        None,
+    )
+    .await;
+    let renewed = crate::test_support::value(response, StatusCode::OK).await;
+    // A reloaded tab has only the anonymous token /api/csrf-token gave it, with its cookie.
+    let cookie = format!(
+        "{}; __Host-apollo_anon_csrf=anonymous-token",
+        refresh_cookie(&renewed)
+    );
+    let response = console_request(
+        &f,
+        "POST",
+        "/api/auth/refresh",
+        &[("Cookie", &cookie), ("X-CSRF-Token", "anonymous-token")],
+        None,
+    )
+    .await;
+    let renewed = crate::test_support::value(response, StatusCode::OK).await;
+    // A script that sends its refresh token itself needs none: no other site can send it.
+    let authorization = format!("Refresh {}", renewed["refresh_token"].as_str().unwrap());
+    let response = console_request(
+        &f,
+        "POST",
+        "/api/auth/refresh",
+        &[("Authorization", &authorization)],
+        None,
+    )
+    .await;
+    crate::test_support::value(response, StatusCode::OK).await;
+}
+
+#[tokio::test]
+async fn api_tokens_reach_neither_the_password_nor_the_file_picker() {
+    let f = butterpollo_stream::state::test_support::Fixture::new();
+    signed_up(&f);
+    let catalog = token_catalog();
+    assert!(
+        !catalog
+            .iter()
+            .any(|s| s.path == "/api/password" || s.path == "/api/browse")
+    );
+    // A token saved while both were offered loses them and keeps the rest.
+    let scope = |path: &str, method: &str| crypto_auth::Scope {
+        path: path.into(),
+        methods: vec![method.into()],
+    };
+    let mut offered_before = catalog.clone();
+    offered_before.extend([scope("/api/password", "POST"), scope("/api/browse", "GET")]);
+    let (secret, token) = crypto_auth::issue(
+        "user".into(),
+        vec![
+            scope("/api/password", "POST"),
+            scope("/api/browse", "GET"),
+            scope("/api/apps", "GET"),
+        ],
+        &offered_before,
+    )
+    .unwrap();
+    f.host.aliases.lock().unwrap()["root"]["api_tokens"] = json!([token]);
+    let bearer = format!("Bearer {secret}");
+    let headers = [("Authorization", bearer.as_str())];
+    let response = console_request(&f, "GET", "/api/browse?path=C%3A%5C", &headers, None).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let password = json!({"newUsername": "user", "newPassword": "taken-over", "confirmNewPassword": "taken-over"});
+    let response = console_request(&f, "POST", "/api/password", &headers, Some(password)).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(
+        f.host
+            .credentials
+            .read()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .verifies("user", "password1")
+    );
+    let response = console_request(&f, "GET", "/api/apps", &headers, None).await;
+    assert_eq!(response.status(), StatusCode::OK);
+}

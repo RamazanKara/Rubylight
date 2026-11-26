@@ -28,7 +28,7 @@
     <string name="desktop_zoom_enable">Enable pinch zoom and pan</string>
     <string name="desktop_zoom_disable">Disable pinch zoom and pan</string>
     <string name="desktop_zoom_reset">Reset zoom</string>
-    <string name="desktop_zoom_help">Pinch with two fingers to zoom up to 4×; drag two fingers to pan. One finger keeps the selected touch mode. Two-finger scrolling is replaced while zoom controls are enabled.</string>
+    <string name="desktop_zoom_help">Pinch with two fingers to zoom from 0.5× to 4×; drag two fingers to move the picture freely, including across black borders. One finger keeps the selected touch mode. Two-finger scrolling is replaced while zoom controls are enabled.</string>
     <string name="desktop_output">Video output (reconnects stream)</string>
     <string name="desktop_output_device">This device</string>
     <string name="desktop_touchpad_help">Video is on your external display. Use this screen as a touchpad. Keyboard, game buttons and the stream menu remain available here.</string>

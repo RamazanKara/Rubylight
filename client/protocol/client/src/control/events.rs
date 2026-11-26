@@ -220,7 +220,8 @@ pub enum ControlEvent {
     },
     /// Actuator PCM for a controller (0x5601).
     ControllerHaptics(Pcm),
-    /// USB controller speaker PCM (0x5533).
+    /// USB controller speaker PCM (0x5533), or a bound PlayStation controller's speaker PCM
+    /// (0x5602) in the same blocks.
     ControllerSpeaker(Pcm),
     /// USB controller audio status from the host (0x5535), 8 to 972 bytes as sent.
     ControllerAudioControl(Vec<u8>),

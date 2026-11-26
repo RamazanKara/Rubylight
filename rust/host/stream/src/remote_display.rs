@@ -256,6 +256,10 @@ pub fn activate(
             .unwrap_or(1000)
             .clamp(400, 2000),
         render_adapter: crate::win_bridge::configured_render_adapter(&h.config.read().unwrap()),
+        render_resolver: Some(crate::win_bridge::render_resolver(
+            &h.config.read().unwrap(),
+            None,
+        )),
         joins: false,
     };
     // Read while the display is not there yet: Windows can recall a saved layout

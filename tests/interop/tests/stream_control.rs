@@ -20,7 +20,7 @@ use std::{
 };
 
 /// The host's control extensions Nightjar must know, in the order the host announces them.
-const CONTROL_EXTENSIONS: [u16; 17] = [
+const CONTROL_EXTENSIONS: [u16; 18] = [
     ptype::PHASE_LOCK_REPORT,
     ptype::DISPLAY_CAPS,
     ptype::RECONFIGURE,
@@ -39,6 +39,7 @@ const CONTROL_EXTENSIONS: [u16; 17] = [
     butterpollo_media_policy::frame_warp::FRAME_WARP_MODEL_MESSAGE_TYPE,
     butterpollo_media_policy::frame_warp::FRAME_WARP_TAGS_MESSAGE_TYPE,
     butterpollo_media_policy::frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE,
+    butterpollo_media_policy::frame_warp::FRAME_WARP_V2_META_MESSAGE_TYPE,
 ];
 
 /// Launch, the RTSP handshake and the control stream both ways: Nightjar's keyframe request
@@ -189,11 +190,13 @@ async fn nightjar_receives_the_cursor_it_draws() -> Result<()> {
     h.finish().await
 }
 
-/// Frame Warp (0x5543 to 0x5546): the host offers it in serverinfo and DESCRIBE, Nightjar's
-/// request turns it on and is answered with a model Nightjar reads, and its stop turns it off.
+/// Frame Warp 2 (0x5543 to 0x5546 and the meta 0x5549): the host offers it in serverinfo and
+/// DESCRIBE, Nightjar's version 2 request turns it on and is answered with a model Nightjar
+/// reads, and its stop turns it off. (An older Nightjar's version 1 request, which this
+/// Nightjar cannot send, is ignored: `tests/host/tests/reconnect_tests/frame_warp_v2_tests.rs`.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nightjar_hears_the_frame_warp_model() -> Result<()> {
-    use butterpollo_media_policy::frame_warp::FrameWarpRequest;
+    use butterpollo_media_policy::frame_warp::{FrameWarpRequest, RequestV2};
     use nightjar_core::control::ClientMessage;
     let h = Harness::new(10_000, 1).await?;
     let client = device(&h, u32::MAX, &[])?;
@@ -211,12 +214,14 @@ async fn nightjar_hears_the_frame_warp_model() -> Result<()> {
             .contains(&ptype::FRAME_WARP_REQUEST)
     );
     assert!(!session.frame_warp.enabled());
-    stream.send(ClientMessage::FrameWarpRequest(FrameWarpRequest {
-        enabled: true,
-        controller: Some(0),
-        mask_max_width: 1024,
-        lens: true,
-    }))?;
+    stream.send(ClientMessage::FrameWarpRequest(RequestV2::new(
+        FrameWarpRequest {
+            enabled: true,
+            controller: Some(0),
+            mask_max_width: 1024,
+            lens: true,
+        },
+    )))?;
     until("the host turns Frame Warp on", LOADED, || {
         session.frame_warp.enabled()
     })
@@ -226,12 +231,14 @@ async fn nightjar_hears_the_frame_warp_model() -> Result<()> {
     })
     .await;
 
-    stream.send(ClientMessage::FrameWarpRequest(FrameWarpRequest {
-        enabled: false,
-        controller: None,
-        mask_max_width: 0,
-        lens: true,
-    }))?;
+    stream.send(ClientMessage::FrameWarpRequest(RequestV2::new(
+        FrameWarpRequest {
+            enabled: false,
+            controller: None,
+            mask_max_width: 0,
+            lens: true,
+        },
+    )))?;
     until("the host turns Frame Warp off", LOADED, || {
         !session.frame_warp.enabled()
     })

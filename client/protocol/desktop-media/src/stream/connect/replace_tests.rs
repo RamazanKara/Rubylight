@@ -38,6 +38,7 @@ pub(super) fn launch_plan() -> LaunchPlan {
         pacing: PacingMode::Immediate,
         vrr: false,
         gamepad_mask: 0,
+        playstation_mask: 0,
         prepared_controllers: String::new(),
         controllers_from: Default::default(),
         microphone_muted: false,

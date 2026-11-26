@@ -1,6 +1,8 @@
 //! Audio passthrough on the receive side: which of the 3.0 audio extension's codecs to ask a
-//! host for (`rubylight_protocol::audio_ext`), and the AC3 and E-AC3 frames put back together
-//! from their numbered RTP chunks. PCM needs neither: each packet is s16le samples.
+//! host for (`rubylight_protocol::audio_ext`), the AC3 and E-AC3 frames put back together
+//! from their numbered RTP chunks, and the frames that come unchunked, one per packet, from a
+//! host that negotiated them with the `x-ss-audio` RTSP lines (`rtsp::dolby_ss`). PCM needs
+//! none of it: each packet is s16le samples.
 use rubylight_protocol::audio_ext::{
     self, ChunkHeader, CHUNK_HEADER_BYTES, CODEC_AC3, CODEC_EAC3, CODEC_OPUS, CODEC_PCM,
 };
@@ -134,6 +136,32 @@ impl FrameAssembler {
         self.done = Some(index);
         match dolby_frame_len(&self.frame) {
             Some(len) if len <= self.frame.len() => out(AudioOutput::Packet(&self.frame[..len])),
+            _ => {
+                self.invalid += 1;
+                out(AudioOutput::Lost);
+            }
+        }
+    }
+}
+
+/// AC3 and E-AC3 frames that come unchunked, one whole frame per packet: each packet is checked
+/// to start with a frame and handed on without anything after it, and one that does not is
+/// lost and counted. A lost packet is one lost frame.
+#[derive(Default)]
+pub struct UnchunkedFrames {
+    /// Packets that were not an AC3 or E-AC3 frame.
+    pub invalid: u32,
+}
+
+impl UnchunkedFrames {
+    /// Takes one step of the receiver's output and passes on its frame or loss.
+    pub fn push(&mut self, item: AudioOutput<'_>, out: &mut impl FnMut(AudioOutput<'_>)) {
+        let AudioOutput::Packet(payload) = item else {
+            out(AudioOutput::Lost);
+            return;
+        };
+        match dolby_frame_len(payload) {
+            Some(len) if len <= payload.len() => out(AudioOutput::Packet(&payload[..len])),
             _ => {
                 self.invalid += 1;
                 out(AudioOutput::Lost);
@@ -346,6 +374,50 @@ mod tests {
         want.extend((0..MAX_GAP_FRAMES).map(|_| Got::Lost));
         want.push(Got::Frame(frame));
         assert_eq!(got, want);
+    }
+
+    #[test]
+    fn unchunked_packets_are_frames_handed_on_whole_and_anything_else_is_lost() {
+        let mut frames = UnchunkedFrames::default();
+        let mut got = Vec::new();
+        let ac3 = ac3_frame(640, 5);
+        let mut eac3 = vec![6; 1536];
+        eac3[..6].copy_from_slice(&[0x0B, 0x77, 0x02, 0xFF, 0, 16 << 3]);
+        let mut padded = ac3_frame(192, 7);
+        padded.extend_from_slice(&[0; 9]);
+        let short = ac3_frame(640, 8)[..2000].to_vec();
+        let items: [Option<&[u8]>; 7] = [
+            Some(&ac3),
+            None,
+            Some(&eac3),
+            Some(&padded),
+            Some(&short),
+            Some(&[0x55; 32]),
+            Some(&[]),
+        ];
+        for item in items {
+            let output = item.map_or(AudioOutput::Lost, AudioOutput::Packet);
+            frames.push(output, &mut |out| {
+                got.push(match out {
+                    AudioOutput::Packet(frame) => Got::Frame(frame.to_vec()),
+                    AudioOutput::Lost => Got::Lost,
+                })
+            });
+        }
+        assert_eq!(
+            got,
+            [
+                Got::Frame(ac3),
+                Got::Lost,
+                Got::Frame(eac3),
+                Got::Frame(ac3_frame(192, 7)),
+                Got::Lost,
+                Got::Lost,
+                Got::Lost
+            ]
+        );
+        // The truncated frame, the noise and the empty packet; a lost packet is not invalid.
+        assert_eq!(frames.invalid, 3);
     }
 
     #[test]

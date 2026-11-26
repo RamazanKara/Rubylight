@@ -54,6 +54,14 @@ public final class RedactedLog {
     };
     private static final java.util.regex.Pattern PIN = java.util.regex.Pattern.compile("(?i)\\b(pin|otp|pass|password|passphrase|passcode|secret|token|key)\\b(\\W{0,3})\\S+");
     private static final java.util.regex.Pattern SHORT_NUMBER = java.util.regex.Pattern.compile("\\b\\d{4,8}\\b");
+    // A user's home folder in a path, up to the name, which becomes [user]: C:\Users\ (any case,
+    // either separator, doubled when escaped), Documents and Settings, /Users/ and /home/. A name
+    // with spaces counts up to the separator after it; at the end of the path its first word goes.
+    // The lookbehind is Rust's ASCII \b: Android's \b counts letters past ASCII as word characters.
+    private static final String PATH_NAME = "[^\\\\/ \\t\\n\\x0B\\f\\r\"'<>|:*?]+";
+    private static final java.util.regex.Pattern USER_PATH = java.util.regex.Pattern.compile(
+            "((?<![A-Za-z0-9_])[A-Za-z]:[\\\\/]+(?i:users|documents and settings)[\\\\/]+|/(?:Users|home)/+)(?:"
+                    + PATH_NAME + "(?: +" + PATH_NAME + ")*([\\\\/])|" + PATH_NAME + ")");
     // Informational lines worth keeping; the rest is too frequent and would push out a session.
     private static final String[] INFO_PREFIXES = {
             "Stream request", "Connection terminated", "Selected ", "Decoder", "Reconfigure", "Stream now",
@@ -126,6 +134,7 @@ public final class RedactedLog {
                     .replaceAll(java.util.regex.Matcher.quoteReplacement(PC_PLACEHOLDER));
         }
         text = text.replace(PC_PLACEHOLDER, "[PC]");
+        text = userPaths(text);
         String[] marks = {"[url]", "[email]", "[address]", "[address]", "[address]", "[id]", "[hex]", "[data]", "[path]"};
         for (int i = 0; i < SENSITIVE.length; i++) {
             text = SENSITIVE[i].matcher(text).replaceAll(java.util.regex.Matcher.quoteReplacement(marks[i]));
@@ -136,6 +145,20 @@ public final class RedactedLog {
             text = SHORT_NUMBER.matcher(text).replaceAll("[omitted]");
         }
         return text.length() > MAX_MESSAGE_CHARS ? text.substring(0, MAX_MESSAGE_CHARS) + "…" : text;
+    }
+
+    // USER_PATH's name becomes [user]. Built by hand: an unmatched group (no separator after the
+    // name) must add nothing, and Android's replacement syntax has not always promised that.
+    private static String userPaths(String text) {
+        java.util.regex.Matcher matcher = USER_PATH.matcher(text);
+        StringBuffer out = new StringBuffer();
+        while (matcher.find()) {
+            String separator = matcher.group(2) == null ? "" : matcher.group(2);
+            matcher.appendReplacement(out,
+                    java.util.regex.Matcher.quoteReplacement(matcher.group(1) + "[user]" + separator));
+        }
+        matcher.appendTail(out);
+        return out.toString();
     }
 
     static boolean keptInfo(String message) {

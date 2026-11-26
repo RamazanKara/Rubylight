@@ -88,6 +88,9 @@ final class GameLifecycle {
                     game.trackpadPointer.stopMomentum();
                     game.trackpadPointer.setCursorShown(false);
                 }
+                if (game.desktopGestures != null) {
+                    game.desktopGestures.reset();
+                }
 
                 // Update GameManager state to indicate we're in PiP (still gaming, but interruptible)
                 UiHelper.notifyStreamEnteringPiP(game);
@@ -234,6 +237,7 @@ final class GameLifecycle {
 
     void onDestroy() {
         DualScreen.end(game);
+        game.safeArea.detach();
         if (game.nativeMenuThread != null) game.nativeMenuThread.shutdownNow();
         if (game.streamHealthThread != null) game.streamHealthThread.shutdownNow();
         game.stagedExitController.onDestroy();

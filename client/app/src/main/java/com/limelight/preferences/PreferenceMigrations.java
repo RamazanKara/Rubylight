@@ -125,6 +125,19 @@ final class PreferenceMigrations {
         return wasOff;
     }
 
+    static boolean migrateSubmitHintDefault(SharedPreferences prefs) {
+        if (prefs.getBoolean(SUBMIT_HINT_DEFAULT_ON_PREF_STRING, false)) {
+            return false;
+        }
+        boolean wasOff = !prefs.getBoolean(SUBMIT_HINT_PREF_STRING, true);
+        SharedPreferences.Editor editor = prefs.edit().putBoolean(SUBMIT_HINT_DEFAULT_ON_PREF_STRING, true);
+        if (wasOff) {
+            editor.putBoolean(SUBMIT_HINT_PREF_STRING, true);
+        }
+        editor.apply();
+        return wasOff;
+    }
+
     static void retireEngineChoice(SharedPreferences prefs) {
         if (prefs.contains(RETIRED_RUST_ENGINE_PREF_STRING) || prefs.contains(RETIRED_RUST_ENGINE_DEFAULT_ON_PREF_STRING)) {
             prefs.edit().remove(RETIRED_RUST_ENGINE_PREF_STRING).remove(RETIRED_RUST_ENGINE_DEFAULT_ON_PREF_STRING).apply();

@@ -99,17 +99,26 @@ impl Session {
         })?;
         let control = vdd.open_control()?;
         let status = control.query(monitor.session_id)?;
-        let gpu = Device::for_display(
-            name,
+        let render = (status.render_luid_low, status.render_luid_high);
+        // Open on the GPU the display renders on, resolved as its render
+        // adapter was, not on whichever adapter Windows lists it under.
+        let luid = super::luid_resolve::capture_luid(
+            render,
             config.get("adapter_name", ""),
             config.get("adapter_pnp_id", ""),
-        )?;
+            super::gpus,
+        )
+        .inspect_err(|error| warnings.set(super::luid_resolve::WARNING, &format!("{error:#}")))?;
+        warnings.clear(super::luid_resolve::WARNING);
+        let gpu = match luid {
+            Some(luid) => Device::for_display_on(name, luid)?,
+            None => Device::for_display(name, "", "")?,
+        };
         // SAFETY: the device is live; GetAdapter and GetDesc return owned values.
         let adapter = unsafe {
             let desc = gpu.device.cast::<IDXGIDevice>()?.GetAdapter()?.GetDesc()?;
             (desc.AdapterLuid.LowPart, desc.AdapterLuid.HighPart)
         };
-        let render = (status.render_luid_low, status.render_luid_high);
         if render != (0, 0) && render != adapter {
             bail!(
                 "the Rubylight display renders on GPU {:08x}:{:08x}, but capture opened on {:08x}:{:08x}",
@@ -233,6 +242,9 @@ impl Session {
                 || session.compute.is_some()
                 || session.lender.is_some(),
             in_place = session.zero_copy,
+            gpu = %session.gpu.display.adapter,
+            capture_luid = ?session.adapter,
+            render_luid = ?render,
             "capturing from the Rubylight display driver's frame push"
         );
         Ok(session)

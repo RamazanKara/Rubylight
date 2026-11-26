@@ -455,6 +455,12 @@ public class RustEngineJniParityTest {
         expected.put("STATUS_STICK", MoonBridge.FRAME_WARP_STICK);
         expected.put("STATUS_DECLINED", MoonBridge.FRAME_WARP_OFF_FOR_STREAM);
         assertEquals(expected, status);
+        // Java's own state for a PC too old for Frame Warp is no code the engine returns.
+        assertFalse(status.containsValue(MoonBridge.FRAME_WARP_UPDATE_HOST));
+        // The overlay's numbers: an array shorter than the engine writes gets none.
+        Matcher numbers = Pattern.compile("pub const STATUS_NUMBERS: usize = (\\d+);").matcher(rust);
+        assertTrue(numbers.find());
+        assertEquals(MoonBridge.FRAME_WARP_STATUS_NUMBERS, Integer.parseInt(numbers.group(1)));
 
         Map<String, Integer> codes = rustConstants(rust, "(?:WARP|MASK)_");
         Map<String, Integer> java = new TreeMap<>();
@@ -490,15 +496,17 @@ public class RustEngineJniParityTest {
     }
 
     @Test public void frameWarpWritesTheShiftThenTheLensTermsEverywhere() throws IOException {
-        // Eight floats: the centre's shift as fractions of the picture and in pixels, then the lens terms. A renderer
-        // that read them in another order would turn the picture by its shift in pixels.
+        // Twelve floats: the centre's shift as fractions of the picture and in pixels, the lens terms, then the shader
+        // row. A renderer that read them in another order would turn the picture by its shift in pixels.
         String rust = read("frame_warp.rs");
-        assertTrue(rust.contains("pub const API_VERSION: u32 = 3;"));
-        assertTrue(rust.contains("pub const WARP_FLOATS: usize = 8;"));
-        assertTrue(rust.contains(
-                "pub const WARP_STILL: [f32; WARP_FLOATS] = [0.0, 0.0, 0.0, 0.0, FLAT[0], FLAT[1], FLAT[2], FLAT[3]];"));
+        assertTrue(rust.contains("pub const API_VERSION: u32 = 4;"));
+        assertTrue(rust.contains("pub const WARP_FLOATS: usize = 12;"));
+        assertTrue(rust.contains("pub const WARP_STILL: [f32; WARP_FLOATS] = "
+                + "[0.0, 0.0, 0.0, 0.0, FLAT[0], FLAT[1], FLAT[2], FLAT[3], 0.0, 0.0, 0.0, 0.0];"));
         assertTrue(rust.contains("let [kx, ky, nx, ny] = warp.lens;\n"
-                + "    (code, [warp.uv[0], warp.uv[1], warp.pixels[0], warp.pixels[1], kx, ky, nx, ny])"));
+                + "    let [edge, probe, confidence, flags] = warp.v2;\n"
+                + "    (code, [warp.uv[0], warp.uv[1], warp.pixels[0], warp.pixels[1], kx, ky, nx, ny, edge, probe, "
+                + "confidence, flags])"));
         assertTrue(rust.contains("unsafe fn write_shift(values: &[f32; WARP_FLOATS], out: *mut f32) {"));
         // Java's array is as long as Rust writes, and a shorter one draws the picture as it is.
         String lib = read("lib.rs");
@@ -510,7 +518,17 @@ public class RustEngineJniParityTest {
         // The native renderers size theirs by the header, and a picture drawn as it is has a flat picture's terms.
         String mask = new String(Files.readAllBytes(new File("src/main/jni/frame_warp_mask.h").toPath()),
                 StandardCharsets.UTF_8).replace("\r\n", "\n");
-        assertTrue(mask.contains("for (int i = 0; i < FRAME_WARP_FLOATS; ++i) {\n        out[i] = i >= 6 ? 1.0f : 0.0f;"));
+        assertTrue(mask.contains("for (int i = 0; i < FRAME_WARP_FLOATS; ++i) {\n        out[i] = i == 6 || i == 7 ? 1.0f : 0.0f;"));
+        // The row is the last four floats, which every renderer hands its shader as they came.
+        String row = new String(Files.readAllBytes(new File("src/main/jni/vulkan/frame_warp_v2_pc.h").toPath()),
+                StandardCharsets.UTF_8).replace("\r\n", "\n");
+        assertTrue(row.contains("constexpr size_t kFrameWarpV2First = 8;"));
+        assertTrue(row.contains("static_assert(kFrameWarpV2First + kFrameWarpV2Floats == FRAME_WARP_FLOATS,"));
+        String glesRow = new String(Files.readAllBytes(
+                new File("src/main/java/com/limelight/binding/video/GlesFrameWarpV2.java").toPath()), StandardCharsets.UTF_8);
+        assertTrue(glesRow.contains("static final int FIRST = 8;"));
+        assertTrue(glesRow.contains("static final int FLOATS = 4;"));
+        assertTrue(gles.contains("warpV2.apply(active, warpOut);"));
         for (String[] renderer : new String[][] {
                 {"src/main/jni/vulkan", "vulkan_renderer"},
                 {"src/main/jni/pyrowave-renderer", "pyrowave_"},
@@ -532,6 +550,7 @@ public class RustEngineJniParityTest {
             assertFalse(label, Pattern.compile("float (?:warpOut|out|peeked)\\[4\\]").matcher(cpp).find());
             assertTrue(label, cpp.contains("float warpOut[FRAME_WARP_FLOATS];\n"));
             assertTrue(label, cpp.contains("[FRAME_WARP_FLOATS] = {};\n"));
+            assertTrue(label, cpp.contains("frameWarpV2Row("));
         }
     }
 

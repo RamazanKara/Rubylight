@@ -174,6 +174,7 @@ pub(in crate::ui) fn value_text(key: &str, s: &Settings, display: &Display, styl
         "network_grace_ms" => network_grace_name(nightjar_policy::recovery::network_grace_choice_s(s.network_grace_ms)),
         "decode_queue_frames" => decode_queue_name(decode_queue_choice(s.decode_queue_frames)),
         "error_correction" => error_correction_name(s.error_correction),
+        "hdr_format" => hdr_format_name(s.hdr_format),
         "rtx_hdr" => enhancement_name(s.rtx_hdr),
         "rtx_video" => enhancement_name(s.rtx_video),
         "language" => language_name(s.language).to_owned(),
@@ -219,7 +220,7 @@ pub(in crate::ui) const ANDROID_KEYS: &[(&str, &str)] = &[
     // Video
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("lower_bitrate", "lower_bitrate"), ("mobile_bitrate", "list_mobile_bitrate_kbps"), ("codec", "video_format"),
-    ("hdr", "checkbox_enable_hdr"), ("prefer_yuv444", "sharp_color"), ("sdr_10bit", "checkbox_enable_sdr_10bit"),
+    ("hdr", "checkbox_enable_hdr"), ("hdr_format", "list_hdr_format"), ("prefer_yuv444", "sharp_color"), ("sdr_10bit", "checkbox_enable_sdr_10bit"),
     ("frame_warp", "checkbox_frame_warp"),
     ("adaptive_quality", "adaptive_quality_mode"), ("quality_min_short_edge", "adaptive_quality_min_resolution"),
     ("quality_min_fps", "adaptive_quality_min_fps"),

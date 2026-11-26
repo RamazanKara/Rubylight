@@ -27,6 +27,7 @@ import androidx.appcompat.app.AlertDialog;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.limelight.binding.video.HdrPolicy;
 import com.limelight.R;
 import com.limelight.binding.video.DisplayFrameRatePolicy;
 import com.limelight.computers.ComputerManagerService;
@@ -617,6 +618,9 @@ public class HostStreamSettings extends NightjarActivity {
             row(stream, "upscaling", R.string.title_upscaling, this::showUpscaling);
             row(stream, "sharpness", R.string.title_upscaling_sharpness, this::showSharpness);
             row(stream, "hdr", R.string.title_enable_hdr, () -> showSwitch("hdr", R.string.title_enable_hdr));
+            if (HdrPolicy.hasHdr10(HdrPolicy.displayHdrTypes(activity.getWindowManager().getDefaultDisplay()))) {
+                row(stream, "hdr_format", R.string.title_hdr_format, this::showHdrFormat);
+            }
             row(stream, "vrr", R.string.title_vrr, this::showVrr);
             row(stream, "pacing", R.string.title_frame_pacing, this::showPacing);
             row(stream, "yuv444", R.string.title_sharp_color, () -> showSwitch("yuv444", R.string.title_sharp_color));
@@ -735,6 +739,7 @@ public class HostStreamSettings extends NightjarActivity {
         private void showEnhancement(HostStreamProfile.Field field, int title) { HostStreamSettingDialogs.showEnhancement(this, activity, field, title); }
         private void showDisplayScale() { HostStreamSettingDialogs.showDisplayScale(this, activity); }
         private void showCodec() { HostStreamSettingDialogs.showCodec(this, activity); }
+        private void showHdrFormat() { HostStreamSettingDialogs.showHdrFormat(this, activity); }
         private void showUpscaling() { HostStreamSettingDialogs.showUpscaling(this, activity); }
         private void showDisplay() { HostStreamSettingDialogs.showDisplay(this, activity); }
         private void showSharpness() { HostStreamSettingDialogs.showSharpness(this, activity); }

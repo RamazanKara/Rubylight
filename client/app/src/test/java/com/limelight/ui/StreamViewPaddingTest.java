@@ -34,6 +34,8 @@ public class StreamViewPaddingTest {
         view.layout(0, 0, 2184, 1968);
 
         View video = view.getTextureView();
+        assertFalse(view.getClipChildren());
+        assertFalse(view.getClipToPadding());
         assertEquals(2184, view.getWidth());
         assertEquals(1968, view.getHeight());
         assertEquals(0, video.getLeft());

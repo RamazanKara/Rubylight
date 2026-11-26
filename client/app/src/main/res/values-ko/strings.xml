@@ -17,7 +17,7 @@
     <string name="title_experimental_chipset_tuning">칩셋 튜닝</string>
     <string name="summary_experimental_chipset_tuning">일부 기기에서는 디코딩이 실패할 수 있습니다. MediaTek Dimensity 및 Samsung Exynos 디코더에 디코딩 지연을 줄이기 위한 추가 저지연 설정을 적용합니다. 다른 칩셋에는 영향이 없습니다. 디코더가 뒤처지는 경우가 아니면 끈 상태로 두세요.</string>
     <string name="title_tv_display_compatibility">TV 영상 부드럽게 유지</string>
-    <string name="summary_tv_display_compatibility">화면 위에 아무것도 그려지지 않으면 시간이 지나면서 끊기거나 멈추거나 깜박이거나 다시 시작되는 TV 및 TV 박스용입니다. 성능 오버레이처럼 화면 위에 무언가를 그리면 증상이 없어지는 경우가 있습니다. TV에서는 기본으로 켜져 있습니다. 비용은 왼쪽 위 모서리에 거의 검은 점 하나를 1초에 10번 다시 그리는 것입니다.</string>
+    <string name="summary_tv_display_compatibility">대부분의 TV에서는 꺼 두세요. 화면 출력 타이밍이 멈추거나 정지하면 Nightjar가 보이지 않는 컴포지터 레이어를 자동으로 켭니다. 시작 직후부터 끊김, 깜박임 또는 재시작이 발생하는 TV에서는 켜서 처음부터 강제하세요.</string>
     <string name="scut_deleted_pc">PC 삭제됨</string>
     <string name="scut_not_paired">PC와 페어링되지 않음</string>
     <string name="scut_pc_not_found">PC를 찾을 수 없음</string>
@@ -571,4 +571,15 @@
     <string name="summary_hdr_shield_firmware_update">HDR을 사용하려면 NVIDIA SHIELD Android TV의 펌웨어를 업데이트하세요</string>
     <string name="full_range_vulkan_switched">디코더가 풀 레인지를 적용하지 않아, 블랙 레벨을 맞추려고 Vulkan으로 전환했습니다.</string>
     <string name="full_range_vulkan_unavailable">풀 레인지 미적용, Vulkan 없음: 검은색이 틀릴 수 있습니다. “풀 레인지 색상”을 끄세요.</string>
+    <string name="launch_warning_virtual_display_unavailable">PC의 가상 디스플레이를 사용할 수 없어 이 스트림은 실제 디스플레이를 표시합니다.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">이 기기가 PC 자체 디스플레이를 요청해서 스트림은 가상 디스플레이를 사용하지 않습니다.</string>
+    <string name="frame_warp_update_host">Frame Warp가 꺼졌습니다: 최신 버전의 Nightjar와 PC 스트리밍 앱이 필요합니다.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp: PC에 최신 버전이 필요합니다</string>
+    <string name="frame_warp_overlay_confidence">%1$s, 신뢰도 %2$s%%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, 신뢰도 %2$s%%, 자이로 고정</string>
+    <string name="title_hdr_format">HDR 형식</string>
+    <string name="summary_hdr_format">자동은 양쪽이 지원하는 가장 좋은 HDR 형식을 사용하고, 다른 항목은 Dolby Vision 또는 HDR10을 넘는 모든 것을 뺍니다. 어떤 형식이 이상하게 보이면 바꾸세요. HDR10만을 골라도 일부 PC는 HDR10+를 보낼 수 있습니다.</string>
+    <string name="hdr_format_auto">자동</string>
+    <string name="hdr_format_no_dolby_vision">Dolby Vision 제외</string>
+    <string name="hdr_format_hdr10">HDR10만</string>
 </resources>

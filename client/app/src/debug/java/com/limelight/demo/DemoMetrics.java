@@ -61,6 +61,7 @@ final class DemoMetrics {
         gpu.put("gpu_board_power_w", 252.0 + Math.sin(tick * 0.4) * 6);
         gpu.put("gpu_vram_used_mb", 10450.0);
         gpu.put("gpu_vram_usage_percent", 51.0);
+        gpu.put("gpu_encoder_percent", 18.0 + Math.sin(tick * 0.3) * 3);
         return new HardwareMetrics(1_700_000_000_000L + tick * 2000, 2000, cpu,
                 Collections.singletonList(new HardwareMetrics.Gpu(0, "AMD Radeon RX 7900 XT", gpu)));
     }

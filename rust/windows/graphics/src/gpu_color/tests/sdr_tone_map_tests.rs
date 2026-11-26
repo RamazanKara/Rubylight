@@ -1,7 +1,25 @@
 //! HDR desktop to SDR stream (BT.2446-1 Method B) GPU tests.
 
 use super::*;
-use crate::color::{METHOD_B_PATCHES, method_b};
+use crate::color::{METHOD_B_PATCHES, method_b, method_b_peak, pq_scrgb, scrgb_pq10};
+
+/// [`make_image`] as an HDR10 desktop hands it over: 10-bit PQ BT.2020.
+fn make_pq_image(colors: &[[f32; 3]], patch: usize, height: usize) -> Image {
+    let width = colors.len() * patch;
+    let mut bytes = Vec::with_capacity(width * height * 4);
+    for index in 0..width * height {
+        let [r, g, b] = scrgb_pq10(colors[(index % width) / patch]).map(u32::from);
+        bytes.extend_from_slice(&(r | (g << 10) | (b << 20) | (3 << 30)).to_le_bytes());
+    }
+    Image {
+        width: width as u32,
+        height: height as u32,
+        stride: width * 4,
+        bytes,
+        pixel: Pixel::Rgba10Pq,
+        captured: Instant::now(),
+    }
+}
 
 /// The luma and chroma codes of `rgb`, an SDR signal, at each patch centre.
 fn codes(config: &butterpollo_media_policy::rtsp::Negotiated, rgb: [f64; 3]) -> [f64; 3] {
@@ -165,6 +183,162 @@ fn only_an_fp16_capture_of_a_display_known_to_be_sdr_is_an_sdr_desktop() {
     ] {
         assert_eq!(sdr_desktop(pixel, in_hdr), 0, "{pixel:?} {in_hdr:?}");
     }
+}
+
+#[test]
+#[ignore = "requires a D3D11 GPU with native P010 render views and D3D12 compute"]
+fn gpu_sdr_tone_map_maps_an_hdr10_capture_like_the_cpu_reference() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let colours: Vec<[f32; 3]> = METHOD_B_PATCHES.iter().map(|(rgb, _)| *rgb).collect();
+    let image = make_pq_image(&colours, 64, 64);
+    let (width, height) = (image.width as usize, image.height as usize);
+    let source = (image.width, image.height, image.pixel);
+    let mut uploaded = GpuImage::upload_settled(&gpu, &image)?;
+    uploaded.gpu.forget_color();
+    let queue = crate::compute::Compute::for_device(&gpu.device)?;
+    for (csc_mode, ten_bit) in [(2, false), (0, true), (2, true), (4, true)] {
+        let config = butterpollo_media_policy::rtsp::Negotiated {
+            width: image.width,
+            height: image.height,
+            codec: 1,
+            sdr_10bit: ten_bit,
+            csc_mode,
+            sdr_tone_map: true,
+            ..Default::default()
+        };
+        let mut paths = vec![];
+        if ten_bit {
+            for pixel_passes in [true, false] {
+                let mut graphics = Converter::new(&gpu, &config, source)?;
+                if pixel_passes {
+                    graphics.compute = None;
+                }
+                graphics.set_luminance([240., 1.]);
+                let output = readback(&gpu, graphics.convert(&uploaded)?.as_ref())?;
+                paths.push(("D3D11", output));
+            }
+        }
+        let mut converter =
+            crate::compute::Converter::new(queue.clone(), image.width, image.height, ten_bit)?;
+        converter.values = constants(&config, source, [240., 1.], None);
+        let opened = queue.open(&uploaded.texture)?;
+        let converted = converter.convert(
+            &opened,
+            crate::compute::format(image.pixel),
+            None,
+            &uploaded,
+        )?;
+        converted.wait()?;
+        paths.push(("D3D12", readback_compute(&queue, &converted.texture)?));
+        for (path, output) in &paths {
+            for (patch, actual) in picture(output, width, height).into_iter().enumerate() {
+                let light = pq_scrgb(scrgb_pq10(colours[patch]));
+                let wanted = codes(&config, method_b(light, config.color_matrix()));
+                for (actual, wanted) in actual.into_iter().zip(wanted) {
+                    assert!(
+                        (actual - wanted).abs() <= if ten_bit { 4. } else { 1. },
+                        "{path} csc={csc_mode} ten={ten_bit} patch {patch}: {actual}, wanted {wanted}"
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn the_tone_mapping_follows_the_displays_reported_peak() {
+    let peak = |nits| f32::from_bits(tone_map_peak(nits)).exp2();
+    for (reported, wanted) in [
+        (0, 1000.),
+        (270, 400.),
+        (600, 600.),
+        (1499, 1499.),
+        (10000, 2000.),
+    ] {
+        assert!((peak(reported) - wanted).abs() < 0.01, "{reported}");
+    }
+    let config = butterpollo_media_policy::rtsp::Negotiated {
+        sdr_tone_map: true,
+        ..Default::default()
+    };
+    // Whatever the display, the words start at Method B's 1000 nits.
+    let values = constants(&config, (64, 64, Pixel::Rgba10Pq), [240., 1.], None);
+    assert_eq!(values[17..], [1, 0, tone_map_peak(1000)]);
+}
+
+#[test]
+#[ignore = "requires a D3D12 compute GPU"]
+fn gpu_sdr_tone_map_follows_the_source_peak() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let colours: Vec<[f32; 3]> = METHOD_B_PATCHES.iter().map(|(rgb, _)| *rgb).collect();
+    let image = make_image(&colours, 64, 64);
+    let (width, height) = (image.width as usize, image.height as usize);
+    let source = (image.width, image.height, image.pixel);
+    let uploaded = GpuImage::upload_settled(&gpu, &image)?;
+    let queue = crate::compute::Compute::for_device(&gpu.device)?;
+    let config = butterpollo_media_policy::rtsp::Negotiated {
+        width: image.width,
+        height: image.height,
+        codec: 1,
+        sdr_10bit: true,
+        csc_mode: 2,
+        sdr_tone_map: true,
+        ..Default::default()
+    };
+    for peak in [400u16, 1500, 2000] {
+        let mut converter =
+            crate::compute::Converter::new(queue.clone(), image.width, image.height, true)?;
+        converter.values = constants(&config, source, [240., 1.], None);
+        converter.values[19] = tone_map_peak(peak);
+        let opened = queue.open(&uploaded.texture)?;
+        let converted = converter.convert(
+            &opened,
+            crate::compute::format(image.pixel),
+            None,
+            &uploaded,
+        )?;
+        converted.wait()?;
+        let output = readback_compute(&queue, &converted.texture)?;
+        for (patch, actual) in picture(&output, width, height).into_iter().enumerate() {
+            let light = colours[patch].map(f64::from);
+            let rgb = method_b_peak(light, config.color_matrix(), f64::from(peak));
+            for (actual, wanted) in actual.into_iter().zip(codes(&config, rgb)) {
+                assert!(
+                    (actual - wanted).abs() <= 4.,
+                    "peak {peak} patch {patch}: {actual}, wanted {wanted}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a D3D11 GPU"]
+fn gpu_hdr10_capture_is_refused_for_sdr_without_tone_mapping() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let source = (64, 64, Pixel::Rgba10Pq);
+    let config = butterpollo_media_policy::rtsp::Negotiated {
+        width: 64,
+        height: 64,
+        codec: 1,
+        sdr_10bit: true,
+        ..Default::default()
+    };
+    let refused = Converter::new(&gpu, &config, source)
+        .err()
+        .context("PQ accepted")?;
+    assert!(format!("{refused:#}").contains("hdr_sdr_tone_map is off"));
+    let on = butterpollo_media_policy::rtsp::Negotiated {
+        sdr_tone_map: true,
+        ..config
+    };
+    Converter::new(&gpu, &on, source)?;
+    Ok(())
 }
 
 #[test]

@@ -540,14 +540,13 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
     );
     // Rate control must not drop a frame to stay on budget: a VRR client
     // shows a dropped frame as a held picture. Vibepollo sets it off too.
-    // Keep AV1's existing driver policy until support is checked on hardware.
-    if codec < 2 {
-        add(
-            format!("{prefix}RateControlSkipFrameEnable"),
-            Value::Boolean(false),
-            false,
-        );
-    }
+    // AV1 has the same property (AMF_VIDEO_ENCODER_AV1_RATE_CONTROL_SKIP_FRAME);
+    // optional, so a driver without it keeps its default and logs a warning.
+    add(
+        format!("{prefix}RateControlSkipFrameEnable"),
+        Value::Boolean(false),
+        false,
+    );
     if let Some(on) = tristate(config, "amd_smart_access_video", None) {
         add(
             format!("{prefix}EnableEncoderSmartAccessVideo"),

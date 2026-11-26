@@ -87,10 +87,8 @@ pub(super) fn catalog() -> Vec<auth::Scope> {
         ("/api/apps/purge_autosync", &["POST"][..]),
         ("/api/lossless_scaling/status", &["GET"][..]),
         ("/api/radeon", &["GET"][..]),
-        ("/api/browse", &["GET"][..]),
         ("/api/restart", &["POST"][..]),
         ("/api/quit", &["POST"][..]),
-        ("/api/password", &["POST"][..]),
     ]
     .into_iter()
     .map(|(path, methods)| auth::Scope {

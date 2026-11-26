@@ -28,7 +28,7 @@
     <string name="desktop_zoom_enable">Zoom und Verschieben aktivieren</string>
     <string name="desktop_zoom_disable">Zoom und Verschieben deaktivieren</string>
     <string name="desktop_zoom_reset">Zoom zurücksetzen</string>
-    <string name="desktop_zoom_help">Mit zwei Fingern bis zu 4× zoomen und verschieben. Ein Finger verwendet weiterhin den gewählten Touchmodus. Scrollen mit zwei Fingern ist dabei ersetzt.</string>
+    <string name="desktop_zoom_help">Mit zwei Fingern von 0,5× bis 4× zoomen; mit zwei Fingern das Bild frei verschieben, auch über schwarze Ränder hinweg. Ein Finger verwendet weiterhin den gewählten Touchmodus. Scrollen mit zwei Fingern ist dabei ersetzt.</string>
     <string name="desktop_output">Videoausgabe (verbindet Stream neu)</string>
     <string name="desktop_output_device">Dieses Gerät</string>
     <string name="desktop_touchpad_help">Das Video läuft auf der externen Anzeige. Nutze diesen Bildschirm als Touchpad. Tastatur, Spieltasten und Stream-Menü bleiben hier verfügbar.</string>

@@ -1759,4 +1759,8 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer di ricezione: il sistema ha conces
     ("Add this device’s battery percentage and local time to the compact performance overlay.", "Aggiunge la percentuale di batteria e l’ora locale di questo dispositivo all’overlay prestazioni compatto."),
     ("macOS restricts Wi-Fi network names (SSIDs) without Location Services permission, so Wi-Fi connections match Other Wi-Fi instead of Home Wi-Fi.", "macOS limita i nomi delle reti Wi-Fi (SSID) senza l’autorizzazione ai Servizi di localizzazione, quindi le connessioni Wi-Fi corrispondono ad Altra Wi-Fi invece che a Wi-Fi di casa."),
     ("The clipboard on this device holds no text.", "Gli appunti di questo dispositivo non contengono testo."),
+    ("HDR format", "Formato HDR"),
+    ("No Dolby Vision", "Senza Dolby Vision"),
+    ("HDR10 only", "Solo HDR10"),
+    ("Automatic uses the best HDR format both sides take; the others leave out Dolby Vision, or everything beyond HDR10. Change it if a format looks wrong; with HDR10 only some PCs may still send HDR10+.", "Automatico usa il miglior formato HDR supportato da entrambe le parti; le altre scelte escludono Dolby Vision o tutto ciò che va oltre HDR10. Cambialo se un formato si vede male; con Solo HDR10 alcuni PC possono comunque inviare HDR10+."),
 ];

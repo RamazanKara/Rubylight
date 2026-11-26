@@ -6,12 +6,19 @@
         <item>Rellenar (recortar)</item>
         <item>Estirar</item>
         <item>Píxeles 1:1</item>
+        <item>Ajuste seguro</item>
     </string-array>
-    <string name="video_scaling_help">Ajustar: la imagen completa, con barras si la pantalla tiene otra forma.\nRellenar (recortar): llena la pantalla sin deformar la imagen; se recortan los bordes que no caben.\nEstirar: llena la pantalla; las formas pueden verse más anchas o más altas.\nPíxeles 1:1: un píxel de la transmisión por cada píxel de la pantalla. Una transmisión más pequeña tiene un borde; una más grande se recorta.\nPosición del vídeo sube una imagen en Ajustar o 1:1 a la parte superior. El zoom con dos dedos funciona en todos los modos, e Imagen en imagen siempre muestra la imagen completa.</string>
+    <string name="video_scaling_help">Ajustar: la imagen completa, con barras si la pantalla tiene otra forma.\nRellenar (recortar): llena la pantalla sin deformar la imagen; se recortan los bordes que no caben.\nEstirar: llena la pantalla; las formas pueden verse más anchas o más altas.\nPíxeles 1:1: un píxel de la transmisión por cada píxel de la pantalla. Una transmisión más pequeña tiene un borde; una más grande se recorta.\nPosición del vídeo sube una imagen en Ajustar o 1:1 a la parte superior. El zoom con dos dedos funciona en todos los modos, e Imagen en imagen siempre muestra la imagen completa.
+Ajuste seguro: como Ajustar, pero sin tapar recortes de cámara ni esquinas redondeadas.</string>
     <string name="title_video_alignment">Posición del vídeo</string>
     <string name="summary_video_alignment">Dónde se coloca una imagen en Ajustar o 1:1: centro o arriba. Arriba deja libre el espacio bajo la imagen.</string>
     <string-array name="video_alignment_names">
         <item>Centro</item>
         <item>Arriba</item>
     </string-array>
+    <string name="picture_position_title">Posición de la imagen</string>
+    <string name="picture_position_horizontal">Izquierda / derecha</string>
+    <string name="picture_position_vertical">Arriba / abajo</string>
+    <string name="picture_position_center">Centrar</string>
+    <string name="summary_picture_position">Mueve la imagen para compensar un recorte de cámara o bordes curvos, y se guarda para cada pantalla de este dispositivo. Déjala centrada salvo que quede oculta una parte de la imagen.</string>
 </resources>

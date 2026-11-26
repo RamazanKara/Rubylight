@@ -410,7 +410,8 @@ impl AudioQueue {
         }
     }
 
-    /// `RtpaAddPacket`: `packet` is the whole datagram (at most 1400 bytes).
+    /// `RtpaAddPacket`: `packet` is the whole datagram (at most `MAX_PACKET_SIZE` bytes, or
+    /// `MAX_UNCHUNKED_PACKET_SIZE` for unchunked AC3 and E-AC3; blocks size to their packets).
     pub(super) fn add_packet(
         &mut self,
         header: &RtpHeader,

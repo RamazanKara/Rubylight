@@ -24,7 +24,9 @@ import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.binding.video.PyroWaveDecoderRenderer;
 import com.limelight.ui.AppTheme;
 import com.limelight.ui.NavigationDialogBuilder;
+import com.limelight.ui.PicturePosition;
 import com.limelight.ui.StreamOrientation;
+import com.limelight.ui.StreamSafeAreaController;
 import com.limelight.ui.VideoScaling;
 import com.limelight.update.UpdateFlow;
 import com.limelight.update.UpdatePrefs;
@@ -509,6 +511,11 @@ final class StreamSettingsRowBindings {
                     showInfo(fragment.getActivity(), R.string.stream_touch_mode, R.string.settings_touch_mode_help));
             return true;
         });
+        Preference picturePosition = fragment.findPreference(PicturePosition.PREF);
+        if (picturePosition != null) picturePosition.setOnPreferenceClickListener(preference -> {
+            UiHelper.showDialog(fragment.getActivity(), StreamSafeAreaController.createPositionDialog(fragment.getActivity(), () -> {}));
+            return true;
+        });
         fragment.findPreference(VideoScaling.PREF).setOnPreferenceClickListener(preference -> {
             SharedPreferences prefs = fragment.getPreferenceManager().getSharedPreferences();
             AlertDialog picker = new NavigationDialogBuilder(fragment.getActivity()).setTitle(R.string.video_scaling_title)
@@ -591,6 +598,7 @@ final class StreamSettingsRowBindings {
         // A TV does not turn.
         if (activity.getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK)) {
             fragment.removeSetting(StreamOrientation.PREF);
+            fragment.removeSetting(PicturePosition.PREF);
         }
 
         // Mobile data rows only where there is mobile data, unless a value set earlier still acts (roaming's

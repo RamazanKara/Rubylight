@@ -122,4 +122,11 @@
     <string name="game_preset_quality_summary" formatted="false">Règle le débit à 150 % de celui du PC, ou des réglages principaux si le PC n’en a pas, jusqu’à la limite du PC. Le frame pacing et le rafraîchissement adaptatif ne changent pas ; sur une connexion faible, les images plus lourdes peuvent ajouter du délai.</string>
     <string name="game_preset_custom">Personnalisé</string>
     <string name="game_preset_custom_summary">Vos propres valeurs, réglées ci-dessous.</string>
+    <string name="profiles_screen">Profil pour cet écran</string>
+    <string name="profiles_screen_none">Aucun profil pour cet écran</string>
+    <string name="profiles_screen_summary">Nightjar est sur %1$s. Un stream lancé ici utilise ce profil, avant le réseau et le profil utilisé.</string>
+    <string name="profiles_screen_built_in">Écran de cet appareil</string>
+    <string name="profiles_marker_screen">Gardé pour %1$s</string>
+    <string name="profiles_screen_forget">Oublier l’écran</string>
+    <string name="layers_part_profile_screen">profil %1$s, gardé pour cet écran</string>
 </resources>

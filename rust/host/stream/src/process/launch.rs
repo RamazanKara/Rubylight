@@ -88,6 +88,14 @@ pub(super) fn launch_with_environment(
         .map(|v| v.parse::<u32>())
         .transpose()?
         .unwrap_or(0);
+    // The PlayStation controllers among gcmap's slots (`psmap`, additive; older clients omit it).
+    let psmap = args
+        .get("psmap")
+        .map(|v| v.parse::<u32>())
+        .transpose()?
+        .unwrap_or(0)
+        & gcmap
+        & 0xFFFF;
     if let Some(value) = args.get("surroundParams") {
         value.parse::<u64>()?;
     }
@@ -210,6 +218,7 @@ pub(super) fn launch_with_environment(
             .into(),
         ),
         ("SUNSHINE_CLIENT_GCMAP", gcmap.to_string()),
+        ("SUNSHINE_CLIENT_PSMAP", psmap.to_string()),
         (
             "SUNSHINE_CLIENT_HOST_AUDIO",
             if args.get("localAudioPlayMode").is_some_and(|v| v == "1") {

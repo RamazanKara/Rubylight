@@ -211,11 +211,13 @@ async fn guard(State(h): State<Shared>, mut request: Request, next: Next) -> Res
     }
     let fresh_password = path == "/api/password" && h.credentials.read().unwrap().is_none();
     let api_token = token_authenticated(&h, request.headers(), path, method.as_str());
+    // The first password is set from a browser on this PC. A reverse proxy or tunnel on this PC
+    // connects from here too, for a browser anywhere, so its headers count
+    // (`browser_on_this_pc`); its users set the first password with `--creds`.
     if fresh_password
-        && !request
-            .extensions()
-            .get::<Connection>()
-            .is_some_and(|c| butterpollo_stream::network::from_this_pc(c.peer))
+        && !request.extensions().get::<Connection>().is_some_and(|c| {
+            butterpollo_stream::network::browser_on_this_pc(c.peer, c.local, request.headers())
+        })
     {
         return error(
             StatusCode::FORBIDDEN,
@@ -432,7 +434,7 @@ pub(crate) async fn api(
         return apps::purge_autosync(&h).await;
     }
     if method == Method::GET && path == "/api/logs/export_crash" {
-        return logs::export_crash(&h).await;
+        return logs::export_crash(&h, logs::include_dump(&uri)).await;
     }
     if method == Method::GET && path == "/api/logs/tail" {
         let h = h.clone();
@@ -482,7 +484,7 @@ pub(crate) async fn api(
             ("GET", "/api/health/crashdump")
             | ("POST", "/api/health/crashdump/dismiss")
             | ("GET", "/api/logs/export_crash/manifest") => {
-                logs::handle(&h, method.as_str(), path, &data)?
+                logs::handle(&h, method.as_str(), path, &data, logs::include_dump(&uri))?
             }
             ("GET", "/api/display/golden_status")
             | ("POST", "/api/display/export_golden")

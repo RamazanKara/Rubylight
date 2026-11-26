@@ -52,6 +52,21 @@ fn an_appimage_is_its_runtimes_word_and_where_this_program_runs() {
 }
 
 #[test]
+fn a_copy_without_a_program_path_keeps_the_check_and_is_never_replaced() {
+    let net: Arc<dyn Transport> = Arc::new(crate::update_net::Native::new("test".into()));
+    // An AppImage, an archive or a build whose path cannot be read still hears of a new release,
+    // through the release page's link: nothing ties $APPIMAGE to it, so nothing runs or replaces.
+    let unknown = unknown_copy(false);
+    assert_eq!(unknown, CopyKind::Portable);
+    assert!(unknown.checks(), "Check for updates stays");
+    assert!(unknown.asset_names("9.0.0").is_empty(), "no asset to download");
+    assert!(Steps::for_copy(&unknown, net).is_none(), "no Update now");
+    // Flathub updates a Flatpak: it stays out of the check, as before.
+    assert_eq!(unknown_copy(true), CopyKind::Managed);
+    assert!(!unknown_copy(true).checks());
+}
+
+#[test]
 fn an_install_updates_to_the_setup_of_the_pcs_own_architecture() {
     let machine = windows_machine();
     assert!(["x86_64", "arm64"].contains(&machine), "{machine}");

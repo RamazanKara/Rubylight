@@ -44,6 +44,10 @@ pub(in crate::stream) struct ControlPeer {
     pub(super) steam_attributes_refused: bool,
     pub(super) controller_audio: [u8; 16],
     pub(super) controller_pcm: controller_audio::PcmTraffic,
+    /// Controllers bound to Nonary's speaker PCM (0x5602) instead of `controller_audio`.
+    pub(in crate::stream) ps_speaker: butterpollo_input_policy::ps_speaker::Speakers,
+    /// When the bound controllers' speaker status last went to the injector.
+    pub(super) ps_speaker_status_at: Option<Instant>,
     pub(super) rumble: RumbleForwarded,
     pub(super) command_at: Option<Instant>,
     /// Whether the session is in the control socket's roaming table.
@@ -116,6 +120,8 @@ impl ControlPeer {
             steam_attributes_refused: false,
             controller_audio: [0; 16],
             controller_pcm: Default::default(),
+            ps_speaker: Default::default(),
+            ps_speaker_status_at: None,
             rumble: Default::default(),
             command_at: None,
             roaming: false,

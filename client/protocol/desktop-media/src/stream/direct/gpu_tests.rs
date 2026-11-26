@@ -632,7 +632,7 @@ fn packed444_present_uses_bilinear_for_one_to_one_perspective_lens() {
         let mut cb1 = None;
         device.CreateBuffer(
             &D3D11_BUFFER_DESC {
-                ByteWidth: 64, Usage: D3D11_USAGE_DYNAMIC, BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32,
+                ByteWidth: 80, Usage: D3D11_USAGE_DYNAMIC, BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32,
                 CPUAccessFlags: D3D11_CPU_ACCESS_WRITE.0 as u32, ..Default::default()
             },
             None, Some(&mut cb1),
@@ -649,13 +649,15 @@ fn packed444_present_uses_bilinear_for_one_to_one_perspective_lens() {
         device.CreateRenderTargetView(&target, None, Some(&mut rtv)).unwrap();
 
         let run_present = |warp: [f32; 4], lens: [f32; 4]| -> Vec<[f32; 3]> {
-            let presentation: [f32; 16] = [
+            // The fill and probe row stays zero: no darkening, no probe.
+            let presentation: [f32; 20] = [
                 0.0, 0.0, w as f32, h as f32, 1.0, 1.0, 0.0, 0.0,
                 warp[0], warp[1], warp[2], warp[3], lens[0], lens[1], lens[2], lens[3],
+                0.0, 0.0, 0.0, 0.0,
             ];
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
             context.Map(cb1.as_ref().unwrap(), 0, D3D11_MAP_WRITE_DISCARD, 0, Some(&mut mapped)).unwrap();
-            std::ptr::copy_nonoverlapping(presentation.as_ptr().cast::<u8>(), mapped.pData.cast::<u8>(), 64);
+            std::ptr::copy_nonoverlapping(presentation.as_ptr().cast::<u8>(), mapped.pData.cast::<u8>(), 80);
             context.Unmap(cb1.as_ref().unwrap(), 0);
             context.OMSetRenderTargets(Some(&[rtv.clone()]), None);
             context.RSSetViewports(Some(&[D3D11_VIEWPORT {

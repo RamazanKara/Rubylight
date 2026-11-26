@@ -339,7 +339,7 @@ public class HostStreamProfileTest {
     public void everyFieldCanBeCopiedAloneAndFallsThroughWhenUnset() {
         HostStreamProfile full = HostStreamProfile.deserialize("v2;res=1920x1080;refresh=6000;bitrate=20000;" +
                 "scale=150;dpi=175;codec=FORCE_AV1;virtual=true;hdr=true;full_range=true;yuv444=true;vrr=false;" +
-                "upscaling=FSR1;sharpness=60;pacing=balanced;rtx_hdr=true;rtx_video=false");
+                "upscaling=FSR1;sharpness=60;pacing=balanced;rtx_hdr=true;rtx_video=false;hdr_format=hdr10");
         assertEquals(HostStreamProfile.Field.values().length, full.count());
         HostStreamProfile copy = new HostStreamProfile();
         for (HostStreamProfile.Field field : HostStreamProfile.Field.values()) {

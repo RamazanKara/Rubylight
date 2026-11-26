@@ -1,7 +1,7 @@
 //! Source inventories for the desktop localization table tests (`SOURCES` and `MARKED_ONLY`).
 
 /// The UI sources, up to their test modules.
-pub(super) const SOURCES: [(&str, &str); 75] = [
+pub(super) const SOURCES: [(&str, &str); 79] = [
     ("strings.rs", include_str!("../../strings.rs")),
     ("app_types.rs", include_str!("../../app_types.rs")),
     ("gamepad_types.rs", include_str!("../../gamepad_types.rs")),
@@ -20,6 +20,7 @@ pub(super) const SOURCES: [(&str, &str); 75] = [
     ("ui/library.rs", include_str!("../../../../desktop-ui/src/ui/library.rs")),
     ("ui/library/helpers.rs", include_str!("../../../../desktop-ui/src/ui/library/helpers.rs")),
     ("ui/pages.rs", include_str!("../../../../desktop-ui/src/ui/pages.rs")),
+    ("ui/host_details_limiter.rs", include_str!("../../../../desktop-ui/src/ui/host_details_limiter.rs")),
     ("ui/pcs.rs", include_str!("../../../../desktop-ui/src/ui/pcs.rs")),
     ("ui/game.rs", include_str!("../../../../desktop-ui/src/ui/game.rs")),
     ("ui/game/rows.rs", include_str!("../../../../desktop-ui/src/ui/game/rows.rs")),
@@ -67,7 +68,10 @@ pub(super) const SOURCES: [(&str, &str); 75] = [
     ("radeon.rs", include_str!("../../../../desktop-ui/src/radeon.rs")),
     ("gamepad.rs", include_str!("../../../../desktop-media/src/gamepad.rs")),
     ("usb.rs", include_str!("../../../../desktop-media/src/usb.rs")),
+    ("usb/auto.rs", include_str!("../../../../desktop-media/src/usb/auto.rs")),
     ("usb_linux.rs", include_str!("../../../../desktop-media/src/usb_linux.rs")),
+    ("usb_windows.rs", include_str!("../../../../desktop-media/src/usb_windows.rs")),
+    ("usb_windows/cli.rs", include_str!("../../../../desktop-media/src/usb_windows/cli.rs")),
     ("stream/doctor.rs", include_str!("../../../../desktop-media/src/stream/doctor.rs")),
     ("update_banner.rs", include_str!("../../../../desktop-ui/src/update_banner.rs")),
     ("update_check.rs", include_str!("../../../../desktop/src/update_check.rs")),

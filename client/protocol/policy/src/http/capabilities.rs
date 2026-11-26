@@ -326,9 +326,13 @@ impl Evidence {
                     self.absent(false)
                 }
             }
+            // A host before 7.0 lists only `FrameWarpVersion`: its Frame Warp took the eight-byte
+            // request this client no longer sends, so the player is told to update the PC.
             Feature::FrameWarp => {
-                if self.frame_warp_version >= 1 {
+                if self.frame_warp_protocol >= 2 {
                     Supported
+                } else if self.frame_warp_version >= 1 {
+                    update
                 } else {
                     self.absent(false)
                 }
@@ -403,7 +407,18 @@ impl Evidence {
             Feature::BandwidthProbe => self.serverinfo_version(self.bandwidth_probe_version),
             Feature::AudioPassthrough => {
                 use rubylight_protocol::audio_ext::{CODEC_AC3, CODEC_EAC3, CODEC_PCM};
-                self.serverinfo_bits(self.audio_codecs, CODEC_PCM | CODEC_AC3 | CODEC_EAC3)
+                // Without the field, a Sunshine-family host may still offer Dolby in its
+                // DESCRIBE (`a=x-ss-audio-codec-offer`), which only the stream's handshake sees.
+                if self.audio_codecs < 0
+                    && matches!(
+                        self.family(),
+                        Family::Sunshine | Family::Apollo | Family::Vibepollo
+                    )
+                {
+                    Unknown
+                } else {
+                    self.serverinfo_bits(self.audio_codecs, CODEC_PCM | CODEC_AC3 | CODEC_EAC3)
+                }
             }
             Feature::Surround714 => self.serverinfo_bits(
                 self.audio_layouts,
@@ -629,6 +644,13 @@ impl HostCapabilities {
     /// (`rubylight_protocol::nvidia_enhance` bits), 0 for a host without any.
     pub fn nvidia_enhancements(&self) -> u8 {
         self.evidence.as_ref().map_or(0, |e| e.nvidia_enhancements)
+    }
+
+    /// Whether the host takes `rlHdrDynamic` to leave HDR10+ and HDR Vivid out of a stream.
+    pub fn hdr_dynamic_control(&self) -> bool {
+        self.evidence
+            .as_ref()
+            .is_some_and(|e| e.hdr_dynamic_control)
     }
 
     /// `MaxVideoPacket`: the largest video packet this host accepts, including a client's 32-byte

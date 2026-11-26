@@ -49,6 +49,25 @@ fn dolby_vision_is_wanted_for_hevc_streams_that_picked_it() {
     assert_eq!(rpus.unwrap().profile(), dovi::Profile::P101);
 }
 
+/// `rlHdrDynamic=0`: a Dolby Vision stream keeps its statistics pass for the RPUs and writes no
+/// HDR10+; without either, nothing is wanted, so no statistics pass runs.
+#[test]
+fn a_stream_without_hdr10_plus_measures_only_for_dolby_vision() {
+    let options = [("rlHdrDynamic".to_owned(), "0".to_owned())]
+        .into_iter()
+        .collect();
+    let mut stream = butterpollo_config::config::Config::default();
+    butterpollo_media_policy::extensions::apply_hdr_dynamic(&mut stream, &options).unwrap();
+    let config = |hdr_format| butterpollo_media_policy::rtsp::Negotiated {
+        codec: 1,
+        hdr: true,
+        hdr_format,
+        ..Default::default()
+    };
+    assert_eq!(wanted(&config(4), &stream), Some(dolby_vision(false)));
+    assert_eq!(wanted(&config(0), &stream), None);
+}
+
 fn av1_dolby_vision(t35: bool) -> Wanted {
     Wanted {
         codec: Codec::Av1,

@@ -5,6 +5,8 @@
 //! takes media pings only from the session's client address, moves the session only on a
 //! CONFIRM of its pending challenge, and forgets the old path's media peers when it does.
 
+#[path = "session_loopback/dolby_ss.rs"]
+mod dolby_ss;
 #[path = "session_loopback/host.rs"]
 mod host;
 #[path = "session_loopback/media.rs"]

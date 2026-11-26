@@ -126,4 +126,11 @@
     <string name="game_preset_quality_summary" formatted="false">Устанавливает битрейт в 150% от значения ПК (или основных настроек, если у ПК его нет) в пределах лимита ПК. Pacing кадров и адаптивная частота обновления не меняются; при слабом соединении более крупные кадры могут добавить задержку.</string>
     <string name="game_preset_custom">Свой</string>
     <string name="game_preset_custom_summary">Ваши собственные значения, заданные ниже.</string>
+    <string name="profiles_screen">Профиль для этого экрана</string>
+    <string name="profiles_screen_none">Нет профиля для этого экрана</string>
+    <string name="profiles_screen_summary">Nightjar на экране %1$s. Трансляция, запущенная на нём, использует этот профиль прежде сети и текущего профиля.</string>
+    <string name="profiles_screen_built_in">Экран этого устройства</string>
+    <string name="profiles_marker_screen">Для экрана %1$s</string>
+    <string name="profiles_screen_forget">Забыть экран</string>
+    <string name="layers_part_profile_screen">профиль %1$s, для этого экрана</string>
 </resources>

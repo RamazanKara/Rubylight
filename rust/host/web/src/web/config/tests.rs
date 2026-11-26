@@ -12,6 +12,7 @@ fn hybrid_gpus() -> Vec<Gpu> {
             device: 0,
             luid: (1, 0),
             pnp_id: Some("PCI\\VEN_1002&DEV_15BF\\1".into()),
+            preference: None,
         },
         Gpu {
             name: "AMD Radeon RX 7600M XT".into(),
@@ -20,6 +21,7 @@ fn hybrid_gpus() -> Vec<Gpu> {
             device: 0,
             luid: (2, 0),
             pnp_id: None,
+            preference: None,
         },
     ]
 }

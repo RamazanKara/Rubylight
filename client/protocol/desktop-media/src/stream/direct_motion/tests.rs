@@ -191,6 +191,31 @@ fn lent_controllers_come_back_and_are_read_only_during_the_present() {
 }
 
 #[test]
+fn take_sent_down_does_not_deadlock_while_loan_pads_is_held() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let frozen = Arc::new(Mutex::new(Frozen::default()));
+        lock(&frozen).pads = Some(Lent(Gamepads::default()));
+        let sent_down = Mutex::new(SentDown {
+            keys: HashSet::from([0x57u16]),
+            buttons: HashSet::from([1u8]),
+        });
+        let loan = Loan(frozen.clone());
+        // Mirrors `draw_overlay(..., &mut pads.pads(), ...)`: `Frozen` is locked while
+        // `toggle_menu` -> `raise_all_keys` -> `take_sent_down` runs on the same thread.
+        let _pads = loan.pads();
+        let (keys, buttons) = take_sent_down_from(&sent_down);
+        drop(_pads);
+        let _ = loan.take_back();
+        let _ = tx.send((keys, buttons));
+    });
+    let (keys, buttons) = rx.recv_timeout(std::time::Duration::from_secs(2))
+        .expect("take_sent_down deadlocked while Loan::pads held Frozen");
+    assert_eq!(keys, HashSet::from([0x57u16]));
+    assert_eq!(buttons, HashSet::from([1u8]));
+}
+
+#[test]
 fn focus_lost_barrier_blocks_direct_input_until_dispatched() {
     for kind in [SDL_EVENT_WINDOW_FOCUS_LOST, SDL_EVENT_WINDOW_MINIMIZED, SDL_EVENT_WINDOW_HIDDEN] {
         assert!(is_barrier(kind), "{:#x}", kind.0);

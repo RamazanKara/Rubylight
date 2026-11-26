@@ -17,7 +17,7 @@
     <string name="title_experimental_chipset_tuning">Réglage du chipset</string>
     <string name="summary_experimental_chipset_tuning">Peut empêcher le décodage sur certains appareils. Donne aux décodeurs MediaTek Dimensity et Samsung Exynos des réglages de faible latence supplémentaires destinés à réduire le délai de décodage ; les autres puces ne sont pas concernées. Laissez-le désactivé sauf si le décodeur prend du retard.</string>
     <string name="title_tv_display_compatibility">Garder la vidéo TV fluide</string>
-    <string name="summary_tv_display_compatibility">Pour les téléviseurs et boîtiers TV dont l’image saccade au bout d’un moment, se fige, clignote ou redémarre si rien n’est dessiné par-dessus, comme la superposition des performances. Activé par défaut sur les téléviseurs. Cela coûte un point presque noir dans le coin supérieur gauche, redessiné dix fois par seconde.</string>
+    <string name="summary_tv_display_compatibility">Laissez désactivé sur la plupart des téléviseurs : Nightjar active automatiquement une couche de composition invisible si la cadence d’affichage se bloque ou se fige. Activez-le pour forcer cette couche dès le début sur les téléviseurs qui saccadent, clignotent ou redémarrent immédiatement.</string>
     <string name="scut_deleted_pc">PC supprimé</string>
     <string name="scut_not_paired">PC non associé</string>
     <string name="scut_pc_not_found">PC introuvable</string>
@@ -571,4 +571,15 @@
     <string name="summary_hdr_shield_firmware_update">Mettez à jour le micrologiciel de votre NVIDIA SHIELD Android TV pour activer le HDR</string>
     <string name="full_range_vulkan_switched">Le décodeur a ignoré la plage complète. Passage à Vulkan pour des noirs corrects.</string>
     <string name="full_range_vulkan_unavailable">Plage complète ignorée, pas de Vulkan : noirs faussés. Désactivez la plage complète.</string>
+    <string name="launch_warning_virtual_display_unavailable">L’écran virtuel du PC n’est pas disponible, ce flux affiche donc son écran physique.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">Cet appareil a demandé l’écran du PC lui-même, le flux n’utilise donc pas d’écran virtuel.</string>
+    <string name="frame_warp_update_host">Frame Warp est désactivé : il faut la version actuelle de Nightjar et de l’application de streaming du PC.</string>
+    <string name="frame_warp_overlay_update_host">Frame Warp : nécessite la version actuelle sur le PC</string>
+    <string name="frame_warp_overlay_confidence">%1$s, confiance %2$s %%</string>
+    <string name="frame_warp_overlay_confidence_gyro">%1$s, confiance %2$s %%, gyroscope calé</string>
+    <string name="title_hdr_format">Format HDR</string>
+    <string name="summary_hdr_format">Automatique utilise le meilleur format HDR pris en charge des deux côtés ; les autres choix écartent Dolby Vision, ou tout ce qui dépasse HDR10. Changez-le si un format s’affiche mal ; avec HDR10 uniquement, certains PC peuvent encore envoyer du HDR10+.</string>
+    <string name="hdr_format_auto">Automatique</string>
+    <string name="hdr_format_no_dolby_vision">Sans Dolby Vision</string>
+    <string name="hdr_format_hdr10">HDR10 uniquement</string>
 </resources>

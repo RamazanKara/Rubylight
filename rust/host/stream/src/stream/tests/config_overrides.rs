@@ -531,3 +531,27 @@ fn an_hdr_request_alone_in_overrides_folds_over_the_layers_below() {
         "force_off"
     );
 }
+#[test]
+fn a_launch_without_hdr_dynamic_metadata_wins_over_app_and_device_overrides() {
+    use crate::state::test_support::Fixture;
+    use serde_json::json;
+    let f = Fixture::new();
+    let mut client = f.client(u32::MAX);
+    client.extra.insert(
+        "config_overrides".into(),
+        json!({"hdr_dynamic_metadata": true}),
+    );
+    let mut launch = f.launch(client, Role::Stream);
+    f.host.apps.write().unwrap()[0].extra.insert(
+        "config-overrides".into(),
+        json!({"hdr_dynamic_metadata": true}),
+    );
+    let dynamic = |launch: &_| {
+        effective_config(&f.host, launch)
+            .unwrap()
+            .boolean("hdr_dynamic_metadata", false)
+    };
+    assert!(dynamic(&launch));
+    launch.options.insert("rlHdrDynamic".into(), "0".into());
+    assert!(!dynamic(&launch));
+}

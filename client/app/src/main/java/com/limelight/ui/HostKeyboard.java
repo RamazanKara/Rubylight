@@ -55,7 +55,7 @@ public final class HostKeyboard {
      */
     public void onPress(float fractionY, long now) {
         onInput(now);
-        pressY = fractionY >= 0 && fractionY <= 1 ? fractionY : Float.NaN;
+        pressY = Float.isFinite(fractionY) ? fractionY : Float.NaN;
         pressAt = now;
     }
 

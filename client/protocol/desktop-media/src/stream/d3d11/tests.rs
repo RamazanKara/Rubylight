@@ -17,19 +17,17 @@ fn the_plane_shader_compiles_for_direct3d() {
     assert_eq!(super::PlanesPass::compiles(), Ok(()));
 }
 
-/// The packed presentation shader, both outputs, compiles with Frame Warp's rows and mask, and
-/// the block `present` fills is the shader's.
+/// The packed presentation shader, both outputs, compiles with Frame Warp's three rows and mask,
+/// and the block `present` fills is the shader's.
 #[test]
 fn the_packed_presentation_takes_frame_warps_rows() {
     let shader = include_str!("../../packed444.hlsl");
     let colour = shader.find("float linearOutput; float colorScale; float2 unused;").expect("the colour row");
     let warp = shader.find("float4 warp;").expect("the warp row");
     assert!(colour < warp && shader[colour..warp].matches(';').count() == 3, "the warp row follows the colour row");
-    let lens = shader[warp..].trim_start_matches("float4 warp;").trim_start();
-    assert!(lens.starts_with("float4 warpLens;"), "the lens row follows it");
-    assert!(lens.trim_start_matches("float4 warpLens;").trim_start().starts_with("};"), "and ends the block");
+    assert!(crate::stream::frame_warp_v2::rows_end_block(&shader[warp..]), "the lens row and Frame Warp 2's row follow it and end the block");
     assert!(shader.contains("Texture2D<float> hudMask : register(t2);"));
-    assert_eq!(super::PRESENTATION_BYTES, 64);
+    assert_eq!(super::PRESENTATION_BYTES, 80);
     let sdr = [b"#define SDR_PRESENT 1\n".as_slice(), include_bytes!("../../packed444.hlsl")].concat();
     for source in [&include_bytes!("../../packed444.hlsl")[..], sdr.as_slice()] {
         // SAFETY: Plain compiler calls on static source.

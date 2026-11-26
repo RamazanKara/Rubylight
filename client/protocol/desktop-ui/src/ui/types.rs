@@ -65,6 +65,8 @@ pub enum Command {
     PcPower { host: u64, ask: u64, action: PcPower, token: String, at: Handed },
     /// Install the PC's host update and wait for it to come back.
     InstallUpdate { host: u64 },
+    /// Give back the USB devices Nightjar left shared in usbipd-win when it stopped (Windows).
+    GiveUsbDevicesBack,
     /// Name a PC on this device only; empty brings back the PC's own name.
     Rename { host: u64, alias: String },
     /// Always connect to the PC through this known address; None brings back the automatic pick.
@@ -328,6 +330,9 @@ pub enum Dialog {
     ApprovePairing { host: u64, request: String, name: String, address: String, pc: String, pin: String, busy: bool },
     /// Pairing did not work: what to do about it, and a way to try again.
     PairError { host: u64, body: String, one_time: bool },
+    /// After a crash: Nightjar left `count` USB devices shared in usbipd-win. Give back asks
+    /// Windows for administrator rights; Not now leaves them to the stream menu's USB section.
+    ConfirmUsbGiveBack { count: usize },
     /// How to pair, for a PC that is not paired yet.
     PairingHelp,
     /// Home's View, under its button: layout, grouping and card size, each changed in place.

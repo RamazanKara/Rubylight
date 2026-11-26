@@ -51,7 +51,7 @@ pub(super) fn debug_listed(s: &Settings, layer: Option<&Overrides>) -> bool {
 /// page draws.
 pub(super) const SECTION_KEYS: [&[&[&str]]; 9] = [
     &[&["simple_smoothness"], &["simple_picture"], &["simple_hdr"]],
-    &[&["width", "height", "native_scale"], &["fps"], &["bitrate_kbps"], &["lower_bitrate"], &["codec"], &["hdr"],
+    &[&["width", "height", "native_scale"], &["fps"], &["bitrate_kbps"], &["lower_bitrate"], &["codec"], &["hdr"], &["hdr_format"],
         &["prefer_yuv444", "experimental_packed_444"], &["sdr_10bit"], &["frame_warp"], &["adaptive_quality"], &["quality_min_short_edge"], &["quality_min_fps"],
         &["hdr_desktop_brightness"], &["rtx_hdr"], &["rtx_video"]],
     &[&["window_mode"], &["video_scaling"], &["vrr", "present_at_host_times", "vrr_tear_free"], &["vrr_wait"],
@@ -128,7 +128,7 @@ pub(super) use choices::{
     apply_preset, codec_name, display_choice, display_choice_name, display_scale_gate,
     display_scale_name, enhancement_name, error_correction_name, fractional_vsync_applies,
     fractional_vsync_display_reason, frame_pacing_choice, frame_pacing_choice_name,
-    host_display_name, preset_current, preset_label, preset_section, preset_value,
+    hdr_format_name, host_display_name, preset_current, preset_label, preset_section, preset_value,
     reset_to_defaults, set_frame_pacing_choice, set_vrr_choice, sharp_color, video_driver,
     vrr_choice, FramePacingChoice, VrrChoice,
 };

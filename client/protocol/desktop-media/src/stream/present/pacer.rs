@@ -76,6 +76,19 @@ pub fn prefers_immediate(vrr: bool, wayland: bool, gamescope: bool) -> bool {
     !(vrr && wayland && !gamescope)
 }
 
+/// Whether the frame pacing shows every picture in turn, one a refresh, instead of the newest due
+/// one, while the mode is V-Sync (`Pacer::keeps_every_picture`): the FPS limit, the smoothest
+/// pacing, and Balanced without Keep only the newest frame. The PC's frame times take the lowest
+/// latency's newest picture.
+pub fn in_order_pacing(frame_pacing: FramePacing, drop_late_frames: bool, host_frame_times: bool) -> bool {
+    !host_frame_times
+        && (matches!(frame_pacing, FramePacing::CapFps | FramePacing::Smoothness) || (frame_pacing == FramePacing::Balanced && !drop_late_frames))
+}
+
+#[path = "gamescope_fifo.rs"]
+mod gamescope_fifo;
+pub use gamescope_fifo::*;
+
 /// The longest a picture waits in the in-order frame pacings before a newer due one replaces it:
 /// one frame of the stream, at most 250 ms (Android's `FramePacingPolicy.shouldDrainOutput`).
 pub fn frame_us(fps: u32) -> u64 {
@@ -446,7 +459,12 @@ impl Pacer {
     /// Whether pictures are shown in turn, one a refresh, instead of the newest due one: the FPS
     /// limit, the smoothest pacing, and Balanced without Keep only the newest frame.
     pub fn keeps_every_picture(&self) -> bool {
-        self.paced(FramePacing::CapFps) || self.paced(FramePacing::Smoothness) || (self.paced(FramePacing::Balanced) && !self.drop_late_frames)
+        self.mode == PacingMode::Vsync && self.in_order()
+    }
+
+    /// Whether this stream's frame pacing shows every picture in turn while the mode is V-Sync.
+    pub fn in_order(&self) -> bool {
+        in_order_pacing(self.frame_pacing, self.drop_late_frames, self.host_frame_times)
     }
 
     /// Updates the display's shortest refresh interval (µs) after a display change.

@@ -1,0 +1,3 @@
+# Setup 7.0
+- **Setup in the 7.0 look.** Setup's dialogs show the Rubylight mark instead of the security shield, get a dark title bar when Windows uses dark mode for apps, and render sharp on high-DPI monitors. The buttons say what they do: Install Rubylight, Remove Rubylight, Open Rubylight Console and Done. Errors keep Windows' error icon, and every choice and default works as before.
+- **A calmer finish screen.** After an install, setup waits up to 3 seconds for Rubylight to start before it shows Open Rubylight Console. If Rubylight is still starting, setup says so instead of opening a console that doesn't answer yet. Quiet and unattended installs are unchanged.

@@ -13,7 +13,9 @@ use windows::{
         },
         UI::{
             Controls::*,
-            WindowsAndMessaging::{IDCANCEL, IDOK, MB_ICONERROR, MB_OK, MessageBoxW, SendMessageW},
+            WindowsAndMessaging::{
+                IDCANCEL, IDCLOSE, IDOK, MB_ICONERROR, MB_OK, MessageBoxW, SendMessageW,
+            },
         },
     },
     core::{BOOL, HRESULT, HSTRING, PCWSTR, w},
@@ -119,9 +121,13 @@ pub fn ask(
         dwFlags: flags,
         dwCommonButtons: TDCBF_CANCEL_BUTTON,
         pszWindowTitle: PCWSTR(title.as_ptr()),
+        // Setup runs elevated already and none of its questions warns of a risk:
+        // the Rubylight mark, not the shield.
+        hInstance: brand_instance(),
         Anonymous1: TASKDIALOGCONFIG_0 {
-            pszMainIcon: TD_SHIELD_ICON,
+            pszMainIcon: brand_icon(),
         },
+        pfCallback: Some(themed_callback),
         pszMainInstruction: PCWSTR(heading.as_ptr()),
         pszContent: PCWSTR(text.as_ptr()),
         cButtons: buttons.len() as u32,
@@ -143,6 +149,48 @@ pub fn ask(
     }
 }
 const OTHER_BUTTON: i32 = 101;
+
+/// This executable, whose icon resource is the main icon of the dialogs that show the mark.
+fn brand_instance() -> windows::Win32::Foundation::HINSTANCE {
+    crate::ui_theme::module()
+        .map(|module| windows::Win32::Foundation::HINSTANCE(module.0))
+        .unwrap_or_default()
+}
+
+/// The Rubylight mark, or Windows' information icon if the executable has none.
+fn brand_icon() -> PCWSTR {
+    if brand_instance().is_invalid() {
+        TD_INFORMATION_ICON
+    } else {
+        crate::ui_theme::BRAND_ICON
+    }
+}
+
+/// Dark title bar once the dialog exists, when Windows' apps are dark.
+unsafe extern "system" fn themed_callback(
+    hwnd: HWND,
+    message: TASKDIALOG_NOTIFICATIONS,
+    _: WPARAM,
+    _: LPARAM,
+    _: isize,
+) -> HRESULT {
+    if message == TDN_CREATED {
+        #[cfg(test)]
+        if let Some((dark, created)) = *DUMP_HOOK.lock().unwrap() {
+            crate::ui_theme::title_bar(hwnd, dark);
+            created(hwnd.0 as isize);
+            return S_OK;
+        }
+        crate::ui_theme::title_bar(hwnd, crate::ui_theme::dark_mode());
+    }
+    S_OK
+}
+/// For the dialog dump: the title bar to show, and what to call once a dialog exists.
+#[cfg(test)]
+pub(crate) static DUMP_HOOK: Mutex<Option<DumpHook>> = Mutex::new(None);
+/// Dark title bar or not, and the call that gets the dialog's window.
+#[cfg(test)]
+pub(crate) type DumpHook = (bool, fn(isize));
 
 /// The Windows folder picker, opened at `start` or its nearest existing
 /// parent. None when cancelled.
@@ -203,6 +251,7 @@ unsafe extern "system" fn progress_callback(
     unsafe {
         match message {
             TDN_CREATED => {
+                crate::ui_theme::title_bar(hwnd, crate::ui_theme::dark_mode());
                 SendMessageW(
                     hwnd,
                     TDM_SET_PROGRESS_BAR_MARQUEE.0 as u32,
@@ -299,6 +348,8 @@ pub fn progress<T: Send + 'static>(
     }
     worker.join().expect("setup work panicked")
 }
+/// The button that closes the final message.
+pub const DONE: &str = "Done";
 /// The final message. With `action`, offers that button and reports
 /// whether it was chosen.
 pub fn finished(
@@ -316,33 +367,37 @@ pub fn finished(
     let heading = HSTRING::from(heading);
     let text = HSTRING::from(text);
     let action = action.map(HSTRING::from);
+    let done = HSTRING::from(DONE);
+    // The action first, as before: with no default set, the first button is the default.
     let buttons: Vec<TASKDIALOG_BUTTON> = action
         .iter()
         .map(|label| TASKDIALOG_BUTTON {
             nButtonID: 100,
             pszButtonText: PCWSTR(label.as_ptr()),
         })
+        .chain([TASKDIALOG_BUTTON {
+            nButtonID: IDCLOSE.0,
+            pszButtonText: PCWSTR(done.as_ptr()),
+        }])
         .collect();
     let config = TASKDIALOGCONFIG {
         cbSize: size_of::<TASKDIALOGCONFIG>() as u32,
         dwFlags: TDF_ALLOW_DIALOG_CANCELLATION,
-        dwCommonButtons: TDCBF_CLOSE_BUTTON,
         pszWindowTitle: PCWSTR(title.as_ptr()),
-        Anonymous1: TASKDIALOGCONFIG_0 {
-            pszMainIcon: if success {
-                TD_INFORMATION_ICON
-            } else {
-                TD_ERROR_ICON
-            },
+        // A failure keeps Windows' error icon; success shows the Rubylight mark.
+        hInstance: if success {
+            brand_instance()
+        } else {
+            Default::default()
         },
+        Anonymous1: TASKDIALOGCONFIG_0 {
+            pszMainIcon: if success { brand_icon() } else { TD_ERROR_ICON },
+        },
+        pfCallback: Some(themed_callback),
         pszMainInstruction: PCWSTR(heading.as_ptr()),
         pszContent: PCWSTR(text.as_ptr()),
         cButtons: buttons.len() as u32,
-        pButtons: if buttons.is_empty() {
-            std::ptr::null()
-        } else {
-            buttons.as_ptr()
-        },
+        pButtons: buttons.as_ptr(),
         ..Default::default()
     };
     let mut button = 0;
@@ -370,3 +425,7 @@ mod tests {
         assert!(!stale.exists());
     }
 }
+
+#[cfg(test)]
+#[path = "ui_dump_tests.rs"]
+mod dump_tests;

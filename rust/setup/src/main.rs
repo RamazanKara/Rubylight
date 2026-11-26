@@ -16,6 +16,7 @@ mod detect;
 #[allow(dead_code)]
 #[path = "../../core/media-policy/src/encoder_gpu.rs"]
 mod encoder_gpu;
+mod finish_qr;
 mod gpu;
 #[path = "../../core/session/src/host_service.rs"]
 mod host_service;
@@ -32,6 +33,7 @@ mod payload;
 mod profile_tests;
 mod system;
 mod ui;
+mod ui_theme;
 mod uninstall;
 mod update;
 #[path = "../../core/src/update_files.rs"]
@@ -143,6 +145,8 @@ Rubylight needs an AMD Radeon GPU with its AMF video encoder or an NVIDIA GPU wi
 Exit codes: 0 done, 3010 done but Windows must restart, 1223 cancelled, 1 failed, 2 removed, but the Windows settings for the removed child-session feature were not restored.";
 
 fn main() {
+    // Before any window, so every dialog renders sharp on every monitor.
+    ui_theme::per_monitor_dpi();
     let args = match arguments() {
         Ok(args) => args,
         Err(error) => {
@@ -401,7 +405,7 @@ fn run_install(args: &Arguments) -> i32 {
                 if args.usbip_driver.is_none() || args.wake_on_lan.is_none() {
                     "Next"
                 } else {
-                    "Install"
+                    "Install Rubylight"
                 },
                 choosable.then_some("Change folder…"),
                 (!args.no_gamepad_driver).then_some((
@@ -438,7 +442,7 @@ fn run_install(args: &Arguments) -> i32 {
                 if args.wake_on_lan.is_none() {
                     "Next"
                 } else {
-                    "Install"
+                    "Install Rubylight"
                 },
                 None,
                 Some(("Install USB audio and haptics support", usbip_driver)),
@@ -459,7 +463,7 @@ fn run_install(args: &Arguments) -> i32 {
                 TITLE,
                 "Wake this PC from a client",
                 &wake::question(&adapters),
-                "Install",
+                "Install Rubylight",
                 None,
                 Some(("Turn on Wake-on-LAN", wake_on_lan)),
             );
@@ -522,15 +526,8 @@ fn run_install(args: &Arguments) -> i32 {
                     text.push_str("\n\n");
                     text.push_str(note);
                 }
-                if ui::finished(
-                    TITLE,
-                    "Rubylight is installed",
-                    &text,
-                    true,
-                    Some("Open Rubylight"),
-                ) {
-                    open(&format!("https://localhost:{}", outcome.web_port));
-                }
+                // After the install committed: read-only, bounded, never an error.
+                finish_qr::show_if_interactive(args.quiet, !args.no_start, outcome.web_port, &text);
             }
             if outcome.restart_needed { 3010 } else { 0 }
         }
@@ -552,7 +549,7 @@ fn run_uninstall(args: &Arguments) -> i32 {
             } else {
                 "Streaming stops and the Rubylight service is removed. Drivers stay installed unless removal was requested; shared USBip always stays installed and can be removed separately in Windows Settings."
             },
-            "Remove",
+            "Remove Rubylight",
             None,
             Some((
                 "Also delete settings, paired devices and logs",

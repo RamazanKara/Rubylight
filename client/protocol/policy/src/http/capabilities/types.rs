@@ -41,8 +41,10 @@ pub enum Feature {
     HostTiming,
     WebUi,
     CursorShape,
-    /// Frame Warp (0x5543 to 0x5546): the host learns each game's camera response and tags
-    /// frames, so the client can shift pictures by input still in flight.
+    /// Frame Warp (0x5543 to 0x5546 and 0x5549, `FrameWarpProtocol` 2): the host learns each
+    /// game's camera response and tags frames, so the client can shift pictures by input still in
+    /// flight. A host that lists only the older `FrameWarpVersion` runs a Frame Warp this client no
+    /// longer speaks: [`Reason::UpdateHost`].
     FrameWarp,
     /// The Rubylight native API (`/api/native/v1`): library, session actions, Radeon state.
     NativeApi,
@@ -113,13 +115,10 @@ pub enum Feature {
     HostUpdate,
     /// Devices waiting to pair, approved from here (`pairing.approve` in native features).
     PairingApprove,
-    /// Frame Warp 2 (`FrameWarpVersion` 2 or more): a version 2 request, the gyro, and the
-    /// per-frame confidence and fill hints (0x5549, `rubylight_protocol::frame_warp_v2`).
-    FrameWarpV2,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 55] = [
+    pub const ALL: [Feature; 54] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -174,7 +173,6 @@ impl Feature {
         Feature::PcShutdown,
         Feature::HostUpdate,
         Feature::PairingApprove,
-        Feature::FrameWarpV2,
     ];
 }
 
@@ -266,7 +264,10 @@ pub struct Evidence {
     pub controller_preparation: bool,
     pub current_game_uuid: bool,
     pub cursor_shape_version: i32,
+    /// `FrameWarpVersion`: listed only by hosts before 7.0.
     pub frame_warp_version: i32,
+    /// `FrameWarpProtocol`: 2 for a host that runs Frame Warp 2.
+    pub frame_warp_protocol: i32,
     /// -1 when the host has no native API, 0 when it has one but not for this request (plain
     /// HTTP or an unpaired certificate), 1 or more for the highest version it serves.
     pub native_api_version: i32,

@@ -81,9 +81,7 @@ public final class HostCapabilities {
         PC_RESTART(0),
         PC_SHUTDOWN(0),
         HOST_UPDATE(0),
-        PAIRING_APPROVE(0),
-        /** Frame Warp 2: proven only by {@code FrameWarpVersion >= 2}; the UI names Frame Warp. */
-        FRAME_WARP_V2(0);
+        PAIRING_APPROVE(0);
 
         @StringRes public final int label;
 

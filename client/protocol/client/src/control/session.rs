@@ -241,19 +241,13 @@ impl ControlSession {
         }
         if let ClientMessage::FrameWarpRequest(request) = message {
             // As for cursor shapes: accepted from just before an enable goes out.
-            self.frame_warp_on = request.enabled;
-        }
-        if let ClientMessage::FrameWarpRequestV2(request) = message {
             self.frame_warp_on = request.base.enabled;
         }
         if !self.queue(&message) {
             if matches!(message, ClientMessage::CursorShapeRequest { .. }) {
                 self.cursor_shapes = false;
             }
-            if matches!(
-                message,
-                ClientMessage::FrameWarpRequest(_) | ClientMessage::FrameWarpRequestV2(_)
-            ) {
+            if matches!(message, ClientMessage::FrameWarpRequest(_)) {
                 self.frame_warp_on = false;
             }
             return Err(SendError::Invalid);

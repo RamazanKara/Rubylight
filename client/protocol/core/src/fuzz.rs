@@ -264,21 +264,6 @@ round_trip!(
     |v| v.encode()
 );
 round_trip!(
-    frame_warp_request,
-    (any::<bool>(), any::<u8>(), 0u16..2100, any::<bool>()).prop_map(|(enabled, controller, mask_max_width, lens)| {
-        frame_warp::FrameWarpRequest {
-            enabled,
-            controller: (controller < 20).then_some(controller),
-            mask_max_width,
-            lens,
-        }
-        .encode()
-        .to_vec()
-    }),
-    |b| frame_warp::FrameWarpRequest::decode(b),
-    |v| Some(v.encode().to_vec())
-);
-round_trip!(
     frame_warp_tags,
     (any::<u16>(), vec(any::<(u32, i32, i32, u32, u32)>(), 1..5)).prop_map(|(generation, tags)| {
         frame_warp::Tags {

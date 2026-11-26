@@ -252,7 +252,11 @@ fn a_start_request_restarts_the_counts_and_a_repeat_keeps_them() {
     mask.set(1, 1, true);
     warp.on_mask(mask);
     let request = warp.request(true);
-    assert!(request.enabled && request.controller.is_none() && request.mask_max_width == 64);
+    let base = request.base;
+    assert!(base.enabled && base.controller.is_none() && base.mask_max_width == 64 && base.lens);
+    assert_eq!(request.encode()[0], 2, "always the current request");
+    assert_eq!(request.gyro_pad(), None, "no pad, no gyro");
+    assert_eq!(FrameWarp::new(Some(2), 64).request(true).gyro_pad(), Some(2));
     assert_eq!(warp.status().model, None);
     assert_eq!(warp.mask_since(None), None);
     warp.on_model(model(true, false));
@@ -407,18 +411,4 @@ fn the_stick_integral_from_the_newest_end_matches_walking_every_packet() {
     assert!(checked > 1000, "the integrals were mostly not zero: {checked}");
     let kept = p.stick.back().unwrap().at_us - p.stick[1].at_us;
     assert!(kept <= STICK_HISTORY.as_micros() as u64 && p.stick.len() < 400, "the history is trimmed: {kept} us, {} packets", p.stick.len());
-}
-
-#[test]
-fn the_edge_mirrors_the_picture_and_darkens_past_it() {
-    let close = |a: f32, b: f32| (a - b).abs() < 1e-6;
-    assert_eq!(edge([0.3, 0.9]), ([0.3, 0.9], 1.0), "inside, as it is");
-    assert_eq!(edge([0.0, 1.0]), ([0.0, 1.0], 1.0), "the edges too");
-    let (at, fade) = edge([-0.04, 0.5]);
-    assert!(close(at[0], 0.04) && at[1] == 0.5 && close(fade, 1.0 - EDGE_DARKEN * 0.5), "{at:?} {fade}");
-    let (at, fade) = edge([0.5, 1.2]);
-    assert!(close(at[1], 0.8) && close(fade, 1.0 - EDGE_DARKEN), "{at:?} {fade}");
-    let (_, fade) = edge([-0.02, 1.06]);
-    assert!(close(fade, 1.0 - EDGE_DARKEN * 0.75), "the farther axis darkens: {fade}");
-    assert_eq!(edge([-1.5, 2.5]).0, [1.0, 0.0], "past a whole picture, held at the far edge");
 }

@@ -121,11 +121,8 @@ pub enum ClientMessage {
     /// A clipboard item or the hello that starts the host's copies (0x5508), as
     /// [`super::clipboard_sync::ClipboardSync`] makes them.
     ClipboardSync(rubylight_protocol::clipboard_sync::Frame),
-    /// Starts or stops Frame Warp (0x5543): the host's model, tags and HUD mask.
-    FrameWarpRequest(rubylight_protocol::frame_warp::FrameWarpRequest),
-    /// The same request as version 2 (0x5543), only to a host that announced Frame Warp 2's
-    /// meta (0x5549): the gyro, and the host's confidence and fill hints.
-    FrameWarpRequestV2(rubylight_protocol::frame_warp_v2::RequestV2),
+    /// Starts or stops Frame Warp (0x5543): the host's model, tags, HUD mask and meta.
+    FrameWarpRequest(rubylight_protocol::frame_warp_v2::RequestV2),
     /// When each video packet arrived, for the host's congestion control (0x5547).
     TransportFeedback(rubylight_protocol::transport_feedback::TransportFeedback),
 }
@@ -157,7 +154,7 @@ impl ClientMessage {
             Self::ControllerAudioStatus { .. } => ptype::CONTROLLER_AUDIO_CONTROL,
             Self::Usb(_) => ptype::USB,
             Self::ClipboardSync(_) => ptype::CLIPBOARD_SYNC,
-            Self::FrameWarpRequest(_) | Self::FrameWarpRequestV2(_) => ptype::FRAME_WARP_REQUEST,
+            Self::FrameWarpRequest(_) => ptype::FRAME_WARP_REQUEST,
             Self::TransportFeedback(_) => ptype::TRANSPORT_FEEDBACK,
         }
     }
@@ -228,7 +225,6 @@ impl ClientMessage {
                 }
             }
             Self::FrameWarpRequest(request) => out.extend_from_slice(&request.encode()),
-            Self::FrameWarpRequestV2(request) => out.extend_from_slice(&request.encode()),
             // `is_valid` refused what does not encode.
             Self::TransportFeedback(report) => {
                 let _ = report.encode_into(out);
@@ -290,9 +286,10 @@ impl ClientMessage {
             | Self::ControllerAudioStatus { .. }
             | Self::Usb(_)
             | Self::ClipboardSync(_)
-            | Self::FrameWarpRequest(_)
             | Self::TransportFeedback(_) => Some(self.message_type()),
-            Self::FrameWarpRequestV2(_) => Some(ptype::FRAME_WARP_V2_META),
+            // A host before 7.0 announced 0x5543 to 0x5546 but not the meta, and took a request
+            // this client no longer sends: it gets none.
+            Self::FrameWarpRequest(_) => Some(ptype::FRAME_WARP_V2_META),
             _ => None,
         }
     }

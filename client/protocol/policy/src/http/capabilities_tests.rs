@@ -417,7 +417,7 @@ fn power_update_and_pairing_approve_follow_native_permissions() {
 }
 
 #[test]
-fn frame_warp_2_needs_frame_warp_version_2() {
+fn frame_warp_needs_frame_warp_protocol_2() {
     let xml =
         include_str!("../../../../app/src/test/resources/protocol/rubylight-30-serverinfo.xml");
     let caps = |extra: &str| {
@@ -426,15 +426,30 @@ fn frame_warp_2_needs_frame_warp_version_2() {
             .unwrap()
             .capabilities
     };
-    for (field, v1, v2) in [
-        ("", false, false),
-        ("<FrameWarpVersion>1</FrameWarpVersion>", true, false),
-        ("<FrameWarpVersion>2</FrameWarpVersion>", true, true),
-        ("<FrameWarpVersion>3</FrameWarpVersion>", true, true),
-        ("<FrameWarpVersion>bad</FrameWarpVersion>", false, false),
+    let update = Availability::Unsupported(Some(Reason::UpdateHost));
+    let absent = caps("").availability(Feature::FrameWarp);
+    assert!(!absent.is_supported());
+    for (field, expected) in [
+        ("<FrameWarpProtocol>2</FrameWarpProtocol>", Availability::Supported),
+        ("<FrameWarpProtocol>3</FrameWarpProtocol>", Availability::Supported),
+        // A 7.0 host that also lists the old field for some reason still runs Frame Warp 2.
+        (
+            "<FrameWarpVersion>1</FrameWarpVersion><FrameWarpProtocol>2</FrameWarpProtocol>",
+            Availability::Supported,
+        ),
+        // A host before 7.0: Frame Warp needs the current version there.
+        ("<FrameWarpVersion>1</FrameWarpVersion>", update),
+        ("<FrameWarpVersion>2</FrameWarpVersion>", update),
+        ("<FrameWarpProtocol>1</FrameWarpProtocol>", absent),
+        ("<FrameWarpProtocol>bad</FrameWarpProtocol>", absent),
+        ("<FrameWarpVersion>bad</FrameWarpVersion>", absent),
     ] {
-        let caps = caps(field);
-        assert_eq!(caps.has(Feature::FrameWarp), v1, "{field}");
-        assert_eq!(caps.has(Feature::FrameWarpV2), v2, "{field}");
+        assert_eq!(caps(field).availability(Feature::FrameWarp), expected, "{field}");
     }
+    // Stored capabilities keep both fields.
+    let stored = caps("<FrameWarpVersion>1</FrameWarpVersion>");
+    assert_eq!(
+        HostCapabilities::from_versioned_json(&stored.to_versioned_json().unwrap()),
+        stored
+    );
 }

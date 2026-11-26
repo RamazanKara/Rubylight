@@ -62,7 +62,6 @@ fn feature_key(feature: Feature) -> &'static str {
         Feature::PcShutdown => "pc_shutdown",
         Feature::HostUpdate => "host_update",
         Feature::PairingApprove => "pairing_approve",
-        Feature::FrameWarpV2 => "frame_warp_v2",
         Feature::FileUpload => "file_upload",
         Feature::FileDownload => "file_download",
         Feature::DolbyVision => "dolby_vision",

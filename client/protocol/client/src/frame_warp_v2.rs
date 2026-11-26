@@ -3,11 +3,9 @@
 //! menu, a cutscene or a pointer moves the picture, and the fill hints every renderer's shader
 //! takes ([`crate::frame_warp::Warp::v2`]).
 //!
-//! A [`V2`] lives in the predictor (`crate::frame_warp::Predictor`) of a stream whose request
-//! went out as version 2, which a host only takes when it announced 0x5549; against an older host
-//! the stream runs Frame Warp 1 and has none. It keeps the host's metas by frame, counts the
-//! gyro packets of the gyro's pad as they go on the wire (the host counts them as they arrive),
-//! and for a picture adds
+//! A [`V2`] lives in every stream's predictor (`crate::frame_warp::Predictor`). It keeps the
+//! host's metas by frame, counts the gyro packets of the gyro's pad as they go on the wire (the
+//! host counts them as they arrive), and for a picture adds
 //!
 //! ```text
 //! gyro_gain * integral(gyro_rate(packet) - bias, tau_g..now)
@@ -28,6 +26,7 @@ pub use rubylight_protocol::frame_warp_v2::{
     BIAS_STILL_RATE, FRAME_WARP_V2_META_MESSAGE_TYPE, FrameWarpV2Meta, GyroAxes, GyroBias,
     MAX_HUD_GUARD, RequestV2, YawSource, from_unit16, gyro_rate, meta_flags,
 };
+use rubylight_protocol::frame_warp_v2::{DEFAULT_EDGE_FADE, DEFAULT_HUD_GUARD};
 
 /// Time constant of the envelope's fall, microseconds.
 pub const CONFIDENCE_ATTACK_US: f32 = 40_000.0;
@@ -37,8 +36,14 @@ pub const CONFIDENCE_RELEASE_US: u64 = 180_000;
 /// the edge a point is ([`edge_v2`]): a quarter keeps a silhouette crossing the edge from
 /// appearing twice.
 pub const EDGE_V2_REFLECT: f32 = 0.25;
-/// The shader row of a stream without Frame Warp 2: version 1's fill exactly.
-pub const V1_ROW: [f32; 4] = [0.0; 4];
+/// The shader row ([`V2::row`]) before the host's first meta: the default fill and HUD probe at
+/// full confidence.
+pub const DEFAULT_ROW: [f32; 4] = [
+    DEFAULT_EDGE_FADE as f32 / 255.0,
+    DEFAULT_HUD_GUARD as f32,
+    1.0,
+    0.0,
+];
 /// Metas kept, by frame number.
 const META_SLOTS: usize = 64;
 /// Frames back a missing meta may be taken from.
@@ -100,6 +105,7 @@ impl Envelope {
             let t = (now_us.saturating_sub(start) as f32 / CONFIDENCE_RELEASE_US as f32).min(1.0);
             self.value = from + (to - from) * t * t * (3.0 - 2.0 * t);
             if t >= 1.0 {
+                self.value = to;
                 self.rise = None;
             }
         }
@@ -137,7 +143,7 @@ pub fn edge_v2(p: [f32; 2], strength: f32) -> ([f32; 2], f32) {
 /// lands on the HUD samples instead: the first of up to `guard` points one mask cell apart back
 /// along the shift (`source - k * step`, `step` the shift's direction one cell long) whose fill
 /// ([`edge_v2`] with `strength`) is off the HUD, with its brightness; `None` keeps the point's own
-/// pixel, as version 1 always does. `cells` is the mask's size and `hud` reads it. Every
+/// pixel. `cells` is the mask's size and `hud` reads it. Every
 /// renderer's shader probes the same (`frameWarpProbe` in `frame_warp.hlsl`).
 pub fn hud_probe(
     source: [f32; 2],
@@ -341,32 +347,21 @@ impl V2 {
         [meta.gyro_gain[0] * angle[0], meta.gyro_gain[1] * angle[1]]
     }
 
-    /// The envelope at `now_us`, toward the newest meta's confidence (1 before any, and for a
-    /// request that does not fade by it).
+    /// The envelope at `now_us`, toward the newest meta's confidence (1 before any).
     pub fn confidence(&mut self, now_us: u64) -> f32 {
-        let target = match self.newest {
-            Some(meta) if self.request.confidence_v2 => meta.confidence(),
-            _ => 1.0,
-        };
+        let target = self.newest.map_or(1.0, |meta| meta.confidence());
         self.envelope.update(target, now_us)
     }
 
-    /// The shader row for picture `frame`: the edge fill's strength (0 draws version 1's
-    /// mirror), the HUD probe's reach in mask cells, the envelope and the meta's flags.
+    /// The shader row for picture `frame`: the edge fill's strength (0 to 1, 0 holds the edge's
+    /// pixels), the HUD probe's reach in mask cells (0 probes nothing), the envelope and the
+    /// meta's flags; [`DEFAULT_ROW`]'s fill and probe before the host's first meta.
     pub fn row(&self, frame: u32) -> [f32; 4] {
         let Some(meta) = self.meta(frame).or(self.newest) else {
-            return V1_ROW;
-        };
-        if !self.request.edge_v2 {
-            return V1_ROW;
-        }
-        let strength = if meta.has(meta_flags::DISOCCLUSION_V2) {
-            f32::from(meta.edge_fade_strength) / 255.0
-        } else {
-            0.0
+            return [DEFAULT_ROW[0], DEFAULT_ROW[1], self.envelope.value(), DEFAULT_ROW[3]];
         };
         [
-            strength,
+            f32::from(meta.edge_fade_strength) / 255.0,
             f32::from(meta.hud_guard.min(MAX_HUD_GUARD)),
             self.envelope.value(),
             f32::from(meta.flags),

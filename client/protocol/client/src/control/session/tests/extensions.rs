@@ -1,5 +1,5 @@
 //! Unit tests for Rubylight announced control messages (USB, link notices, pipeline rates,
-//! rate changes, text input, keyboard layout, clipboard sync and display caps).
+//! rate changes, text input, keyboard layout, clipboard sync, display caps and Frame Warp).
 
 use super::*;
 use rubylight_protocol::control::{
@@ -528,4 +528,45 @@ fn rubylight_messages_need_announcement() {
             client_us: 42
         })
     );
+}
+
+#[test]
+fn frame_warp_goes_only_to_a_host_that_announced_the_meta() {
+    use rubylight_protocol::frame_warp::FrameWarpRequest;
+    use rubylight_protocol::frame_warp_v2::RequestV2;
+    let request = RequestV2::new(FrameWarpRequest {
+        enabled: true,
+        controller: None,
+        mask_max_width: 64,
+        lens: true,
+    });
+    let with = |ids: &[u16]| {
+        ControlSession::new(
+            HostCapabilities {
+                control_messages: ids.to_vec(),
+                ..rubylight()
+            },
+            &KEY,
+            SessionOptions::default(),
+        )
+    };
+    // A host before 7.0 announced 0x5543 to 0x5546 but not the meta: nothing goes out, and the
+    // stream runs without Frame Warp.
+    let mut older = with(&[0x5543, 0x5544, 0x5545, 0x5546]);
+    assert_eq!(
+        older.send(ClientMessage::FrameWarpRequest(request)),
+        Err(SendError::Unsupported)
+    );
+    assert!(older.poll_transmit().is_none());
+    older.send(ClientMessage::RequestIdrFrame).unwrap();
+    assert!(older.poll_transmit().is_some(), "the stream goes on");
+    // A 7.0 host gets the twelve-byte request.
+    let mut current = with(&[0x5543, 0x5544, 0x5545, 0x5546, 0x5549]);
+    current
+        .send(ClientMessage::FrameWarpRequest(request))
+        .unwrap();
+    let sent = host_reads(&mut current);
+    assert_eq!(sent[0].2, 0x5543);
+    assert_eq!(sent[0].3.len(), 12);
+    assert_eq!(RequestV2::decode(&sent[0].3), Some(request));
 }

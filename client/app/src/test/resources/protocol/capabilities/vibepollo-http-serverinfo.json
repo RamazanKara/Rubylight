@@ -29,7 +29,6 @@
     "web_ui": "supported",
     "cursor_shape": "unsupported",
     "frame_warp": "unsupported",
-    "frame_warp_v2": "unsupported",
     "native_api": "unsupported",
     "sleep": "unknown",
     "file_upload": "unsupported",

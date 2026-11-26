@@ -407,32 +407,31 @@ public class HostCapabilitiesTest {
     }
 
     @Test
-    public void frameWarpNeedsItsVersionFieldFromAnyHost() {
+    public void frameWarpNeedsFrameWarpProtocol2FromAnyHost() {
         for (String host : new String[] {"<appversion>7.1.431.-1</appversion>", "<Permission>0</Permission>",
                 "<FrameLimiterSupported>1</FrameLimiterSupported>", "<RustHostVersion>2.2.21</RustHostVersion>",
                 "<appversion>7.1.431.0</appversion>"}) {
-            assertTrue(host, caps(host + "<FrameWarpVersion>1</FrameWarpVersion>").has(FRAME_WARP));
-            assertTrue(host, caps(host + "<FrameWarpVersion>2</FrameWarpVersion>").has(FRAME_WARP));
-            // Frame Warp 2 needs version 2: a version 1 host runs Frame Warp as before.
-            assertFalse(host, caps(host + "<FrameWarpVersion>1</FrameWarpVersion>").has(FRAME_WARP_V2));
-            assertTrue(host, caps(host + "<FrameWarpVersion>2</FrameWarpVersion>").has(FRAME_WARP_V2));
-            for (String version : new String[] {"0", "-1", "bad", "", "65536"}) {
-                assertFalse(host + " " + version, caps(host + "<FrameWarpVersion>" + version +
-                        "</FrameWarpVersion>").has(FRAME_WARP));
+            assertTrue(host, caps(host + "<FrameWarpProtocol>2</FrameWarpProtocol>").has(FRAME_WARP));
+            // A host before 7.0 lists only FrameWarpVersion: Frame Warp needs the current version there.
+            assertReason(caps(host + "<FrameWarpVersion>1</FrameWarpVersion>"), FRAME_WARP, Reason.UPDATE_HOST);
+            assertReason(caps(host + "<FrameWarpVersion>2</FrameWarpVersion>"), FRAME_WARP, Reason.UPDATE_HOST);
+            for (String version : new String[] {"0", "1", "-1", "bad", "", "65536"}) {
+                assertFalse(host + " " + version, caps(host + "<FrameWarpProtocol>" + version +
+                        "</FrameWarpProtocol>").has(FRAME_WARP));
             }
             // Cursor shapes and Frame Warp are separate fields.
             assertFalse(host, caps(host + "<CursorShapeVersion>1</CursorShapeVersion>").has(FRAME_WARP));
         }
         assertNever(caps("<appversion>7.1.431.-1</appversion>"), FRAME_WARP);
         assertUnknown(caps("<appversion>7.1.431.0</appversion>"), FRAME_WARP);
-        HostCapabilities stored = caps("<RustHostVersion>2.2.21</RustHostVersion><FrameWarpVersion>1</FrameWarpVersion>");
+        HostCapabilities stored = caps("<RustHostVersion>2.2.21</RustHostVersion><FrameWarpProtocol>2</FrameWarpProtocol>");
         assertEquals(stored, HostCapabilities.fromJson(stored.toJson()));
         assertTrue(HostCapabilities.fromJson(stored.toJson()).has(FRAME_WARP));
         assertNotEquals(stored, caps("<RustHostVersion>2.2.21</RustHostVersion>"));
         // Capabilities stored before the field existed still load, without Frame Warp.
-        String olderJson = TestHosts.rubylight().toJson().replace(",\"frameWarpVersion\":-1", "")
-                .replace("\"frameWarpVersion\":-1,", "");
-        assertFalse(olderJson, olderJson.contains("frameWarpVersion"));
+        String olderJson = TestHosts.rubylight().toJson().replace(",\"frameWarpProtocol\":-1", "")
+                .replace("\"frameWarpProtocol\":-1,", "");
+        assertFalse(olderJson, olderJson.contains("frameWarpProtocol"));
         HostCapabilities older = HostCapabilities.fromJson(olderJson);
         assertTrue(older.isKnown());
         assertFalse(older.has(FRAME_WARP));

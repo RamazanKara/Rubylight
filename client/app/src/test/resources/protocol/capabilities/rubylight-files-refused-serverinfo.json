@@ -35,7 +35,6 @@
     "web_ui": "supported",
     "cursor_shape": "supported",
     "frame_warp": "unsupported",
-    "frame_warp_v2": "unsupported",
     "native_api": "supported",
     "sleep": "unsupported:sleep_permission",
     "file_upload": "unsupported:file_permission",

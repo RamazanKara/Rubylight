@@ -48,6 +48,10 @@ impl Evidence {
             Value::from(self.frame_warp_version),
         );
         map.insert(
+            "frameWarpProtocol".into(),
+            Value::from(self.frame_warp_protocol),
+        );
+        map.insert(
             "nativeApiVersion".into(),
             Value::from(self.native_api_version),
         );
@@ -245,6 +249,7 @@ impl Evidence {
             current_game_uuid: req_bool("currentGameUuid")?,
             cursor_shape_version: opt_i32("cursorShapeVersion", -1)?,
             frame_warp_version: opt_i32("frameWarpVersion", -1)?,
+            frame_warp_protocol: opt_i32("frameWarpProtocol", -1)?,
             native_api_version: opt_i32("nativeApiVersion", -1)?,
             power_action_version: opt_i32("powerActionVersion", -1)?,
             sleep_supported: opt_bool("sleepSupported")?,

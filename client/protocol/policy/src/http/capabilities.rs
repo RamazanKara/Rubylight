@@ -326,16 +326,13 @@ impl Evidence {
                     self.absent(false)
                 }
             }
+            // A host before 7.0 lists only `FrameWarpVersion`: its Frame Warp took the eight-byte
+            // request this client no longer sends, so the player is told to update the PC.
             Feature::FrameWarp => {
-                if self.frame_warp_version >= 1 {
+                if self.frame_warp_protocol >= 2 {
                     Supported
-                } else {
-                    self.absent(false)
-                }
-            }
-            Feature::FrameWarpV2 => {
-                if self.frame_warp_version >= 2 {
-                    Supported
+                } else if self.frame_warp_version >= 1 {
+                    update
                 } else {
                     self.absent(false)
                 }

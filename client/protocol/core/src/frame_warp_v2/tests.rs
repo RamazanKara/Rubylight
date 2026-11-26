@@ -1,7 +1,7 @@
 //! Unit and golden tests for Frame Warp 2's request, meta and gyro helpers.
 
 use super::*;
-use crate::frame_warp::{HELD_NONE, REQUEST_BYTES as V1_REQUEST_BYTES};
+use crate::frame_warp::{HELD_NONE, REQUEST_PREFIX_BYTES};
 
 fn base() -> FrameWarpRequest {
     FrameWarpRequest {
@@ -16,8 +16,6 @@ fn base() -> FrameWarpRequest {
 fn request_v2_golden_bytes_round_trip() {
     let request = RequestV2 {
         gyro: true,
-        edge_v2: true,
-        confidence_v2: true,
         gyro_controller: Some(1),
         axes: GyroAxes {
             invert_yaw: true,
@@ -28,7 +26,7 @@ fn request_v2_golden_bytes_round_trip() {
         ..RequestV2::new(base())
     };
     let wire = request.encode();
-    assert_eq!(wire, [2, 1, 3, 0b1111, 0xC0, 0x03, 0, 0, 1, 0b1001, 120, 0]);
+    assert_eq!(wire, [2, 1, 3, 0b0011, 0xC0, 0x03, 0, 0, 1, 0b1001, 120, 0]);
     assert_eq!(RequestV2::decode(&wire), Some(request));
     // A later version's trailing bytes and high axis bits are ignored.
     let mut longer = wire.to_vec();
@@ -40,28 +38,20 @@ fn request_v2_golden_bytes_round_trip() {
 }
 
 #[test]
-fn a_v1_host_reads_a_v2_request_as_version_1() {
-    let request = RequestV2 {
-        gyro: true,
-        ..RequestV2::new(base())
-    };
-    // Version 1's decoder takes the prefix and ignores the flags it does not know.
-    assert_eq!(FrameWarpRequest::decode(&request.encode()), Some(base()));
-}
-
-#[test]
-fn a_v1_request_is_not_a_v2_request() {
-    let v1 = base().encode();
-    assert_eq!(v1.len(), V1_REQUEST_BYTES);
+fn an_older_clients_request_is_refused() {
+    // What a Nightjar before 7.0 sends: eight bytes, version 1.
+    let v1 = base().encode_prefix();
+    assert_eq!(v1, [1, 1, 3, 1, 0xC0, 0x03, 0, 0]);
+    assert_eq!(v1.len(), REQUEST_PREFIX_BYTES);
     assert_eq!(RequestV2::decode(&v1), None);
-    // Version 1 padded to twelve bytes is still version 1.
+    // Version 1 padded to twelve bytes is still refused.
     let mut padded = v1.to_vec();
     padded.extend_from_slice(&[0; 4]);
     assert_eq!(RequestV2::decode(&padded), None);
-    // Version 2 cut to eight bytes reads as version 1 only.
+    // A request cut short is refused.
     let short = RequestV2::new(base()).encode();
     assert_eq!(RequestV2::decode(&short[..8]), None);
-    assert_eq!(FrameWarpRequest::decode(&short[..8]), Some(base()));
+    assert_eq!(RequestV2::decode(&short[..11]), None);
 }
 
 #[test]
@@ -88,7 +78,7 @@ fn request_v2_rejects_bad_fields() {
 
 fn meta() -> FrameWarpV2Meta {
     FrameWarpV2Meta {
-        flags: meta_flags::GYRO_LOCKED | meta_flags::DISOCCLUSION_V2,
+        flags: meta_flags::GYRO_LOCKED | meta_flags::GYRO_YAW_Z,
         model_generation: 0x0102,
         frame: 0x0A0B_0C0D,
         camera_confidence: 0xFFFF,

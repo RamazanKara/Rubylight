@@ -87,6 +87,7 @@ impl Evidence {
             network_path_version: -1,
             cursor_shape_version: -1,
             frame_warp_version: -1,
+            frame_warp_protocol: -1,
             native_api_version: -1,
             power_action_version: -1,
             hdr_formats: -1,
@@ -138,6 +139,7 @@ impl Evidence {
                 "ControllerPreparation" => e.controller_preparation = text.trim() == "1",
                 "CursorShapeVersion" => e.cursor_shape_version = unsigned(&text, 0xFFFF) as i32,
                 "FrameWarpVersion" => e.frame_warp_version = unsigned(&text, 0xFFFF) as i32,
+                "FrameWarpProtocol" => e.frame_warp_protocol = unsigned(&text, 0xFFFF) as i32,
                 "HdrFormats" => e.hdr_formats = unsigned(&text, 0xFF) as i32,
                 "FecControlVersion" => e.fec_control_version = unsigned(&text, 0xFFFF) as i32,
                 "BandwidthProbeVersion" => {

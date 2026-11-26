@@ -1,18 +1,18 @@
-//! Frame Warp 2 (control message 0x5549 and the version 2 request): what a host that learns
-//! faster tells a client that asks for it, on top of Frame Warp's messages
-//! ([`crate::frame_warp`], which stay wire-identical for every client).
+//! Frame Warp 2: the request (0x5543) and the per-frame meta (0x5549), with the model, tags and
+//! mask of [`crate::frame_warp`].
 //!
-//! A client that sees `FrameWarpVersion` 2 or more in serverinfo sends its request (0x5543) as
-//! version 2 ([`RequestV2`]): the eight bytes of version 1, then whose gyro turns the camera, how
-//! its axes map and an optional limit for the shift. Any host reads the first eight bytes as
-//! version 1's, so an older host runs Frame Warp as before and never sends 0x5549; a client that
-//! sees an older host sends version 1 and expects none.
+//! A host lists [`SERVERINFO_FIELD`] in serverinfo, and the client sends its request as
+//! [`RequestV2`] (version 2, twelve bytes): on or off, the stick's pad, the widest mask and the
+//! lens, then whose gyro turns the camera, how its axes map and an optional limit for the shift.
+//! Frame Warp before 7.0 took an eight-byte version 1 request and listed
+//! [`crate::frame_warp::LEGACY_SERVERINFO_FIELD`]; neither end speaks it any more. A host ignores
+//! a request that is not version 2, and a client sends nothing to a host without the field, so a
+//! client and a host of different generations stream without Frame Warp.
 //!
-//! To a client whose request was version 2, the host sends a [`FrameWarpV2Meta`] (0x5549,
-//! unreliable) with each frame's tags: how sure it is that the camera, not a menu, a cutscene or
-//! a cursor, moves the picture ([`FrameWarpV2Meta::camera_confidence`]), how steady its HUD mask
-//! is, the gyro packet the frame reflects and the gyro's gain, and how to fill the strip a shift
-//! uncovers. The client adds the gyro's part to the shift,
+//! The host sends a [`FrameWarpV2Meta`] (0x5549, unreliable) with each frame's tags: how sure it
+//! is that the camera, not a menu, a cutscene or a cursor, moves the picture
+//! ([`FrameWarpV2Meta::camera_confidence`]), how steady its HUD mask is, the gyro packet the frame
+//! reflects and the gyro's gain, and how to fill the strip a shift uncovers. The client adds the gyro's part to the shift,
 //!
 //! ```text
 //! shift += gyro_gain * integral(gyro_rate(packet) - bias, tau_g..now)
@@ -27,9 +27,11 @@
 
 use crate::frame_warp::{FrameWarpRequest, MAX_CONTROLLERS, MAX_GAIN, NO_CONTROLLER};
 
-/// Host to client: a frame's [`FrameWarpV2Meta`] (unreliable), only to a version 2 request.
+/// Host to client: a frame's [`FrameWarpV2Meta`] (unreliable).
 pub const FRAME_WARP_V2_META_MESSAGE_TYPE: u16 = 0x5549;
-/// The `FrameWarpVersion` a host that sends [`FrameWarpV2Meta`] lists in serverinfo.
+/// Serverinfo element: the host runs Frame Warp 2 ([`SERVERINFO_VERSION`]).
+pub const SERVERINFO_FIELD: &str = "FrameWarpProtocol";
+/// The [`SERVERINFO_FIELD`] value a host that takes [`RequestV2`] lists.
 pub const SERVERINFO_VERSION: u32 = 2;
 /// Format version of the version 2 request and of [`FrameWarpV2Meta`].
 pub const VERSION: u8 = 2;
@@ -39,20 +41,18 @@ pub const META_BYTES: usize = 40;
 pub const MAX_HUD_GUARD: u8 = 8;
 /// [`FrameWarpV2Meta::hud_guard`] a host sends unless it knows better.
 pub const DEFAULT_HUD_GUARD: u8 = 2;
-/// [`FrameWarpV2Meta::edge_fade_strength`] a host sends unless it knows better: about the 35%
-/// darkening of version 1's edge.
+/// [`FrameWarpV2Meta::edge_fade_strength`] a host sends unless it knows better (about a third
+/// darker at the far end of the fill).
 pub const DEFAULT_EDGE_FADE: u8 = 90;
 /// The shift's limit as a fraction of the picture when a request gives none.
 pub const DEFAULT_MAX_OFFSET: f32 = 0.15;
 /// Largest [`RequestV2::max_offset_milli`]: the whole picture.
 pub const MAX_OFFSET_MILLI: u16 = 1000;
 
-/// Request flag bits (byte 3; bit 0, the lens, is version 1's).
+/// Request flag bits (byte 3).
 pub mod request_flags {
     pub const LENS: u8 = 1 << 0;
     pub const GYRO: u8 = 1 << 1;
-    pub const EDGE_V2: u8 = 1 << 2;
-    pub const CONFIDENCE_V2: u8 = 1 << 3;
 }
 
 /// [`FrameWarpV2Meta::flags`] bits.
@@ -67,12 +67,10 @@ pub mod meta_flags {
     pub const HUD_SOFT_EDGE: u8 = 1 << 3;
     /// The model locked from the game's saved prior, confirmed by this stream's first turn.
     pub const PRIOR_WARM_LOCKED: u8 = 1 << 4;
-    /// The client fills the strip a shift uncovers by clamping and fading, not mirroring.
-    pub const DISOCCLUSION_V2: u8 = 1 << 5;
     /// The gyro gain's yaw is the motion packet's z axis, not its y axis: what the host found
     /// for a request that left the axis to it ([`super::YawSource::Auto`]).
-    pub const GYRO_YAW_Z: u8 = 1 << 6;
-    pub const ALL: u8 = 0x7F;
+    pub const GYRO_YAW_Z: u8 = 1 << 5;
+    pub const ALL: u8 = 0x3F;
 }
 
 /// Which motion packet axis turns the camera left and right.
@@ -121,17 +119,13 @@ impl GyroAxes {
     }
 }
 
-/// Client to host: start or stop Frame Warp, version 2 (see the module documentation).
+/// Client to host: start or stop Frame Warp (see the module documentation).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RequestV2 {
-    /// What version 1 says: on, the stick's pad, the widest mask and the lens.
+    /// On or off, the stick's pad, the widest mask and the lens.
     pub base: FrameWarpRequest,
     /// Turn by the gyro of [`RequestV2::gyro_controller`] too.
     pub gyro: bool,
-    /// The client fills the strip a shift uncovers by clamping and fading.
-    pub edge_v2: bool,
-    /// The client fades the shift by [`FrameWarpV2Meta::camera_confidence`].
-    pub confidence_v2: bool,
     /// The pad whose motion packets carry the gyro (0 to 15); `None` is the stick's pad.
     pub gyro_controller: Option<u8>,
     pub axes: GyroAxes,
@@ -141,13 +135,11 @@ pub struct RequestV2 {
 }
 
 impl RequestV2 {
-    /// A version 2 request with nothing beyond `base`.
+    /// A request with nothing beyond `base`.
     pub fn new(base: FrameWarpRequest) -> Self {
         Self {
             base,
             gyro: false,
-            edge_v2: false,
-            confidence_v2: false,
             gyro_controller: None,
             axes: GyroAxes::default(),
             max_offset_milli: 0,
@@ -155,22 +147,11 @@ impl RequestV2 {
     }
 
     pub fn encode(&self) -> [u8; REQUEST_BYTES] {
-        let base = self.base.encode();
+        let base = self.base.encode_prefix();
         let mut out = [0u8; REQUEST_BYTES];
         out[..8].copy_from_slice(&base);
         out[0] = VERSION;
-        out[3] = u8::from(self.base.lens)
-            | if self.gyro { request_flags::GYRO } else { 0 }
-            | if self.edge_v2 {
-                request_flags::EDGE_V2
-            } else {
-                0
-            }
-            | if self.confidence_v2 {
-                request_flags::CONFIDENCE_V2
-            } else {
-                0
-            };
+        out[3] = u8::from(self.base.lens) | if self.gyro { request_flags::GYRO } else { 0 };
         out[8] = match self.gyro_controller {
             Some(number) if number < MAX_CONTROLLERS => number,
             _ => NO_CONTROLLER,
@@ -180,15 +161,15 @@ impl RequestV2 {
         out
     }
 
-    /// Parses a version 2 request; `None` for a version 1 request (or one shorter than
-    /// [`REQUEST_BYTES`]), which [`FrameWarpRequest::decode`] reads, and for anything that
-    /// rejects: what version 1 rejects, a gyro controller over 15 (but 0xFF), yaw source 3 and a
-    /// limit over [`MAX_OFFSET_MILLI`]. Later versions may append.
+    /// Parses a request; `None` for an older client's version 1 request (or anything shorter
+    /// than [`REQUEST_BYTES`]) and for anything that rejects: version 0, an `enabled` other than
+    /// 0 or 1, a pad over 15 (but 0xFF), a mask width over the largest, yaw source 3 and a limit
+    /// over [`MAX_OFFSET_MILLI`]. Later versions may append.
     pub fn decode(data: &[u8]) -> Option<Self> {
         if data.len() < REQUEST_BYTES || data[0] < VERSION {
             return None;
         }
-        let base = FrameWarpRequest::decode(data)?;
+        let base = FrameWarpRequest::decode_prefix(data)?;
         let gyro_controller = match data[8] {
             NO_CONTROLLER => None,
             number if number < MAX_CONTROLLERS => Some(number),
@@ -201,8 +182,6 @@ impl RequestV2 {
         Some(Self {
             base,
             gyro: data[3] & request_flags::GYRO != 0,
-            edge_v2: data[3] & request_flags::EDGE_V2 != 0,
-            confidence_v2: data[3] & request_flags::CONFIDENCE_V2 != 0,
             gyro_controller,
             axes: GyroAxes::decode(data[9])?,
             max_offset_milli,

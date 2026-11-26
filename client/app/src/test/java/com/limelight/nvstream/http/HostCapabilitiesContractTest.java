@@ -95,7 +95,6 @@ public class HostCapabilitiesContractTest {
             case PC_SHUTDOWN: return "pc_shutdown";
             case HOST_UPDATE: return "host_update";
             case PAIRING_APPROVE: return "pairing_approve";
-            case FRAME_WARP_V2: return "frame_warp_v2";
             default: return null;
         }
     }

@@ -11,8 +11,6 @@ const MS: u64 = 1000;
 fn request(gyro: bool) -> RequestV2 {
     RequestV2 {
         gyro,
-        edge_v2: true,
-        confidence_v2: true,
         axes: GyroAxes {
             yaw: YawSource::Auto,
             ..GyroAxes::default()
@@ -28,7 +26,7 @@ fn request(gyro: bool) -> RequestV2 {
 
 fn meta(frame: u32, confidence: f32) -> FrameWarpV2Meta {
     FrameWarpV2Meta {
-        flags: meta_flags::DISOCCLUSION_V2,
+        flags: 0,
         frame,
         camera_confidence: to_unit16(confidence),
         ..FrameWarpV2Meta::default()
@@ -71,7 +69,10 @@ fn the_envelope_falls_within_100_ms_and_rises_along_an_s_curve() {
     let part = e.update(1.0, 1_090 * MS);
     let fell = e.update(0.2, 1_130 * MS);
     assert!(fell < part && fell > 0.2, "{fell} {part}");
-    assert_eq!(Envelope::default().update(f32::NAN, 0), 0.0);
+    // A target that is not a number counts as none.
+    let mut e = Envelope::default();
+    e.update(f32::NAN, 0);
+    assert_eq!(e.update(f32::NAN, 10_000 * MS), 0.0);
 }
 
 #[test]
@@ -89,9 +90,6 @@ fn the_edge_fill_squeezes_instead_of_mirroring() {
     assert!((fade - 0.65).abs() < 1e-6, "{fade}");
     // Far past the edge the sample stays inside.
     assert_eq!(edge_v2([-10.0, 11.0], 0.0), ([1.0, 0.0], 1.0));
-    // Unlike version 1's mirror, which samples a full copy of what crosses the edge.
-    let (mirror, _) = crate::frame_warp::edge([-0.04, 0.5]);
-    assert!((mirror[0] - 0.04).abs() < 1e-6);
 }
 
 #[test]
@@ -120,10 +118,14 @@ fn the_hud_probe_finds_the_background_behind_the_shift() {
         hud_probe([0.9, 0.5], shift, [10.0, 10.0], 2, 0.35, wide),
         None
     );
-    // The guard never reaches past MAX_HUD_GUARD cells.
-    let found =
-        hud_probe([0.95, 0.5], shift, [10.0, 10.0], 100, 0.0, wide).unwrap_or(([1.0; 2], 0.0));
-    assert_eq!(found.1, 0.0, "nothing within {MAX_HUD_GUARD} cells");
+    // The guard never reaches past MAX_HUD_GUARD cells: the scene nine cells back stays out.
+    assert_eq!(
+        hud_probe([1.05, 0.5], shift, [10.0, 10.0], 100, 0.0, wide),
+        None,
+        "nothing within {MAX_HUD_GUARD} cells"
+    );
+    let near = hud_probe([0.95, 0.5], shift, [10.0, 10.0], 100, 0.0, wide);
+    assert!(near.is_some_and(|(at, _)| at[0] < 0.2), "eight cells back: {near:?}");
 }
 
 #[test]
@@ -193,30 +195,35 @@ fn the_gyro_turn_the_frame_lacks_shifts_it() {
 }
 
 #[test]
-fn the_row_carries_the_fill_hints_and_none_without_edge_v2() {
+fn the_row_carries_the_fill_hints() {
     let mut v2 = V2::new(request(false));
-    assert_eq!(v2.row(3), V1_ROW, "no meta yet");
-    v2.on_meta(meta(3, 1.0), 0);
-    let row = v2.row(3);
-    assert!((row[0] - f32::from(DEFAULT_EDGE_FADE) / 255.0).abs() < 1e-6);
-    assert_eq!(row[1], 2.0);
-    assert_eq!(row[3], f32::from(meta_flags::DISOCCLUSION_V2));
-    let mut plain = V2::new(RequestV2 {
-        edge_v2: false,
-        ..request(false)
-    });
-    plain.on_meta(meta(3, 1.0), 0);
-    assert_eq!(plain.row(3), V1_ROW);
-    // A host that does not fill the v2 way leaves the mirror on and still probes the HUD.
-    let mut mirror = V2::new(request(false));
-    mirror.on_meta(
+    assert_eq!(v2.row(3), DEFAULT_ROW, "the defaults before a meta");
+    assert!((DEFAULT_ROW[0] - f32::from(DEFAULT_EDGE_FADE) / 255.0).abs() < 1e-6);
+    assert_eq!(DEFAULT_ROW[1], 2.0);
+    v2.on_meta(
         FrameWarpV2Meta {
-            flags: 0,
+            flags: meta_flags::HUD_SOFT_EDGE,
+            edge_fade_strength: 51,
+            hud_guard: 4,
             ..meta(3, 1.0)
         },
         0,
     );
-    assert_eq!(mirror.row(3)[0], 0.0);
+    let row = v2.row(3);
+    assert!((row[0] - 0.2).abs() < 1e-6, "{row:?}");
+    assert_eq!(row[1], 4.0);
+    assert_eq!(row[2], 1.0);
+    assert_eq!(row[3], f32::from(meta_flags::HUD_SOFT_EDGE));
+    // A host that fills nothing and probes nothing.
+    v2.on_meta(
+        FrameWarpV2Meta {
+            edge_fade_strength: 0,
+            hud_guard: 0,
+            ..meta(4, 1.0)
+        },
+        0,
+    );
+    assert_eq!(&v2.row(4)[..2], &[0.0, 0.0]);
 }
 
 fn mouse_model() -> Model {
@@ -238,7 +245,7 @@ const SETTLED: u64 = 10_000_000;
 #[test]
 fn a_falling_confidence_stops_the_shift_within_100_ms() {
     let mut p = Predictor::new(None);
-    p.set_v2(Some(request(false)));
+    p.set_request(request(false));
     p.on_model(mouse_model());
     p.warp(0, SETTLED - FADE.as_micros() as u64 - 1);
     p.note_mouse(100, 0, SETTLED);
@@ -257,7 +264,7 @@ fn a_falling_confidence_stops_the_shift_within_100_ms() {
     p.on_meta(meta(5, 1.0), SETTLED);
     let full = p.warp(5, SETTLED + MS);
     assert_eq!(full.pixels, [-20.0, 0.0]);
-    assert!(full.v2[0] > 0.0, "the v2 fill: {:?}", full.v2);
+    assert!(full.v2[0] > 0.0, "the fill: {:?}", full.v2);
     // A pause menu: the host's confidence drops to 0.
     p.on_meta(meta(6, 0.0), SETTLED + 2 * MS);
     p.warp(5, SETTLED + 2 * MS);
@@ -272,13 +279,13 @@ fn a_falling_confidence_stops_the_shift_within_100_ms() {
     p.warp(5, SETTLED + 500 * MS);
     let back = p.warp(5, SETTLED + 700 * MS);
     assert_eq!(back.pixels, [-20.0, 0.0]);
-    assert!(p.status(SETTLED + 700 * MS).v2.is_some());
+    assert_eq!(p.status(SETTLED + 700 * MS).v2.confidence, 1.0);
 }
 
 #[test]
 fn the_gyro_alone_locks_a_stream() {
     let mut p = Predictor::new(Some(0));
-    p.set_v2(Some(request(true)));
+    p.set_request(request(true));
     p.on_model(Model {
         mouse_locked: false,
         ..mouse_model()
@@ -312,7 +319,7 @@ fn the_gyro_alone_locks_a_stream() {
 }
 
 #[test]
-fn a_v1_stream_draws_version_1s_row() {
+fn before_any_meta_the_shift_is_whole_with_the_default_row() {
     let mut p = Predictor::new(None);
     p.on_model(mouse_model());
     p.warp(0, SETTLED - FADE.as_micros() as u64 - 1);
@@ -328,13 +335,12 @@ fn a_v1_stream_draws_version_1s_row() {
         },
         SETTLED,
     );
-    p.on_meta(meta(5, 0.0), SETTLED);
     let warp = p.warp(5, SETTLED + MS);
     assert_eq!(
         warp.pixels,
         [-20.0, 0.0],
-        "a meta without version 2 changes nothing"
+        "full confidence until the host says otherwise"
     );
-    assert_eq!(warp.v2, V1_ROW);
-    assert_eq!(p.status(SETTLED).v2, None);
+    assert_eq!(warp.v2, DEFAULT_ROW);
+    assert_eq!(p.status(SETTLED).v2.meta, None);
 }

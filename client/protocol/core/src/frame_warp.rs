@@ -31,16 +31,18 @@
 //!
 //! which is `q - shift / f` at the centre and exact for a turn about one axis.
 //!
-//! - [`FrameWarpRequest`] (0x5543, client to host) starts or stops it.
+//! - The request (0x5543, client to host, [`crate::frame_warp_v2::RequestV2`]) starts or stops
+//!   it; [`FrameWarpRequest`] holds its first eight bytes.
 //! - [`Model`] (0x5544, host to client, reliable) whenever the learned model changes.
 //! - [`Tags`] (0x5545, host to client, unreliable) for each frame as it goes out, with the
 //!   previous frames' tags so one lost message costs nothing.
 //! - [`Mask`] (0x5546, host to client, reliable) whenever the HUD mask changes.
-//! - Frame Warp 2's per-frame meta (0x5549, host to client, unreliable) for a version 2
-//!   request ([`crate::frame_warp_v2`]).
+//! - The per-frame meta (0x5549, host to client, unreliable, [`crate::frame_warp_v2`]): how sure
+//!   the host is that the camera moves the picture, and the gyro's part.
 //!
-//! A host lists the ids on its second `a=x-rl-control` line and `FrameWarpVersion` in
-//! serverinfo. All integers are little-endian; floats are IEEE 754 binary32.
+//! A host lists the ids on its second `a=x-rl-control` line and
+//! [`crate::frame_warp_v2::SERVERINFO_FIELD`] in serverinfo. All integers are little-endian;
+//! floats are IEEE 754 binary32.
 
 use alloc::vec::Vec;
 
@@ -54,12 +56,15 @@ pub const FRAME_WARP_TAGS_MESSAGE_TYPE: u16 = 0x5545;
 pub const FRAME_WARP_MASK_MESSAGE_TYPE: u16 = 0x5546;
 /// Host to client: Frame Warp 2's per-frame meta ([`crate::frame_warp_v2`]).
 pub use crate::frame_warp_v2::FRAME_WARP_V2_META_MESSAGE_TYPE;
-/// Serverinfo element: the host learns and sends models, tags and masks.
-pub const SERVERINFO_FIELD: &str = "FrameWarpVersion";
-/// Format version of every message here.
+/// The serverinfo element of hosts before 7.0, whose Frame Warp took an eight-byte request. A
+/// 7.0 host no longer lists it (an older client then sees no Frame Warp); Nightjar reads it only
+/// to tell the player that Frame Warp needs the current version on the PC.
+pub const LEGACY_SERVERINFO_FIELD: &str = "FrameWarpVersion";
+/// Format version of the model, tags and mask.
 pub const VERSION: u8 = 1;
 
-pub const REQUEST_BYTES: usize = 8;
+/// The request's first eight bytes ([`FrameWarpRequest`]).
+pub const REQUEST_PREFIX_BYTES: usize = 8;
 pub const TAGS_HEADER_BYTES: usize = 4;
 pub const TAG_BYTES: usize = 20;
 /// Tags per message: the newest frame's and up to three before it.
@@ -92,7 +97,8 @@ pub const MAX_FOCAL: f32 = 1_000_000.0;
 const MASK_NONE: u8 = 0;
 const MASK_RUNS: u8 = 1;
 
-/// Client to host: start or stop Frame Warp.
+/// The first eight bytes of the request that starts or stops Frame Warp
+/// ([`crate::frame_warp_v2::RequestV2`] is the whole request).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameWarpRequest {
     /// Learn, tag and mask; false stops all three.
@@ -107,7 +113,8 @@ pub struct FrameWarpRequest {
 }
 
 impl FrameWarpRequest {
-    pub fn encode(&self) -> [u8; REQUEST_BYTES] {
+    /// The eight bytes, version byte 1 (the whole request sets its own).
+    pub(crate) fn encode_prefix(&self) -> [u8; REQUEST_PREFIX_BYTES] {
         let width = self.mask_max_width.min(MAX_MASK_EDGE).to_le_bytes();
         let controller = match self.controller {
             Some(number) if number < MAX_CONTROLLERS => number,
@@ -125,11 +132,11 @@ impl FrameWarpRequest {
         ]
     }
 
-    /// Parses a request; version 0, an `enabled` other than 0 or 1, a controller over 15 (but
-    /// 0xFF) and a mask width over [`MAX_MASK_EDGE`] reject it. Later versions may append, and
-    /// the flags' other bits are theirs.
-    pub fn decode(data: &[u8]) -> Option<Self> {
-        if data.len() < REQUEST_BYTES || data[0] == 0 || data[1] > 1 {
+    /// Parses the eight bytes; version 0, an `enabled` other than 0 or 1, a controller over 15
+    /// (but 0xFF) and a mask width over [`MAX_MASK_EDGE`] reject them. The flags' other bits are
+    /// the whole request's.
+    pub(crate) fn decode_prefix(data: &[u8]) -> Option<Self> {
+        if data.len() < REQUEST_PREFIX_BYTES || data[0] == 0 || data[1] > 1 {
             return None;
         }
         let controller = match data[2] {

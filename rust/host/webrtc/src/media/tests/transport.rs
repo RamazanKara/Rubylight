@@ -197,7 +197,7 @@ fn an_outage_that_ends_in_time_resumes_with_a_keyframe_request() {
 }
 
 #[test]
-fn a_five_second_drop_after_the_path_went_down_still_resumes() {
+fn a_session_outlives_five_seconds_of_a_lost_path() {
     let mut link = Link::connected(spec(VideoCodec::H264, false));
     link.partition = true;
     let started = link.now;
@@ -205,23 +205,35 @@ fn a_five_second_drop_after_the_path_went_down_still_resumes() {
         link.step(Duration::from_millis(100));
         assert!(link.now - started < Duration::from_secs(60));
     }
-    // The drop lasts 5 s more: the old 3 s grace ended the session here.
+    // The drop lasts 5 s more: the old 3 s grace ended the session here. (The simulated
+    // client's ICE has stopped checking by then, so the return is shown below with the ICE
+    // states alone; a browser keeps checking until it reports `failed`.)
     let went_down = link.now;
     while link.now - went_down < Duration::from_secs(5) {
         link.step(Duration::from_millis(100));
     }
     assert!(!link.host.is_closed(), "{:?}", link.host_events);
+    assert!(link.host.is_disconnected());
+}
+
+#[test]
+fn a_path_back_after_five_seconds_resumes_with_one_keyframe() {
+    let mut link = Link::connected(spec(VideoCodec::H264, false));
+    link.collect_host();
     link.host_events.clear();
     link.idr.clear();
-    link.partition = false;
-    for _ in 0..50 {
-        link.step(Duration::from_millis(100));
-        if link.host.is_connected() {
-            break;
-        }
-    }
-    assert!(link.host.is_connected(), "{:?}", link.host_events);
-    assert!(link.idr.contains(&IdrReason::Reconnected), "{:?}", link.idr);
+    ice(&mut link, IceConnectionState::Disconnected);
+    link.now += Duration::from_secs(5);
+    link.host.advance(link.now).unwrap();
+    assert!(!link.host.is_closed());
+    ice(&mut link, IceConnectionState::Completed);
+    link.collect_host();
+    assert!(!link.host.is_disconnected() && !link.host.is_closed());
+    assert_eq!(
+        link.host_events,
+        [TransportEvent::Disconnected, TransportEvent::Reconnected]
+    );
+    assert_eq!(link.idr, [IdrReason::Reconnected]);
 }
 
 #[test]

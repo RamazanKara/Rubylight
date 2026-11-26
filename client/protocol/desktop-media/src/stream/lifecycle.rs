@@ -124,6 +124,7 @@ impl Streaming {
         let warp_presenter = facts.frame_warp.clone().map(frame_warp::Presenter::new);
         phase::reset_display_timing();
         let reconnect_recovery = connecting.plan.recovery.is_some();
+        let dvr = facts.stream_dvr.then(dvr::Dvr::default);
         let mut streaming = Self {
             usb,
             usb_refused,
@@ -243,6 +244,7 @@ impl Streaming {
             host_abr_stop: None,
             doctor,
             rate_change,
+            dvr,
             quality_mode,
             quality_policy,
             quality_ceiling: mode,
@@ -311,6 +313,7 @@ impl Streaming {
         // Before anything that sets a bitrate: what the PC counts this stream's bitrate as.
         if let Some(request) = streaming.rate_change.as_mut().map(|rates| rates.query_request(0)) { streaming.send_rate_query(request); }
         streaming.start_clipboard_sync();
+        streaming.dvr_start();
         if quality_failed {
             streaming.show_toast(tr(MSG_AUTO_QUALITY_NO_MODE));
         }

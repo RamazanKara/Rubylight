@@ -1,7 +1,7 @@
 //! Source inventories for the desktop localization table tests (`SOURCES` and `MARKED_ONLY`).
 
 /// The UI sources, up to their test modules.
-pub(super) const SOURCES: [(&str, &str); 79] = [
+pub(super) const SOURCES: [(&str, &str); 80] = [
     ("strings.rs", include_str!("../../strings.rs")),
     ("app_types.rs", include_str!("../../app_types.rs")),
     ("gamepad_types.rs", include_str!("../../gamepad_types.rs")),
@@ -79,12 +79,13 @@ pub(super) const SOURCES: [(&str, &str); 79] = [
     ("ui/help.rs", include_str!("../../../../desktop-ui/src/ui/help.rs")),
     ("menu_style.rs", include_str!("../../../../desktop-ui/src/menu_style.rs")),
     ("stream_menu.rs", include_str!("../../../../desktop-ui/src/stream_menu.rs")),
+    ("stream_menu/dvr.rs", include_str!("../../../../desktop-ui/src/stream_menu/dvr.rs")),
     ("ui/about.rs", include_str!("../../../../desktop-ui/src/ui/about.rs")),
     ("ui/latency_bench.rs", include_str!("../../../../desktop-ui/src/ui/latency_bench.rs")),
 ];
 
 /// Read for its marked texts and its toasts only: the stream code keeps its own overlay lines.
-pub(super) const MARKED_ONLY: [(&str, &str); 32] = [
+pub(super) const MARKED_ONLY: [(&str, &str); 33] = [
     ("glyphs.rs", include_str!("../../../../desktop-ui/src/glyphs.rs")),
     ("stream_types.rs", include_str!("../../stream_types.rs")),
     ("latency_bench_state.rs", include_str!("../../latency_bench_state.rs")),
@@ -109,6 +110,7 @@ pub(super) const MARKED_ONLY: [(&str, &str); 32] = [
     ("stream/guests.rs", include_str!("../../../../desktop-media/src/stream/guests.rs")),
     ("stream/microphone.rs", include_str!("../../../../desktop-media/src/stream/microphone.rs")),
     ("stream/rate_change.rs", include_str!("../../../../desktop-media/src/stream/rate_change.rs")),
+    ("stream/dvr.rs", include_str!("../../../../desktop-media/src/stream/dvr.rs")),
     ("stream/clipboard_sync.rs", include_str!("../../../../desktop-media/src/stream/clipboard_sync.rs")),
     ("stream/frame_warp.rs", include_str!("../../../../desktop-media/src/stream/frame_warp.rs")),
     ("stream/frame_warp/mesh.rs", include_str!("../../../../desktop-media/src/stream/frame_warp/mesh.rs")),

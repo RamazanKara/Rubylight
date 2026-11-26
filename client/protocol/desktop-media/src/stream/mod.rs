@@ -27,6 +27,7 @@ pub mod overlay;
 pub(crate) mod recovery;
 mod quality;
 mod rate_change;
+pub mod dvr;
 pub use rate_change::{own_lowering_at_start, store_keep};
 pub mod menu_extras;
 pub mod guests;
@@ -405,6 +406,8 @@ pub struct Streaming {
     doctor: doctor::Doctor,
     /// Rate changes over 0x553C, on a stream that takes them.
     pub rate_change: Option<rate_change::RateChange>,
+    /// Instant replay over 0x554A, on a stream that offers it.
+    dvr: Option<dvr::Dvr>,
     pub quality_mode: QualityMode,
     quality_policy: Option<quality::Quality>,
     quality_ceiling: Reconfigure,

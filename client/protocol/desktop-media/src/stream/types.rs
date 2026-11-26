@@ -145,6 +145,8 @@ pub struct Facts {
     pub reconfigure: bool,
     /// The host takes mid-stream bitrate and rate changes (0x553C).
     pub rate_change: bool,
+    /// The host offers Stream DVR and listed 0x554A: the menu's Save clip and recording.
+    pub stream_dvr: bool,
     /// Whether the PC forwards USB devices and lets this device attach them; asked only while
     /// the setting is on.
     pub usb: Availability,

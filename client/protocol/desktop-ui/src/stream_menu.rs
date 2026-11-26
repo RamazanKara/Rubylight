@@ -570,5 +570,8 @@ pub fn editor(ui: &mut Ui, draft: &mut Draft, saved: &mut Shortcuts, focus_first
     edited
 }
 
+/// The Instant Replay group under the grid.
+pub mod dvr;
+
 #[cfg(test)]
 mod tests;

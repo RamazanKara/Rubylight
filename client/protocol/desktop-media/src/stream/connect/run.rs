@@ -579,6 +579,9 @@ pub(crate) fn connect(
             && outcome.negotiated_video_format & VIDEO_FORMAT_MASK_PYROWAVE == 0
             && role == AppRole::Stream,
         rate_change: rate_change::offered(&outcome.host_control_messages, role),
+        stream_dvr: plan.info.capabilities.has(Feature::StreamDvr)
+            && outcome.host_control_messages.contains(&rubylight_protocol::stream_dvr::DVR_STATE_MESSAGE_TYPE)
+            && role == AppRole::Stream,
         usb: if !settings.usb_forwarding {
             Availability::Unknown
         } else if !usb_ask_started {

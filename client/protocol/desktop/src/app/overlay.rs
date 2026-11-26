@@ -326,6 +326,10 @@ pub(crate) fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mu
                                 Some(stream_menu::Chosen::Add) => next = Some(stream_menu::Page::Editor(stream_menu::Draft::default())),
                                 None => {}
                             }
+                            if let Some(entries) = s.dvr_menu() {
+                                let rows = entries.each_ref().map(|e| (e.op, e.label.as_str(), e.detail.as_str(), e.enabled, e.problem));
+                                if let Some(op) = stream_menu::dvr::section(ui, &rows) { s.dvr_request(op); }
+                            }
                         }
                         stream_menu::Page::Confirm(exit) => match stream_menu::confirm(ui, *exit, focus_first) {
                             Some(true) => {

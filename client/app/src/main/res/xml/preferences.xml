@@ -247,6 +247,9 @@
             android:entries="@array/video_alignment_names"
             android:entryValues="@array/video_alignment_values"
             android:defaultValue="center" />
+        <Preference android:key="picture_position"
+            android:title="@string/picture_position_title"
+            android:summary="@string/summary_picture_position" android:persistent="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_full_range"
             android:title="@string/title_full_range"

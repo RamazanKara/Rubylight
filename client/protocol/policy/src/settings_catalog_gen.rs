@@ -4,7 +4,7 @@
 use std::ops::RangeInclusive;
 
 /// Total Android settings rows documented in `settings.toml`.
-pub const ANDROID_SETTING_COUNT: usize = 192;
+pub const ANDROID_SETTING_COUNT: usize = 193;
 /// Total Desktop `Settings` fields declared in `settings.toml`.
 pub const DESKTOP_SETTING_COUNT: usize = 147;
 

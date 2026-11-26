@@ -328,6 +328,7 @@ final class StreamSettingsChrome {
                 .remove(TouchMode.TRACKPAD_PREF)
                 .remove(VideoScaling.PREF)
                 .remove(VideoScaling.STRETCH_PREF)
+                .remove(com.limelight.ui.PicturePosition.PREF)
                 .remove(PreferenceConfiguration.UNLOCK_FPS_STRING)
                 .remove(PreferenceConfiguration.OVERLAY_MODE_PREF_STRING)
                 .remove(AppTheme.RETIRED_OLED_BLACK)

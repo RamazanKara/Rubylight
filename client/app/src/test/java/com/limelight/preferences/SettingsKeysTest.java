@@ -95,6 +95,8 @@ public class SettingsKeysTest {
     // Stored settings that are read outside PreferenceConfiguration.
     private static final Set<String> READ_ELSEWHERE = new HashSet<>(Arrays.asList(
             "performance_overlay_mode",
+            // Picture position: StreamSafeAreaController reads it per screen.
+            com.limelight.ui.PicturePosition.PREF,
             "simple_smoothness", "simple_picture", "simple_hdr",
             "simple_vrr_opt_in", "simple_vrr_last",
             "list_stream_menu_button_y", "list_stream_menu_button_x", "list_stream_menu_button_lb", "list_stream_menu_button_rb",

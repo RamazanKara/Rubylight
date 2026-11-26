@@ -1947,6 +1947,14 @@ desktop_key = "align_video_top"
 advice = "Top places a Fit or 1:1 picture at the top of the screen, leaving the space below for the soft keyboard or the lower half of a half-folded phone. No effect on Fill and Stretch, which cover the whole screen."
 
 [[android_setting]]
+key = "picture_position"
+category = "category_upscaling"
+tier = "more"
+kind = "action"
+scope = "global"
+advice = "Moves the picture by hand to make up for a camera cutout or curved screen edges, up to 15% of the screen's side, saved for each screen of the device in its natural orientation so it stays on the same side when the phone is turned over. Leave it centred unless part of the picture is hidden. Also in the stream menu, where the picture moves live. Hidden on TVs."
+
+[[android_setting]]
 key = "checkbox_full_range"
 category = "category_upscaling"
 tier = "more"

@@ -22,7 +22,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex, OnceLock};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../native-api/tests/fixtures");
-const NAMES: [&str; 17] = [
+const NAMES: [&str; 19] = [
     "capabilities",
     "library",
     "session",
@@ -40,6 +40,8 @@ const NAMES: [&str; 17] = [
     "pairing_requests",
     "power",
     "update",
+    "quick_suspend",
+    "quick_suspend_refused",
 ];
 
 fn fixture(name: &str) -> String {
@@ -538,6 +540,44 @@ fn audio_reads_the_switches_and_writes_the_contracts_request() {
         serde_json::from_slice::<Value>(&seen[1].body).unwrap(),
         serde_json::from_str::<Value>(&fixture("audio_write")).unwrap()
     );
+}
+
+#[test]
+fn quick_suspend_reads_pauses_and_resumes_and_a_refusal_is_an_answer() {
+    use nightjar_core::http::native_api::quick_suspend::{QuickSuspendRequest, SuspendState};
+    let host = serve(|method, path, body| match (method, path) {
+        ("GET", "/api/native/v1/session/suspend") => (200, fixture("quick_suspend")),
+        ("POST", "/api/native/v1/session/suspend") => {
+            // The contract's request, which refuses unknown fields, takes the body.
+            let _: QuickSuspendRequest = serde_json::from_slice(body).unwrap();
+            (200, fixture("quick_suspend_refused"))
+        }
+        ("POST", "/api/native/v1/session/resume") => (200, fixture("quick_suspend")),
+        other => (404, error_body(ErrorCode::NotFound, &format!("{other:?}"))),
+    });
+    let client = paired_client(&host);
+    let paused = client.quick_suspend().unwrap();
+    assert_eq!(paused.state, SuspendState::Suspended);
+    assert_eq!(paused.suspended_by.as_deref(), Some("Living room TV"));
+    let refused = client.suspend_game().unwrap();
+    assert_eq!(
+        (refused.state, refused.reason.as_str()),
+        (SuspendState::Refused, "anti_cheat_detected")
+    );
+    assert!(refused.message.is_some());
+    assert_eq!(client.resume_game().unwrap(), paused);
+    let seen = host.seen.lock().unwrap();
+    assert_eq!(
+        seen.iter()
+            .map(|s| format!("{} {}", s.method, s.path))
+            .collect::<Vec<_>>(),
+        [
+            "GET /api/native/v1/session/suspend",
+            "POST /api/native/v1/session/suspend",
+            "POST /api/native/v1/session/resume"
+        ]
+    );
+    assert_eq!(seen[1].content_type.as_deref(), Some("application/json"));
 }
 
 #[test]

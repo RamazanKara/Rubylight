@@ -33,12 +33,12 @@ struct MicrophoneBusy {
 
 /// A library of a few hundred games is well under this.
 const MAX_LIBRARY_BYTES: usize = 4 * 1024 * 1024;
-const MAX_JSON_BYTES: usize = 1024 * 1024;
+pub(super) const MAX_JSON_BYTES: usize = 1024 * 1024;
 /// Ending a session or a driver write waits for the host to finish; the host's own
 /// `session_busy` and `temporarily_unavailable` answer sooner.
-const ACTION_READ_TIMEOUT: Duration = Duration::from_secs(15);
+pub(super) const ACTION_READ_TIMEOUT: Duration = Duration::from_secs(15);
 /// The host reads an empty body as `{}`.
-const EMPTY_BODY: &[u8] = b"{}";
+pub(super) const EMPTY_BODY: &[u8] = b"{}";
 
 fn decode<T: DeserializeOwned>(response: transport::Response, path: &str) -> Result<T, Error> {
     if (200..=299).contains(&response.status) {
@@ -63,7 +63,7 @@ pub(super) fn error_of(response: transport::Response, path: &str) -> Error {
 }
 
 impl HostClient {
-    fn native<T: DeserializeOwned>(
+    pub(super) fn native<T: DeserializeOwned>(
         &self,
         path: &str,
         body: Option<&[u8]>,

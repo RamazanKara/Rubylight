@@ -1,6 +1,7 @@
 package com.limelight.binding.audio;
 
 import android.media.AudioFormat;
+import android.media.AudioManager;
 
 import org.junit.Test;
 
@@ -47,6 +48,38 @@ public class AudioPassthroughTest {
         assertTrue(rust.contains("pub const CODEC_PCM: u8 = " + AudioPassthrough.CODEC_PCM + ";"));
         assertTrue(rust.contains("pub const CODEC_AC3: u8 = " + AudioPassthrough.CODEC_AC3 + ";"));
         assertTrue(rust.contains("pub const CODEC_EAC3: u8 = " + AudioPassthrough.CODEC_EAC3 + ";"));
+    }
+
+    @Test public void android13AsksGetDirectPlaybackSupportAndOlderAsksTheOldCall() {
+        AudioPassthrough.DirectPlayback legacy = (encoding, mask) -> encoding == AudioFormat.ENCODING_AC3;
+        AudioPassthrough.DirectSupport modern = (encoding, mask) ->
+                encoding == AudioFormat.ENCODING_E_AC3 ? AudioManager.DIRECT_PLAYBACK_BITSTREAM_SUPPORTED
+                        : AudioManager.DIRECT_PLAYBACK_NOT_SUPPORTED;
+        assertEquals(AudioPassthrough.CODEC_AC3,
+                AudioPassthrough.playableCodecs(29, 6, AudioPassthrough.select(29, legacy, modern)));
+        assertEquals(AudioPassthrough.CODEC_AC3,
+                AudioPassthrough.playableCodecs(32, 6, AudioPassthrough.select(32, legacy, modern)));
+        assertEquals(AudioPassthrough.CODEC_EAC3,
+                AudioPassthrough.playableCodecs(33, 6, AudioPassthrough.select(33, legacy, modern)));
+        assertEquals(AudioPassthrough.CODEC_EAC3,
+                AudioPassthrough.playableCodecs(36, 6, AudioPassthrough.select(36, legacy, modern)));
+    }
+
+    @Test public void everyDirectModeCountsAsTheOldCallCountedIt() {
+        int[] modes = {
+                AudioManager.DIRECT_PLAYBACK_BITSTREAM_SUPPORTED,
+                AudioManager.DIRECT_PLAYBACK_OFFLOAD_SUPPORTED,
+                AudioManager.DIRECT_PLAYBACK_OFFLOAD_GAPLESS_SUPPORTED,
+                AudioManager.DIRECT_PLAYBACK_BITSTREAM_SUPPORTED | AudioManager.DIRECT_PLAYBACK_OFFLOAD_SUPPORTED,
+        };
+        for (int mode : modes) {
+            assertTrue(AudioPassthrough.select(33, null, (encoding, mask) -> mode)
+                    .supports(AudioFormat.ENCODING_AC3, AudioFormat.CHANNEL_OUT_5POINT1));
+        }
+        assertFalse(AudioPassthrough.select(33, null, (encoding, mask) -> AudioManager.DIRECT_PLAYBACK_NOT_SUPPORTED)
+                .supports(AudioFormat.ENCODING_AC3, AudioFormat.CHANNEL_OUT_5POINT1));
+        assertEquals(0, AudioPassthrough.playableCodecs(33, 6,
+                AudioPassthrough.select(33, null, (encoding, mask) -> AudioManager.DIRECT_PLAYBACK_NOT_SUPPORTED)));
     }
 
     @Test public void onlyDolbyCodecsHaveACompressedEncoding() {

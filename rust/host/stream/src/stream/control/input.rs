@@ -80,6 +80,10 @@ pub(super) fn handle_input_packet(
                         s.frame_warp
                             .on_controller(*id, (sticks[2], sticks[3]), p.seen)
                     }
+                    // Frame Warp 2's gyro: only the requested pad's readings are queued.
+                    input::Input::Motion { id, kind, xyz } => {
+                        s.frame_warp.on_motion(*id, *kind, *xyz, p.seen)
+                    }
                     _ => {}
                 }
             }

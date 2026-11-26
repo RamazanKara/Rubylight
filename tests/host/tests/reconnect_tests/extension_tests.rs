@@ -47,7 +47,7 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
              a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=fmtp:97 surround-params=12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=x-ss-general.penBarrelRoll:1\r\n\
-             a=x-rl-control:0x5539,0x553b,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546\r\n\
+             a=x-rl-control:0x5539,0x553b,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546,0x5549\r\n\
              m=audio {mic} RTP/AVP 96\r\n\
              a=rtpmap:96 opus/48000/1\r\n\
              a=fmtp:96 minptime=10;useinbandfec=1\r\n"
@@ -64,7 +64,9 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
 }
 
 /// With `frame_warp` off, DESCRIBE lists none of Frame Warp's messages and serverinfo has no
-/// `FrameWarpVersion`; everything else stays as offered.
+/// `FrameWarpProtocol`; everything else stays as offered. With it on, serverinfo has
+/// `FrameWarpProtocol` 2 and never Frame Warp 1's `FrameWarpVersion`, so an older Nightjar
+/// streams without Frame Warp.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn frame_warp_is_listed_only_while_its_setting_is_on() -> Result<()> {
     let h = Harness::configured(10_000, 1, "frame_warp=false\n").await?;
@@ -74,7 +76,7 @@ async fn frame_warp_is_listed_only_while_its_setting_is_on() -> Result<()> {
         describe.contains("a=x-rl-control:0x5539,0x553b,0x553d,0x553e\r\n"),
         "{describe}"
     );
-    for id in ["0x5543", "0x5544", "0x5545", "0x5546"] {
+    for id in ["0x5543", "0x5544", "0x5545", "0x5546", "0x5549"] {
         assert!(!describe.contains(id), "{describe}");
     }
     let config = h.h.config.read().unwrap().clone();
@@ -84,15 +86,17 @@ async fn frame_warp_is_listed_only_while_its_setting_is_on() -> Result<()> {
         !offered
             .serverinfo_fields()
             .iter()
-            .any(|(field, _)| *field == "FrameWarpVersion")
+            .any(|(field, _)| field.starts_with("FrameWarp"))
     );
     let on = butterpollo_stream::extensions::offered(&h.h, &Config::default());
     assert!(on.frame_warp);
+    let fields = on.serverinfo_fields();
     assert!(
-        on.serverinfo_fields()
+        fields
             .iter()
-            .any(|(field, value)| *field == "FrameWarpVersion" && value == "1")
+            .any(|(field, value)| *field == "FrameWarpProtocol" && value == "2")
     );
+    assert!(!fields.iter().any(|(field, _)| *field == "FrameWarpVersion"));
     let (session, client) = h.play(&launch).await?;
     h.end(&session, client).await?;
     h.finish().await
@@ -138,7 +142,7 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
              a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=fmtp:97 surround-params=12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=x-ss-general.penBarrelRoll:1\r\n\
-             a=x-rl-control:0x5539,0x553b,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546\r\n\
+             a=x-rl-control:0x5539,0x553b,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546,0x5549\r\n\
              m=audio {mic} RTP/AVP 96\r\n\
              a=rtpmap:96 opus/48000/1\r\n\
              a=fmtp:96 minptime=10;useinbandfec=1\r\n"

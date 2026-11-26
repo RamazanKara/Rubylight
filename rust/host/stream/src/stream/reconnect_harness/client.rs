@@ -215,6 +215,7 @@ impl Client {
                             butterpollo_media_policy::frame_warp::FRAME_WARP_MODEL_MESSAGE_TYPE
                                 | butterpollo_media_policy::frame_warp::FRAME_WARP_TAGS_MESSAGE_TYPE
                                 | butterpollo_media_policy::frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE
+                                | butterpollo_media_policy::frame_warp::FRAME_WARP_V2_META_MESSAGE_TYPE
                         ) {
                             worker_frame_warp
                                 .lock()

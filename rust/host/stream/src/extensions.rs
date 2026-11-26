@@ -219,9 +219,10 @@ fn cursor_shape(config: &Config) -> bool {
         )
 }
 
-/// Video: Frame Warp (0x5543-0x5546), while `frame_warp` is on. The host does
-/// nothing for it until a client asks, and then only for that stream; every
-/// capture and encoder takes it, since the GPU passes read the captured image.
+/// Video: Frame Warp 2 (0x5543-0x5546 and the meta 0x5549), while `frame_warp`
+/// is on. The host does nothing for it until a client asks, and then only for
+/// that stream; every capture and encoder takes it, since the GPU passes read
+/// the captured image. An older Nightjar's Frame Warp 1 is not offered.
 fn frame_warp(config: &Config) -> bool {
     config.frame_warp()
 }

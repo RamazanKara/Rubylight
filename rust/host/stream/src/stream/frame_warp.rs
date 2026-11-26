@@ -2,29 +2,30 @@
 //! each new capture after its frame went to the encoder and hands their readbacks to a
 //! worker, which measures and fits them off the frame path and outside the host's lock
 //! ([`butterpollo_session::session::FrameWarpState`]). What a game taught the host is kept for
-//! its next session in `frame_warp.json`. Nothing runs until a client asks.
+//! its next session in `frame_warp.json` ([`super::frame_warp_prior`]). Nothing runs until a
+//! client asks.
+//!
+//! Frame Warp 2 adds no GPU pass: its camera confidence, scene cuts and HUD steadiness come
+//! from the thumbnails and HUD masks these passes already read back, measured on the CPU
+//! (`butterpollo_media_policy::frame_warp::confidence`), so there is no
+//! `compute_frame_warp_v2.rs` and no second pass over the capture. Whether the host's pointer
+//! shows comes with each capture ([`GpuImage::pointer`], Desktop Duplication only).
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, SyncSender};
-use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
-use butterpollo_media_policy::frame_warp::{Mask, Measurer, Model, Prior, Thumbnail};
+use butterpollo_media_policy::frame_warp::{Mask, Measurer, Model, Thumbnail};
 use butterpollo_win_graphics::capture::GpuImage;
 use butterpollo_win_graphics::compute::frame_warp::{FrameWarpGpu, Hud, Pass, hud_grid};
-use serde::{Deserialize, Serialize};
 
+use super::frame_warp_prior::Store;
 use crate::state::{Launch, Session, Shared};
 
 /// How often the HUD mask is read back while the camera turns.
 const MASK_EVERY: Duration = Duration::from_millis(250);
 /// Readbacks waiting for the worker; past it they are dropped (a thumbnail costs its sample).
 const QUEUE: usize = 8;
-/// Games whose model is kept; the least recently used goes first.
-const GAMES: usize = 256;
-/// In the configuration directory.
-const FILE: &str = "frame_warp.json";
 
 /// The video thread's part: the stream's size, the GPU passes and their readbacks.
 #[derive(Default)]
@@ -112,6 +113,8 @@ impl VideoFrameWarp {
         if !fresh {
             return;
         }
+        // A pointer on screen is a menu or a pause, not the camera turning.
+        s.frame_warp.on_cursor(image.pointer().is_some());
         if self
             .passes
             .as_ref()
@@ -201,10 +204,7 @@ struct Worker {
 impl Worker {
     fn spawn(h: &Shared, s: &Arc<Session>) -> std::io::Result<Self> {
         let (sender, receiver) = mpsc::sync_channel(QUEUE);
-        let store = Store {
-            path: h.directory.join(FILE),
-            key: game_key(h, &s.launch),
-        };
+        let store = Store::new(&h.directory, game_key(h, &s.launch));
         let s = s.clone();
         let thread = std::thread::Builder::new()
             .name("frame-warp".into())
@@ -236,7 +236,7 @@ fn work(s: &Session, store: &Store, receiver: &Receiver<Work>) {
     if s.frame_warp.claim_prior()
         && let Some(prior) = store.load()
     {
-        s.frame_warp.with(|host| host.set_prior(prior));
+        s.frame_warp.with(|host| host.set_prior_v2(prior));
         tracing::info!(
             client = %s.launch.client.name,
             "frame warp starts from what it learned for this game before"
@@ -280,12 +280,12 @@ fn work(s: &Session, store: &Store, receiver: &Receiver<Work>) {
             && !saved
             && let Some(prior) = prior
         {
-            store.save(prior);
+            store.save(prior, true);
             saved = true;
         }
     }
-    if let Some(prior) = s.frame_warp.with(|host| host.prior()) {
-        store.save(prior);
+    if let Some(prior) = s.frame_warp.with(|host| host.prior_v2()) {
+        store.save(prior, locked);
     }
 }
 
@@ -330,159 +330,9 @@ fn game_key(h: &Shared, launch: &Launch) -> Option<String> {
     }
 }
 
-/// `frame_warp.json`: what each game's streams learned, by [`game_key`].
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
-struct Remembered {
-    #[serde(default)]
-    games: BTreeMap<String, Game>,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-struct Game {
-    prior: Prior,
-    /// Unix seconds of the last save.
-    used: u64,
-}
-
-impl Remembered {
-    /// Keeps `prior` for `key`, dropping the least recently used games past [`GAMES`].
-    fn remember(&mut self, key: &str, prior: Prior, now: u64) {
-        self.games.insert(key.to_owned(), Game { prior, used: now });
-        while self.games.len() > GAMES {
-            let Some(oldest) = self
-                .games
-                .iter()
-                .min_by_key(|(_, game)| game.used)
-                .map(|(key, _)| key.clone())
-            else {
-                break;
-            };
-            self.games.remove(&oldest);
-        }
-    }
-}
-
-/// One file for every stream: saves take turns.
-static SAVES: Mutex<()> = Mutex::new(());
-
-struct Store {
-    path: PathBuf,
-    key: Option<String>,
-}
-
-impl Store {
-    fn load(&self) -> Option<Prior> {
-        let key = self.key.as_ref()?;
-        match read(&self.path) {
-            Ok(remembered) => remembered.games.get(key).map(|game| game.prior),
-            Err(error) => {
-                tracing::warn!(
-                    path = %self.path.display(),
-                    error = %format!("{error:#}"),
-                    "frame warp could not read saved priors"
-                );
-                None
-            }
-        }
-    }
-
-    fn save(&self, prior: Prior) {
-        let Some(key) = &self.key else {
-            return;
-        };
-        let _turn = SAVES.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut remembered = match read(&self.path) {
-            Ok(remembered) => remembered,
-            Err(error) => {
-                tracing::warn!(
-                    path = %self.path.display(),
-                    error = %format!("{error:#}"),
-                    "frame warp could not read existing priors; skipping save"
-                );
-                return;
-            }
-        };
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |since| since.as_secs());
-        remembered.remember(key, prior, now);
-        if let Err(error) = butterpollo_session::state::write_json(&self.path, &remembered) {
-            tracing::warn!(
-                path = %self.path.display(),
-                error = %format!("{error:#}"),
-                "frame warp could not save what it learned"
-            );
-        }
-    }
-}
-
-/// The file, or nothing learned when it does not exist yet.
-fn read(path: &Path) -> std::io::Result<Remembered> {
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Remembered::default());
-        }
-        Err(error) => return Err(error),
-    };
-    Ok(serde_json::from_slice(&bytes).unwrap_or_else(|error| {
-        tracing::warn!(path = %path.display(), %error, "frame warp ignores an unreadable file");
-        Remembered::default()
-    }))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn prior(gain: f32) -> Prior {
-        Prior {
-            mouse_gain: Some([gain, gain]),
-            mouse_lag_us: Some(32_000),
-            picture_width: 1920,
-            picture_height: 1080,
-            ..Prior::default()
-        }
-    }
-
-    #[test]
-    fn the_least_recently_used_game_goes_first() {
-        let mut remembered = Remembered::default();
-        for n in 0..GAMES as u64 {
-            remembered.remember(&format!("uuid:{n}"), prior(1.0), 1_000 + n);
-        }
-        // Game 0 is used again, so game 1 is the oldest when one more comes.
-        remembered.remember("uuid:0", prior(2.0), 5_000);
-        remembered.remember("name:Another", prior(3.0), 5_001);
-        assert_eq!(remembered.games.len(), GAMES);
-        assert!(!remembered.games.contains_key("uuid:1"));
-        assert_eq!(remembered.games["uuid:0"].prior, prior(2.0));
-        assert_eq!(remembered.games["name:Another"].used, 5_001);
-    }
-
-    #[test]
-    fn a_saved_prior_loads_for_the_same_game_only() {
-        let directory = std::env::temp_dir().join(format!("frame-warp-{}", uuid::Uuid::new_v4()));
-        let path = directory.join(FILE);
-        let store = |key: Option<&str>| Store {
-            path: path.clone(),
-            key: key.map(str::to_owned),
-        };
-        assert_eq!(store(Some("uuid:a")).load(), None);
-        store(Some("uuid:a")).save(prior(1.5));
-        store(None).save(prior(9.0));
-        assert_eq!(store(Some("uuid:a")).load(), Some(prior(1.5)));
-        assert_eq!(store(Some("uuid:b")).load(), None);
-        assert_eq!(store(None).load(), None);
-        let file: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(file["games"].as_object().unwrap().len(), 1);
-        // A damaged file reads as nothing learned and is replaced by the next save.
-        std::fs::write(&path, b"{not json").unwrap();
-        assert_eq!(store(Some("uuid:a")).load(), None);
-        store(Some("uuid:b")).save(prior(2.5));
-        assert_eq!(store(Some("uuid:b")).load(), Some(prior(2.5)));
-        let _ = std::fs::remove_dir_all(&directory);
-    }
 
     #[test]
     fn reset_clears_gpu_state_and_mask_timer_while_keeping_session_flags() {
@@ -499,23 +349,5 @@ mod tests {
         assert!(warp.mask_due.is_none());
         assert!(warp.stopped);
         assert_eq!(warp.picture, Some(((1920, 1080), (1920, 1080))));
-    }
-
-    #[test]
-    fn save_skips_instead_of_overwriting_when_existing_file_cannot_be_read() {
-        let directory = std::env::temp_dir().join(format!("frame-warp-{}", uuid::Uuid::new_v4()));
-        let path = directory.join(FILE);
-        std::fs::create_dir_all(&path).unwrap();
-        let store = Store {
-            path: path.clone(),
-            key: Some("uuid:a".into()),
-        };
-        assert_eq!(store.load(), None);
-        store.save(prior(1.5));
-        assert!(
-            path.is_dir(),
-            "unreadable directory must not be overwritten"
-        );
-        let _ = std::fs::remove_dir_all(&directory);
     }
 }

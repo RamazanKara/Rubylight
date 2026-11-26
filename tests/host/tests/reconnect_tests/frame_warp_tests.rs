@@ -1,20 +1,21 @@
 //! Frame Warp (0x5543 to 0x5546) through the real RTSP server and control loop. The fixture
 //! tags its frames as the video senders do; no GPU pass runs, so the host learns nothing and
-//! sends only the model a request is answered with and the tags.
+//! sends only the model a request is answered with, the tags and their metas
+//! (`frame_warp_v2_tests.rs`).
 use super::*;
 use butterpollo_media_policy::frame_warp::{
     FRAME_WARP_MODEL_MESSAGE_TYPE, FRAME_WARP_REQUEST_MESSAGE_TYPE, FRAME_WARP_TAGS_MESSAGE_TYPE,
-    FrameWarpRequest, Model, Tag, Tags,
+    FrameWarpRequest, Model, RequestV2, Tag, Tags,
 };
 
 /// A request that turns Frame Warp on or off, tracking no controller and taking no mask.
 fn request(enabled: bool) -> Vec<u8> {
-    FrameWarpRequest {
+    RequestV2::new(FrameWarpRequest {
         enabled,
         controller: None,
         mask_max_width: 0,
         lens: true,
-    }
+    })
     .encode()
     .to_vec()
 }

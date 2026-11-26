@@ -105,7 +105,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <PipelineRatesVersion>1</PipelineRatesVersion>\
              <DisplayScaleVersion>1</DisplayScaleVersion>\
              <SecondScreenVersion>1</SecondScreenVersion>\
-             <FrameWarpVersion>1</FrameWarpVersion>\
+             <FrameWarpProtocol>2</FrameWarpProtocol>\
              <ControllerIdentityVersion>1</ControllerIdentityVersion>\
              </root>"
         ),
@@ -169,7 +169,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <PipelineRatesVersion>1</PipelineRatesVersion>\
              <DisplayScaleVersion>1</DisplayScaleVersion>\
              <SecondScreenVersion>1</SecondScreenVersion>\
-             <FrameWarpVersion>1</FrameWarpVersion>\
+             <FrameWarpProtocol>2</FrameWarpProtocol>\
              <ControllerIdentityVersion>1</ControllerIdentityVersion>\
              </root>"
         ),

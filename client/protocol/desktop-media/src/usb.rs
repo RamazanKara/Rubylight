@@ -5,6 +5,10 @@
 //! the picker explains why). On Linux isochronous devices prefer the kernel's USB/IP server
 //! ([`usb_linux`](crate::usb_linux)) when available and fall back to libusb's asynchronous
 //! isochronous transfers ([`iso`]) otherwise; macOS serves all devices through libusb ([`iso`]).
+//! A Linux device libusb may not open goes to the kernel's USB/IP server instead; a Windows
+//! device another driver holds goes through usbipd-win when the user asks for it
+//! (`usb_windows`). A controller being forwarded pauses as a gamepad
+//! ([`usb_arbitration`](crate::usb_arbitration)).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -116,8 +120,9 @@ pub struct Local {
 /// Why `local` can't be forwarded as it is, with what usbipd-win would change about that.
 pub fn blocked_message(local: &Local) -> Option<String> {
     let blocked = local.blocked.as_ref()?.message();
-    Some(match local.usbipd {
-        UsbipdOffer::NotInstalled => format!("{blocked} {}", tr("Or install usbipd-win, then press Refresh, to forward it while Windows keeps its own driver.")),
+    Some(match (&local.usbipd, local.blocked.as_ref()?) {
+        (UsbipdOffer::NotInstalled, _) => format!("{blocked} {}", tr("Or install usbipd-win, then press Refresh, to forward it while Windows keeps its own driver.")),
+        (UsbipdOffer::Ready, Blocked::NoWinUsb(driver)) => trf("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", &[driver]),
         _ => blocked,
     })
 }
@@ -175,9 +180,9 @@ fn offer_usbipd(local: &mut [Local]) {
         (Err(e), _) | (_, Err(e)) => return eprintln!("nightjar: USB: {e}"),
     };
     for device in local.iter_mut().filter(|l| blocked(l)) {
-        let listed = crate::usb_winusb::instance_id(&nodes, device.vid, device.pid, &ports_of(&device.busid))
-            .and_then(|id| crate::usb_windows::find(&state, &id).and_then(|d| d.busid().map(drop)))
-            .is_some();
+        // Only a device Nightjar can tell from every other: one Windows node at its port.
+        let ids = crate::usb_winusb::instance_ids(&nodes, device.vid, device.pid, &ports_of(&device.busid));
+        let listed = matches!(ids.as_slice(), [id] if crate::usb_windows::find(&state, id).is_some_and(|d| d.busid().is_some()));
         if listed { device.usbipd = UsbipdOffer::Ready; }
     }
 }
@@ -270,8 +275,11 @@ fn open_usbipd(local: &Local) -> Result<Arc<dyn UsbDevice>, String> {
     let cli = crate::usb_windows::Cli::find().ok_or_else(|| tr("usbipd-win isn’t installed. Install it, then press Refresh.").to_owned())?;
     let journal = crate::usb_windows::Journal::real()?;
     let nodes = crate::usb_winusb::nodes()?;
-    let instance_id = crate::usb_winusb::instance_id(&nodes, local.vid, local.pid, &ports_of(&local.busid))
-        .ok_or_else(|| tr("The device was unplugged.").to_owned())?;
+    let instance_id = match crate::usb_winusb::instance_ids(&nodes, local.vid, local.pid, &ports_of(&local.busid)).as_slice() {
+        [] => return Err(tr("The device was unplugged.").to_owned()),
+        [id] => id.clone(),
+        _ => return Err(tr("Two identical devices are on the same port number of different USB controllers, so Nightjar can’t tell them apart for usbipd-win. Plug one into another port, then press Refresh.").to_owned()),
+    };
     let picked = crate::usb_windows::Picked { busid: local.busid.clone(), vid: local.vid, pid: local.pid, instance_id, class: device_class(local) };
     crate::usb_windows::open_with(Arc::new(cli), journal, crate::usb_windows::LOOPBACK, &picked).map(|device| device as Arc<dyn UsbDevice>)
 }
@@ -694,7 +702,7 @@ const ARBITRATION_WAIT: Duration = Duration::from_millis(500);
 /// them is paused here from now until the attachment ends ([`crate::usb_arbitration`]).
 fn attach_now(forwarder: &Forwarder, owner: u64, route: Route, local: &Local) -> Result<u32, String> {
     use crate::usb_arbitration::{Arbitrated, Forwarded, Registry};
-    let claim = Registry::global().claim(owner, Forwarded { vid: local.vid, pid: local.pid, busid: local.busid.clone() });
+    let claim = Registry::global().claim(owner, Forwarded::new(local.vid, local.pid, &local.busid));
     if !claim.wait_applied(ARBITRATION_WAIT) {
         eprintln!("nightjar: USB {}: the controllers did not let go in time; opening it anyway", local.busid);
     }

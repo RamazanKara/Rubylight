@@ -18,4 +18,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("usbipd-win answered for another device, so Nightjar did not use it.", "usbipd-win odpowiedział dla innego urządzenia, więc Nightjar go nie użył."),
     ("usbipd-win’s device list could not be read: {}", "Nie można odczytać listy urządzeń usbipd-win: {}"),
     ("Nightjar’s record of the devices it shared through usbipd-win can’t be used: {}", "Nie można użyć zapisu Nightjar o urządzeniach udostępnionych przez usbipd-win: {}"),
+    ("Two identical devices are on the same port number of different USB controllers, so Nightjar can’t tell them apart for usbipd-win. Plug one into another port, then press Refresh.", "Dwa identyczne urządzenia są podłączone do portu o tym samym numerze w różnych kontrolerach USB, więc Nightjar nie odróżni ich dla usbipd-win. Podłącz jedno do innego portu, a potem naciśnij Odśwież."),
+    ("A program on this computer holds the device, so usbipd-win can’t take it. Close that program, then retry.", "Program na tym komputerze zajmuje urządzenie, więc usbipd-win nie może go przejąć. Zamknij ten program, a potem spróbuj ponownie."),
+    ("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", "Tym urządzeniem zarządza inny sterownik ({}). Przekaż je przez usbipd-win, który zostawia ten sterownik, albo zainstaluj dla niego WinUSB."),
 ];

@@ -22,6 +22,10 @@ struct Fake {
     state: Mutex<Vec<StateDevice>>,
     calls: Mutex<Vec<String>>,
     fail_bind: bool,
+    /// The bind runs out of time: whether it shared the device is not known.
+    unfinished_bind: bool,
+    /// The unfinished bind shared the device all the same.
+    unfinished_shares: bool,
     fail_unbind: bool,
     /// The journal, to check it lists the device before the bind runs.
     journal: Option<Journal>,
@@ -42,16 +46,18 @@ impl Usbipd for Fake {
         Ok(self.state.lock().unwrap().clone())
     }
 
-    fn bind(&self, busid: &str) -> Result<(), String> {
+    fn bind(&self, busid: &str) -> Result<(), BindError> {
         self.calls.lock().unwrap().push(format!("bind {busid}"));
         if let Some(journal) = &self.journal {
             let entries = journal.entries().unwrap();
             assert!(entries.iter().any(|e| e.busid == busid && e.guid.is_none()), "journaled before the bind: {entries:?}");
         }
-        if self.fail_bind { return Err("cancelled".into()); }
+        if self.fail_bind { return Err(BindError::Failed("cancelled".into())); }
+        if self.unfinished_bind && !self.unfinished_shares { return Err(BindError::Unfinished("late".into())); }
         for device in self.state.lock().unwrap().iter_mut().filter(|d| d.bus_id.as_deref() == Some(busid)) {
             device.persisted_guid = Some(GUID.into());
         }
+        if self.unfinished_bind { return Err(BindError::Unfinished("late".into())); }
         Ok(())
     }
 
@@ -198,14 +204,17 @@ fn the_next_start_unshares_what_a_crash_left_and_nothing_else() {
         listed(gone, Some("2-4"), None),
     ]);
     journal.record(Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()) }).unwrap();
-    // Crashed while Windows' prompt for the bind was up: no GUID journaled yet.
+    // Stopped while Windows' prompt for the bind was up: no GUID journaled. The share it has
+    // now may be the user's (made since), so it is never unbound.
     journal.record(Entry { instance_id: pending.into(), busid: "1-7".into(), guid: None }).unwrap();
     // Unshared by the user meanwhile.
     journal.record(Entry { instance_id: gone.into(), busid: "2-4".into(), guid: Some("99999999-8888-7777-6666-555555555555".into()) }).unwrap();
-    assert_eq!(recover(&fake, &journal).unwrap(), 2);
-    assert_eq!(fake.calls(), vec![format!("unbind {GUID}"), "unbind aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_owned()]);
+    assert_eq!(recover(&fake, &journal).unwrap(), 1);
+    assert_eq!(fake.calls(), vec![format!("unbind {GUID}")]);
     assert_eq!(journal.entries().unwrap(), vec![]);
-    assert_eq!(find(&fake.state().unwrap(), STICK).unwrap().persisted_guid.as_deref(), Some(OTHER_GUID), "never journaled, never unshared");
+    let state = fake.state().unwrap();
+    assert_eq!(find(&state, STICK).unwrap().persisted_guid.as_deref(), Some(OTHER_GUID), "never journaled, never unshared");
+    assert!(find(&state, pending).unwrap().shared(), "a share Nightjar can't prove is its own stays");
     assert_eq!(recover(&fake, &journal).unwrap(), 0, "nothing left");
 
     // A cancelled prompt keeps the entry for the next start.
@@ -213,6 +222,73 @@ fn the_next_start_unshares_what_a_crash_left_and_nothing_else() {
     journal.record(Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()) }).unwrap();
     assert_eq!(recover(&fake, &journal).unwrap(), 0);
     assert_eq!(journal.entries().unwrap().len(), 1);
+    journal.forget(DUALSENSE).unwrap();
+}
+
+#[test]
+fn a_forced_or_attached_share_is_never_unbound() {
+    let scratch = Scratch::new("forced");
+    let journal = scratch.journal();
+    let entry = Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: Some(GUID.into()) };
+
+    // Shared forced since (Nightjar never forces): someone else's now.
+    let fake = Fake::with(vec![StateDevice { is_forced: true, ..listed(DUALSENSE, Some("1-3"), Some(GUID)) }]);
+    journal.record(entry.clone()).unwrap();
+    assert_eq!(recover(&fake, &journal).unwrap(), 0);
+    unshare(&fake, &journal, DUALSENSE, GUID).unwrap();
+    assert_eq!(fake.calls(), Vec::<String>::new());
+    assert_eq!(journal.entries().unwrap(), vec![], "forgotten, not unbound");
+
+    // Another computer attached the leftover share: it stays, and so does the entry.
+    let lan = StateDevice { client_ip_address: Some(serde_json::json!("192.168.1.20")), ..listed(DUALSENSE, Some("1-3"), Some(GUID)) };
+    let fake = Fake::with(vec![lan]);
+    journal.record(entry.clone()).unwrap();
+    assert_eq!(recover(&fake, &journal).unwrap(), 0);
+    unshare(&fake, &journal, DUALSENSE, GUID).unwrap();
+    assert_eq!(fake.calls(), Vec::<String>::new());
+    assert_eq!(journal.entries().unwrap(), vec![entry.clone()], "unshared at a later start");
+    journal.forget(DUALSENSE).unwrap();
+
+    // Nightjar's own attachment, still showing a moment after it closed: unshared.
+    let ours = StateDevice { client_ip_address: Some(serde_json::json!("::ffff:127.0.0.1")), ..listed(DUALSENSE, Some("1-3"), Some(GUID)) };
+    let fake = Fake::with(vec![ours]);
+    journal.record(entry).unwrap();
+    unshare(&fake, &journal, DUALSENSE, GUID).unwrap();
+    assert_eq!(fake.calls(), vec![format!("unbind {GUID}")]);
+    assert_eq!(journal.entries().unwrap(), vec![]);
+}
+
+#[test]
+fn a_bind_that_runs_out_of_time_keeps_what_it_may_have_shared() {
+    let scratch = Scratch::new("unfinished");
+    let journal = scratch.journal();
+    let fake = Fake { unfinished_bind: true, ..Fake::with(vec![listed(DUALSENSE, Some("1-3"), None)]) };
+    let state = fake.state().unwrap();
+    assert_eq!(share(&fake, &journal, &state[0]).unwrap_err(), "late");
+    assert_eq!(journal.entries().unwrap(), vec![Entry { instance_id: DUALSENSE.into(), busid: "1-3".into(), guid: None }], "kept: it may still share it");
+    assert_eq!(fake.calls(), vec!["bind 1-3"]);
+    journal.forget(DUALSENSE).unwrap();
+
+    // It shared it after all: that share has its GUID journaled, and is undone.
+    let fake = Fake { unfinished_bind: true, unfinished_shares: true, ..Fake::with(vec![listed(DUALSENSE, Some("1-3"), None)]) };
+    assert_eq!(share(&fake, &journal, &state[0]).unwrap_err(), "late");
+    assert_eq!(fake.calls(), vec!["bind 1-3".to_owned(), format!("unbind {GUID}")]);
+    assert_eq!(journal.entries().unwrap(), vec![]);
+}
+
+#[cfg(windows)]
+#[test]
+fn usbipd_runs_only_from_where_its_installer_puts_it() {
+    let env = |name: &str| match name {
+        "ProgramW6432" => Some(r"C:\Program Files".into()),
+        "ProgramFiles" => Some(r"C:\Program Files".into()),
+        _ => None,
+    };
+    assert_eq!(install_candidates(env), vec![PathBuf::from(r"C:\Program Files\usbipd-win\usbipd.exe")]);
+    let relative = |name: &str| (name == "ProgramFiles").then(|| ".".into());
+    assert!(install_candidates(relative).is_empty(), "a relative directory is never searched");
+    assert!(install_candidates(|_| Some("".into())).is_empty(), "nor an empty one");
+    assert!(install_candidates(|_| None).is_empty());
 }
 
 /// What the loopback server answers an import with.
@@ -227,10 +303,12 @@ fn usbip_server(answer: Answer) -> (SocketAddr, std::thread::JoinHandle<String>)
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let addr = listener.local_addr().unwrap();
     let thread = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut request = [0; wire::IMPORT_REQUEST_BYTES];
-        stream.read_exact(&mut request).unwrap();
-        let asked = wire::decode_import_request(&request).unwrap();
+        // A connection that closes without asking is the reachability probe.
+        let (mut stream, asked) = loop {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; wire::IMPORT_REQUEST_BYTES];
+            if stream.read_exact(&mut request).is_ok() { break (stream, wire::decode_import_request(&request).unwrap()); }
+        };
         match answer {
             Answer::Device(vendor, product, busid) => {
                 stream.write_all(&wire::import_reply(0)).unwrap();

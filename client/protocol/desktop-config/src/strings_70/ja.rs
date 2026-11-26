@@ -18,4 +18,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("usbipd-win answered for another device, so Nightjar did not use it.", "usbipd-win が別のデバイスとして応答したため、Nightjar は使用しませんでした。"),
     ("usbipd-win’s device list could not be read: {}", "usbipd-win のデバイス一覧を読み取れませんでした: {}"),
     ("Nightjar’s record of the devices it shared through usbipd-win can’t be used: {}", "usbipd-win で共有したデバイスの Nightjar の記録を使用できません: {}"),
+    ("Two identical devices are on the same port number of different USB controllers, so Nightjar can’t tell them apart for usbipd-win. Plug one into another port, then press Refresh.", "異なる USB コントローラーの同じ番号のポートに同じデバイスが 2 台あるため、Nightjar は usbipd-win 用に区別できません。1 台を別のポートに挿してから「更新」を押してください。"),
+    ("A program on this computer holds the device, so usbipd-win can’t take it. Close that program, then retry.", "このコンピューターのプログラムがデバイスを使用中のため、usbipd-win が取得できません。そのプログラムを閉じてから再試行してください。"),
+    ("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", "このデバイスは別のドライバー ({}) が使用しています。そのドライバーのまま usbipd-win で転送するか、WinUSB をインストールしてください。"),
 ];

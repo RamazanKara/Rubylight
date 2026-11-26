@@ -18,4 +18,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("usbipd-win answered for another device, so Nightjar did not use it.", "usbipd-win이 다른 장치로 응답하여 Nightjar가 사용하지 않았습니다."),
     ("usbipd-win’s device list could not be read: {}", "usbipd-win의 장치 목록을 읽을 수 없습니다: {}"),
     ("Nightjar’s record of the devices it shared through usbipd-win can’t be used: {}", "usbipd-win으로 공유한 장치에 대한 Nightjar의 기록을 사용할 수 없습니다: {}"),
+    ("Two identical devices are on the same port number of different USB controllers, so Nightjar can’t tell them apart for usbipd-win. Plug one into another port, then press Refresh.", "서로 다른 USB 컨트롤러의 같은 번호 포트에 동일한 장치가 두 개 있어 Nightjar가 usbipd-win용으로 구분할 수 없습니다. 하나를 다른 포트에 꽂은 다음 새로 고침을 누르세요."),
+    ("A program on this computer holds the device, so usbipd-win can’t take it. Close that program, then retry.", "이 컴퓨터의 프로그램이 장치를 사용 중이라 usbipd-win이 가져올 수 없습니다. 그 프로그램을 닫은 다음 다시 시도하세요."),
+    ("Another driver has this device ({}). Forward it with usbipd-win, which leaves that driver on it, or install WinUSB for it.", "다른 드라이버가 이 장치를 사용 중입니다({}). 그 드라이버를 유지하는 usbipd-win으로 전달하거나 WinUSB를 설치하세요."),
 ];

@@ -107,8 +107,17 @@ pub fn find<'a>(state: &'a [StateDevice], instance_id: &str) -> Option<&'a State
     state.iter().find(|device| device.instance_id.eq_ignore_ascii_case(instance_id))
 }
 
-fn shared_as(state: &[StateDevice], guid: &str) -> bool {
-    state.iter().any(|device| device.persisted_guid.as_deref().is_some_and(|g| g.eq_ignore_ascii_case(guid)))
+/// Where usbipd-win's installer puts usbipd.exe (`%ProgramW6432%`, `%ProgramFiles%`), the only
+/// places Nightjar runs it from: never the working directory or another PATH entry, as it runs
+/// with administrator rights. Absolute paths only.
+pub fn install_candidates(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    for name in ["ProgramW6432", "ProgramFiles"] {
+        let Some(dir) = var(name).map(PathBuf::from).filter(|dir| dir.is_absolute()) else { continue };
+        let exe = dir.join("usbipd-win").join("usbipd.exe");
+        if !out.contains(&exe) { out.push(exe); }
+    }
+    out
 }
 
 /// usbipd-win, as Nightjar runs it: `usbipd state`, and `usbipd bind` and `unbind` through
@@ -116,7 +125,7 @@ fn shared_as(state: &[StateDevice], guid: &str) -> bool {
 pub trait Usbipd: Send + Sync {
     fn state(&self) -> Result<Vec<StateDevice>, String>;
     /// `usbipd bind --busid <busid>`: shares it, leaving its driver as it is.
-    fn bind(&self, busid: &str) -> Result<(), String>;
+    fn bind(&self, busid: &str) -> Result<(), BindError>;
     /// `usbipd unbind --guid <guid>`: unshares that share, ending an attachment of it.
     fn unbind(&self, guid: &str) -> Result<(), String>;
 }
@@ -230,55 +239,130 @@ pub enum Share {
     Theirs,
 }
 
+/// Why `usbipd bind` did not report success.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BindError {
+    /// It ended without sharing the device (or never ran: the prompt was cancelled).
+    Failed(String),
+    /// It may still be running: whether it shares the device is not known.
+    Unfinished(String),
+}
+
+impl BindError {
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Failed(why) | Self::Unfinished(why) => why,
+        }
+    }
+}
+
+/// How often the bind's share is looked for while Windows' prompt is up.
+const BIND_POLL: Duration = Duration::from_millis(250);
+const BIND_POLLS_PER_STATE: u32 = 4;
+
+/// The GUID of `instance_id`'s share, if it has one now.
+fn guid_of(usbipd: &dyn Usbipd, instance_id: &str) -> Option<String> {
+    usbipd.state().ok()?.iter().find(|d| d.instance_id.eq_ignore_ascii_case(instance_id)).and_then(|d| d.persisted_guid.clone()).filter(|guid| valid_guid(guid))
+}
+
+/// The client `device` is attached to, when that is not this computer (Nightjar's own
+/// attachment may still show for a moment after it closed).
+fn attached_elsewhere(device: &StateDevice) -> bool {
+    let Some(ip) = device.client_ip_address.as_ref().and_then(serde_json::Value::as_str) else { return device.attached() };
+    let ip = ip.trim().trim_start_matches("::ffff:").trim_start_matches("::FFFF:");
+    !ip.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
 /// Shares `device` for an attachment. One the user shared already is used as it is; otherwise
-/// it is journaled, bound (Windows asks for administrator rights) and its GUID journaled.
+/// it is journaled, then bound (Windows asks for administrator rights), and the share's GUID is
+/// journaled as soon as usbipd-win lists it, while the prompt may still be up.
 pub fn share(usbipd: &dyn Usbipd, journal: &Journal, device: &StateDevice) -> Result<Share, String> {
     let busid = device.busid().ok_or_else(not_listed)?;
     if device.attached() { return Err(tr("Another computer has this device attached through usbipd-win.").to_owned()); }
     if device.shared() { return Ok(Share::Theirs); }
     let instance_id = device.instance_id.clone();
-    journal.record(Entry { instance_id: instance_id.clone(), busid: busid.to_owned(), guid: None })?;
-    if let Err(why) = usbipd.bind(busid) {
-        // Whatever the bind did is what the journal keeps: forgotten only once surely not shared.
-        match usbipd.state().map(|state| find(&state, &instance_id).is_some_and(StateDevice::shared)) {
-            Ok(false) => journal.forget(&instance_id)?,
-            Ok(true) => eprintln!("nightjar: USB: usbipd-win shared {instance_id} although the bind failed; unsharing it at the next start"),
-            Err(e) => eprintln!("nightjar: USB: after a failed bind, usbipd-win's list could not be read ({e}); the next start checks {instance_id}"),
+    let entry = |guid: Option<String>| Entry { instance_id: instance_id.clone(), busid: busid.to_owned(), guid };
+    journal.record(entry(None))?;
+    let (bound, mut guid) = std::thread::scope(|scope| {
+        let bind = scope.spawn(|| usbipd.bind(busid));
+        let (mut guid, mut polls) = (None, 0);
+        while !bind.is_finished() {
+            std::thread::sleep(BIND_POLL);
+            polls += 1;
+            if guid.is_none() && polls % BIND_POLLS_PER_STATE == 0 && let Some(found) = guid_of(usbipd, &instance_id) {
+                if let Err(e) = journal.record(entry(Some(found.clone()))) { eprintln!("nightjar: USB: {e}"); }
+                guid = Some(found);
+            }
         }
-        return Err(why);
+        (bind.join().unwrap_or_else(|_| Err(BindError::Unfinished("usbipd bind".into()))), guid)
+    });
+    if guid.is_none() { guid = guid_of(usbipd, &instance_id); }
+    match (bound, guid) {
+        (Ok(()), Some(guid)) => {
+            journal.record(entry(Some(guid.clone())))?;
+            eprintln!("nightjar: USB: shared {instance_id} through usbipd-win ({guid})");
+            Ok(Share::Ours { instance_id, guid })
+        }
+        (Ok(()), None) => Err(trf("usbipd-win could not share the device: {}", &[&"no share after the bind"])),
+        // A share the failed bind made anyway is journaled with its GUID, so it is undone.
+        (Err(why), Some(guid)) => {
+            journal.record(entry(Some(guid.clone())))?;
+            if let Err(e) = unshare(usbipd, journal, &instance_id, &guid) { eprintln!("nightjar: USB: {e}"); }
+            Err(why.message().to_owned())
+        }
+        (Err(BindError::Failed(why)), None) => {
+            journal.forget(&instance_id)?;
+            Err(why)
+        }
+        // Still running: the entry stays without a GUID, and nothing unbinds a share it can't
+        // prove is Nightjar's.
+        (Err(BindError::Unfinished(why)), None) => Err(why),
     }
-    let guid = usbipd.state()?.iter().find(|d| d.instance_id.eq_ignore_ascii_case(&instance_id)).and_then(|d| d.persisted_guid.clone())
-        .filter(|guid| valid_guid(guid))
-        .ok_or_else(|| trf("usbipd-win could not share the device: {}", &[&"no share after the bind"]))?;
-    journal.record(Entry { instance_id: instance_id.clone(), busid: busid.to_owned(), guid: Some(guid.clone()) })?;
-    eprintln!("nightjar: USB: shared {instance_id} through usbipd-win ({guid})");
-    Ok(Share::Ours { instance_id, guid })
 }
 
 /// Unshares what [`share`] shared, by its GUID, and forgets it. Nothing is unbound when that
-/// share is gone already (the user unshared it, or shared it again under another GUID).
+/// share is gone already (the user unshared it, or shared it again under another GUID), is
+/// forced (Nightjar never forces), or has another computer attached since.
 pub fn unshare(usbipd: &dyn Usbipd, journal: &Journal, instance_id: &str, guid: &str) -> Result<(), String> {
-    if shared_as(&usbipd.state()?, guid) {
-        usbipd.unbind(guid)?;
-        eprintln!("nightjar: USB: unshared {instance_id} ({guid}); Windows has it with its own driver");
+    let state = usbipd.state()?;
+    match state.iter().find(|d| d.persisted_guid.as_deref().is_some_and(|g| g.eq_ignore_ascii_case(guid))) {
+        Some(device) if device.is_forced => eprintln!("nightjar: USB: {instance_id} is shared forced now, which Nightjar never does; leaving it"),
+        Some(device) if attached_elsewhere(device) => {
+            eprintln!("nightjar: USB: another computer attached {instance_id} meanwhile; unsharing it at the next start instead");
+            return Ok(());
+        }
+        Some(_) => {
+            usbipd.unbind(guid)?;
+            eprintln!("nightjar: USB: unshared {instance_id} ({guid}); Windows has it with its own driver");
+        }
+        None => {}
     }
     journal.forget(instance_id)
 }
 
-/// After a crash: unshares every device the journal still lists, by its GUID or, when the bind
-/// never reported one, by the share the device has now (the journal shows it was not shared
-/// before Nightjar's bind). An entry whose share is gone is forgotten; one whose unbind fails
-/// stays for the next start. The number unshared, or why the journal or usbipd-win's list
-/// could not be read.
+/// After a crash: unshares every share the journal lists by its GUID, unless it is forced
+/// (never Nightjar's) or attached (another client uses it; it stays journaled for the next
+/// start). An entry without a GUID is forgotten without unbinding anything: Nightjar can't tell
+/// its share from one the user made since. An entry whose unbind fails stays for the next
+/// start. The number unshared, or why the journal or usbipd-win's list could not be read.
 pub fn recover(usbipd: &dyn Usbipd, journal: &Journal) -> Result<usize, String> {
     let entries = journal.entries()?;
     if entries.is_empty() { return Ok(0); }
     let state = usbipd.state()?;
     let mut unshared = 0;
     for entry in entries {
-        let guid = entry.guid.clone().or_else(|| find(&state, &entry.instance_id).and_then(|d| d.persisted_guid.clone()));
-        match guid.filter(|guid| valid_guid(guid) && shared_as(&state, guid)) {
-            Some(guid) => match usbipd.unbind(&guid) {
+        let Some(guid) = entry.guid.as_deref().filter(|guid| valid_guid(guid)) else {
+            if find(&state, &entry.instance_id).is_some_and(StateDevice::shared) {
+                eprintln!("nightjar: USB: {} is shared, but Nightjar never learnt whether that share is its own; leaving it", entry.instance_id);
+            }
+            journal.forget(&entry.instance_id)?;
+            continue;
+        };
+        match state.iter().find(|d| d.persisted_guid.as_deref().is_some_and(|g| g.eq_ignore_ascii_case(guid))) {
+            None => journal.forget(&entry.instance_id)?,
+            Some(device) if device.is_forced => journal.forget(&entry.instance_id)?,
+            Some(device) if device.attached() => eprintln!("nightjar: USB: {} is attached elsewhere; unsharing it at a later start", entry.instance_id),
+            Some(_) => match usbipd.unbind(guid) {
                 Ok(()) => {
                     eprintln!("nightjar: USB: unshared {} ({guid}), left shared by Nightjar before it stopped", entry.instance_id);
                     journal.forget(&entry.instance_id)?;
@@ -286,7 +370,6 @@ pub fn recover(usbipd: &dyn Usbipd, journal: &Journal) -> Result<usize, String> 
                 }
                 Err(why) => eprintln!("nightjar: USB: {} stays shared through usbipd-win until the next start: {why}", entry.instance_id),
             },
-            None => journal.forget(&entry.instance_id)?,
         }
     }
     Ok(unshared)
@@ -321,6 +404,8 @@ pub fn import(addr: SocketAddr, busid: &str, vid: u16, pid: u16) -> Result<(TcpS
         return Err(trf("usbipd-win could not share the device: {}", &[&format!("unexpected reply {:04x}/{:04x}", header.version, header.code)]));
     }
     if header.status != 0 {
+        // USB/IP's ST_DEV_BUSY: Windows could not take the device from what holds it.
+        if header.status == 2 { return Err(tr("A program on this computer holds the device, so usbipd-win can’t take it. Close that program, then retry.").to_owned()); }
         return Err(trf("usbipd-win refused the device (status {}).", &[&header.status]));
     }
     let mut device = [0; wire::DEVICE_BYTES];
@@ -333,6 +418,14 @@ pub fn import(addr: SocketAddr, busid: &str, vid: u16, pid: u16) -> Result<(TcpS
     stream.set_read_timeout(None).map_err(failed)?;
     stream.set_write_timeout(None).map_err(failed)?;
     Ok((stream, device))
+}
+
+/// Whether usbipd-win's service answers at `addr` (on this computer only).
+fn reachable(addr: SocketAddr) -> Result<(), String> {
+    if !addr.ip().is_loopback() {
+        return Err(trf("usbipd-win could not share the device: {}", &[&format!("{addr} is not on this computer")]));
+    }
+    TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map(drop).map_err(|_| tr("usbipd-win isn’t running: start its service, then retry.").to_owned())
 }
 
 /// What the user picked, as [`open_with`] needs it.
@@ -354,20 +447,31 @@ pub fn open_with(usbipd: Arc<dyn Usbipd>, journal: Journal, addr: SocketAddr, pi
     let state = usbipd.state()?;
     let device = find(&state, &picked.instance_id).ok_or_else(not_listed)?;
     let theirs = device.busid().ok_or_else(not_listed)?.to_owned();
+    // Nothing is shared for an import that can't happen: usbipd-win's service must answer.
+    reachable(addr)?;
     let share = share(&*usbipd, &journal, device)?;
+    let undo = |share: &Share| {
+        if let Share::Ours { instance_id, guid } = share
+            && let Err(e) = unshare(&*usbipd, &journal, instance_id, guid) {
+                eprintln!("nightjar: USB: unsharing {instance_id} after the failed import failed: {e}; the next start retries");
+            }
+    };
     let (stream, mut described) = match import(addr, &theirs, picked.vid, picked.pid) {
         Ok(imported) => imported,
         Err(why) => {
-            if let Share::Ours { instance_id, guid } = &share
-                && let Err(e) = unshare(&*usbipd, &journal, instance_id, guid) {
-                    eprintln!("nightjar: USB: unsharing {instance_id} after the failed import failed: {e}; the next start retries");
-                }
+            undo(&share);
             return Err(why);
         }
     };
     // The attachment goes by Nightjar's own busid; usbipd-win's numbers stay for its USB/IP.
     described.busid = picked.busid.clone();
-    let connection = Arc::new(TcpTunnel::new(stream).map_err(|e| trf("usbipd-win could not share the device: {}", &[&e.to_string()]))?);
+    let connection = match TcpTunnel::new(stream) {
+        Ok(connection) => Arc::new(connection),
+        Err(e) => {
+            undo(&share);
+            return Err(trf("usbipd-win could not share the device: {}", &[&e.to_string()]));
+        }
+    };
     let ours = match share {
         Share::Ours { instance_id, guid } => Some(Unshare { usbipd, journal, instance_id, guid }),
         Share::Theirs => None,

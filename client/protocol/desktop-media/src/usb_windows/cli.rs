@@ -5,16 +5,29 @@
 
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
-use std::time::Duration;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
-use super::{parse_state, recover, valid_busid, valid_guid, Journal, StateDevice, Usbipd};
+use super::{install_candidates, parse_state, recover, valid_busid, valid_guid, BindError, Journal, StateDevice, Usbipd};
 use crate::strings::{tr, trf};
 
 /// `CREATE_NO_WINDOW`: no console flashes up for `usbipd state`.
 const NO_WINDOW: u32 = 0x0800_0000;
 /// How long an elevated usbipd may take, the prompt included.
-const ELEVATED_LIMIT: Duration = Duration::from_secs(120);
+const ELEVATED_LIMIT: Duration = Duration::from_secs(600);
+/// How long `usbipd state` may take.
+const STATE_LIMIT: Duration = Duration::from_secs(15);
+
+/// How an elevated run ended.
+enum Elevated {
+    Exited(u32),
+    /// The prompt was cancelled: nothing ran.
+    Cancelled,
+    /// It did not start.
+    Failed(String),
+    /// It may still be running.
+    Unfinished,
+}
 
 /// The installed usbipd.exe.
 #[derive(Clone, Debug)]
@@ -23,19 +36,14 @@ pub struct Cli {
 }
 
 impl Cli {
-    /// usbipd.exe on PATH or where its installer puts it; None when usbipd-win isn't installed.
+    /// usbipd.exe where its installer puts it ([`install_candidates`]); None when usbipd-win
+    /// isn't installed there.
     pub fn find() -> Option<Self> {
-        let on_path = std::env::var_os("PATH").and_then(|path| std::env::split_paths(&path).map(|dir| dir.join("usbipd.exe")).find(|exe| exe.is_file()));
-        let installed = || {
-            ["ProgramW6432", "ProgramFiles"].iter().filter_map(std::env::var_os)
-                .map(|dir| PathBuf::from(dir).join("usbipd-win").join("usbipd.exe"))
-                .find(|exe| exe.is_file())
-        };
-        on_path.or_else(installed).map(|exe| Self { exe })
+        install_candidates(|name| std::env::var_os(name)).into_iter().find(|exe| exe.is_file()).map(|exe| Self { exe })
     }
 
-    /// Runs usbipd with `args` elevated and waits for it; its exit code.
-    fn elevated(&self, args: &str) -> Result<u32, String> {
+    /// Runs usbipd with `args` elevated and waits for it.
+    fn elevated(&self, args: &str) -> Elevated {
         use windows::core::{w, HSTRING, PCWSTR};
         use windows::Win32::Foundation::{CloseHandle, ERROR_CANCELLED, WAIT_OBJECT_0};
         use windows::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
@@ -57,54 +65,73 @@ impl Cli {
         // returns is waited on and closed here.
         unsafe {
             if let Err(e) = ShellExecuteExW(&mut info) {
-                if e.code() == ERROR_CANCELLED.to_hresult() {
-                    return Err(tr("Sharing the device with usbipd-win needs administrator rights, and Windows’ prompt was cancelled.").to_owned());
-                }
-                return Err(trf("usbipd-win could not share the device: {}", &[&e.message()]));
+                if e.code() == ERROR_CANCELLED.to_hresult() { return Elevated::Cancelled; }
+                return Elevated::Failed(e.message());
             }
-            if info.hProcess.is_invalid() {
-                return Err(trf("usbipd-win could not share the device: {}", &[&"no process"]));
-            }
+            if info.hProcess.is_invalid() { return Elevated::Failed("no process".into()); }
             let waited = WaitForSingleObject(info.hProcess, ELEVATED_LIMIT.as_millis() as u32);
             let mut code = 1u32;
             let read = GetExitCodeProcess(info.hProcess, &mut code);
             let _ = CloseHandle(info.hProcess);
-            if waited != WAIT_OBJECT_0 {
-                return Err(trf("usbipd-win could not share the device: {}", &[&"it did not finish in time"]));
-            }
-            read.map_err(|e| trf("usbipd-win could not share the device: {}", &[&e.message()]))?;
-            Ok(code)
+            if waited != WAIT_OBJECT_0 || read.is_err() { return Elevated::Unfinished; }
+            Elevated::Exited(code)
         }
     }
 
-    fn checked(&self, args: &str) -> Result<(), String> {
-        match self.elevated(args)? {
-            0 => Ok(()),
-            3 => Err(tr("Sharing the device with usbipd-win needs administrator rights, and Windows’ prompt was cancelled.").to_owned()),
-            code => Err(trf("usbipd-win could not share the device: {}", &[&format!("usbipd {args} exited with {code}")])),
+    fn checked(&self, args: &str) -> Result<(), BindError> {
+        let cancelled = || tr("Sharing the device with usbipd-win needs administrator rights, and Windows’ prompt was cancelled.").to_owned();
+        let failed = |detail: &dyn std::fmt::Display| trf("usbipd-win could not share the device: {}", &[&detail.to_string()]);
+        match self.elevated(args) {
+            Elevated::Exited(0) => Ok(()),
+            Elevated::Exited(3) | Elevated::Cancelled => Err(BindError::Failed(cancelled())),
+            Elevated::Exited(code) => Err(BindError::Failed(failed(&format!("usbipd {args} exited with {code}")))),
+            Elevated::Failed(why) => Err(BindError::Failed(failed(&why))),
+            Elevated::Unfinished => Err(BindError::Unfinished(failed(&"it did not finish in time"))),
         }
     }
 }
 
 impl Usbipd for Cli {
+    /// `usbipd state`, given [`STATE_LIMIT`] (a hung one is killed).
     fn state(&self) -> Result<Vec<StateDevice>, String> {
-        let output = Command::new(&self.exe).arg("state").creation_flags(NO_WINDOW).output().map_err(|e| super::state_error(&e))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let detail = stderr.lines().map(str::trim).rfind(|l| !l.is_empty()).map_or_else(|| format!("exit {:?}", output.status.code()), str::to_owned);
+        use std::io::Read;
+        let mut child = Command::new(&self.exe).arg("state").creation_flags(NO_WINDOW)
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .spawn().map_err(|e| super::state_error(&e))?;
+        let (mut stdout, mut stderr) = (child.stdout.take().expect("piped"), child.stderr.take().expect("piped"));
+        // Read on threads of their own, so a long list never fills a pipe the child waits on.
+        let out = std::thread::spawn(move || { let mut text = Vec::new(); let _ = stdout.read_to_end(&mut text); text });
+        let err = std::thread::spawn(move || { let mut text = Vec::new(); let _ = stderr.read_to_end(&mut text); text });
+        let until = Instant::now() + STATE_LIMIT;
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(20)),
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(super::state_error(&"usbipd state did not answer in time"));
+                }
+                Err(e) => return Err(super::state_error(&e)),
+            }
+        };
+        let (out, err) = (out.join().unwrap_or_default(), err.join().unwrap_or_default());
+        if !status.success() {
+            let stderr = String::from_utf8_lossy(&err);
+            let detail = stderr.lines().map(str::trim).rfind(|l| !l.is_empty()).map_or_else(|| format!("exit {:?}", status.code()), str::to_owned);
             return Err(super::state_error(&detail));
         }
-        parse_state(&String::from_utf8_lossy(&output.stdout))
+        parse_state(&String::from_utf8_lossy(&out))
     }
 
-    fn bind(&self, busid: &str) -> Result<(), String> {
-        if !valid_busid(busid) { return Err(super::not_listed()); }
+    fn bind(&self, busid: &str) -> Result<(), BindError> {
+        if !valid_busid(busid) { return Err(BindError::Failed(super::not_listed())); }
         self.checked(&format!("bind --busid {busid}"))
     }
 
     fn unbind(&self, guid: &str) -> Result<(), String> {
         if !valid_guid(guid) { return Err(trf("usbipd-win could not share the device: {}", &[&"not a share"])); }
-        self.checked(&format!("unbind --guid {}", guid.trim_start_matches('{').trim_end_matches('}')))
+        self.checked(&format!("unbind --guid {}", guid.trim_start_matches('{').trim_end_matches('}'))).map_err(|e| e.message().to_owned())
     }
 }
 

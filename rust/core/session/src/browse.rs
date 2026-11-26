@@ -44,8 +44,13 @@ pub fn drives(drives: &[String]) -> Value {
     json!({"path": "", "parent": "", "entries": entries})
 }
 /// The folder at `path`, or the nearest existing folder above it. Its
-/// `parent` is empty at a drive's root, which goes back to the drives.
+/// `parent` is empty at a drive's root, which goes back to the drives. A
+/// network or device path is refused before anything opens it
+/// ([`crate::network_path`]).
 pub fn listing(path: &Path, filter: Filter) -> Result<Value, String> {
+    if let Some(refusal) = crate::network_path::refused(&path.to_string_lossy()) {
+        return Err(refusal.browse_message().into());
+    }
     let mut folder = PathBuf::from(path);
     if folder.is_file() {
         folder.pop();
@@ -173,6 +178,18 @@ mod tests {
             assert_eq!(listed["path"], expected.as_str());
         }
         assert!(listing(Path::new("missing-relative-folder"), Filter::Any).is_err());
+    }
+    #[test]
+    fn network_and_device_paths_are_refused_before_anything_opens_them() {
+        for path in [
+            r"\\server\share",
+            "//10.0.0.1/c$/Games",
+            r"\\?\UNC\server\share",
+            r"\\.\pipe\x",
+        ] {
+            let refused = listing(Path::new(path), Filter::Any).unwrap_err();
+            assert!(refused.contains("can't be browsed"), "{path}: {refused}");
+        }
     }
     #[test]
     fn an_empty_path_or_a_slash_lists_the_drives() {

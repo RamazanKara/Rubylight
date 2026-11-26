@@ -1,0 +1,2 @@
+# Security and privacy
+- **No sign-ins to other computers from the file picker or covers.** The console's file picker and the app covers no longer open network paths (`\\server\share`) or device paths (`\\.\`, `\\?\`, `NUL`, `COM1`), which would make the PC sign in to the named computer with its own account. The file picker says why it refused one. An app whose cover is on a network path shows the default cover, and the console names it with a warning until you copy the image to the PC and choose it again. Covers on a drive letter, mapped to a share or not, work as before.

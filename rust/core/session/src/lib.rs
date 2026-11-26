@@ -33,6 +33,7 @@ pub mod mic;
 pub mod migration;
 pub mod multiclient;
 pub mod native;
+pub mod network_path;
 pub mod neural;
 pub mod nucleus;
 pub mod paths;

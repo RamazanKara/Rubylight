@@ -67,6 +67,7 @@ impl Host {
         )?;
         butterpollo_session::state::write_json(&self.aliases_path, &next)?;
         *aliases = next;
+        crate::host_warnings::network_covers(&self.warnings, apps);
         Ok(())
     }
 

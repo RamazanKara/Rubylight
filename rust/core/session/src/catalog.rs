@@ -73,9 +73,13 @@ fn crc(s: &str) -> String {
         .unsigned_abs()
         .to_string()
 }
-/// Artwork accepted by Moonlight, bounded before it is read for hashing.
+/// Artwork accepted by Moonlight, bounded before it is read for hashing. A network or device path
+/// is never opened ([`crate::network_path`]); [`network_covers`] names the apps that have one.
 fn image(path: &Path) -> Option<&'static str> {
     use std::io::Read;
+    if crate::network_path::refused(&path.to_string_lossy()).is_some() {
+        return None;
+    }
     let Ok(mut file) = std::fs::File::open(path) else {
         return None;
     };
@@ -104,6 +108,22 @@ pub fn icon(app: &App) -> Option<PathBuf> {
         .and_then(Value::as_str)?
         .trim();
     (!path.is_empty() && image(Path::new(path)) == Some("png")).then(|| PathBuf::from(path))
+}
+/// The apps whose cover (`image-path`) or synced icon (`playnite-icon-path`) is a network or device
+/// path, which [`artwork`] and [`icon`] no longer open: they get the default cover instead, and the
+/// host says so ([`crate::network_path`]).
+pub fn network_covers(apps: &[App]) -> Vec<String> {
+    apps.iter()
+        .filter(|app| {
+            ["image-path", "playnite-icon-path"].iter().any(|field| {
+                app.extra
+                    .get(*field)
+                    .and_then(Value::as_str)
+                    .is_some_and(|path| crate::network_path::refused(path).is_some())
+            })
+        })
+        .map(|app| app.name.clone())
+        .collect()
 }
 pub fn artwork(app: &App, assets: &Path) -> PathBuf {
     let image = app
@@ -347,6 +367,37 @@ mod tests {
             );
             assert_eq!(icon(&app), expected);
         }
+    }
+
+    #[test]
+    fn a_cover_on_a_network_or_device_path_is_never_opened_and_is_named() {
+        let d = tempfile::tempdir().unwrap();
+        let png = d.path().join("cover.png");
+        std::fs::write(&png, b"\x89PNG\r\n\x1a\ncover").unwrap();
+        let mut local = App::desktop();
+        local.name = "Local".into();
+        local
+            .extra
+            .insert("image-path".into(), json!(png.display().to_string()));
+        assert_eq!(artwork(&local, d.path()), png);
+        let mut share = App::desktop();
+        share.name = "Share".into();
+        share
+            .extra
+            .insert("image-path".into(), json!(r"\\192.0.2.1\covers\game.png"));
+        assert_eq!(artwork(&share, d.path()), d.path().join("box.png"));
+        // The same local file through a device path: opened before the guard, refused now.
+        let mut device = App::desktop();
+        device.name = "Device".into();
+        device.extra.insert(
+            "playnite-icon-path".into(),
+            json!(format!(r"\\?\{}", png.display())),
+        );
+        assert_eq!(icon(&device), None);
+        assert_eq!(
+            network_covers(&[local, share, device]),
+            ["Share".to_owned(), "Device".to_owned()]
+        );
     }
 
     #[test]

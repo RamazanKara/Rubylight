@@ -401,6 +401,7 @@ impl Host {
             &mut aliases,
             assets.parent().unwrap_or(&assets),
         )?;
+        crate::host_warnings::network_covers(&warnings, &apps);
         butterpollo_session::state::write_json(&aliases_path, &aliases)?;
         let web_sessions = web_sessions::load(
             &aliases,

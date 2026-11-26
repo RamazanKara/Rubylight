@@ -89,7 +89,7 @@ pub const ANTI_CHEAT_LEAD: u64 = 5 * 60 * 10_000_000;
 
 /// The anti-cheat `name` belongs to, if any.
 pub fn anti_cheat(name: &str) -> Option<&'static str> {
-    crate::neural::eligibility::anti_cheat(name).or_else(|| {
+    crate::neural::anti_cheat(name).or_else(|| {
         let lower = name.to_ascii_lowercase();
         let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
         match stem {
@@ -110,7 +110,7 @@ fn listed(list: &[&str], name: &str) -> bool {
 
 /// A launcher or store client, never a game.
 fn launcher(name: &str) -> bool {
-    crate::neural::eligibility::classify_non_game_exe(name) == Some("a launcher")
+    crate::neural::classify_non_game_exe(name) == Some("a launcher")
 }
 
 /// The processes to suspend for the game whose verified processes are `owned`

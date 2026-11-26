@@ -16,6 +16,7 @@ pub mod clipboard;
 pub mod controller_audio;
 pub mod controller_mouse;
 pub mod dmabuf;
+pub mod dualsense_bt_audio;
 pub mod full_chroma;
 pub mod gamepad;
 #[cfg(windows)]

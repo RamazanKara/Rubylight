@@ -365,6 +365,9 @@ pub(crate) fn connect(
         haptics_pcm: settings.controllers
             && settings.controller_audio
             && role != AppRole::RemoteMonitor,
+        ps_speaker_pcm: settings.controllers
+            && settings.controller_audio
+            && role != AppRole::RemoteMonitor,
         pyrowave_link_mbps: sent_link_mbps as i32,
         pyrowave_pace_mbps: pace_mbps as i32,
         client_wireless,

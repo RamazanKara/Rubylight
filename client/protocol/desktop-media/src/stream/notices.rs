@@ -207,6 +207,9 @@ impl Streaming {
             for pad in &pads.pads {
                 if let (Some(slot), Some(audio)) = (pad.slot(), &pad.audio) {
                     status[usize::from(slot)] = audio.status(self.settings.microphone, self.microphone_muted);
+                } else if let Some(slot) = pad.slot().filter(|_| pad.plays_pcm()) {
+                    // Bluetooth: playback, no microphone.
+                    status[usize::from(slot)] = 1;
                 }
             }
         }

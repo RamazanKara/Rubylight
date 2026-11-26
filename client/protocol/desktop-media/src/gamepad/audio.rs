@@ -8,12 +8,19 @@ impl Gamepads {
     pub fn prepare_audio(&mut self, enabled: bool) {
         for pad in &mut self.pads {
             if let Some(audio) = pad.audio.take() { audio.reset(pad.handle); }
+            pad.bt_audio = None;
         }
         if !enabled { return; }
         self.auto_audio();
     }
 
     pub fn auto_audio(&mut self) {
+        for pad in self.pads.iter_mut().filter(|p| p.bt_audio.is_none() && p.supports_bt_audio()) {
+            match crate::dualsense_bt_audio::BtAudio::open(pad.handle) {
+                Ok(audio) => { pad.bt_audio = Some(audio); pad.announced = false; }
+                Err(error) => eprintln!("nightjar: controller speaker over Bluetooth: {error}"),
+            }
+        }
         let outputs = crate::controller_audio::outputs();
         let pads: Vec<_> = self.pads.iter().filter(|p| p.supports_audio()).map(|p| p.index).collect();
         if let ([index], [(device, _)]) = (pads.as_slice(), outputs.as_slice()) {
@@ -73,8 +80,9 @@ impl Gamepads {
     /// Haptics or speaker audio for gamepad `pcm.controller`: the controller sent as it that plays it.
     pub fn pcm(&mut self, pcm: nightjar_core::control::haptics::Pcm, speaker: bool) {
         if !speaker && self.disable_rumble { return; }
-        if let Some(pad) = self.pads.iter_mut().find(|p| u16::from(p.sent_as) == pcm.controller && p.audio.is_some())
-            && let Some(audio) = &mut pad.audio { audio.offer(pcm, speaker); audio.update(pad.handle); }
+        let Some(pad) = self.pads.iter_mut().find(|p| u16::from(p.sent_as) == pcm.controller && p.plays_pcm()) else { return };
+        if let Some(audio) = &mut pad.audio { audio.offer(pcm, speaker); audio.update(pad.handle); }
+        else if let Some(bt) = &pad.bt_audio { bt.offer(&pcm, speaker); }
     }
 
     pub fn audio_control(&mut self, payload: &[u8]) {

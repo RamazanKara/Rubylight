@@ -148,6 +148,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan.
 | Steam Deck Game Mode (gamescope) | N/A | N/A | Yes | Under gamescope the Flatpak opens fullscreen without a border; the pointer hides while the controller is used, and Start+Back opens the stream menu since Steam keeps the Guide button. [Steam Deck](steam-deck.md) |
 | Extra buttons: touchpad click, Share / Capture, paddles | Yes | Yes | Yes | The desktop maps every SDL button. |
 | DualSense, Xbox and Switch Pro USB drivers | Yes | N/A | N/A | SDL handles these controllers on the desktop. |
+| DualSense speaker and haptics over Bluetooth | No | Yes | Yes | The desktop sends Sony's Bluetooth audio reports through its own HID handle. Android without root lets no app send those reports to a Bluetooth controller, so there they need USB. [DualSense audio and haptics](dualsense-haptics.md#bluetooth-on-windows-and-linux) |
 | On-screen controls | Yes | No | No | |
 | Per-game touch controls | Yes | No | No | |
 | Touch modes (trackpad, direct, multi-touch, local cursor) | Yes | Partial | Partial | The desktop sends native touch only. |

@@ -5,6 +5,7 @@
 
 use nightjar_core::input::packets::{capability, motion_type};
 use nightjar_core::input::InputQueue;
+use rubylight_protocol::ps_speaker_pcm::PS_SPEAKER_CAPABILITY;
 use nightjar_policy::controllers::Controllers;
 use sdl3_sys::everything::*;
 
@@ -157,6 +158,7 @@ impl Gamepads {
         }
         for pad in &mut self.pads {
             if let Some(audio) = pad.audio.take() { audio.reset(pad.handle); }
+            pad.bt_audio = None;
             // SAFETY: open gamepads.
             unsafe {
                 SDL_RumbleGamepad(pad.handle, 0, 0, 0);
@@ -260,7 +262,7 @@ pub(super) fn describe(pad: &Pad) -> (u8, u32, u16) {
         let props = SDL_GetGamepadProperties(pad.handle);
         let has = |name: *const std::ffi::c_char| SDL_GetBooleanProperty(props, name, false);
         let mut caps = 0u16;
-        if pad.audio.is_some() { caps |= nightjar_core::control::haptics::CAPABILITY; }
+        if pad.plays_pcm() { caps |= nightjar_core::control::haptics::CAPABILITY; }
         if SDL_GamepadHasAxis(pad.handle, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) {
             caps |= capability::ANALOG_TRIGGERS;
         }
@@ -301,6 +303,9 @@ fn announce(pad: &mut Pad, mask: u16, motion: bool, queue: &mut InputQueue) {
     }
     let (kind, supported, mut caps) = describe(pad);
     if !motion { caps &= !(capability::ACCEL | capability::GYRO); }
+    // A PlayStation controller that plays a speaker can take a host's speaker PCM (0x5602);
+    // the queue keeps the flag only on a stream that has it, and only on the arrival.
+    if kind == CTYPE_PS && pad.plays_pcm() { caps |= PS_SPEAKER_CAPABILITY; }
     // Which controller it is goes first, so the host can choose its virtual pad on arrival
     // (a Switch 2 Pro Controller its own); the queue sends it only to a host that takes it.
     if pad.usb_id != (0, 0) {

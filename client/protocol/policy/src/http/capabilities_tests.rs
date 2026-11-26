@@ -460,7 +460,7 @@ fn stream_dvr_needs_the_serverinfo_field_and_the_native_feature() {
         include_str!("../../../../app/src/test/resources/protocol/rubylight-30-serverinfo.xml");
     let native = |features: &str| -> NativeCapabilities {
         let json = format!(
-            r#"{{"api_version":1,"host":{{"name":"RL","version":"7.0.0","unique_id":"rl"}},"features":[{features}],"permissions":{{"list":true,"view":true,"launch":true}}}}"#
+            r#"{{"api_version":1,"host":{{"name":"RL","version":"7.0.0","unique_id":"rl"}},"features":[{features}],"permissions":{{"list":true,"view":true,"launch":true,"host_control":false,"restart_shutdown":false,"pairing_approve":false}}}}"#
         );
         serde_json::from_str(&json).unwrap()
     };

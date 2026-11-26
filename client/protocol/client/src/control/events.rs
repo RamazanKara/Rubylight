@@ -496,8 +496,8 @@ pub(crate) fn stream_dvr(p: &[u8]) -> Option<ControlEvent> {
     use rubylight_protocol::stream_dvr::{HEADER_BYTES, KIND_STATE, Message, State, VERSION};
     // A state a newer host added reads as unsupported, so the menu greys out rather than lies.
     let message = Message::decode(p).or_else(|| {
-        let known = p.get(HEADER_BYTES).and_then(|&state| State::from_u8(state)).is_some();
-        if p.first() != Some(&VERSION) || p.get(1) != Some(&KIND_STATE) || known {
+        let state = *p.get(HEADER_BYTES)?;
+        if p[0] != VERSION || p[1] != KIND_STATE || State::from_u8(state).is_some() {
             return None;
         }
         let mut patched = p.to_vec();

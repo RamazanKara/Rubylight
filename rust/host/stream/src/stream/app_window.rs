@@ -4,7 +4,10 @@
 //! target over the display's ([`Ready::show_app_window`]) and says on the
 //! device what the stream shows while it shows the display instead. The
 //! capture reopens on each change of target, and absolute input follows the
-//! target (the stream's output) onto the window.
+//! target (the stream's output) onto the window. With
+//! `capture_window = window_focus` it also reads the window in front on each
+//! look, and the stream shows the display while the app's window is in the
+//! background (`app_window::focus`).
 //!
 //! It starts before the stream's first capture and waits a moment for the
 //! window ([`FIRST_WAIT`]), so the capture and the encoder open on the window
@@ -12,7 +15,7 @@
 //! moment later.
 use crate::display_session::Ready;
 use crate::state::{Session, Shared};
-use butterpollo_media_policy::app_window::{self, Decision, Follow, Frame, Settings, Target};
+use butterpollo_media_policy::app_window::{self, Decision, Frame, Settings, Target, Tracker};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{
@@ -58,6 +61,7 @@ impl AppWindow {
             exe = ?settings.exe,
             title = ?settings.title,
             closed = ?settings.closed,
+            background = ?settings.background,
             "streaming the app's window in place of the display"
         );
         let stop = Arc::new(AtomicBool::new(false));
@@ -178,7 +182,7 @@ struct Step {
 /// The worker's state between looks for the window.
 struct Watch {
     named: bool,
-    follow: Follow,
+    tracker: Tracker,
     tree: Option<BTreeSet<u32>>,
     names: BTreeMap<u32, String>,
     tree_read: Option<Instant>,
@@ -189,7 +193,7 @@ impl Watch {
     fn new(settings: &Settings) -> Self {
         Self {
             named: settings.exe.is_some(),
-            follow: Follow::default(),
+            tracker: Tracker::new(settings),
             tree: None,
             names: BTreeMap::new(),
             tree_read: None,
@@ -229,14 +233,21 @@ impl Watch {
                 }
             }
         }
+        // Read after the windows, on the desktop their scan followed.
+        let foreground = if self.tracker.follows_focus() {
+            butterpollo_win_graphics::capture::foreground_window()
+        } else {
+            None
+        };
         let empty = BTreeSet::new();
-        let picked = app_window::pick(
+        let look = self.tracker.look(
             &windows,
             self.tree.as_ref().unwrap_or(&empty),
             settings,
-            self.follow.current(),
+            foreground,
+            now,
         );
-        let decision = self.follow.step(picked, settings.closed, now);
+        let (picked, decision) = (look.picked, look.decision);
         let target = match &decision.target {
             Target::Window { id, pid } => {
                 match butterpollo_win_graphics::capture::app_window_target(
@@ -259,8 +270,17 @@ impl Watch {
                 (Some(target), Some(window)) => {
                     tracing::info!(%target, title = %window.title, "the stream shows the app's window")
                 }
+                _ if look.behind => tracing::info!(
+                    "the stream shows the display while the app's window is in the background"
+                ),
                 _ => tracing::info!(
-                    reason = decision.warning.unwrap_or("the window closed"),
+                    reason = decision
+                        .warning
+                        .unwrap_or(if picked.is_some_and(|w| w.minimized) {
+                            "the window is minimised"
+                        } else {
+                            "the window closed"
+                        }),
                     "the stream shows the display in place of the app's window"
                 ),
             }

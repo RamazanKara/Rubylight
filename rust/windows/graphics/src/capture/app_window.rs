@@ -1,7 +1,8 @@
 //! The OS side of streaming the launched app's window
 //! (`butterpollo_media_policy::app_window`): the top-level windows to pick it from,
-//! the capture target that names it, the rectangle absolute input maps onto,
-//! and the window's client area inside a Windows Graphics Capture frame.
+//! the window in front, the capture target that names it, the rectangle
+//! absolute input maps onto, and the window's client area inside a Windows
+//! Graphics Capture frame.
 use super::window::{self, WindowTarget};
 use anyhow::Result;
 use butterpollo_media_policy::app_window::Candidate;
@@ -14,9 +15,9 @@ use windows::Win32::{
         Gdi::ClientToScreen,
     },
     UI::WindowsAndMessaging::{
-        EnumWindows, GW_OWNER, GWL_EXSTYLE, GetClientRect, GetWindow, GetWindowLongPtrW,
-        GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
-        IsWindowVisible, WS_EX_TOOLWINDOW,
+        EnumWindows, GW_OWNER, GWL_EXSTYLE, GetClientRect, GetForegroundWindow, GetWindow,
+        GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+        GetWindowThreadProcessId, IsIconic, IsWindowVisible, WS_EX_TOOLWINDOW,
     },
 };
 
@@ -81,6 +82,16 @@ pub fn app_windows() -> Result<Vec<Candidate>> {
         )?;
     }
     Ok(found)
+}
+
+/// The foreground window of the desktop the signed-in user sees, as
+/// [`app_windows`] names windows; None when no window is in front (focus
+/// changing hands, or a desktop the host cannot read). Read-only.
+pub fn foreground_window() -> Option<u64> {
+    crate::process_info::follow_input_desktop();
+    // SAFETY: GetForegroundWindow takes nothing; a null window is none.
+    let window = unsafe { GetForegroundWindow() };
+    (!window.is_invalid()).then_some(window.0 as usize as u64)
 }
 
 /// What Windows Graphics Capture captures of the window, in desktop pixels:

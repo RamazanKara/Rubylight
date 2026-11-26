@@ -21,6 +21,7 @@ fn any() -> Settings {
         title: None,
         closed: Closed::Display,
         frame: Frame::Full,
+        background: Background::Window,
     }
 }
 fn tree(pids: &[u32]) -> BTreeSet<u32> {
@@ -45,6 +46,7 @@ fn the_window_setting_is_off_unless_asked_for_and_reads_its_options() {
             title: Some("Main".into()),
             closed: Closed::End,
             frame: Frame::Full,
+            background: Background::Window,
         })
     );
     assert_eq!(

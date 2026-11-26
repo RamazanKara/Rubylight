@@ -62,7 +62,9 @@ pub use amd_direct::Presented;
 pub(crate) use app_window::Crop;
 #[cfg(test)]
 pub(crate) use app_window::client_box;
-pub use app_window::{app_window_target, app_windows, target_rect as window_target_rect};
+pub use app_window::{
+    app_window_target, app_windows, foreground_window, target_rect as window_target_rect,
+};
 pub use bridge::START_TIMEOUT as WGC_START_TIMEOUT;
 pub use bridge::run_worker_with as run_wgc_worker_with;
 pub use device::Device;

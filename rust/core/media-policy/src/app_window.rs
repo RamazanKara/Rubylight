@@ -16,6 +16,10 @@
 //! for a replacement (a splash screen giving way to the game), the display
 //! again or the end of the stream (`capture_window_closed`).
 //!
+//! `capture_window = window_focus` ([`Background::Display`]) streams the
+//! window only while it is in front and the display while another program
+//! or the desktop is ([`focus`]).
+//!
 //! [`Frame`] chooses whether the stream shows the whole window or only its
 //! client area (`capture_window_frame = client`), without the title bar and
 //! borders Windows Graphics Capture includes.
@@ -31,6 +35,9 @@ use anyhow::{Context, Result, ensure};
 use butterpollo_config::config::Config;
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
+
+pub mod focus;
+pub use focus::{Look, Tracker};
 
 pub const WINDOW_TARGET_PREFIX: &str = "window:";
 
@@ -142,7 +149,8 @@ impl std::fmt::Display for WindowTarget {
     }
 }
 
-/// `display` (the default) or `window`.
+/// `display` (the default), `window`, or `window_focus` (the window while it
+/// is in front, the display while it is not).
 pub const SETTING: &str = "capture_window";
 /// A program file name, such as `game.exe`; empty for any of the app's.
 pub const EXE: &str = "capture_window_exe";
@@ -181,21 +189,48 @@ pub enum Frame {
     Client,
 }
 
+/// What the stream shows while another program or the desktop is in front
+/// of the window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Background {
+    /// The window still (`capture_window = window`).
+    Window,
+    /// The stream's display, until the window is in front again
+    /// (`capture_window = window_focus`).
+    Display,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub exe: Option<String>,
     pub title: Option<String>,
     pub closed: Closed,
     pub frame: Frame,
+    pub background: Background,
 }
+
+/// The values of `capture_window` that stream the window while it is in
+/// front only.
+const FOCUS_VALUES: [&str; 2] = ["window_focus", "focus"];
 
 /// Whether `value` asks for the window. Unknown values are the display, so a
 /// typo never hides the desktop.
 pub fn wants_window(value: &str) -> bool {
+    let value = value.trim().to_ascii_lowercase();
     matches!(
-        value.trim().to_ascii_lowercase().as_str(),
+        value.as_str(),
         "window" | "app" | "true" | "on" | "yes" | "1" | "enabled"
-    )
+    ) || FOCUS_VALUES.contains(&value.as_str())
+}
+
+/// What a `capture_window` value that asks for the window shows while the
+/// window is in the background.
+pub fn background(value: &str) -> Background {
+    if FOCUS_VALUES.contains(&value.trim().to_ascii_lowercase().as_str()) {
+        Background::Display
+    } else {
+        Background::Window
+    }
 }
 
 fn nonempty(value: &str) -> Option<String> {
@@ -205,10 +240,12 @@ fn nonempty(value: &str) -> Option<String> {
 
 /// The stream's window settings, or None when it streams a display.
 pub fn settings(config: &Config) -> Option<Settings> {
-    if !wants_window(config.get(SETTING, "display")) {
+    let value = config.get(SETTING, "display");
+    if !wants_window(value) {
         return None;
     }
     Some(Settings {
+        background: background(value),
         exe: nonempty(config.get(EXE, "")),
         title: nonempty(config.get(TITLE, "")),
         closed: match config

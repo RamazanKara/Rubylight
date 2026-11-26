@@ -1,5 +1,6 @@
 //! Unit tests for Rubylight announced control messages (USB, link notices, pipeline rates,
-//! rate changes, text input, keyboard layout, clipboard sync, display caps and Frame Warp).
+//! rate changes, text input, keyboard layout, clipboard sync, display caps, Frame Warp and Quick
+//! Suspend).
 
 use super::*;
 use rubylight_protocol::control::{
@@ -465,6 +466,75 @@ fn clipboard_frames_go_both_ways_only_once_announced() {
     let mut bare = session(SessionOptions::default());
     assert_eq!(bare.send(sync.hello()), Err(SendError::Unsupported));
     bare.handle_datagram(t0, &from_host(1, 0x5508, &pc.encode().unwrap()))
+        .unwrap();
+    assert_eq!(bare.take_events(), []);
+}
+
+#[test]
+fn quick_suspend_goes_both_ways_only_once_announced() {
+    use rubylight_protocol::quick_suspend::{
+        ClientRequest, HostState, Message, Op, Reason, State,
+    };
+    let mut s = ControlSession::new(
+        HostCapabilities {
+            control_messages: vec![0x5530, 0x554B],
+            ..rubylight()
+        },
+        &KEY,
+        SessionOptions::default(),
+    );
+    let t0 = Instant::now();
+    s.start(t0);
+    host_reads(&mut s);
+    let request = ClientRequest {
+        flags: 0,
+        request_id: 5,
+        op: Op::Suspend,
+    };
+    s.send(ClientMessage::QuickSuspend(request)).unwrap();
+    let sent = host_reads(&mut s);
+    assert_eq!(sent.len(), 1);
+    assert_eq!((sent[0].1, sent[0].2), (Delivery::Reliable, 0x554B));
+    assert_eq!(Message::decode(&sent[0].3), Some(Message::Request(request)));
+
+    let refused = HostState {
+        flags: 0,
+        request_id: 5,
+        state: State::Refused,
+        reason: Reason::AntiCheatDetected,
+        suspended_count: 0,
+        suspended_since_unix_ms: 0,
+    };
+    let resumed_elsewhere = HostState {
+        request_id: 0,
+        state: State::Ready,
+        reason: Reason::None,
+        ..refused
+    };
+    s.handle_datagram(t0, &from_host(1, 0x554B, &refused.encode()))
+        .unwrap();
+    s.handle_datagram(t0, &from_host(2, 0x554B, &resumed_elsewhere.encode()))
+        .unwrap();
+    // A request echoed back and a short frame are no state.
+    s.handle_datagram(t0, &from_host(3, 0x554B, &request.encode()))
+        .unwrap();
+    s.handle_datagram(t0, &from_host(4, 0x554B, &[1, 2, 0]))
+        .unwrap();
+    assert_eq!(
+        s.take_events(),
+        [
+            ControlEvent::QuickSuspend(refused),
+            ControlEvent::QuickSuspend(resumed_elsewhere)
+        ]
+    );
+
+    // A host with Quick Suspend off announces nothing: nothing goes out, nothing comes in.
+    let mut bare = session(SessionOptions::default());
+    assert_eq!(
+        bare.send(ClientMessage::QuickSuspend(request)),
+        Err(SendError::Unsupported)
+    );
+    bare.handle_datagram(t0, &from_host(1, 0x554B, &refused.encode()))
         .unwrap();
     assert_eq!(bare.take_events(), []);
 }

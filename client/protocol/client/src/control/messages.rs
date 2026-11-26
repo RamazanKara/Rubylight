@@ -125,6 +125,10 @@ pub enum ClientMessage {
     FrameWarpRequest(rubylight_protocol::frame_warp_v2::RequestV2),
     /// When each video packet arrived, for the host's congestion control (0x5547).
     TransportFeedback(rubylight_protocol::transport_feedback::TransportFeedback),
+    /// Asks the host to pause or resume the running game, or for its state (0x554B). The host
+    /// answers each with a [`ControlEvent::QuickSuspend`](super::events::ControlEvent) of the
+    /// same request id, and from then on also says when the state changes.
+    QuickSuspend(rubylight_protocol::quick_suspend::ClientRequest),
 }
 
 impl ClientMessage {
@@ -156,6 +160,7 @@ impl ClientMessage {
             Self::ClipboardSync(_) => ptype::CLIPBOARD_SYNC,
             Self::FrameWarpRequest(_) => ptype::FRAME_WARP_REQUEST,
             Self::TransportFeedback(_) => ptype::TRANSPORT_FEEDBACK,
+            Self::QuickSuspend(_) => ptype::QUICK_SUSPEND,
         }
     }
 
@@ -229,6 +234,7 @@ impl ClientMessage {
             Self::TransportFeedback(report) => {
                 let _ = report.encode_into(out);
             }
+            Self::QuickSuspend(request) => out.extend_from_slice(&request.encode()),
         }
     }
 
@@ -286,7 +292,8 @@ impl ClientMessage {
             | Self::ControllerAudioStatus { .. }
             | Self::Usb(_)
             | Self::ClipboardSync(_)
-            | Self::TransportFeedback(_) => Some(self.message_type()),
+            | Self::TransportFeedback(_)
+            | Self::QuickSuspend(_) => Some(self.message_type()),
             // A host before 7.0 announced 0x5543 to 0x5546 but not the meta, and took a request
             // this client no longer sends: it gets none.
             Self::FrameWarpRequest(_) => Some(ptype::FRAME_WARP_V2_META),
@@ -329,6 +336,8 @@ impl ClientMessage {
                 frame.payload.len() <= rubylight_protocol::clipboard_sync::MAX_PAYLOAD_BYTES
             }
             Self::TransportFeedback(report) => report.is_valid(),
+            // The host echoes the id; 0 marks its own reports.
+            Self::QuickSuspend(request) => request.request_id != 0 && request.flags == 0,
             // Only the client's kinds, and only what encodes.
             Self::Usb(message) => match message {
                 UsbMessage::AttachRequest {
@@ -502,5 +511,34 @@ mod tests {
             .is_valid()
         );
         assert!(!ClientMessage::Usb(UsbMessage::Detach { request_id: 0 }).is_valid());
+    }
+
+    #[test]
+    fn quick_suspend_requests_go_reliably_only_to_a_host_that_offered_them() {
+        use rubylight_protocol::quick_suspend::{ClientRequest, Message, Op};
+        let request = ClientRequest {
+            flags: 0,
+            request_id: 7,
+            op: Op::Suspend,
+        };
+        let message = ClientMessage::QuickSuspend(request);
+        assert!(message.is_valid());
+        assert_eq!(message.message_type(), 0x554B);
+        assert_eq!(message.announcement(), Some(0x554B));
+        assert_eq!(message.delivery(), Delivery::Reliable);
+        assert_eq!(message.channel(), channel::GENERIC);
+        assert_eq!(
+            Message::decode(&message.payload()),
+            Some(Message::Request(request))
+        );
+        // Id 0 is the host's own report, and flags are reserved.
+        for (flags, request_id) in [(0, 0), (1, 7)] {
+            let bad = ClientRequest {
+                flags,
+                request_id,
+                op: Op::Resume,
+            };
+            assert!(!ClientMessage::QuickSuspend(bad).is_valid());
+        }
     }
 }

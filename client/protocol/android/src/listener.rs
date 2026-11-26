@@ -499,6 +499,9 @@ impl Listener for Events {
                 ));
                 b.post(m.clipboard_sync_refused, &[bridge::int(2)]);
             }
+            // Android's stream menu reads and changes Quick Suspend through the native API
+            // (StreamMenuSuspendSection) and never asks on the control stream.
+            ControlEvent::QuickSuspend(_) => {}
             // The session reports terminations through connection_terminated.
             ControlEvent::Terminated { .. } => {}
         }

@@ -234,13 +234,19 @@ fn list_with(context: &rusb::Context) -> Result<Vec<Local>, String> {
 }
 
 /// Opens `local` and claims every interface, for [`nightjar_core::usb::Forwarder::attach`].
-/// `by_hand`: the user started this attach, so Linux's USB/IP server may take over a device
-/// libusb is refused, behind a password prompt ([`open_or_kernel`]).
+/// `by_hand`: the user started this attach, so Linux's USB/IP server, behind a password prompt,
+/// may take a device that goes there first ([`kernel_by_hand`]) or one libusb is refused
+/// ([`open_or_kernel`]).
 pub fn open(local: &Local, by_hand: bool) -> Result<Arc<dyn UsbDevice>, String> {
     if let Some(blocked) = &local.blocked { return Err(blocked.message()); }
     #[cfg(target_os = "linux")]
     if local.kernel {
-        return crate::usb_linux::System::real().open(&local.busid, local.vid, local.pid).map(|device| device as Arc<dyn UsbDevice>);
+        if !by_hand {
+            eprintln!("nightjar: USB {}: Linux's USB/IP server needs the password, which only an attach by hand asks for", local.busid);
+        }
+        return kernel_by_hand(!by_hand, || {
+            crate::usb_linux::System::real().open(&local.busid, local.vid, local.pid).map(|device| device as Arc<dyn UsbDevice>)
+        });
     }
     let context = rusb::Context::new().map_err(|e| trf("USB devices could not be listed: {}", &[&e]))?;
     let devices = context.devices().map_err(|e| trf("USB devices could not be listed: {}", &[&e]))?;
@@ -345,6 +351,20 @@ fn open_or_kernel<T>(opened: Result<T, rusb::Error>, unattended: bool, kernel: i
         },
         other => other.map_err(open_error),
     }
+}
+
+/// Linux's USB/IP server for a device that goes there first (`Local::kernel`: a webcam or an
+/// audio device). It asks for the password (polkit's `auth_admin`, every time), so an
+/// `unattended` attach (the automatic one) never starts `kernel`: it says to press Attach and
+/// counts as a password that did not go through, which leaves the device to an attach by hand
+/// ([`auto`]). A webcam on the automatic list never prompts on a plug-in by itself.
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+fn kernel_by_hand<T>(unattended: bool, kernel: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    if unattended {
+        auto::note_password_failed();
+        return Err(tr("Forwarding this device needs your password, so it isn’t attached automatically. Press Attach to forward it.").to_owned());
+    }
+    kernel()
 }
 
 fn open_error(e: rusb::Error) -> String {

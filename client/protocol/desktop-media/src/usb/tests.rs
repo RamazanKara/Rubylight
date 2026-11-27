@@ -671,3 +671,28 @@ fn the_automatic_attach_never_asks_for_the_password_and_leaves_the_device_to_the
     assert_eq!(busy, Err(open_error(rusb::Error::Busy)));
     assert!(calm.lock().unwrap().is_empty());
 }
+
+/// A webcam or audio device goes to Linux's USB/IP server first (`Local::kernel`), behind the
+/// password: the automatic attach never starts it, not even after a prompt that went through
+/// last time, says to press Attach and leaves the device to the user; an attach by hand does.
+#[test]
+fn the_automatic_attach_never_takes_a_device_to_the_kernel_server_behind_the_password() {
+    use super::auto::{auto_due, hushed_on_password_failure};
+    use std::time::{Duration, Instant};
+
+    let webcam = plugged("2-4", 0x046d, 0x085e, None);
+    let quiet = Mutex::new(Vec::new());
+    let no_prompt = || -> Result<&str, String> { panic!("the automatic attach started the password prompt") };
+    let opened = hushed_on_password_failure(&quiet, &webcam, || kernel_by_hand(true, no_prompt));
+    let press_attach = tr("Forwarding this device needs your password, so it isn’t attached automatically. Press Attach to forward it.");
+    assert_eq!(opened, Err(press_attach.to_owned()));
+    assert_eq!(*quiet.lock().unwrap(), vec![auto_key(0x046d, 0x085e)]);
+    // Unplugged and plugged in again, past the cooldown: still left to the user.
+    let auto = vec![auto_key(0x046d, 0x085e)];
+    let later = Instant::now() + Duration::from_secs(60);
+    assert!(auto_due(std::slice::from_ref(&webcam), &auto, &quiet.lock().unwrap(), |_| false, &mut HashMap::new(), later).is_empty());
+    // By hand the server takes it, behind its prompt.
+    let calm = Mutex::new(Vec::new());
+    assert_eq!(hushed_on_password_failure(&calm, &webcam, || kernel_by_hand(false, || Ok("kernel"))), Ok("kernel"));
+    assert!(calm.lock().unwrap().is_empty());
+}

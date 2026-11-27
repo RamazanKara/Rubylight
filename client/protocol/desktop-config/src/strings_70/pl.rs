@@ -158,4 +158,5 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Controller settings", "Ustawienia kontrolera"),
     ("Leave and open controller settings", "Wyjdź i otwórz ustawienia kontrolera"),
     ("Opening controller settings leaves the stream; the game keeps running on the PC.", "Otwarcie ustawień kontrolera kończy stream; gra działa dalej na PC."),
+    ("Forwarding this device needs your password, so it isn’t attached automatically. Press Attach to forward it.", "Przekazanie tego urządzenia wymaga hasła, więc nie jest ono podłączane automatycznie. Naciśnij Podłącz, aby je przekazać."),
 ];

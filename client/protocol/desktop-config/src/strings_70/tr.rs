@@ -158,4 +158,5 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Controller settings", "Kumanda ayarları"),
     ("Leave and open controller settings", "Çık ve kumanda ayarlarını aç"),
     ("Opening controller settings leaves the stream; the game keeps running on the PC.", "Kumanda ayarlarını açmak yayından çıkar; oyun bilgisayarda çalışmaya devam eder."),
+    ("Forwarding this device needs your password, so it isn’t attached automatically. Press Attach to forward it.", "Bu cihazı yönlendirmek parolanızı gerektiriyor, bu yüzden otomatik olarak bağlanmıyor. Yönlendirmek için Bağla’ya basın."),
 ];

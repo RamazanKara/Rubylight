@@ -8,7 +8,7 @@
     <string name="stream_mouse_step">Passo del mouse: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Invia i tasti di sistema</string>
     <string name="title_checkbox_back_as_meta">Indietro della tastiera invia il tasto Windows</string>
-    <string name="summary_checkbox_back_as_meta">Il tasto Indietro di una tastiera fisica invia al PC il tasto Windows invece di Indietro o Esc. Il gesto Indietro di Android e la scorciatoia del menu dello stream aprono comunque il menu dello stream.</string>
+    <string name="summary_checkbox_back_as_meta">Il tasto Indietro di una tastiera fisica invia al PC il tasto Windows invece di Indietro o Esc. Il gesto Indietro di Android e la scorciatoia del Centro di controllo aprono comunque il Centro di controllo.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt destro come tasto Windows</string>
     <string name="summary_checkbox_right_alt_as_meta">Alt destro invia il tasto Windows, che un Mac usa come Command. Lascialo disattivato se scrivi caratteri con AltGr: Alt destro non funziona più come AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">La tastiera segue i campi di testo</string>

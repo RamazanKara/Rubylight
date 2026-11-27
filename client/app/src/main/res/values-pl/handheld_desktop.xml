@@ -31,7 +31,7 @@
     <string name="desktop_zoom_help">Rozsuń lub zsuń dwa palce, aby powiększać od 0,5× do 4×; przeciągnij dwoma palcami, aby swobodnie przesuwać obraz, także na czarne pasy. Jeden palec działa w wybranym trybie dotyku. Przewijanie dwoma palcami jest zastępowane, gdy powiększanie jest włączone.</string>
     <string name="desktop_output">Wyjście wideo (ponownie łączy strumień)</string>
     <string name="desktop_output_device">To urządzenie</string>
-    <string name="desktop_touchpad_help">Wideo jest na ekranie zewnętrznym. Używaj tego ekranu jako touchpada. Klawiatura, przyciski gry i menu strumienia są nadal dostępne tutaj.</string>
+    <string name="desktop_touchpad_help">Wideo jest na ekranie zewnętrznym. Używaj tego ekranu jako touchpada. Klawiatura, przyciski gry i Centrum sterowania są nadal dostępne tutaj.</string>
     <string name="desktop_pacing_fallback">Ekran zewnętrzny: klatki są wyświetlane od razu po odebraniu.</string>
     <string name="desktop_display_unavailable">Żaden ekran zewnętrzny nie może wyświetlić strumienia, więc pozostaje on na tym urządzeniu.</string>
     <string name="controller_axes_title">Gałki, spusty i D-pad</string>

@@ -659,7 +659,7 @@ pub(crate) fn start_toast(warning: Option<&str>, color: Option<&str>, gamescope:
     if !lines.is_empty() {
         lines.join("\n")
     } else if gamescope {
-        tr("Start+Back opens the stream menu").to_owned()
+        tr("Start+Back opens the Control Center").to_owned()
     } else {
         controls_hint()
     }

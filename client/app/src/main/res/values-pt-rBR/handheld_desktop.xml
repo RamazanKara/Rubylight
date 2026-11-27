@@ -31,7 +31,7 @@
     <string name="desktop_zoom_help">Faça o gesto de pinça com dois dedos para aplicar zoom de 0,5× a 4×; arraste dois dedos para mover a imagem livremente, inclusive pelas bordas pretas. Um dedo mantém o modo de toque selecionado. A rolagem com dois dedos é substituída enquanto os controles de zoom estão ativados.</string>
     <string name="desktop_output">Saída de vídeo (reconecta a transmissão)</string>
     <string name="desktop_output_device">Este dispositivo</string>
-    <string name="desktop_touchpad_help">O vídeo está na sua tela externa. Use esta tela como touchpad. Teclado, botões do jogo e o menu da transmissão continuam disponíveis aqui.</string>
+    <string name="desktop_touchpad_help">O vídeo está na sua tela externa. Use esta tela como touchpad. Teclado, botões do jogo e a Central de controle continuam disponíveis aqui.</string>
     <string name="desktop_pacing_fallback">Tela externa: os quadros são exibidos assim que chegam.</string>
     <string name="desktop_display_unavailable">Nenhuma tela externa pode exibir a transmissão, então ela permanece neste dispositivo.</string>
     <string name="controller_axes_title">Analógicos, gatilhos e direcional</string>

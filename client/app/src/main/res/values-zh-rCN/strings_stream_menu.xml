@@ -7,7 +7,7 @@
     <string name="overlay_compact_loss">丢包 %1$s%%</string>
     <string name="overlay_compact_waiting">正在等待视频</string>
     <string name="link_notice_lowered">电脑已将码率降至 %1$s Mbps：网络</string>
-    <string name="link_notice_keep">电脑已将码率降至 %1$s Mbps。若要保持你的码率，请打开串流菜单并开启“保持我的码率”。</string>
+    <string name="link_notice_keep">电脑已将码率降至 %1$s Mbps。若要保持你的码率，请打开控制中心并开启“保持我的码率”。</string>
     <string name="link_notice_lowered_only">电脑因网络原因已将码率降至 %1$s Mbps。</string>
     <string name="stream_keep_bitrate">保持我的码率</string>
     <string name="stream_keep_bitrate_off">从下一次串流起由电脑决定；本次串流保持其码率。</string>
@@ -34,7 +34,7 @@
     <string name="stream_choice_selected">已选择</string>
     <string name="stream_choice_not_selected">未选择</string>
     <string name="stream_web_ui_leaves">打开浏览器会离开串流；游戏会继续在电脑上运行。</string>
-    <string name="stream_menu_hint">如需打开串流菜单，请%1$s。</string>
+    <string name="stream_menu_hint">如需打开控制中心，请%1$s。</string>
     <string name="stream_menu_hint_swipe">从屏幕边缘向内滑动返回</string>
     <string name="stream_menu_hint_buttons">从底部向上滑动并点按“返回”</string>
     <string name="stream_menu_hint_back">按“返回”</string>
@@ -52,12 +52,12 @@
     <string name="stream_menu_shortcuts">快捷键</string>
     <string name="stream_menu_start_menu">开始菜单</string>
     <string name="stream_shortcut_pick_keys">请选择 1–8 个键。</string>
-    <string name="stream_menu_model_failed">无法显示串流菜单：%1$s</string>
+    <string name="stream_menu_model_failed">无法显示控制中心：%1$s</string>
     <string name="stream_menu_button_show">显示菜单按钮</string>
     <string name="stream_menu_button_hide">隐藏菜单按钮</string>
-    <string name="stream_menu_settings">串流菜单</string>
+    <string name="stream_menu_settings">控制中心</string>
     <string name="title_floating_menu_button">悬浮菜单按钮</string>
-    <string name="summary_floating_menu_button">串流画面上的圆形按钮，点一下即可打开串流菜单；拖动可移动它。如果用返回键或手柄就能打开菜单，则不需要它。</string>
+    <string name="summary_floating_menu_button">串流画面上的圆形按钮，点一下即可打开控制中心；拖动可移动它。如果用返回键或手柄就能打开菜单，则不需要它。</string>
     <string name="stream_tile_keyboard">键盘</string>
     <string name="stream_tile_pc_keyboard">PC 键盘</string>
     <string name="stream_tile_mouse">鼠标</string>

@@ -7,9 +7,9 @@
     <string name="summary_lower_bitrate">如果连接承载不了该码率，“从不：保持我的码率”可能让画面卡住或破碎，且只对接受码率更改的电脑有效；连接能承载更多但画面变得模糊时再选它。默认情况下，电脑会在丢失无法修复的帧时降低码率，之后再调回；“更早降低”会更早降低，代价是画面更柔和。</string>
     <string name="title_back_button">返回键</string>
     <string name="back_button_back">返回</string>
-    <string name="back_button_menu">串流菜单</string>
+    <string name="back_button_menu">控制中心</string>
     <string name="back_button_guide">Guide</string>
-    <string name="summary_back_button">控制器或掌机返回键的作用：“返回”作为返回键发送到电脑，“串流菜单”打开串流菜单，“Guide”向电脑发送 Guide（Home 或 PS）。如果游戏会用到这个按键，请保持“返回”。</string>
+    <string name="summary_back_button">控制器或掌机返回键的作用：“返回”作为返回键发送到电脑，“控制中心”打开控制中心，“Guide”向电脑发送 Guide（Home 或 PS）。如果游戏会用到这个按键，请保持“返回”。</string>
     <string name="settings_choice_off">关闭</string>
     <string name="system_keys_always">始终</string>
     <string name="system_keys_full_screen">全屏时</string>

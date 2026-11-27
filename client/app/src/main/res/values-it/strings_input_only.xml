@@ -5,7 +5,7 @@
     <string name="input_only_start">Solo input</string>
     <string name="input_only_small_stream_note">Il video viene comunque trasmesso alla dimensione minima, circa %1$.1f Mbit/s (%2$d MB all’ora), ma non viene mostrato</string>
     <string name="input_only_reason_input_permission">Consenti l’input per questo dispositivo sul PC</string>
-    <string name="input_only_small_stream_status">Solo input\nUsa il touch, i tasti o un controller.\nIl PC trasmette ancora un piccolo video (circa %1$.1f Mbit/s); non viene mostrato.\nIndietro apre il menu dello stream.</string>
+    <string name="input_only_small_stream_status">Solo input\nUsa il touch, i tasti o un controller.\nIl PC trasmette ancora un piccolo video (circa %1$.1f Mbit/s); non viene mostrato.\nIndietro apre il Centro di controllo.</string>
     <string name="input_only_small_stream_refused">Su questo PC Solo input usa un piccolo stream normale, e il PC l’ha rifiutato. Alcune app di streaming consentono un solo stream alla volta: termina l’altro stream o consentine di più nelle impostazioni o nell’interfaccia web del PC.</string>
     <string name="input_only_other_game">Sul PC è in esecuzione un altro gioco. Solo input si unisce al gioco in esecuzione e non lo chiude mai: scegli quel gioco o chiudilo prima.</string>
 </resources>

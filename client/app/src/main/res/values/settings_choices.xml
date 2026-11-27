@@ -7,9 +7,9 @@
     <string name="summary_lower_bitrate">Never: keep my bitrate can freeze or break up the picture on a link that cannot carry it, and works only with a PC that accepts bitrate changes; choose it when the picture turns soft on a link that can carry more. By default the PC lowers the bitrate when frames are lost that it cannot repair and raises it again afterwards; Lower it sooner lowers it earlier, with a softer picture as the cost.</string>
     <string name="title_back_button">Back button</string>
     <string name="back_button_back">Back</string>
-    <string name="back_button_menu">Stream menu</string>
+    <string name="back_button_menu">Control Center</string>
     <string name="back_button_guide">Guide</string>
-    <string name="summary_back_button">What the controller’s or handheld’s Back button does: Back reaches the PC as Back, Stream menu opens the stream menu, Guide sends Guide (Home or PS) to the PC. Leave it on Back if your games use that button.</string>
+    <string name="summary_back_button">What the controller’s or handheld’s Back button does: Back reaches the PC as Back, Control Center opens the Control Center, Guide sends Guide (Home or PS) to the PC. Leave it on Back if your games use that button.</string>
     <string name="settings_choice_off">Off</string>
     <string name="system_keys_always">Always</string>
     <string name="system_keys_full_screen">In full screen</string>

@@ -14,6 +14,6 @@
     <string name="quality_about">Fonctionnement</string>
     <string name="quality_stream_help">Enregistré pour ce PC. Fluidité baisse d’abord la résolution ; Détails baisse d’abord les FPS. Batterie limite progressivement la charge à 60 FPS maximum et à un côté court de 1080 pixels, dans le respect de vos limites minimales. Le codec, le HDR et le choix d’affichage restent ceux négociés.</string>
     <string name="quality_unavailable">Qualité automatique désactivée : ce PC ou cet appareil ne peut pas modifier la résolution et la fréquence d’images pendant un stream.</string>
-    <string name="quality_request_failed">Qualité automatique arrêtée : le PC n’a pas appliqué la nouvelle taille. Le stream continue ; choisissez un autre mode dans le menu du stream.</string>
+    <string name="quality_request_failed">Qualité automatique arrêtée : le PC n’a pas appliqué la nouvelle taille. Le stream continue ; choisissez un autre mode dans le Centre de contrôle.</string>
     <string name="quality_status">Qualité automatique : %1$s · %2$d × %3$d · cible %4$d FPS</string>
 </resources>

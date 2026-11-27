@@ -7,7 +7,7 @@
     <string name="overlay_compact_loss">Utrata %1$s%%</string>
     <string name="overlay_compact_waiting">Oczekiwanie na wideo</string>
     <string name="link_notice_lowered">Komputer obniżył przepływność do %1$s Mb/s: sieć</string>
-    <string name="link_notice_keep">Komputer obniżył szybkość transmisji do %1$s Mb/s. Aby ją zachować, otwórz menu strumienia i włącz „Zachowaj moją szybkość transmisji”.</string>
+    <string name="link_notice_keep">Komputer obniżył szybkość transmisji do %1$s Mb/s. Aby ją zachować, otwórz Centrum sterowania i włącz „Zachowaj moją szybkość transmisji”.</string>
     <string name="link_notice_lowered_only">Komputer obniżył szybkość transmisji do %1$s Mb/s z powodu sieci.</string>
     <string name="stream_keep_bitrate">Zachowaj moją szybkość transmisji</string>
     <string name="stream_keep_bitrate_off">Od następnego strumienia decyduje komputer; ten zachowuje swoją szybkość transmisji.</string>
@@ -34,7 +34,7 @@
     <string name="stream_choice_selected">Wybrane</string>
     <string name="stream_choice_not_selected">Niewybrane</string>
     <string name="stream_web_ui_leaves">Otwarcie przeglądarki opuszcza strumień; gra nadal działa na komputerze.</string>
-    <string name="stream_menu_hint">Aby otworzyć menu strumienia, %1$s.</string>
+    <string name="stream_menu_hint">Aby otworzyć Centrum sterowania, %1$s.</string>
     <string name="stream_menu_hint_swipe">przesuń od krawędzi ekranu, aby wrócić</string>
     <string name="stream_menu_hint_buttons">przesuń w górę od dołu i kliknij Wstecz</string>
     <string name="stream_menu_hint_back">naciśnij Wstecz</string>
@@ -52,12 +52,12 @@
     <string name="stream_menu_shortcuts">Skróty</string>
     <string name="stream_menu_start_menu">Menu Start</string>
     <string name="stream_shortcut_pick_keys">Wybierz od 1 do 8 klawiszy.</string>
-    <string name="stream_menu_model_failed">Nie udało się wyświetlić menu strumienia: %1$s</string>
+    <string name="stream_menu_model_failed">Nie udało się wyświetlić Centrum sterowania: %1$s</string>
     <string name="stream_menu_button_show">Pokaż przycisk menu</string>
     <string name="stream_menu_button_hide">Ukryj przycisk menu</string>
-    <string name="stream_menu_settings">Menu strumienia</string>
+    <string name="stream_menu_settings">Centrum sterowania</string>
     <string name="title_floating_menu_button">Pływający przycisk menu</string>
-    <string name="summary_floating_menu_button">Okrągły przycisk nad strumieniem, który stuknięciem otwiera menu strumienia; przeciągnij go, aby go przesunąć. Niepotrzebny, jeśli menu otwiera Wstecz lub kontroler.</string>
+    <string name="summary_floating_menu_button">Okrągły przycisk nad strumieniem, który stuknięciem otwiera Centrum sterowania; przeciągnij go, aby go przesunąć. Niepotrzebny, jeśli menu otwiera Wstecz lub kontroler.</string>
     <string name="stream_tile_keyboard">Klawiatura</string>
     <string name="stream_tile_pc_keyboard">Klawiatura PC</string>
     <string name="stream_tile_mouse">Mysz</string>

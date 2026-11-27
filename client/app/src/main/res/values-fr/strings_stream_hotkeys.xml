@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">Raccourcis du stream</string>
-    <string name="stream_hotkeys_summary">Les combinaisons de touches propres à Nightjar pendant un stream, comme celle qui ouvre le menu du stream. Leurs touches n’atteignent jamais le PC ; modifiez celle dont un jeu ou une appli a besoin.</string>
+    <string name="stream_hotkeys_summary">Les combinaisons de touches propres à Nightjar pendant un stream, comme celle qui ouvre le Centre de contrôle. Leurs touches n’atteignent jamais le PC ; modifiez celle dont un jeu ou une appli a besoin.</string>
     <string name="stream_hotkey_change">Modifier</string>
     <string name="stream_hotkey_off">Désactivée</string>
     <string name="stream_hotkey_reset">Réinitialiser</string>
@@ -22,7 +22,7 @@
     <string name="stream_hotkey_action_quit">Se déconnecter</string>
     <string name="stream_hotkey_action_capture">Libérer ou capturer les entrées</string>
     <string name="stream_hotkey_action_overlay">Superposition des performances</string>
-    <string name="stream_hotkey_action_stream_menu">Menu du stream</string>
+    <string name="stream_hotkey_action_stream_menu">Centre de contrôle</string>
     <string name="stream_hotkey_action_cursor">Afficher ou masquer le curseur</string>
     <string name="stream_hotkey_moved">%1$s devient %2$s</string>
     <string name="stream_hotkeys_unavailable">Raccourcis du stream indisponibles : %1$s</string>

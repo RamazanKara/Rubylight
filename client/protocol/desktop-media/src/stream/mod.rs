@@ -198,7 +198,7 @@ const MSG_LOCAL_CLIPBOARD_IMAGE_READ_FAILED: &str = en("Could not read the image
 const MSG_LOCAL_CLIPBOARD_PNG_FAILED: &str = en("Could not convert the image on this device’s clipboard to PNG: {}");
 const MSG_HOST_IMAGE_READ_FAILED: &str = en("Could not read the PC’s image: {}");
 const MSG_HOST_CLIPBOARD_NO_IMAGE: &str = en("The PC’s clipboard holds no image.");
-const MSG_STREAM_MENU: &str = en("Stream menu");
+const MSG_STREAM_MENU: &str = en("Control Center");
 const MSG_SHORTCUT_NOT_SENT: &str = en("Shortcut was not sent: {}");
 
 /// Where automatic bitrate starts after a reconnect and at first claim, shared with Android via

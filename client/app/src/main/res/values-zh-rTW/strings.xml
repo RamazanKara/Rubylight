@@ -172,7 +172,7 @@
     <string name="title_checkbox_usb_bind_all">一律使用 USB 驅動程式</string>
     <string name="summary_checkbox_usb_bind_all">即使是 Android 支援的 Xbox 控制器，也使用 Nightjar 的驅動程式。如果 USB 控制器透過 Android 沒有震動，請開啟，然後重新連接控制器。</string>
     <string name="title_checkbox_mouse_emulation">控制器滑鼠模式</string>
-    <string name="summary_checkbox_mouse_emulation">按住 Start 可讓控制器在控制器模式和滑鼠模式之間切換。如果在遊戲中會誤觸，請關閉；串流選單中的「滑鼠」圖塊仍可切換。</string>
+    <string name="summary_checkbox_mouse_emulation">按住 Start 可讓控制器在控制器模式和滑鼠模式之間切換。如果在遊戲中會誤觸，請關閉；控制中心中的「滑鼠」圖塊仍可切換。</string>
     <string name="title_checkbox_flip_face_buttons">任天堂按鈕配置</string>
     <string name="summary_checkbox_flip_face_buttons">交換 A 與 B、X 與 Y。如果希望 Nintendo 式控制器的按鈕傳送印在上面的字母，請開啟。</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">控制器觸控板作為滑鼠</string>
@@ -391,7 +391,7 @@
     <string name="role_input_only">僅限輸入</string>
     <string name="stream_monitor_title">遠端監看</string>
     <string name="stream_input_title">僅限輸入</string>
-    <string name="stream_input_only_help">僅限輸入\n使用觸控、按鍵或控制器。\n按「返回」可開啟串流選單。</string>
+    <string name="stream_input_only_help">僅限輸入\n使用觸控、按鍵或控制器。\n按「返回」可開啟控制中心。</string>
     <string name="stream_end_monitor">結束監看工作階段</string>
     <string name="stream_end_input">結束輸入工作階段</string>
     <string name="launch_confirm_title">在這部裝置上確認</string>
@@ -445,8 +445,8 @@
     <string name="upscaling_timing_estimate">估計值包含材質交接、GPU 完成和交換等待時間 (1 ms 輪詢)。無法取得顯示呈現計時。</string>
     <string name="upscaling_last_timing">上次 GPU 路徑估計值：%1$s</string>
     <string name="keyboard_shortcuts_title">鍵盤快速鍵</string>
-    <string name="keyboard_shortcuts_summary">Alt+F4 等組合鍵，在串流選單中顯示為圖塊，按一下即可傳送到電腦。</string>
-    <string name="keyboard_shortcuts_help">為串流選單中的「額外鍵盤按鍵」建立最多 32 個快速鍵。請輸入以 + 分隔的按鍵，例如 CTRL + SHIFT + ESC 或 WIN + D。每個按鈕會依序按下按鍵，並以相反順序放開。</string>
+    <string name="keyboard_shortcuts_summary">Alt+F4 等組合鍵，在控制中心中顯示為圖塊，按一下即可傳送到電腦。</string>
+    <string name="keyboard_shortcuts_help">為控制中心中的「額外鍵盤按鍵」建立最多 32 個快速鍵。請輸入以 + 分隔的按鍵，例如 CTRL + SHIFT + ESC 或 WIN + D。每個按鈕會依序按下按鍵，並以相反順序放開。</string>
     <string name="keyboard_shortcuts_add">新增快速鍵</string>
     <string name="keyboard_shortcuts_edit">編輯快速鍵</string>
     <string name="keyboard_shortcuts_save">儲存</string>
@@ -480,11 +480,11 @@
     <string name="keyboard_shortcuts_move_up">上移</string>
     <string name="keyboard_shortcuts_move_down">下移</string>
     <string name="stream_disconnect_confirm">要中斷串流嗎？\n工作階段會在電腦上等候，可隨時繼續。</string>
-    <string name="title_stream_menu_button_y">串流選單中的 Y</string>
-    <string name="title_stream_menu_button_x">串流選單中的 X</string>
-    <string name="title_stream_menu_button_lb">串流選單中的 LB</string>
-    <string name="title_stream_menu_button_rb">串流選單中的 RB</string>
-    <string name="summary_stream_menu_button">串流選單開啟時此按鈕執行的動作。「預設」沿用角落標有此按鈕的圖塊；「中斷連線」這類離開的動作會先詢問。</string>
+    <string name="title_stream_menu_button_y">控制中心中的 Y</string>
+    <string name="title_stream_menu_button_x">控制中心中的 X</string>
+    <string name="title_stream_menu_button_lb">控制中心中的 LB</string>
+    <string name="title_stream_menu_button_rb">控制中心中的 RB</string>
+    <string name="summary_stream_menu_button">控制中心開啟時此按鈕執行的動作。「預設」沿用角落標有此按鈕的圖塊；「中斷連線」這類離開的動作會先詢問。</string>
     <string name="stream_menu_button_default">預設</string>
     <string name="stream_menu_button_none">關閉</string>
     <string name="title_lower_refresh">降低更新率</string>

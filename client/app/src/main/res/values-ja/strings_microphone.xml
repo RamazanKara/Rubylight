@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">マイクの音声を PC に送信</string>
-    <string name="summary_checkbox_enable_mic">このデバイスのマイク音声を PC に送り、PC 上のゲームやチャットアプリで話せるようにします。ミュートはストリームメニューから行えます。PC の対応が必要です。</string>
+    <string name="summary_checkbox_enable_mic">このデバイスのマイク音声を PC に送り、PC 上のゲームやチャットアプリで話せるようにします。ミュートはコントロールセンターから行えます。PC の対応が必要です。</string>
     <string name="mic_permission_denied">マイクへのアクセスが許可されていないため、マイクはオフのままです。PC 経由で話すには Android の設定で許可してください。</string>
     <string name="mic_status_sending">マイク: 送信中</string>
     <string name="mic_status_muted">マイク: ミュート中</string>
@@ -20,7 +20,7 @@
     <string name="title_seekbar_mic_gain">マイクゲイン</string>
     <string name="summary_seekbar_mic_gain">送信前にマイクの音量を小さく、または大きくします。相手に声が小さく聞こえる場合は上げ、大きすぎる場合は下げてください。</string>
     <string name="title_checkbox_mic_button">マイクボタン</string>
-    <string name="summary_checkbox_mic_button">ストリームの上に表示される丸いボタンで、タップするたびにマイクのミュートと解除を切り替えます。ドラッグで移動できます。オフの場合は、ストリームメニューからミュートしてください。</string>
+    <string name="summary_checkbox_mic_button">ストリームの上に表示される丸いボタンで、タップするたびにマイクのミュートと解除を切り替えます。ドラッグで移動できます。オフの場合は、コントロールセンターからミュートしてください。</string>
     <string name="mic_button_mute">マイクをミュート</string>
     <string name="mic_button_unmute">マイクのミュートを解除</string>
     <string name="stream_mic_button_show">マイクボタンを表示</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">Wysyłaj mikrofon do komputera</string>
-    <string name="summary_checkbox_enable_mic">Wysyła mikrofon tego urządzenia do komputera, więc możesz tam rozmawiać w grach i komunikatorach. Wyciszysz go w menu strumienia; wymaga obsługi przez komputer.</string>
+    <string name="summary_checkbox_enable_mic">Wysyła mikrofon tego urządzenia do komputera, więc możesz tam rozmawiać w grach i komunikatorach. Wyciszysz go w Centrum sterowania; wymaga obsługi przez komputer.</string>
     <string name="mic_permission_denied">Nie zezwolono na dostęp do mikrofonu, więc mikrofon pozostaje wyłączony. Zezwól na to w ustawieniach Androida, aby rozmawiać przez komputer.</string>
     <string name="mic_status_sending">Mikrofon: wysyłanie</string>
     <string name="mic_status_muted">Mikrofon: wyciszony</string>
@@ -20,7 +20,7 @@
     <string name="title_seekbar_mic_gain">Wzmocnienie mikrofonu</string>
     <string name="summary_seekbar_mic_gain">Ścisza lub podgłaśnia mikrofon przed wysłaniem. Zwiększ, jeśli inni słyszą cię za cicho, zmniejsz, jeśli za głośno.</string>
     <string name="title_checkbox_mic_button">Przycisk mikrofonu</string>
-    <string name="summary_checkbox_mic_button">Okrągły przycisk nad strumieniem, który jednym stuknięciem wycisza i włącza mikrofon; przeciągnij go, aby go przesunąć. Po wyłączeniu wyciszaj mikrofon w menu strumienia.</string>
+    <string name="summary_checkbox_mic_button">Okrągły przycisk nad strumieniem, który jednym stuknięciem wycisza i włącza mikrofon; przeciągnij go, aby go przesunąć. Po wyłączeniu wyciszaj mikrofon w Centrum sterowania.</string>
     <string name="mic_button_mute">Wycisz mikrofon</string>
     <string name="mic_button_unmute">Włącz mikrofon</string>
     <string name="stream_mic_button_show">Pokaż przycisk mikrofonu</string>

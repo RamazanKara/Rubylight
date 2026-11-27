@@ -172,7 +172,7 @@
     <string name="title_checkbox_usb_bind_all">常に USB ドライバを使用</string>
     <string name="summary_checkbox_usb_bind_all">Android が対応している Xbox コントローラにも Nightjar のドライバを使います。USB コントローラが Android 経由では振動しない場合にオンにし、コントローラを接続し直してください。</string>
     <string name="title_checkbox_mouse_emulation">コントローラのマウスモード</string>
-    <string name="summary_checkbox_mouse_emulation">Start を長押しすると、コントローラがゲームパッドとマウスで切り替わります。ゲーム中に誤って切り替わってしまう場合はオフにしてください。オフでも、ストリームメニューの「マウス」タイルで切り替えられます。</string>
+    <string name="summary_checkbox_mouse_emulation">Start を長押しすると、コントローラがゲームパッドとマウスで切り替わります。ゲーム中に誤って切り替わってしまう場合はオフにしてください。オフでも、コントロールセンターの「マウス」タイルで切り替えられます。</string>
     <string name="title_checkbox_flip_face_buttons">Nintendo のボタン配置</string>
     <string name="summary_checkbox_flip_face_buttons">A と B、X と Y を入れ替えます。Nintendo 配置のコントローラで、ボタンに印字された文字のとおりに送りたい場合はオンにしてください。</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">コントローラのタッチパッドをマウスとして使用</string>
@@ -391,7 +391,7 @@
     <string name="role_input_only">入力のみ</string>
     <string name="stream_monitor_title">リモートモニター</string>
     <string name="stream_input_title">入力専用</string>
-    <string name="stream_input_only_help">入力のみ\nタッチ、キー、コントローラを使用します。\n[戻る] でストリームメニューが開きます。</string>
+    <string name="stream_input_only_help">入力のみ\nタッチ、キー、コントローラを使用します。\n[戻る] でコントロールセンターが開きます。</string>
     <string name="stream_end_monitor">モニターセッションを終了</string>
     <string name="stream_end_input">入力セッションを終了</string>
     <string name="launch_confirm_title">このデバイスで確認</string>
@@ -445,8 +445,8 @@
     <string name="upscaling_timing_estimate">推定値にはテクスチャの受け渡し、GPU の処理完了、スワップ待ち（1 ms ポーリング）が含まれます。ディスプレイの表示タイミングは利用できません。</string>
     <string name="upscaling_last_timing">直近の GPU 処理の推定値: %1$s</string>
     <string name="keyboard_shortcuts_title">キーボード ショートカット</string>
-    <string name="keyboard_shortcuts_summary">Alt+F4 などのキーの組み合わせです。ストリームメニューにタイルとして表示され、1 回押すだけで PC に送れます。</string>
-    <string name="keyboard_shortcuts_help">ストリームメニューの [追加のキーボードキー] 用に、最大 32 個のショートカットを作成できます。キーは + で区切って入力します（例: CTRL + SHIFT + ESC、WIN + D）。各ボタンはキーを順番に押し、逆の順番で離します。</string>
+    <string name="keyboard_shortcuts_summary">Alt+F4 などのキーの組み合わせです。コントロールセンターにタイルとして表示され、1 回押すだけで PC に送れます。</string>
+    <string name="keyboard_shortcuts_help">コントロールセンターの [追加のキーボードキー] 用に、最大 32 個のショートカットを作成できます。キーは + で区切って入力します（例: CTRL + SHIFT + ESC、WIN + D）。各ボタンはキーを順番に押し、逆の順番で離します。</string>
     <string name="keyboard_shortcuts_add">ショートカットを追加</string>
     <string name="keyboard_shortcuts_edit">ショートカットを編集</string>
     <string name="keyboard_shortcuts_save">保存</string>
@@ -480,11 +480,11 @@
     <string name="keyboard_shortcuts_move_up">上へ移動</string>
     <string name="keyboard_shortcuts_move_down">下へ移動</string>
     <string name="stream_disconnect_confirm">ストリームから切断しますか？\nセッションはPCで待機し、再開できます。</string>
-    <string name="title_stream_menu_button_y">ストリームメニューの Y</string>
-    <string name="title_stream_menu_button_x">ストリームメニューの X</string>
-    <string name="title_stream_menu_button_lb">ストリームメニューの LB</string>
-    <string name="title_stream_menu_button_rb">ストリームメニューの RB</string>
-    <string name="summary_stream_menu_button">ストリームメニューを開いているときに、このボタンで実行する操作です。「デフォルト」では、隅にこのボタンが表示されているタイルを実行します。「切断」のようにストリームを終える操作は、実行前に確認します。</string>
+    <string name="title_stream_menu_button_y">コントロールセンターの Y</string>
+    <string name="title_stream_menu_button_x">コントロールセンターの X</string>
+    <string name="title_stream_menu_button_lb">コントロールセンターの LB</string>
+    <string name="title_stream_menu_button_rb">コントロールセンターの RB</string>
+    <string name="summary_stream_menu_button">コントロールセンターを開いているときに、このボタンで実行する操作です。「デフォルト」では、隅にこのボタンが表示されているタイルを実行します。「切断」のようにストリームを終える操作は、実行前に確認します。</string>
     <string name="stream_menu_button_default">デフォルト</string>
     <string name="stream_menu_button_none">オフ</string>
     <string name="title_lower_refresh">リフレッシュレートを下げる</string>

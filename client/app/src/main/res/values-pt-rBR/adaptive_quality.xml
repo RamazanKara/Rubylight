@@ -14,6 +14,6 @@
     <string name="quality_about">Como funciona</string>
     <string name="quality_stream_help">Salvo para este PC. Movimento reduz primeiro a resolução; Detalhes reduz primeiro os FPS. Bateria limita o trabalho aos poucos a no máximo 60 FPS e 1080 pixels no lado curto, dentro dos seus limites mínimos. Codec, HDR e a escolha de tela permanecem como negociados.</string>
     <string name="quality_unavailable">A qualidade automática está desativada: este PC ou dispositivo não consegue mudar a resolução e a taxa de quadros durante uma transmissão.</string>
-    <string name="quality_request_failed">A qualidade automática parou: o PC não aplicou o novo tamanho. A transmissão continua; escolha outro modo no menu da transmissão.</string>
+    <string name="quality_request_failed">A qualidade automática parou: o PC não aplicou o novo tamanho. A transmissão continua; escolha outro modo na Central de controle.</string>
     <string name="quality_status">Qualidade automática: %1$s · %2$d × %3$d · meta de %4$d FPS</string>
 </resources>

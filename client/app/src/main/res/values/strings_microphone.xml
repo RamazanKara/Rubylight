@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">Send microphone to the PC</string>
-    <string name="summary_checkbox_enable_mic">Sends this device’s microphone to the PC, so you can talk in games and chat apps there. Mute it from the stream menu; needs PC support.</string>
+    <string name="summary_checkbox_enable_mic">Sends this device’s microphone to the PC, so you can talk in games and chat apps there. Mute it from the Control Center; needs PC support.</string>
     <string name="mic_permission_denied">Microphone access was not allowed, so the microphone stays off. Allow it in Android settings to talk through the PC.</string>
     <string name="mic_status_sending">Microphone: sending</string>
     <string name="mic_status_muted">Microphone: muted</string>
@@ -22,7 +22,7 @@
     <string-array name="mic_echo_names"><item>@string/mic_echo_auto</item><item>@string/mic_echo_on</item><item>@string/mic_echo_off</item></string-array>
     <string-array name="mic_echo_values" translatable="false"><item>auto</item><item>on</item><item>off</item></string-array>
     <string name="title_checkbox_mic_button">Microphone button</string>
-    <string name="summary_checkbox_mic_button">A round button over the stream that mutes and unmutes the microphone with one tap; drag it to move it. Off, mute from the stream menu instead.</string>
+    <string name="summary_checkbox_mic_button">A round button over the stream that mutes and unmutes the microphone with one tap; drag it to move it. Off, mute from the Control Center instead.</string>
     <string name="mic_button_mute">Mute microphone</string>
     <string name="mic_button_unmute">Unmute microphone</string>
     <string name="stream_mic_button_show">Show microphone button</string>

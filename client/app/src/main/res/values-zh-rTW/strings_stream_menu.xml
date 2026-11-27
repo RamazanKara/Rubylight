@@ -7,7 +7,7 @@
     <string name="overlay_compact_loss">遺失 %1$s%%</string>
     <string name="overlay_compact_waiting">正在等待影像</string>
     <string name="link_notice_lowered">電腦已將位元率降至 %1$s Mbps：網路</string>
-    <string name="link_notice_keep">電腦已將位元速率降至 %1$s Mbps。若要保持你的位元速率，請開啟串流選單並開啟「保持我的位元速率」。</string>
+    <string name="link_notice_keep">電腦已將位元速率降至 %1$s Mbps。若要保持你的位元速率，請開啟控制中心並開啟「保持我的位元速率」。</string>
     <string name="link_notice_lowered_only">電腦因網路原因已將位元速率降至 %1$s Mbps。</string>
     <string name="stream_keep_bitrate">保持我的位元速率</string>
     <string name="stream_keep_bitrate_off">從下一次串流起由電腦決定；本次串流保持其位元速率。</string>
@@ -34,7 +34,7 @@
     <string name="stream_choice_selected">已選取</string>
     <string name="stream_choice_not_selected">未選取</string>
     <string name="stream_web_ui_leaves">開啟瀏覽器會離開串流；遊戲會繼續在電腦上執行。</string>
-    <string name="stream_menu_hint">如要開啟串流選單，請%1$s。</string>
+    <string name="stream_menu_hint">如要開啟控制中心，請%1$s。</string>
     <string name="stream_menu_hint_swipe">從螢幕邊緣向內滑動以返回</string>
     <string name="stream_menu_hint_buttons">從底部向上滑動並輕觸「返回」</string>
     <string name="stream_menu_hint_back">按下「返回」</string>
@@ -52,12 +52,12 @@
     <string name="stream_menu_shortcuts">快捷鍵</string>
     <string name="stream_menu_start_menu">開始功能表</string>
     <string name="stream_shortcut_pick_keys">請選擇 1–8 個按鍵。</string>
-    <string name="stream_menu_model_failed">無法顯示串流選單：%1$s</string>
+    <string name="stream_menu_model_failed">無法顯示控制中心：%1$s</string>
     <string name="stream_menu_button_show">顯示選單按鈕</string>
     <string name="stream_menu_button_hide">隱藏選單按鈕</string>
-    <string name="stream_menu_settings">串流選單</string>
+    <string name="stream_menu_settings">控制中心</string>
     <string name="title_floating_menu_button">浮動選單按鈕</string>
-    <string name="summary_floating_menu_button">串流畫面上的圓形按鈕，輕觸一下即可開啟串流選單；拖曳可移動它。如果用返回鍵或控制器就能開啟選單，則不需要它。</string>
+    <string name="summary_floating_menu_button">串流畫面上的圓形按鈕，輕觸一下即可開啟控制中心；拖曳可移動它。如果用返回鍵或控制器就能開啟選單，則不需要它。</string>
     <string name="stream_tile_keyboard">鍵盤</string>
     <string name="stream_tile_pc_keyboard">PC 鍵盤</string>
     <string name="stream_tile_mouse">滑鼠</string>

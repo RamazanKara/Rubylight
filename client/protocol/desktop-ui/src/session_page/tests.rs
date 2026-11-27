@@ -489,7 +489,7 @@ fn the_escape_key_is_shown_on_the_way_back_to_the_controls() {
         names.extend(tree.nodes.iter().filter_map(|(_, n)| n.label().or(n.value()).map(str::to_owned)));
     }
     let esc = crate::shortcuts::Key::Escape.cap();
-    assert!(names.iter().any(|n| *n == format!("{}, {esc}", tr("Back to stream menu"))), "{names:#?}");
+    assert!(names.iter().any(|n| *n == format!("{}, {esc}", tr("Back to Control Center"))), "{names:#?}");
     assert!(names.iter().any(|n| n == tr("Resume")), "Resume without a key: {names:#?}");
     assert!(!names.iter().any(|n| n.starts_with(tr("Resume")) && n.contains(esc.as_ref())), "{names:#?}");
 }

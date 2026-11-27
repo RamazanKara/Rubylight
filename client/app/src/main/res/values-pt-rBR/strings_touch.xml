@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_touch_off_help">O toque está desativado. Deslize para voltar ou toque em Voltar para abrir o menu da transmissão.</string>
+    <string name="stream_touch_off_help">O toque está desativado. Deslize para voltar ou toque em Voltar para abrir a Central de controle.</string>
     <string name="title_local_cursor_speed">Velocidade do cursor local</string>
     <string name="title_trackpad_acceleration">Aceleração do trackpad</string>
     <string name="summary_trackpad_acceleration">Movimentos lentos do dedo miram com precisão e deslizes rápidos vão mais longe. Deixe-a ativada a menos que prefira que o ponteiro siga o dedo um para um; Trackpad e Cursor local a aplicam a partir da próxima transmissão.</string>

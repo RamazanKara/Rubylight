@@ -8,7 +8,7 @@
     <string name="stream_mouse_step">Bước chuột: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Gửi phím hệ thống</string>
     <string name="title_checkbox_back_as_meta">Phím Quay lại trên bàn phím gửi phím Windows</string>
-    <string name="summary_checkbox_back_as_meta">Phím Quay lại của bàn phím vật lý gửi phím Windows đến PC thay vì Quay lại hoặc Esc. Cử chỉ Quay lại của Android và phím tắt menu stream vẫn mở menu stream.</string>
+    <string name="summary_checkbox_back_as_meta">Phím Quay lại của bàn phím vật lý gửi phím Windows đến PC thay vì Quay lại hoặc Esc. Cử chỉ Quay lại của Android và phím tắt Trung tâm điều khiển vẫn mở Trung tâm điều khiển.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt phải làm phím Windows</string>
     <string name="summary_checkbox_right_alt_as_meta">Alt phải gửi phím Windows, phím mà Mac dùng làm Command. Nên để tắt nếu bạn gõ ký tự bằng AltGr: khi bật, Alt phải không còn hoạt động như AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Bàn phím theo trường văn bản</string>

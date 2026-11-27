@@ -172,7 +172,7 @@
     <string name="title_checkbox_usb_bind_all">Zawsze używaj sterownika USB</string>
     <string name="summary_checkbox_usb_bind_all">Używa sterownika Nightjar nawet dla kontrolerów Xbox obsługiwanych przez Androida. Włącz, jeśli kontroler USB nie wibruje przez Androida, a potem podłącz go ponownie.</string>
     <string name="title_checkbox_mouse_emulation">Tryb myszy kontrolera</string>
-    <string name="summary_checkbox_mouse_emulation">Przytrzymanie Start przełącza kontroler między gamepadem a myszą. Wyłącz, jeśli zdarza się to przypadkiem w grze; kafelek „Mysz” w menu strumienia nadal go przełącza.</string>
+    <string name="summary_checkbox_mouse_emulation">Przytrzymanie Start przełącza kontroler między gamepadem a myszą. Wyłącz, jeśli zdarza się to przypadkiem w grze; kafelek „Mysz” w Centrum sterowania nadal go przełącza.</string>
     <string name="title_checkbox_flip_face_buttons">Układ przycisków Nintendo</string>
     <string name="summary_checkbox_flip_face_buttons">Zamienia A z B oraz X z Y. Włącz, jeśli przyciski kontrolera w stylu Nintendo mają wysyłać litery, które są na nich nadrukowane.</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">Touchpad kontrolera jako mysz</string>
@@ -391,7 +391,7 @@
     <string name="role_input_only">Tylko sterowanie</string>
     <string name="stream_monitor_title">Zdalny monitor</string>
     <string name="stream_input_title">Tylko sterowanie</string>
-    <string name="stream_input_only_help">Tylko sterowanie\nUżywaj dotyku, klawiszy lub kontrolera.\nWstecz otwiera menu strumienia.</string>
+    <string name="stream_input_only_help">Tylko sterowanie\nUżywaj dotyku, klawiszy lub kontrolera.\nWstecz otwiera Centrum sterowania.</string>
     <string name="stream_end_monitor">Zakończ sesję monitora</string>
     <string name="stream_end_input">Zakończ sesję sterowania</string>
     <string name="launch_confirm_title">Potwierdź na tym urządzeniu</string>
@@ -445,8 +445,8 @@
     <string name="upscaling_timing_estimate">Szacunek obejmuje przekazanie tekstury, zakończenie pracy GPU i oczekiwanie na zamianę bufora (odpytywanie co 1 ms). Czas prezentacji na ekranie jest niedostępny.</string>
     <string name="upscaling_last_timing">Ostatni szacunek ścieżki GPU: %1$s</string>
     <string name="keyboard_shortcuts_title">Skróty klawiszowe</string>
-    <string name="keyboard_shortcuts_summary">Kombinacje klawiszy, takie jak Alt+F4, pokazywane jako kafelki w menu strumienia i wysyłane do komputera jednym naciśnięciem.</string>
-    <string name="keyboard_shortcuts_help">Utwórz do 32 skrótów dla Dodatkowych klawiszy w menu strumienia. Wpisz klawisze oddzielone znakiem +, np. CTRL + SHIFT + ESC lub WIN + D. Każdy przycisk naciska klawisze po kolei i zwalnia je w odwrotnej kolejności.</string>
+    <string name="keyboard_shortcuts_summary">Kombinacje klawiszy, takie jak Alt+F4, pokazywane jako kafelki w Centrum sterowania i wysyłane do komputera jednym naciśnięciem.</string>
+    <string name="keyboard_shortcuts_help">Utwórz do 32 skrótów dla Dodatkowych klawiszy w Centrum sterowania. Wpisz klawisze oddzielone znakiem +, np. CTRL + SHIFT + ESC lub WIN + D. Każdy przycisk naciska klawisze po kolei i zwalnia je w odwrotnej kolejności.</string>
     <string name="keyboard_shortcuts_add">Dodaj skrót</string>
     <string name="keyboard_shortcuts_edit">Edytuj skrót</string>
     <string name="keyboard_shortcuts_save">Zapisz</string>
@@ -480,11 +480,11 @@
     <string name="keyboard_shortcuts_move_up">Przenieś w górę</string>
     <string name="keyboard_shortcuts_move_down">Przenieś w dół</string>
     <string name="stream_disconnect_confirm">Rozłączyć się ze streamem?\nSesja czeka na PC, gotowa do wznowienia.</string>
-    <string name="title_stream_menu_button_y">Y w menu transmisji</string>
-    <string name="title_stream_menu_button_x">X w menu transmisji</string>
-    <string name="title_stream_menu_button_lb">LB w menu transmisji</string>
-    <string name="title_stream_menu_button_rb">RB w menu transmisji</string>
-    <string name="summary_stream_menu_button">Co robi ten przycisk, gdy menu strumienia jest otwarte. „Domyślnie” zostawia kafelek, który pokazuje ten przycisk w rogu; wyjście, takie jak „Rozłącz”, najpierw pyta o potwierdzenie.</string>
+    <string name="title_stream_menu_button_y">Y w Centrum sterowania</string>
+    <string name="title_stream_menu_button_x">X w Centrum sterowania</string>
+    <string name="title_stream_menu_button_lb">LB w Centrum sterowania</string>
+    <string name="title_stream_menu_button_rb">RB w Centrum sterowania</string>
+    <string name="summary_stream_menu_button">Co robi ten przycisk, gdy Centrum sterowania jest otwarte. „Domyślnie” zostawia kafelek, który pokazuje ten przycisk w rogu; wyjście, takie jak „Rozłącz”, najpierw pyta o potwierdzenie.</string>
     <string name="stream_menu_button_default">Domyślnie</string>
     <string name="stream_menu_button_none">Wyłączone</string>
     <string name="title_lower_refresh">Niższa częstotliwość odświeżania</string>

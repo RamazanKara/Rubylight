@@ -8,7 +8,7 @@
     <string name="stream_mouse_step">Paso del ratón: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Enviar teclas del sistema</string>
     <string name="title_checkbox_back_as_meta">Atrás del teclado envía la tecla Windows</string>
-    <string name="summary_checkbox_back_as_meta">La tecla Atrás de un teclado físico envía al PC la tecla Windows en lugar de Atrás o Esc. El gesto Atrás de Android y el atajo del menú de transmisión siguen abriendo el menú de transmisión.</string>
+    <string name="summary_checkbox_back_as_meta">La tecla Atrás de un teclado físico envía al PC la tecla Windows en lugar de Atrás o Esc. El gesto Atrás de Android y el atajo del Centro de control siguen abriendo el Centro de control.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt derecha como tecla Windows</string>
     <string name="summary_checkbox_right_alt_as_meta">Alt derecha envía la tecla Windows, que un Mac usa como Command. Déjalo desactivado si escribes caracteres con AltGr: Alt derecha deja entonces de funcionar como AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">El teclado sigue a los campos de texto</string>

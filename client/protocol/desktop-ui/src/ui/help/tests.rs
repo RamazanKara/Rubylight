@@ -301,7 +301,7 @@ fn the_page_reads_in_german() {
     page.l.switch(Screen::Help);
     page.size = vec2(1280.0, 9000.0);
     page.settle();
-    for word in ["Tastenkürzel", "Stream-Menü", "Strg"] {
+    for word in ["Tastenkürzel", "Kontrollzentrum", "Strg"] {
         assert!(page.drawn.iter().any(|t| t.contains(word)), "{word} on the German page: {:?}", page.drawn);
     }
 }

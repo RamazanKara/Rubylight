@@ -172,7 +172,7 @@
     <string name="title_checkbox_usb_bind_all">항상 USB 드라이버 사용</string>
     <string name="summary_checkbox_usb_bind_all">Android가 지원하는 Xbox 컨트롤러에도 Nightjar 드라이버를 사용합니다. USB 컨트롤러가 Android를 통해서는 진동하지 않으면 켠 다음 컨트롤러를 다시 연결하세요.</string>
     <string name="title_checkbox_mouse_emulation">컨트롤러 마우스 모드</string>
-    <string name="summary_checkbox_mouse_emulation">Start를 길게 누르면 컨트롤러가 게임패드와 마우스 사이에서 전환됩니다. 게임 중에 실수로 전환된다면 끄세요. 꺼도 스트림 메뉴의 ‘마우스’ 타일로 전환할 수 있습니다.</string>
+    <string name="summary_checkbox_mouse_emulation">Start를 길게 누르면 컨트롤러가 게임패드와 마우스 사이에서 전환됩니다. 게임 중에 실수로 전환된다면 끄세요. 꺼도 제어 센터의 ‘마우스’ 타일로 전환할 수 있습니다.</string>
     <string name="title_checkbox_flip_face_buttons">Nintendo 버튼 배치</string>
     <string name="summary_checkbox_flip_face_buttons">A와 B, X와 Y를 서로 바꿉니다. Nintendo 방식 컨트롤러의 버튼이 버튼에 적힌 글자 그대로 전송되게 하려면 켜세요.</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">컨트롤러 터치패드를 마우스로 사용</string>
@@ -391,7 +391,7 @@
     <string name="role_input_only">입력 전용</string>
     <string name="stream_monitor_title">원격 모니터</string>
     <string name="stream_input_title">입력 전용</string>
-    <string name="stream_input_only_help">입력 전용\n터치, 키 또는 컨트롤러를 사용하세요.\n뒤로를 누르면 스트림 메뉴가 열립니다.</string>
+    <string name="stream_input_only_help">입력 전용\n터치, 키 또는 컨트롤러를 사용하세요.\n뒤로를 누르면 제어 센터가 열립니다.</string>
     <string name="stream_end_monitor">모니터 세션 종료</string>
     <string name="stream_end_input">입력 세션 종료</string>
     <string name="launch_confirm_title">이 기기에서 확인</string>
@@ -445,8 +445,8 @@
     <string name="upscaling_timing_estimate">추정치에는 텍스처 전달, GPU 완료, 스왑 대기(1 ms 폴링)가 포함됩니다. 디스플레이 프레젠테이션 타이밍은 사용할 수 없습니다.</string>
     <string name="upscaling_last_timing">최근 GPU 경로 추정치: %1$s</string>
     <string name="keyboard_shortcuts_title">키보드 단축키</string>
-    <string name="keyboard_shortcuts_summary">Alt+F4 같은 키 조합입니다. 스트림 메뉴에 타일로 표시되며 한 번 눌러 PC로 보냅니다.</string>
-    <string name="keyboard_shortcuts_help">스트림 메뉴의 추가 키보드 키에 단축키를 최대 32개까지 만들 수 있습니다. 키를 +로 구분해 입력하세요(예: CTRL + SHIFT + ESC 또는 WIN + D). 각 버튼은 키를 순서대로 누르고 역순으로 뗍니다.</string>
+    <string name="keyboard_shortcuts_summary">Alt+F4 같은 키 조합입니다. 제어 센터에 타일로 표시되며 한 번 눌러 PC로 보냅니다.</string>
+    <string name="keyboard_shortcuts_help">제어 센터의 추가 키보드 키에 단축키를 최대 32개까지 만들 수 있습니다. 키를 +로 구분해 입력하세요(예: CTRL + SHIFT + ESC 또는 WIN + D). 각 버튼은 키를 순서대로 누르고 역순으로 뗍니다.</string>
     <string name="keyboard_shortcuts_add">단축키 추가</string>
     <string name="keyboard_shortcuts_edit">단축키 편집</string>
     <string name="keyboard_shortcuts_save">저장</string>
@@ -480,11 +480,11 @@
     <string name="keyboard_shortcuts_move_up">위로 이동</string>
     <string name="keyboard_shortcuts_move_down">아래로 이동</string>
     <string name="stream_disconnect_confirm">스트림 연결을 끊을까요?\n세션은 PC에서 대기하며 이어서 다시 시작할 수 있습니다.</string>
-    <string name="title_stream_menu_button_y">스트림 메뉴의 Y</string>
-    <string name="title_stream_menu_button_x">스트림 메뉴의 X</string>
-    <string name="title_stream_menu_button_lb">스트림 메뉴의 LB</string>
-    <string name="title_stream_menu_button_rb">스트림 메뉴의 RB</string>
-    <string name="summary_stream_menu_button">스트림 메뉴가 열려 있을 때 이 버튼이 실행할 동작입니다. ‘기본값’은 모서리에 이 버튼이 표시된 타일을 실행합니다. ‘연결 끊기’처럼 스트림을 나가는 동작은 먼저 확인을 요청합니다.</string>
+    <string name="title_stream_menu_button_y">제어 센터의 Y</string>
+    <string name="title_stream_menu_button_x">제어 센터의 X</string>
+    <string name="title_stream_menu_button_lb">제어 센터의 LB</string>
+    <string name="title_stream_menu_button_rb">제어 센터의 RB</string>
+    <string name="summary_stream_menu_button">제어 센터가 열려 있을 때 이 버튼이 실행할 동작입니다. ‘기본값’은 모서리에 이 버튼이 표시된 타일을 실행합니다. ‘연결 끊기’처럼 스트림을 나가는 동작은 먼저 확인을 요청합니다.</string>
     <string name="stream_menu_button_default">기본값</string>
     <string name="stream_menu_button_none">끔</string>
     <string name="title_lower_refresh">주사율 낮추기</string>

@@ -7,7 +7,7 @@
     <string name="stream_controls_layout">Sửa bố cục tay cầm</string>
     <string name="stream_reconnect">Kết nối lại stream</string>
     <string name="stream_reconnecting">Đang kết nối lại với ứng dụng đang chạy…</string>
-    <string name="stream_native_touch_help">Thao tác chạm điều khiển trực tiếp PC.\nMở menu stream để dùng bàn phím.</string>
+    <string name="stream_native_touch_help">Thao tác chạm điều khiển trực tiếp PC.\nMở Trung tâm điều khiển để dùng bàn phím.</string>
     <string name="stream_native_touch_fallback">PC không nhận cảm ứng đa điểm nên thao tác chạm sẽ di chuyển chuột.</string>
     <string-array name="stream_touch_modes">
         <item>Bàn di chuột</item>

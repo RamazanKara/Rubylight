@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="quick_suspend_paused">PC에서 게임이 일시 중지되었습니다. 재개하려면 스트림 메뉴를 여세요.</string>
+    <string name="quick_suspend_paused">PC에서 게임이 일시 중지되었습니다. 재개하려면 제어 센터를 여세요.</string>
     <string name="quick_suspend_resumed">게임을 재개했습니다.</string>
     <string name="quick_suspend_refused_anti_cheat">PC에서 안티치트가 실행 중이므로 게임을 일시 중지하지 않습니다.</string>
     <string name="quick_suspend_refused_protected">보호된 프로그램이나 시스템 프로그램이 이 게임과 함께 실행 중이므로 PC가 일시 중지하지 않습니다.</string>

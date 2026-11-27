@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="quick_suspend_paused">Trò chơi đang tạm dừng trên PC. Mở menu stream để tiếp tục.</string>
+    <string name="quick_suspend_paused">Trò chơi đang tạm dừng trên PC. Mở Trung tâm điều khiển để tiếp tục.</string>
     <string name="quick_suspend_resumed">Đã tiếp tục trò chơi.</string>
     <string name="quick_suspend_refused_anti_cheat">PC đang chạy phần mềm chống gian lận nên sẽ không tạm dừng trò chơi.</string>
     <string name="quick_suspend_refused_protected">Một chương trình được bảo vệ hoặc chương trình hệ thống đang chạy cùng trò chơi này nên PC sẽ không tạm dừng nó.</string>

@@ -444,7 +444,7 @@ public class GameRateChangeTest {
         h.game.linkLoweredTold = false;
         h.game.adaptation.noteLinkLowered(status);
         told = ShadowToast.getTextOfLatestToast();
-        assertTrue(told, told.contains("18 Mbps") && told.contains("stream menu") && told.contains("Keep my bitrate"));
+        assertTrue(told, told.contains("18 Mbps") && told.contains("Control Center") && told.contains("Keep my bitrate"));
         // Not while the PC keeps this stream's bitrate.
         ShadowToast.reset();
         h.game.linkLoweredTold = false;

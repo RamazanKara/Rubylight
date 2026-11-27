@@ -7,7 +7,7 @@
     <string name="stream_mouse_step">Mausschritt: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Systemtasten senden</string>
     <string name="title_checkbox_back_as_meta">Tastatur-Zurück sendet Windows-Taste</string>
-    <string name="summary_checkbox_back_as_meta">Die Zurück-Taste einer physischen Tastatur sendet die Windows-Taste an den PC statt Zurück oder Esc. Die Zurück-Geste von Android und das Tastenkürzel fürs Stream-Menü öffnen das Stream-Menü weiterhin.</string>
+    <string name="summary_checkbox_back_as_meta">Die Zurück-Taste einer physischen Tastatur sendet die Windows-Taste an den PC statt Zurück oder Esc. Die Zurück-Geste von Android und das Tastenkürzel fürs Kontrollzentrum öffnen das Kontrollzentrum weiterhin.</string>
     <string name="title_checkbox_right_alt_as_meta">Rechte Alt-Taste als Windows-Taste</string>
     <string name="summary_checkbox_right_alt_as_meta">Die rechte Alt-Taste sendet die Windows-Taste, die ein Mac als Befehlstaste nutzt. Lass es aus, wenn du Zeichen mit AltGr tippst: Die rechte Alt-Taste funktioniert dann nicht mehr als AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Tastatur folgt Textfeldern</string>

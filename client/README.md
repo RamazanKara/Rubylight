@@ -31,8 +31,8 @@
 </div>
 
 <p align="center">
-  <a href="docs/assets/readme/nightjar-tour.mp4"><img src="docs/assets/readme/nightjar-tour.webp" width="880" alt="Nightjar with a controller: Home, its glass taking the colours of each focused cover, a game's page with Resume, then a stream with the stream menu and the on-screen controls (offline demo library and a sample scene)."></a><br>
-  <sub><b>Nightjar with a controller:</b> Home, a game's page, the stream menu and the on-screen controls. <a href="docs/assets/readme/nightjar-tour.mp4">Watch it as a video</a></sub>
+  <a href="docs/assets/readme/nightjar-tour.mp4"><img src="docs/assets/readme/nightjar-tour.webp" width="880" alt="Nightjar with a controller: Home, its glass taking the colours of each focused cover, a game's page with Resume, then a stream with the Control Center and the on-screen controls (offline demo library and a sample scene)."></a><br>
+  <sub><b>Nightjar with a controller:</b> Home, a game's page, the Control Center and the on-screen controls. <a href="docs/assets/readme/nightjar-tour.mp4">Watch it as a video</a></sub>
 </p>
 
 ## What you get
@@ -142,7 +142,7 @@ A performance overlay in three levels of detail shows the network and decoding, 
 
 <table>
 <tr>
-<td width="50%" valign="top"><img src="docs/assets/readme/stream-menu.webp" alt="Nightjar's stream menu over a running game: keyboard, PC keyboard, overlay, microphone, touch mode, on-screen controls, zoom and clipboard buttons, a bitrate slider, Disconnect and Quit game (demo stream)"><br><sub><b>The stream menu.</b> Keyboard, touch mode, clipboard and the bitrate, with Disconnect and Quit game.</sub></td>
+<td width="50%" valign="top"><img src="docs/assets/readme/stream-menu.webp" alt="Nightjar's Control Center over a running game: keyboard, PC keyboard, overlay, microphone, touch mode, on-screen controls, zoom and clipboard buttons, a bitrate slider, Disconnect and Quit game (demo stream)"><br><sub><b>The Control Center.</b> Keyboard, touch mode, clipboard and the bitrate, with Disconnect and Quit game.</sub></td>
 <td width="50%" valign="top"><img src="docs/assets/readme/stream-stats.webp" alt="A stream with the Statistics overlay: resolution, codec, frame rate, bitrate, round trip, decode time and the PC's CPU and GPU readings (demo stream with scripted readings)"><br><sub><b>Know why a stream stuttered.</b> The overlay, from one line to every stage.</sub></td>
 </tr>
 </table>

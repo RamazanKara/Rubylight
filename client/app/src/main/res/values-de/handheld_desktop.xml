@@ -31,7 +31,7 @@
     <string name="desktop_zoom_help">Mit zwei Fingern von 0,5× bis 4× zoomen; mit zwei Fingern das Bild frei verschieben, auch über schwarze Ränder hinweg. Ein Finger verwendet weiterhin den gewählten Touchmodus. Scrollen mit zwei Fingern ist dabei ersetzt.</string>
     <string name="desktop_output">Videoausgabe (verbindet Stream neu)</string>
     <string name="desktop_output_device">Dieses Gerät</string>
-    <string name="desktop_touchpad_help">Das Video läuft auf der externen Anzeige. Nutze diesen Bildschirm als Touchpad. Tastatur, Spieltasten und Stream-Menü bleiben hier verfügbar.</string>
+    <string name="desktop_touchpad_help">Das Video läuft auf der externen Anzeige. Nutze diesen Bildschirm als Touchpad. Tastatur, Spieltasten und Kontrollzentrum bleiben hier verfügbar.</string>
     <string name="desktop_pacing_fallback">Externer Bildschirm: Bilder erscheinen, sobald sie ankommen.</string>
     <string name="desktop_display_unavailable">Kein externer Bildschirm kann den Stream zeigen, daher bleibt er auf diesem Gerät.</string>
     <string name="controller_axes_title">Sticks, Trigger und Steuerkreuz</string>

@@ -8,7 +8,7 @@
     <string name="stream_mouse_step">鼠标步长：%1$d 像素</string>
     <string name="title_checkbox_capture_system_keys">发送系统按键</string>
     <string name="title_checkbox_back_as_meta">键盘返回键发送 Windows 键</string>
-    <string name="summary_checkbox_back_as_meta">实体键盘的返回键向电脑发送 Windows 键，而不是返回或 Esc。Android 的返回手势和串流菜单快捷键仍可打开串流菜单。</string>
+    <string name="summary_checkbox_back_as_meta">实体键盘的返回键向电脑发送 Windows 键，而不是返回或 Esc。Android 的返回手势和控制中心快捷键仍可打开控制中心。</string>
     <string name="title_checkbox_right_alt_as_meta">右 Alt 用作 Windows 键</string>
     <string name="summary_checkbox_right_alt_as_meta">右 Alt 发送 Windows 键，Mac 将其用作 Command。如果你用 AltGr 输入字符，请保持关闭：开启后右 Alt 不再起 AltGr 的作用。</string>
     <string name="title_checkbox_keyboard_follows_text_fields">键盘跟随文本框</string>

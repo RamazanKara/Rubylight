@@ -14,6 +14,6 @@
     <string name="quality_about">작동 방식</string>
     <string name="quality_stream_help">이 PC에 저장됩니다. 움직임 우선은 해상도를 먼저 낮추고, 디테일 우선은 FPS를 먼저 낮춥니다. 배터리 모드는 최소 제한 내에서 작업량을 최대 60 FPS, 짧은 변 1080픽셀로 점차 제한합니다. 코덱, HDR, 디스플레이 선택은 협상된 대로 유지됩니다.</string>
     <string name="quality_unavailable">자동 품질이 꺼져 있습니다: 이 PC 또는 기기는 스트리밍 중에 해상도와 프레임 속도를 변경할 수 없습니다.</string>
-    <string name="quality_request_failed">자동 품질이 중지되었습니다: PC가 새 크기를 적용하지 않았습니다. 스트림은 계속되며, 스트림 메뉴에서 다른 모드를 선택하세요.</string>
+    <string name="quality_request_failed">자동 품질이 중지되었습니다: PC가 새 크기를 적용하지 않았습니다. 스트림은 계속되며, 제어 센터에서 다른 모드를 선택하세요.</string>
     <string name="quality_status">자동 품질: %1$s · %2$d × %3$d · 목표 %4$d FPS</string>
 </resources>

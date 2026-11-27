@@ -172,7 +172,7 @@
     <string name="title_checkbox_usb_bind_all">始终使用 USB 驱动</string>
     <string name="summary_checkbox_usb_bind_all">即使是 Android 支持的 Xbox 手柄，也使用 Nightjar 的驱动。如果 USB 手柄通过 Android 没有震动，请开启，然后重新连接手柄。</string>
     <string name="title_checkbox_mouse_emulation">手柄鼠标模式</string>
-    <string name="summary_checkbox_mouse_emulation">按住 Start 可让手柄在手柄模式和鼠标模式之间切换。如果在游戏中会误触发，请关闭；串流菜单中的“鼠标”磁贴仍可切换。</string>
+    <string name="summary_checkbox_mouse_emulation">按住 Start 可让手柄在手柄模式和鼠标模式之间切换。如果在游戏中会误触发，请关闭；控制中心中的“鼠标”磁贴仍可切换。</string>
     <string name="title_checkbox_flip_face_buttons">任天堂按键布局</string>
     <string name="summary_checkbox_flip_face_buttons">交换 A 与 B、X 与 Y。如果希望 Nintendo 式手柄的按键发送其上印的字母，请开启。</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">手柄触控板用作鼠标</string>
@@ -391,7 +391,7 @@
     <string name="role_input_only">仅输入</string>
     <string name="stream_monitor_title">远程监视</string>
     <string name="stream_input_title">仅输入</string>
-    <string name="stream_input_only_help">仅输入\n使用触控、按键或手柄。\n按“返回”可打开串流菜单。</string>
+    <string name="stream_input_only_help">仅输入\n使用触控、按键或手柄。\n按“返回”可打开控制中心。</string>
     <string name="stream_end_monitor">结束监视会话</string>
     <string name="stream_end_input">结束输入会话</string>
     <string name="launch_confirm_title">在此设备上确认</string>
@@ -445,8 +445,8 @@
     <string name="upscaling_timing_estimate">估算值包括纹理交接、GPU 完成和交换等待（1 ms 轮询）。显示呈现计时不可用。</string>
     <string name="upscaling_last_timing">最近一次 GPU 路径估算：%1$s</string>
     <string name="keyboard_shortcuts_title">键盘快捷键</string>
-    <string name="keyboard_shortcuts_summary">Alt+F4 等组合键，在串流菜单中显示为磁贴，按一下即可发送到电脑。</string>
-    <string name="keyboard_shortcuts_help">为串流菜单中的“额外键盘按键”创建最多 32 个快捷键。输入以 + 分隔的按键，例如 CTRL + SHIFT + ESC 或 WIN + D。每个按钮会按顺序按下这些按键，并按相反顺序松开。</string>
+    <string name="keyboard_shortcuts_summary">Alt+F4 等组合键，在控制中心中显示为磁贴，按一下即可发送到电脑。</string>
+    <string name="keyboard_shortcuts_help">为控制中心中的“额外键盘按键”创建最多 32 个快捷键。输入以 + 分隔的按键，例如 CTRL + SHIFT + ESC 或 WIN + D。每个按钮会按顺序按下这些按键，并按相反顺序松开。</string>
     <string name="keyboard_shortcuts_add">添加快捷键</string>
     <string name="keyboard_shortcuts_edit">编辑快捷键</string>
     <string name="keyboard_shortcuts_save">保存</string>
@@ -480,11 +480,11 @@
     <string name="keyboard_shortcuts_move_up">上移</string>
     <string name="keyboard_shortcuts_move_down">下移</string>
     <string name="stream_disconnect_confirm">要断开串流吗？\n会话会在电脑上等待，可以随时继续。</string>
-    <string name="title_stream_menu_button_y">串流菜单中的 Y</string>
-    <string name="title_stream_menu_button_x">串流菜单中的 X</string>
-    <string name="title_stream_menu_button_lb">串流菜单中的 LB</string>
-    <string name="title_stream_menu_button_rb">串流菜单中的 RB</string>
-    <string name="summary_stream_menu_button">串流菜单打开时此按钮执行的操作。“默认”沿用角上标有此按钮的磁贴；“断开连接”这类退出操作会先询问。</string>
+    <string name="title_stream_menu_button_y">控制中心中的 Y</string>
+    <string name="title_stream_menu_button_x">控制中心中的 X</string>
+    <string name="title_stream_menu_button_lb">控制中心中的 LB</string>
+    <string name="title_stream_menu_button_rb">控制中心中的 RB</string>
+    <string name="summary_stream_menu_button">控制中心打开时此按钮执行的操作。“默认”沿用角上标有此按钮的磁贴；“断开连接”这类退出操作会先询问。</string>
     <string name="stream_menu_button_default">默认</string>
     <string name="stream_menu_button_none">关闭</string>
     <string name="title_lower_refresh">降低刷新率</string>

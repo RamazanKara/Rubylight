@@ -31,7 +31,7 @@
     <string name="desktop_zoom_help">Pincez avec deux doigts pour zoomer de 0,5× à 4× ; faites glisser deux doigts pour déplacer l’image librement, y compris sur les bordures noires. Un seul doigt conserve le mode tactile sélectionné. Le défilement à deux doigts est remplacé tant que les commandes de zoom sont activées.</string>
     <string name="desktop_output">Sortie vidéo (reconnecte le stream)</string>
     <string name="desktop_output_device">Cet appareil</string>
-    <string name="desktop_touchpad_help">La vidéo s’affiche sur votre écran externe. Utilisez cet écran comme pavé tactile. Le clavier, les boutons de jeu et le menu du stream restent disponibles ici.</string>
+    <string name="desktop_touchpad_help">La vidéo s’affiche sur votre écran externe. Utilisez cet écran comme pavé tactile. Le clavier, les boutons de jeu et le Centre de contrôle restent disponibles ici.</string>
     <string name="desktop_pacing_fallback">Écran externe : les images sont affichées dès leur arrivée.</string>
     <string name="desktop_display_unavailable">Aucun écran externe ne peut afficher le stream : il reste donc sur cet appareil.</string>
     <string name="controller_axes_title">Sticks, gâchettes et croix directionnelle</string>

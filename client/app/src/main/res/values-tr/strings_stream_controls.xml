@@ -7,7 +7,7 @@
     <string name="stream_controls_layout">Kumanda düzenini düzenle</string>
     <string name="stream_reconnect">Yayına yeniden bağlan</string>
     <string name="stream_reconnecting">Çalışan uygulamaya yeniden bağlanılıyor…</string>
-    <string name="stream_native_touch_help">Dokunma, bilgisayarı doğrudan kontrol eder.\nKlavye için yayın menüsünü açın.</string>
+    <string name="stream_native_touch_help">Dokunma, bilgisayarı doğrudan kontrol eder.\nKlavye için Kontrol Merkezini açın.</string>
     <string name="stream_native_touch_fallback">Bilgisayar çoklu dokunmayı desteklemediği için dokunma fareyi hareket ettirir.</string>
     <string-array name="stream_touch_modes">
         <item>Trackpad</item>

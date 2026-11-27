@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_touch_off_help">Dotyk jest wyłączony. Przesuń wstecz lub naciśnij Wstecz, aby otworzyć menu strumienia.</string>
+    <string name="stream_touch_off_help">Dotyk jest wyłączony. Przesuń wstecz lub naciśnij Wstecz, aby otworzyć Centrum sterowania.</string>
     <string name="title_local_cursor_speed">Szybkość kursora lokalnego</string>
     <string name="title_trackpad_acceleration">Przyspieszenie touchpada</string>
     <string name="summary_trackpad_acceleration">Wolny ruch palca pozwala celować precyzyjnie, a szybkie przesunięcia sięgają dalej. Zostaw je włączone, chyba że wolisz, aby wskaźnik podążał za palcem jeden do jednego; tryby „Touchpad” i „Kursor lokalny” stosują je od następnego strumienia.</string>

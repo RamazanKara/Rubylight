@@ -172,7 +172,7 @@
     <string name="title_checkbox_usb_bind_all">Usa sempre il driver USB</string>
     <string name="summary_checkbox_usb_bind_all">Usa il driver di Nightjar anche per i controller Xbox supportati da Android. Attivalo se un controller USB non vibra tramite Android, poi ricollegalo.</string>
     <string name="title_checkbox_mouse_emulation">Modalità mouse del controller</string>
-    <string name="summary_checkbox_mouse_emulation">Tenendo premuto Start il controller passa da gamepad a mouse e viceversa. Disattivalo se succede per sbaglio in un gioco; il riquadro Mouse del menu dello stream continua a farlo.</string>
+    <string name="summary_checkbox_mouse_emulation">Tenendo premuto Start il controller passa da gamepad a mouse e viceversa. Disattivalo se succede per sbaglio in un gioco; il riquadro Mouse del Centro di controllo continua a farlo.</string>
     <string name="title_checkbox_flip_face_buttons">Layout pulsanti Nintendo</string>
     <string name="summary_checkbox_flip_face_buttons">Scambia A con B e X con Y. Attivalo se i pulsanti di un controller in stile Nintendo devono inviare le lettere stampate sopra.</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">Touchpad del controller come mouse</string>
@@ -391,7 +391,7 @@
     <string name="role_input_only">Solo input</string>
     <string name="stream_monitor_title">Remote Monitor</string>
     <string name="stream_input_title">Solo input</string>
-    <string name="stream_input_only_help">Solo input\nUsa il touch, i tasti o un controller.\nIndietro apre il menu dello stream.</string>
+    <string name="stream_input_only_help">Solo input\nUsa il touch, i tasti o un controller.\nIndietro apre il Centro di controllo.</string>
     <string name="stream_end_monitor">Termina sessione monitor</string>
     <string name="stream_end_input">Termina sessione di input</string>
     <string name="launch_confirm_title">Conferma su questo dispositivo</string>
@@ -445,8 +445,8 @@
     <string name="upscaling_timing_estimate">La stima include passaggio della texture, completamento GPU e attesa dello swap (polling di 1 ms). La temporizzazione della presentazione al display non è disponibile.</string>
     <string name="upscaling_last_timing">Ultima stima del percorso GPU: %1$s</string>
     <string name="keyboard_shortcuts_title">Scorciatoie da tastiera</string>
-    <string name="keyboard_shortcuts_summary">Combinazioni di tasti come Alt+F4, mostrate come riquadri nel menu dello stream e inviate al PC con una sola pressione.</string>
-    <string name="keyboard_shortcuts_help">Crea fino a 32 scorciatoie per Tasti extra della tastiera nel menu dello stream. Inserisci i tasti separati da +, ad esempio CTRL + SHIFT + ESC o WIN + D. Ogni pulsante preme i tasti in ordine e li rilascia in ordine inverso.</string>
+    <string name="keyboard_shortcuts_summary">Combinazioni di tasti come Alt+F4, mostrate come riquadri nel Centro di controllo e inviate al PC con una sola pressione.</string>
+    <string name="keyboard_shortcuts_help">Crea fino a 32 scorciatoie per Tasti extra della tastiera nel Centro di controllo. Inserisci i tasti separati da +, ad esempio CTRL + SHIFT + ESC o WIN + D. Ogni pulsante preme i tasti in ordine e li rilascia in ordine inverso.</string>
     <string name="keyboard_shortcuts_add">Aggiungi scorciatoia</string>
     <string name="keyboard_shortcuts_edit">Modifica scorciatoia</string>
     <string name="keyboard_shortcuts_save">Salva</string>
@@ -480,11 +480,11 @@
     <string name="keyboard_shortcuts_move_up">Sposta su</string>
     <string name="keyboard_shortcuts_move_down">Sposta giù</string>
     <string name="stream_disconnect_confirm">Disconnettersi dallo stream?\nLa sessione resta in attesa sul PC, pronta per riprendere.</string>
-    <string name="title_stream_menu_button_y">Y nel menu dello stream</string>
-    <string name="title_stream_menu_button_x">X nel menu dello stream</string>
-    <string name="title_stream_menu_button_lb">LB nel menu dello stream</string>
-    <string name="title_stream_menu_button_rb">RB nel menu dello stream</string>
-    <string name="summary_stream_menu_button">Cosa fa questo pulsante mentre il menu dello stream è aperto. Predefinito mantiene il riquadro che mostra il pulsante nel suo angolo; un’uscita come Disconnetti chiede prima conferma.</string>
+    <string name="title_stream_menu_button_y">Y nel Centro di controllo</string>
+    <string name="title_stream_menu_button_x">X nel Centro di controllo</string>
+    <string name="title_stream_menu_button_lb">LB nel Centro di controllo</string>
+    <string name="title_stream_menu_button_rb">RB nel Centro di controllo</string>
+    <string name="summary_stream_menu_button">Cosa fa questo pulsante mentre il Centro di controllo è aperto. Predefinito mantiene il riquadro che mostra il pulsante nel suo angolo; un’uscita come Disconnetti chiede prima conferma.</string>
     <string name="stream_menu_button_default">Predefinito</string>
     <string name="stream_menu_button_none">Disattivato</string>
     <string name="title_lower_refresh">Frequenza di aggiornamento più bassa</string>

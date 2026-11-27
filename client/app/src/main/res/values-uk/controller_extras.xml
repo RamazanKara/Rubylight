@@ -8,7 +8,7 @@
     <string name="stream_mouse_step">Крок миші: %1$d пкс</string>
     <string name="title_checkbox_capture_system_keys">Надсилати системні клавіші</string>
     <string name="title_checkbox_back_as_meta">«Назад» на клавіатурі як клавіша Windows</string>
-    <string name="summary_checkbox_back_as_meta">Клавіша «Назад» на фізичній клавіатурі надсилає на ПК клавішу Windows замість «Назад» чи Esc. Жест «Назад» в Android і гаряча клавіша меню трансляції й далі відкривають меню трансляції.</string>
+    <string name="summary_checkbox_back_as_meta">Клавіша «Назад» на фізичній клавіатурі надсилає на ПК клавішу Windows замість «Назад» чи Esc. Жест «Назад» в Android і гаряча клавіша Центру керування й далі відкривають Центр керування.</string>
     <string name="title_checkbox_right_alt_as_meta">Правий Alt як клавіша Windows</string>
     <string name="summary_checkbox_right_alt_as_meta">Правий Alt надсилає клавішу Windows, яку Mac використовує як Command. Залиште вимкненим, якщо набираєте символи через AltGr: правий Alt тоді більше не працює як AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Клавіатура стежить за текстовими полями</string>

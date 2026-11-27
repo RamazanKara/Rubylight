@@ -7,9 +7,9 @@
     <string name="summary_lower_bitrate">„Nie: meine Bitrate behalten“ kann das Bild einfrieren oder zerfallen lassen, wenn die Verbindung die Bitrate nicht tragen kann, und wirkt nur mit einem PC, der Bitratenänderungen annimmt; wähle es, wenn das Bild auf einer Verbindung weich wird, die mehr tragen kann. Standardmäßig senkt der PC die Bitrate, wenn Bilder verloren gehen, die er nicht reparieren kann, und hebt sie danach wieder an; „Früher senken“ senkt sie früher, auf Kosten eines weicheren Bildes.</string>
     <string name="title_back_button">Zurücktaste</string>
     <string name="back_button_back">Zurück</string>
-    <string name="back_button_menu">Stream-Menü</string>
+    <string name="back_button_menu">Kontrollzentrum</string>
     <string name="back_button_guide">Guide</string>
-    <string name="summary_back_button">Was die Zurücktaste des Controllers oder Handhelds tut: Zurück erreicht den PC als Zurück, Stream-Menü öffnet das Stream-Menü, Guide sendet Guide (Home oder PS) an den PC. Lass sie auf Zurück, wenn deine Spiele diese Taste nutzen.</string>
+    <string name="summary_back_button">Was die Zurücktaste des Controllers oder Handhelds tut: Zurück erreicht den PC als Zurück, Kontrollzentrum öffnet das Kontrollzentrum, Guide sendet Guide (Home oder PS) an den PC. Lass sie auf Zurück, wenn deine Spiele diese Taste nutzen.</string>
     <string name="settings_choice_off">Aus</string>
     <string name="system_keys_always">Immer</string>
     <string name="system_keys_full_screen">Im Vollbild</string>

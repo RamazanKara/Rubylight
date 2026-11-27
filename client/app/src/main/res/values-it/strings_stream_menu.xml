@@ -7,7 +7,7 @@
     <string name="overlay_compact_loss">%1$s%% perdita</string>
     <string name="overlay_compact_waiting">In attesa del video</string>
     <string name="link_notice_lowered">Il PC ha ridotto il bitrate a %1$s Mbps: rete</string>
-    <string name="link_notice_keep">Il PC ha ridotto il bitrate a %1$s Mbps. Per mantenere il tuo bitrate, apri il menu dello stream e attiva «Mantieni il mio bitrate».</string>
+    <string name="link_notice_keep">Il PC ha ridotto il bitrate a %1$s Mbps. Per mantenere il tuo bitrate, apri il Centro di controllo e attiva «Mantieni il mio bitrate».</string>
     <string name="link_notice_lowered_only">Il PC ha ridotto il bitrate a %1$s Mbps a causa della rete.</string>
     <string name="stream_keep_bitrate">Mantieni il mio bitrate</string>
     <string name="stream_keep_bitrate_off">Dal prossimo stream decide il PC; questo mantiene il suo bitrate.</string>
@@ -34,7 +34,7 @@
     <string name="stream_choice_selected">Selezionato</string>
     <string name="stream_choice_not_selected">Non selezionato</string>
     <string name="stream_web_ui_leaves">Aprendo il browser si esce dallo stream; il gioco continua sul PC.</string>
-    <string name="stream_menu_hint">Per aprire il menu dello stream, %1$s.</string>
+    <string name="stream_menu_hint">Per aprire il Centro di controllo, %1$s.</string>
     <string name="stream_menu_hint_swipe">scorri indietro dal bordo dello schermo</string>
     <string name="stream_menu_hint_buttons">scorri verso l’alto dal basso e tocca Indietro</string>
     <string name="stream_menu_hint_back">premi Indietro</string>
@@ -52,12 +52,12 @@
     <string name="stream_menu_shortcuts">Scorciatoie</string>
     <string name="stream_menu_start_menu">Menu Start</string>
     <string name="stream_shortcut_pick_keys">Scegli da 1 a 8 tasti.</string>
-    <string name="stream_menu_model_failed">Impossibile comporre il menu dello stream: %1$s</string>
+    <string name="stream_menu_model_failed">Impossibile comporre il Centro di controllo: %1$s</string>
     <string name="stream_menu_button_show">Mostra pulsante del menu</string>
     <string name="stream_menu_button_hide">Nascondi pulsante del menu</string>
-    <string name="stream_menu_settings">Menu dello stream</string>
+    <string name="stream_menu_settings">Centro di controllo</string>
     <string name="title_floating_menu_button">Pulsante menu mobile</string>
-    <string name="summary_floating_menu_button">Un pulsante rotondo sopra lo stream che apre il menu dello stream con un tocco; trascinalo per spostarlo. Non serve se Indietro o il tuo controller aprono il menu.</string>
+    <string name="summary_floating_menu_button">Un pulsante rotondo sopra lo stream che apre il Centro di controllo con un tocco; trascinalo per spostarlo. Non serve se Indietro o il tuo controller aprono il menu.</string>
     <string name="stream_tile_keyboard">Tastiera</string>
     <string name="stream_tile_pc_keyboard">Tastiera PC</string>
     <string name="stream_tile_mouse">Mouse</string>

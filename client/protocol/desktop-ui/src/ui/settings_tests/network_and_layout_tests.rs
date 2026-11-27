@@ -403,7 +403,7 @@ fn paired_switches_read_as_one_choice() {
     };
     assert_eq!(value("{}", "back_opens_menu"), "Back");
     assert_eq!(value(r#"{"back_as_guide":true}"#, "back_opens_menu"), "Guide");
-    assert_eq!(value(r#"{"back_opens_menu":true,"back_as_guide":true}"#, "back_as_guide"), "Stream menu");
+    assert_eq!(value(r#"{"back_opens_menu":true,"back_as_guide":true}"#, "back_as_guide"), "Control Center");
     assert_eq!(value("{}", "capture_system_keys"), "Always");
     assert_eq!(value(r#"{"system_keys_fullscreen_only":true}"#, "capture_system_keys"), "In full screen");
     assert_eq!(value(r#"{"capture_system_keys":false,"system_keys_fullscreen_only":true}"#, "capture_system_keys"), "Off");

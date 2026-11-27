@@ -7,7 +7,7 @@
     <string name="stream_controls_layout">컨트롤러 레이아웃 편집</string>
     <string name="stream_reconnect">스트림 다시 연결</string>
     <string name="stream_reconnecting">실행 중인 앱에 다시 연결하는 중…</string>
-    <string name="stream_native_touch_help">터치로 PC를 직접 조작합니다.\n키보드는 스트림 메뉴에서 여세요.</string>
+    <string name="stream_native_touch_help">터치로 PC를 직접 조작합니다.\n키보드는 제어 센터에서 여세요.</string>
     <string name="stream_native_touch_fallback">PC가 멀티 터치를 지원하지 않아 터치로 마우스를 움직입니다.</string>
     <string-array name="stream_touch_modes">
         <item>트랙패드</item>

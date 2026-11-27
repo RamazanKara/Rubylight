@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">將麥克風傳送至電腦</string>
-    <string name="summary_checkbox_enable_mic">將此裝置的麥克風傳送到電腦，讓你可以在電腦上的遊戲和聊天應用程式中說話。可從串流選單靜音；需要電腦支援。</string>
+    <string name="summary_checkbox_enable_mic">將此裝置的麥克風傳送到電腦，讓你可以在電腦上的遊戲和聊天應用程式中說話。可從控制中心靜音；需要電腦支援。</string>
     <string name="mic_permission_denied">未取得麥克風存取權，因此麥克風會保持關閉。請在 Android 設定中允許存取，才能透過電腦通話。</string>
     <string name="mic_status_sending">麥克風：傳送中</string>
     <string name="mic_status_muted">麥克風：已靜音</string>
@@ -20,7 +20,7 @@
     <string name="title_seekbar_mic_gain">麥克風增益</string>
     <string name="summary_seekbar_mic_gain">在傳送前調低或調高麥克風音量。別人聽你的聲音太小時調高，太大時調低。</string>
     <string name="title_checkbox_mic_button">麥克風按鈕</string>
-    <string name="summary_checkbox_mic_button">串流畫面上的圓形按鈕，輕觸一下即可將麥克風靜音或取消靜音；拖曳可移動它。關閉後，請改從串流選單靜音。</string>
+    <string name="summary_checkbox_mic_button">串流畫面上的圓形按鈕，輕觸一下即可將麥克風靜音或取消靜音；拖曳可移動它。關閉後，請改從控制中心靜音。</string>
     <string name="mic_button_mute">將麥克風靜音</string>
     <string name="mic_button_unmute">取消麥克風靜音</string>
     <string name="stream_mic_button_show">顯示麥克風按鈕</string>

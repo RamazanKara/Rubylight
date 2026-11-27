@@ -195,7 +195,7 @@ fn a_repeated_chord_leaves_the_later_action_without_one() {
 fn the_last_way_out_cannot_be_turned_off() {
     isolate_thread_hotkeys_for_test();
     turn_off_hotkey("quit").unwrap();
-    assert_eq!(turn_off_hotkey("stream_menu"), Err(tr("Keep a hotkey for Stream menu or Disconnect.").to_owned()));
+    assert_eq!(turn_off_hotkey("stream_menu"), Err(tr("Keep a hotkey for Control Center or Disconnect.").to_owned()));
     assert!(hotkeys().iter().find(|b| b.id == "stream_menu").unwrap().keys.is_some());
     for id in ["help", "capture", "mouse_mode", "overlay", "send_clipboard", "fetch_clipboard", "fullscreen", "minimize"] {
         turn_off_hotkey(id).unwrap();

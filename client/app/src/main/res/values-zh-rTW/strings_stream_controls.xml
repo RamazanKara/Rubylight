@@ -7,7 +7,7 @@
     <string name="stream_controls_layout">編輯控制器版面配置</string>
     <string name="stream_reconnect">重新連線串流</string>
     <string name="stream_reconnecting">正在重新連線至執行中的應用程式…</string>
-    <string name="stream_native_touch_help">觸控會直接操作電腦。\n開啟串流選單即可使用鍵盤。</string>
+    <string name="stream_native_touch_help">觸控會直接操作電腦。\n開啟控制中心即可使用鍵盤。</string>
     <string name="stream_native_touch_fallback">這部電腦不支援多點觸控，因此觸控會移動滑鼠。</string>
     <string-array name="stream_touch_modes">
         <item>觸控板</item>

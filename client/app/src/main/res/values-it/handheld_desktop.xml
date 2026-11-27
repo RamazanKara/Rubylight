@@ -31,7 +31,7 @@
     <string name="desktop_zoom_help">Pizzica con due dita per ingrandire da 0,5× a 4×; trascina con due dita per spostare liberamente l’immagine, anche sui bordi neri. Con un dito resta attiva la modalità touch selezionata. Lo scorrimento con due dita viene sostituito mentre i controlli dello zoom sono attivi.</string>
     <string name="desktop_output">Uscita video (riconnette lo stream)</string>
     <string name="desktop_output_device">Questo dispositivo</string>
-    <string name="desktop_touchpad_help">Il video è sul display esterno. Usa questo schermo come touchpad. Tastiera, pulsanti di gioco e menu dello stream restano disponibili qui.</string>
+    <string name="desktop_touchpad_help">Il video è sul display esterno. Usa questo schermo come touchpad. Tastiera, pulsanti di gioco e Centro di controllo restano disponibili qui.</string>
     <string name="desktop_pacing_fallback">Display esterno: i frame vengono mostrati appena arrivano.</string>
     <string name="desktop_display_unavailable">Nessun display esterno può mostrare lo stream, quindi resta su questo dispositivo.</string>
     <string name="controller_axes_title">Levette, grilletti e croce direzionale</string>

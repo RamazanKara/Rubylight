@@ -32,6 +32,7 @@ pub(super) const SOURCES: [(&str, &str); 91] = [
     ("ui/settings/choices.rs", include_str!("../../../../desktop-ui/src/ui/settings/choices.rs")),
     ("ui/settings/controller_section.rs", include_str!("../../../../desktop-ui/src/ui/settings/controller_section.rs")),
     ("ui/settings/controls_sections.rs", include_str!("../../../../desktop-ui/src/ui/settings/controls_sections.rs")),
+    ("ui/settings/controller_section.rs", include_str!("../../../../desktop-ui/src/ui/settings/controller_section.rs")),
     ("ui/settings/rows.rs", include_str!("../../../../desktop-ui/src/ui/settings/rows.rs")),
     ("ui/settings/video_sections.rs", include_str!("../../../../desktop-ui/src/ui/settings/video_sections.rs")),
     ("ui/settings/view.rs", include_str!("../../../../desktop-ui/src/ui/settings/view.rs")),

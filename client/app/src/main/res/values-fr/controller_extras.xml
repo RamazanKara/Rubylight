@@ -8,7 +8,7 @@
     <string name="stream_mouse_step">Pas de la souris : %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Envoyer les touches système</string>
     <string name="title_checkbox_back_as_meta">Retour du clavier en touche Windows</string>
-    <string name="summary_checkbox_back_as_meta">La touche Retour d’un clavier physique envoie au PC la touche Windows au lieu de Retour ou Esc. Le geste Retour d’Android et le raccourci du menu du stream ouvrent toujours le menu du stream.</string>
+    <string name="summary_checkbox_back_as_meta">La touche Retour d’un clavier physique envoie au PC la touche Windows au lieu de Retour ou Esc. Le geste Retour d’Android et le raccourci du Centre de contrôle ouvrent toujours le Centre de contrôle.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt droite comme touche Windows</string>
     <string name="summary_checkbox_right_alt_as_meta">Alt droite envoie la touche Windows, qu’un Mac utilise comme touche Commande. Laissez-le désactivé si vous tapez des caractères avec AltGr : Alt droite ne fonctionne alors plus comme AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Le clavier suit les champs de texte</string>

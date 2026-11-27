@@ -7,7 +7,7 @@
     <string name="overlay_compact_loss">%1$s%% de perda</string>
     <string name="overlay_compact_waiting">Aguardando vídeo</string>
     <string name="link_notice_lowered">O PC reduziu o bitrate para %1$s Mbps: rede</string>
-    <string name="link_notice_keep">O PC reduziu a taxa de bits para %1$s Mbps. Para manter sua taxa de bits, abra o menu da transmissão e ative “Manter minha taxa de bits”.</string>
+    <string name="link_notice_keep">O PC reduziu a taxa de bits para %1$s Mbps. Para manter sua taxa de bits, abra a Central de controle e ative “Manter minha taxa de bits”.</string>
     <string name="link_notice_lowered_only">O PC reduziu a taxa de bits para %1$s Mbps por causa da rede.</string>
     <string name="stream_keep_bitrate">Manter minha taxa de bits</string>
     <string name="stream_keep_bitrate_off">O PC decide a partir da próxima transmissão; esta mantém sua taxa de bits.</string>
@@ -34,7 +34,7 @@
     <string name="stream_choice_selected">Selecionado</string>
     <string name="stream_choice_not_selected">Não selecionado</string>
     <string name="stream_web_ui_leaves">Abrir o navegador sai da transmissão; o jogo continua em execução no PC.</string>
-    <string name="stream_menu_hint">Para abrir o menu da transmissão, %1$s.</string>
+    <string name="stream_menu_hint">Para abrir a Central de controle, %1$s.</string>
     <string name="stream_menu_hint_swipe">deslize da borda da tela para voltar</string>
     <string name="stream_menu_hint_buttons">deslize de baixo para cima e toque em Voltar</string>
     <string name="stream_menu_hint_back">pressione Voltar</string>
@@ -52,12 +52,12 @@
     <string name="stream_menu_shortcuts">Atalhos</string>
     <string name="stream_menu_start_menu">Menu Iniciar</string>
     <string name="stream_shortcut_pick_keys">Escolha de 1 a 8 teclas.</string>
-    <string name="stream_menu_model_failed">Não foi possível montar o menu da transmissão: %1$s</string>
+    <string name="stream_menu_model_failed">Não foi possível montar a Central de controle: %1$s</string>
     <string name="stream_menu_button_show">Mostrar botão do menu</string>
     <string name="stream_menu_button_hide">Ocultar botão do menu</string>
-    <string name="stream_menu_settings">Menu da transmissão</string>
+    <string name="stream_menu_settings">Central de controle</string>
     <string name="title_floating_menu_button">Botão de menu flutuante</string>
-    <string name="summary_floating_menu_button">Um botão redondo sobre a transmissão que abre o menu da transmissão com um toque; arraste para movê-lo. Desnecessário se Voltar ou seu controle abre o menu.</string>
+    <string name="summary_floating_menu_button">Um botão redondo sobre a transmissão que abre a Central de controle com um toque; arraste para movê-lo. Desnecessário se Voltar ou seu controle abre o menu.</string>
     <string name="stream_tile_keyboard">Teclado</string>
     <string name="stream_tile_pc_keyboard">Teclado de PC</string>
     <string name="stream_tile_mouse">Mouse</string>

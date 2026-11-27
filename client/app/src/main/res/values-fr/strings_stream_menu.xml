@@ -7,7 +7,7 @@
     <string name="overlay_compact_loss">Perte %1$s %%</string>
     <string name="overlay_compact_waiting">En attente de la vidéo</string>
     <string name="link_notice_lowered">Le PC a réduit le débit à %1$s Mbit/s : réseau</string>
-    <string name="link_notice_keep">Le PC a baissé le débit à %1$s Mbit/s. Pour garder votre débit, ouvrez le menu du stream et activez « Garder mon débit ».</string>
+    <string name="link_notice_keep">Le PC a baissé le débit à %1$s Mbit/s. Pour garder votre débit, ouvrez le Centre de contrôle et activez « Garder mon débit ».</string>
     <string name="link_notice_lowered_only">Le PC a baissé le débit à %1$s Mbit/s à cause du réseau.</string>
     <string name="stream_keep_bitrate">Garder mon débit</string>
     <string name="stream_keep_bitrate_off">Le PC décide à partir du prochain stream ; celui-ci garde son débit.</string>
@@ -34,7 +34,7 @@
     <string name="stream_choice_selected">Sélectionné</string>
     <string name="stream_choice_not_selected">Non sélectionné</string>
     <string name="stream_web_ui_leaves">Ouvrir le navigateur quitte le stream ; le jeu continue de tourner sur le PC.</string>
-    <string name="stream_menu_hint">Pour ouvrir le menu du stream, %1$s.</string>
+    <string name="stream_menu_hint">Pour ouvrir le Centre de contrôle, %1$s.</string>
     <string name="stream_menu_hint_swipe">balayez vers l’intérieur depuis le bord de l’écran</string>
     <string name="stream_menu_hint_buttons">balayez vers le haut depuis le bas de l’écran et appuyez sur Retour</string>
     <string name="stream_menu_hint_back">appuyez sur Retour</string>
@@ -52,12 +52,12 @@
     <string name="stream_menu_shortcuts">Raccourcis</string>
     <string name="stream_menu_start_menu">Menu Démarrer</string>
     <string name="stream_shortcut_pick_keys">Choisissez 1 à 8 touches.</string>
-    <string name="stream_menu_model_failed">Impossible d’afficher le menu du stream : %1$s</string>
+    <string name="stream_menu_model_failed">Impossible d’afficher le Centre de contrôle : %1$s</string>
     <string name="stream_menu_button_show">Afficher le bouton du menu</string>
     <string name="stream_menu_button_hide">Masquer le bouton du menu</string>
-    <string name="stream_menu_settings">Menu du stream</string>
+    <string name="stream_menu_settings">Centre de contrôle</string>
     <string name="title_floating_menu_button">Bouton de menu flottant</string>
-    <string name="summary_floating_menu_button">Un bouton rond au-dessus du stream qui ouvre le menu du stream d’un appui ; faites-le glisser pour le déplacer. Inutile si Retour ou votre manette ouvre le menu.</string>
+    <string name="summary_floating_menu_button">Un bouton rond au-dessus du stream qui ouvre le Centre de contrôle d’un appui ; faites-le glisser pour le déplacer. Inutile si Retour ou votre manette ouvre le menu.</string>
     <string name="stream_tile_keyboard">Clavier</string>
     <string name="stream_tile_pc_keyboard">Clavier PC</string>
     <string name="stream_tile_mouse">Souris</string>

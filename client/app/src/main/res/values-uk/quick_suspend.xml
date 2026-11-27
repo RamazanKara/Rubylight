@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="quick_suspend_paused">Гру призупинено на ПК. Відкрийте меню трансляції, щоб продовжити її.</string>
+    <string name="quick_suspend_paused">Гру призупинено на ПК. Відкрийте Центр керування, щоб продовжити її.</string>
     <string name="quick_suspend_resumed">Гру продовжено.</string>
     <string name="quick_suspend_refused_anti_cheat">На ПК працює античит, тому він не призупинить гру.</string>
     <string name="quick_suspend_refused_protected">Разом із цією грою працює захищена або системна програма, тому ПК не призупинить її.</string>

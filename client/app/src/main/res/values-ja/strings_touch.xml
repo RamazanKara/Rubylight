@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_touch_off_help">タッチはオフです。戻るジェスチャーまたは戻るボタンでストリームメニューを開きます。</string>
+    <string name="stream_touch_off_help">タッチはオフです。戻るジェスチャーまたは戻るボタンでコントロールセンターを開きます。</string>
     <string name="title_local_cursor_speed">ローカルカーソルの速度</string>
     <string name="title_trackpad_acceleration">トラックパッドの加速</string>
     <string name="summary_trackpad_acceleration">指をゆっくり動かすと正確に狙え、速くスワイプすると遠くまで動きます。指とポインタを1対1で動かしたい場合を除き、オンのままにしてください。タッチモード「トラックパッド」と「ローカルカーソル」で、次回のストリームから適用されます。</string>

@@ -7,9 +7,9 @@
     <string name="summary_lower_bitrate">«Mai: mantieni il mio bitrate» può bloccare o frammentare l’immagine su una connessione che non regge quel bitrate, e funziona solo con un PC che accetta cambi di bitrate; sceglilo quando l’immagine diventa morbida su una connessione che regge di più. Di norma il PC riduce il bitrate quando si perdono fotogrammi che non riesce a riparare e lo rialza dopo; «Riducilo prima» lo riduce prima, a costo di un’immagine più morbida.</string>
     <string name="title_back_button">Pulsante Indietro</string>
     <string name="back_button_back">Indietro</string>
-    <string name="back_button_menu">Menu dello stream</string>
+    <string name="back_button_menu">Centro di controllo</string>
     <string name="back_button_guide">Guide</string>
-    <string name="summary_back_button">Cosa fa il pulsante Indietro del controller o della console portatile: Indietro arriva al PC come Indietro, Menu dello stream apre il menu dello stream, Guide invia Guide (Home o PS) al PC. Lascialo su Indietro se i tuoi giochi usano quel pulsante.</string>
+    <string name="summary_back_button">Cosa fa il pulsante Indietro del controller o della console portatile: Indietro arriva al PC come Indietro, Centro di controllo apre il Centro di controllo, Guide invia Guide (Home o PS) al PC. Lascialo su Indietro se i tuoi giochi usano quel pulsante.</string>
     <string name="settings_choice_off">Disattivata</string>
     <string name="system_keys_always">Sempre</string>
     <string name="system_keys_full_screen">A schermo intero</string>

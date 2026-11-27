@@ -7,9 +7,9 @@
     <string name="summary_lower_bitrate">若連線承載不了，「從不：保持我的位元速率」可能讓畫面卡住或破碎，且只對接受位元速率變更的電腦有效；連線能承載更多但畫面變模糊時再選它。預設情況下，電腦會在遺失無法修復的影格時降低位元速率，之後再調回；「更早降低」會更早降低，代價是畫面較柔和。</string>
     <string name="title_back_button">返回鍵</string>
     <string name="back_button_back">返回</string>
-    <string name="back_button_menu">串流選單</string>
+    <string name="back_button_menu">控制中心</string>
     <string name="back_button_guide">Guide</string>
-    <string name="summary_back_button">控制器或掌機返回鍵的作用：「返回」作為返回鍵傳送到電腦，「串流選單」開啟串流選單，「Guide」向電腦傳送 Guide（Home 或 PS）。如果遊戲會用到這個按鍵，請保持「返回」。</string>
+    <string name="summary_back_button">控制器或掌機返回鍵的作用：「返回」作為返回鍵傳送到電腦，「控制中心」開啟控制中心，「Guide」向電腦傳送 Guide（Home 或 PS）。如果遊戲會用到這個按鍵，請保持「返回」。</string>
     <string name="settings_choice_off">關閉</string>
     <string name="system_keys_always">一律</string>
     <string name="system_keys_full_screen">全屏時</string>

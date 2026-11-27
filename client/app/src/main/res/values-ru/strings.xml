@@ -172,7 +172,7 @@
     <string name="title_checkbox_usb_bind_all">Всегда использовать USB-драйвер</string>
     <string name="summary_checkbox_usb_bind_all">Использует драйвер Nightjar даже для контроллеров Xbox, которые поддерживает Android. Включите, если у USB-контроллера нет вибрации через Android, затем переподключите его.</string>
     <string name="title_checkbox_mouse_emulation">Режим мыши на контроллере</string>
-    <string name="summary_checkbox_mouse_emulation">Удержание Start переключает контроллер между геймпадом и мышью. Отключите, если в игре это случается нечаянно; плитка «Мышь» в меню трансляции по-прежнему переключает режим.</string>
+    <string name="summary_checkbox_mouse_emulation">Удержание Start переключает контроллер между геймпадом и мышью. Отключите, если в игре это случается нечаянно; плитка «Мышь» в Центре управления по-прежнему переключает режим.</string>
     <string name="title_checkbox_flip_face_buttons">Раскладка кнопок Nintendo</string>
     <string name="summary_checkbox_flip_face_buttons">Меняет местами A и B, X и Y. Включите, если кнопки контроллера в стиле Nintendo должны передавать те буквы, что на них напечатаны.</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">Тачпад контроллера как мышь</string>
@@ -391,7 +391,7 @@
     <string name="role_input_only">Только ввод</string>
     <string name="stream_monitor_title">Remote Monitor</string>
     <string name="stream_input_title">Только ввод</string>
-    <string name="stream_input_only_help">Только ввод\nИспользуйте сенсор, клавиши или контроллер.\n«Назад» открывает меню трансляции.</string>
+    <string name="stream_input_only_help">Только ввод\nИспользуйте сенсор, клавиши или контроллер.\n«Назад» открывает Центр управления.</string>
     <string name="stream_end_monitor">Завершить сеанс просмотра</string>
     <string name="stream_end_input">Завершить сеанс ввода</string>
     <string name="launch_confirm_title">Подтвердите на этом устройстве</string>
@@ -445,8 +445,8 @@
     <string name="upscaling_timing_estimate">Оценка включает передачу текстуры, завершение работы GPU и ожидание смены буфера (опрос раз в 1 мс). Тайминги вывода на дисплей недоступны.</string>
     <string name="upscaling_last_timing">Последняя оценка обработки на GPU: %1$s</string>
     <string name="keyboard_shortcuts_title">Сочетания клавиш</string>
-    <string name="keyboard_shortcuts_summary">Сочетания клавиш, например Alt+F4: показаны плитками в меню трансляции и отправляются на ПК одним нажатием.</string>
-    <string name="keyboard_shortcuts_help">Создайте до 32 сочетаний для «Доп. клавиш клавиатуры» в меню трансляции. Вводите клавиши через +, например CTRL + SHIFT + ESC или WIN + D. Каждая кнопка нажимает клавиши по порядку и отпускает их в обратном порядке.</string>
+    <string name="keyboard_shortcuts_summary">Сочетания клавиш, например Alt+F4: показаны плитками в Центре управления и отправляются на ПК одним нажатием.</string>
+    <string name="keyboard_shortcuts_help">Создайте до 32 сочетаний для «Доп. клавиш клавиатуры» в Центре управления. Вводите клавиши через +, например CTRL + SHIFT + ESC или WIN + D. Каждая кнопка нажимает клавиши по порядку и отпускает их в обратном порядке.</string>
     <string name="keyboard_shortcuts_add">Добавить сочетание</string>
     <string name="keyboard_shortcuts_edit">Изменить сочетание</string>
     <string name="keyboard_shortcuts_save">Сохранить</string>
@@ -480,11 +480,11 @@
     <string name="keyboard_shortcuts_move_up">Переместить вверх</string>
     <string name="keyboard_shortcuts_move_down">Переместить вниз</string>
     <string name="stream_disconnect_confirm">Отключиться от трансляции?\nСеанс будет ждать на ПК, и его можно будет продолжить.</string>
-    <string name="title_stream_menu_button_y">Y в меню трансляции</string>
-    <string name="title_stream_menu_button_x">X в меню трансляции</string>
-    <string name="title_stream_menu_button_lb">LB в меню трансляции</string>
-    <string name="title_stream_menu_button_rb">RB в меню трансляции</string>
-    <string name="summary_stream_menu_button">Что делает эта кнопка, пока открыто меню трансляции. «По умолчанию» оставляет плитку, в углу которой показана эта кнопка; выход, например «Отключиться», сначала запрашивает подтверждение.</string>
+    <string name="title_stream_menu_button_y">Y в Центре управления</string>
+    <string name="title_stream_menu_button_x">X в Центре управления</string>
+    <string name="title_stream_menu_button_lb">LB в Центре управления</string>
+    <string name="title_stream_menu_button_rb">RB в Центре управления</string>
+    <string name="summary_stream_menu_button">Что делает эта кнопка, пока открыт Центр управления. «По умолчанию» оставляет плитку, в углу которой показана эта кнопка; выход, например «Отключиться», сначала запрашивает подтверждение.</string>
     <string name="stream_menu_button_default">По умолчанию</string>
     <string name="stream_menu_button_none">Выкл.</string>
     <string name="title_lower_refresh">Пониженная частота обновления</string>

@@ -31,7 +31,7 @@
     <string name="desktop_zoom_help">以兩指捏合可在 0.5× 至 4× 之間縮放；以兩指拖曳可自由移動畫面，包含黑邊區域。單指仍使用所選的觸控模式。啟用縮放控制時，會取代兩指捲動。</string>
     <string name="desktop_output">視訊輸出 (會重新連線串流)</string>
     <string name="desktop_output_device">這部裝置</string>
-    <string name="desktop_touchpad_help">影像會顯示在你的外接顯示器上。請將這個螢幕當作觸控板使用。鍵盤、遊戲按鈕和串流選單仍可在這裡使用。</string>
+    <string name="desktop_touchpad_help">影像會顯示在你的外接顯示器上。請將這個螢幕當作觸控板使用。鍵盤、遊戲按鈕和控制中心仍可在這裡使用。</string>
     <string name="desktop_pacing_fallback">外接顯示器：影格一抵達就會立即顯示。</string>
     <string name="desktop_display_unavailable">沒有外接顯示器可以顯示串流，因此會保留在這部裝置上。</string>
     <string name="controller_axes_title">搖桿、扳機鍵和方向鍵</string>

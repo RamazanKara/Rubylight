@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Quick Suspend in the stream (protocol/policy/src/quick_suspend.rs holds this English). -->
-    <string name="quick_suspend_paused">The game is paused on the PC. Open the stream menu to resume it.</string>
+    <string name="quick_suspend_paused">The game is paused on the PC. Open the Control Center to resume it.</string>
     <string name="quick_suspend_resumed">Game resumed.</string>
     <string name="quick_suspend_refused_anti_cheat">Anti-cheat runs on the PC, so it won’t pause the game.</string>
     <string name="quick_suspend_refused_protected">A protected or system program runs with this game, so the PC won’t pause it.</string>

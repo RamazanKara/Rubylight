@@ -7,7 +7,7 @@
     <string name="stream_controls_layout">Modifier la disposition de la manette</string>
     <string name="stream_reconnect">Reconnecter le stream</string>
     <string name="stream_reconnecting">Reconnexion à l’application en cours…</string>
-    <string name="stream_native_touch_help">Le tactile contrôle directement le PC.\nOuvrez le menu du stream pour le clavier.</string>
+    <string name="stream_native_touch_help">Le tactile contrôle directement le PC.\nOuvrez le Centre de contrôle pour le clavier.</string>
     <string name="stream_native_touch_fallback">Le PC ne gère pas le multitouch : le toucher déplace donc la souris.</string>
     <string-array name="stream_touch_modes">
         <item>Pavé tactile</item>

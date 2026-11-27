@@ -31,7 +31,7 @@
     <string name="desktop_zoom_help">双指捏合可在 0.5× 至 4× 之间缩放；双指拖动可自由移动画面，包括移入黑边区域。单指仍使用所选的触控模式。启用缩放控制时，双指滚动将被取代。</string>
     <string name="desktop_output">视频输出（会重新连接串流）</string>
     <string name="desktop_output_device">此设备</string>
-    <string name="desktop_touchpad_help">视频显示在你的外接显示器上。可将此屏幕用作触控板。键盘、游戏按钮和串流菜单仍可在此使用。</string>
+    <string name="desktop_touchpad_help">视频显示在你的外接显示器上。可将此屏幕用作触控板。键盘、游戏按钮和控制中心仍可在此使用。</string>
     <string name="desktop_pacing_fallback">外接显示器：帧在到达后立即显示。</string>
     <string name="desktop_display_unavailable">没有可显示串流的外接显示器，因此串流仍显示在此设备上。</string>
     <string name="controller_axes_title">摇杆、扳机和方向键</string>

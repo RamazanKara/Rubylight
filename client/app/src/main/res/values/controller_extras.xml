@@ -8,7 +8,7 @@
     <string name="stream_mouse_step">Mouse step: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Send system keys</string>
     <string name="title_checkbox_back_as_meta">Keyboard Back sends Windows key</string>
-    <string name="summary_checkbox_back_as_meta">A physical keyboard’s Back key sends the Windows key to the PC instead of Back or Esc. Android’s Back gesture and the stream menu hotkey still open the stream menu.</string>
+    <string name="summary_checkbox_back_as_meta">A physical keyboard’s Back key sends the Windows key to the PC instead of Back or Esc. Android’s Back gesture and the Control Center hotkey still open the Control Center.</string>
     <string name="title_checkbox_right_alt_as_meta">Right Alt as Windows key</string>
     <string name="summary_checkbox_right_alt_as_meta">Right Alt sends the Windows key, which a Mac uses as Command. Leave it off if you type characters with AltGr: Right Alt then no longer works as AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Keyboard follows text fields</string>

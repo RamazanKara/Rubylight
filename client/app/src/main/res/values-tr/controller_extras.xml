@@ -8,7 +8,7 @@
     <string name="stream_mouse_step">Fare adımı: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Sistem tuşlarını gönder</string>
     <string name="title_checkbox_back_as_meta">Klavyedeki Geri tuşu Windows tuşu gönderir</string>
-    <string name="summary_checkbox_back_as_meta">Fiziksel klavyenin Geri tuşu bilgisayara Geri veya Esc yerine Windows tuşunu gönderir. Android’in Geri hareketi ve yayın menüsü kısayolu yayın menüsünü yine açar.</string>
+    <string name="summary_checkbox_back_as_meta">Fiziksel klavyenin Geri tuşu bilgisayara Geri veya Esc yerine Windows tuşunu gönderir. Android’in Geri hareketi ve Kontrol Merkezi kısayolu Kontrol Merkezini yine açar.</string>
     <string name="title_checkbox_right_alt_as_meta">Sağ Alt Windows tuşu olarak</string>
     <string name="summary_checkbox_right_alt_as_meta">Sağ Alt, Mac’in Command olarak kullandığı Windows tuşunu gönderir. AltGr ile karakter yazıyorsanız kapalı bırakın: açıkken Sağ Alt artık AltGr olarak çalışmaz.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Klavye metin alanlarını takip eder</string>

@@ -7,9 +7,9 @@
     <string name="summary_lower_bitrate">「下げない: ビットレートを維持」にすると、回線がそのビットレートに耐えられない場合に映像が止まったり乱れたりすることがあり、ビットレート変更を受け付ける PC でのみ機能します。もっと耐えられる回線なのに映像がぼやけるときに選んでください。標準では、PC が修復できないフレーム欠落を検出するとビットレートを下げ、その後に元へ戻します。「早めに下げる」はより早く下げ、代わりに画質は柔らかくなります。</string>
     <string name="title_back_button">戻るボタン</string>
     <string name="back_button_back">戻る</string>
-    <string name="back_button_menu">ストリームメニュー</string>
+    <string name="back_button_menu">コントロールセンター</string>
     <string name="back_button_guide">Guide</string>
-    <string name="summary_back_button">コントローラーや携帯機の戻るボタンの動作です。「戻る」は PC に戻るとして届き、「ストリームメニュー」はストリームメニューを開き、「Guide」は PC に Guide（Home または PS）を送ります。ゲームでこのボタンを使う場合は「戻る」のままにしてください。</string>
+    <string name="summary_back_button">コントローラーや携帯機の戻るボタンの動作です。「戻る」は PC に戻るとして届き、「コントロールセンター」はコントロールセンターを開き、「Guide」は PC に Guide（Home または PS）を送ります。ゲームでこのボタンを使う場合は「戻る」のままにしてください。</string>
     <string name="settings_choice_off">オフ</string>
     <string name="system_keys_always">常に</string>
     <string name="system_keys_full_screen">全画面のとき</string>

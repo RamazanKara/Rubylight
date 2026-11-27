@@ -288,7 +288,7 @@ pub(super) fn lower_bitrate_name(choice: LowerBitrate) -> &'static str {
 pub(super) fn back_button_name(choice: BackButton) -> &'static str {
     match choice {
         BackButton::Back => en("Back"),
-        BackButton::StreamMenu => en("Stream menu"),
+        BackButton::StreamMenu => en("Control Center"),
         BackButton::Guide => en("Guide"),
     }
 }

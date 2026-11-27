@@ -7,7 +7,7 @@
     <string name="stream_controls_layout">Изменить раскладку кнопок</string>
     <string name="stream_reconnect">Переподключить трансляцию</string>
     <string name="stream_reconnecting">Повторное подключение к запущенному приложению…</string>
-    <string name="stream_native_touch_help">Касания управляют ПК напрямую.\nКлавиатура — в меню трансляции.</string>
+    <string name="stream_native_touch_help">Касания управляют ПК напрямую.\nКлавиатура — в Центре управления.</string>
     <string name="stream_native_touch_fallback">ПК не принимает мультитач, поэтому касания двигают мышь.</string>
     <string-array name="stream_touch_modes">
         <item>Трекпад</item>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_touch_off_help">触控已关闭。向后滑动或按返回键可打开串流菜单。</string>
+    <string name="stream_touch_off_help">触控已关闭。向后滑动或按返回键可打开控制中心。</string>
     <string name="title_local_cursor_speed">本地光标速度</string>
     <string name="title_trackpad_acceleration">触控板加速</string>
     <string name="summary_trackpad_acceleration">手指慢速移动时可精确瞄准，快速滑动则移动得更远。除非你希望指针与手指一比一移动，否则请保持开启；适用于“触控板”和“本地光标”触控模式，从下次串流开始生效。</string>

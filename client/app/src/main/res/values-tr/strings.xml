@@ -172,7 +172,7 @@
     <string name="title_checkbox_usb_bind_all">Her zaman USB sürücüsünü kullan</string>
     <string name="summary_checkbox_usb_bind_all">Android’in desteklediği Xbox kumandaları için bile Nightjar’ın sürücüsünü kullanır. Bir USB kumanda Android üzerinden titremiyorsa açın, sonra kumandayı yeniden bağlayın.</string>
     <string name="title_checkbox_mouse_emulation">Kumandayla fare modu</string>
-    <string name="summary_checkbox_mouse_emulation">Start basılı tutulunca kumanda, oyun kumandası ile fare arasında geçiş yapar. Oyunda yanlışlıkla oluyorsa kapatın; yayın menüsündeki “Fare” kutucuğu yine de geçiş yapar.</string>
+    <string name="summary_checkbox_mouse_emulation">Start basılı tutulunca kumanda, oyun kumandası ile fare arasında geçiş yapar. Oyunda yanlışlıkla oluyorsa kapatın; Kontrol Merkezindeki “Fare” kutucuğu yine de geçiş yapar.</string>
     <string name="title_checkbox_flip_face_buttons">Nintendo düğme düzeni</string>
     <string name="summary_checkbox_flip_face_buttons">A ile B’nin ve X ile Y’nin yerini değiştirir. Nintendo tarzı bir kumandanın düğmeleri üzerlerinde yazan harfleri göndersin istiyorsanız açın.</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">Kumanda dokunmatik yüzeyi fare olarak</string>
@@ -391,7 +391,7 @@
     <string name="role_input_only">Yalnızca giriş</string>
     <string name="stream_monitor_title">Uzak Monitör</string>
     <string name="stream_input_title">Yalnızca Giriş</string>
-    <string name="stream_input_only_help">Yalnızca giriş\nDokunma, tuşlar veya kumanda kullanın.\nGeri, yayın menüsünü açar.</string>
+    <string name="stream_input_only_help">Yalnızca giriş\nDokunma, tuşlar veya kumanda kullanın.\nGeri, Kontrol Merkezini açar.</string>
     <string name="stream_end_monitor">Monitör oturumunu sonlandır</string>
     <string name="stream_end_input">Giriş oturumunu sonlandır</string>
     <string name="launch_confirm_title">Bu cihazda onaylayın</string>
@@ -445,8 +445,8 @@
     <string name="upscaling_timing_estimate">Tahmin; doku aktarımını, GPU tamamlanmasını ve takas beklemesini (1 ms yoklama) içerir. Ekran sunum zamanlaması kullanılamıyor.</string>
     <string name="upscaling_last_timing">Son GPU yolu tahmini: %1$s</string>
     <string name="keyboard_shortcuts_title">Klavye kısayolları</string>
-    <string name="keyboard_shortcuts_summary">Alt+F4 gibi tuş kombinasyonları; yayın menüsünde kutucuk olarak gösterilir ve tek basışla bilgisayara gönderilir.</string>
-    <string name="keyboard_shortcuts_help">Yayın menüsündeki Ek klavye tuşları için en fazla 32 kısayol oluşturun. Tuşları + ile ayırarak girin, örneğin CTRL + SHIFT + ESC veya WIN + D. Her düğme tuşlara sırayla basar ve onları ters sırayla bırakır.</string>
+    <string name="keyboard_shortcuts_summary">Alt+F4 gibi tuş kombinasyonları; Kontrol Merkezinde kutucuk olarak gösterilir ve tek basışla bilgisayara gönderilir.</string>
+    <string name="keyboard_shortcuts_help">Kontrol Merkezindeki Ek klavye tuşları için en fazla 32 kısayol oluşturun. Tuşları + ile ayırarak girin, örneğin CTRL + SHIFT + ESC veya WIN + D. Her düğme tuşlara sırayla basar ve onları ters sırayla bırakır.</string>
     <string name="keyboard_shortcuts_add">Kısayol ekle</string>
     <string name="keyboard_shortcuts_edit">Kısayolu düzenle</string>
     <string name="keyboard_shortcuts_save">Kaydet</string>
@@ -480,11 +480,11 @@
     <string name="keyboard_shortcuts_move_up">Yukarı taşı</string>
     <string name="keyboard_shortcuts_move_down">Aşağı taşı</string>
     <string name="stream_disconnect_confirm">Yayının bağlantısı kesilsin mi?\nOturum PC üzerinde bekler; kaldığınız yerden sürdürebilirsiniz.</string>
-    <string name="title_stream_menu_button_y">Yayın menüsünde Y</string>
-    <string name="title_stream_menu_button_x">Yayın menüsünde X</string>
-    <string name="title_stream_menu_button_lb">Yayın menüsünde LB</string>
-    <string name="title_stream_menu_button_rb">Yayın menüsünde RB</string>
-    <string name="summary_stream_menu_button">Yayın menüsü açıkken bu düğmenin çalıştırdığı işlem. “Varsayılan”, köşesinde bu düğmeyi gösteren kutucuğu korur; “Bağlantıyı kes” gibi bir çıkış işlemi önce onay ister.</string>
+    <string name="title_stream_menu_button_y">Kontrol Merkezinde Y</string>
+    <string name="title_stream_menu_button_x">Kontrol Merkezinde X</string>
+    <string name="title_stream_menu_button_lb">Kontrol Merkezinde LB</string>
+    <string name="title_stream_menu_button_rb">Kontrol Merkezinde RB</string>
+    <string name="summary_stream_menu_button">Kontrol Merkezi açıkken bu düğmenin çalıştırdığı işlem. “Varsayılan”, köşesinde bu düğmeyi gösteren kutucuğu korur; “Bağlantıyı kes” gibi bir çıkış işlemi önce onay ister.</string>
     <string name="stream_menu_button_default">Varsayılan</string>
     <string name="stream_menu_button_none">Kapalı</string>
     <string name="title_lower_refresh">Daha düşük yenileme hızı</string>

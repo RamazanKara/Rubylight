@@ -14,6 +14,6 @@
     <string name="quality_about">Cách hoạt động</string>
     <string name="quality_stream_help">Được lưu cho PC này. Chuyển động giảm độ phân giải trước; Chi tiết giảm FPS trước. Pin giới hạn dần tải xử lý ở mức tối đa 60 FPS và cạnh ngắn 1080 pixel, trong phạm vi giới hạn tối thiểu của bạn. Codec, HDR và lựa chọn màn hình giữ nguyên như đã thỏa thuận.</string>
     <string name="quality_unavailable">Chất lượng tự động đã tắt: PC hoặc thiết bị này không thể đổi độ phân giải và tốc độ khung hình trong khi stream.</string>
-    <string name="quality_request_failed">Chất lượng tự động đã dừng: PC không áp dụng kích thước mới. Stream vẫn tiếp tục; hãy chọn chế độ khác trong menu stream.</string>
+    <string name="quality_request_failed">Chất lượng tự động đã dừng: PC không áp dụng kích thước mới. Stream vẫn tiếp tục; hãy chọn chế độ khác trong Trung tâm điều khiển.</string>
     <string name="quality_status">Chất lượng tự động: %1$s · %2$d × %3$d · mục tiêu %4$d FPS</string>
 </resources>

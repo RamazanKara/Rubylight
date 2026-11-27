@@ -115,7 +115,7 @@ fn state_name(state: State) -> &'static str {
 /// tests find it in every table.
 fn say(words: Words) -> &'static str {
     match words.key {
-        "paused" => tr("The game is paused on the PC. Open the stream menu to resume it."),
+        "paused" => tr("The game is paused on the PC. Open the Control Center to resume it."),
         "resumed" => tr("Game resumed."),
         "refused_anti_cheat" => tr("Anti-cheat runs on the PC, so it won’t pause the game."),
         "refused_protected" => {

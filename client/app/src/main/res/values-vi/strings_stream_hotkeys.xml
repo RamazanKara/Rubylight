@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">Phím tắt luồng</string>
-    <string name="stream_hotkeys_summary">Các tổ hợp phím riêng của Nightjar khi stream, chẳng hạn tổ hợp mở menu stream. Các phím này không bao giờ đến PC; hãy đổi tổ hợp nào mà trò chơi hoặc ứng dụng cần dùng.</string>
+    <string name="stream_hotkeys_summary">Các tổ hợp phím riêng của Nightjar khi stream, chẳng hạn tổ hợp mở Trung tâm điều khiển. Các phím này không bao giờ đến PC; hãy đổi tổ hợp nào mà trò chơi hoặc ứng dụng cần dùng.</string>
     <string name="stream_hotkey_change">Đổi</string>
     <string name="stream_hotkey_off">Tắt</string>
     <string name="stream_hotkey_reset">Đặt lại</string>
@@ -22,7 +22,7 @@
     <string name="stream_hotkey_action_quit">Ngắt kết nối</string>
     <string name="stream_hotkey_action_capture">Nhả hoặc chiếm đầu vào</string>
     <string name="stream_hotkey_action_overlay">Lớp phủ hiệu năng</string>
-    <string name="stream_hotkey_action_stream_menu">Menu luồng</string>
+    <string name="stream_hotkey_action_stream_menu">Trung tâm điều khiển</string>
     <string name="stream_hotkey_action_cursor">Hiện hoặc ẩn con trỏ</string>
     <string name="stream_hotkey_moved">%1$s giờ là %2$s</string>
     <string name="stream_hotkeys_unavailable">Không dùng được phím tắt luồng: %1$s</string>

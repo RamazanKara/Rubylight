@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="quick_suspend_paused">O jogo está pausado no PC. Abra o menu da transmissão para retomá-lo.</string>
+    <string name="quick_suspend_paused">O jogo está pausado no PC. Abra a Central de controle para retomá-lo.</string>
     <string name="quick_suspend_resumed">Jogo retomado.</string>
     <string name="quick_suspend_refused_anti_cheat">Um anti-cheat está em execução no PC, então ele não vai pausar o jogo.</string>
     <string name="quick_suspend_refused_protected">Um programa protegido ou do sistema roda com este jogo, então o PC não vai pausá-lo.</string>

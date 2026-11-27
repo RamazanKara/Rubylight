@@ -370,7 +370,7 @@ impl Launcher {
                 modal(ctx, "confirm-usb-give-back", |ui| {
                     ui.set_width(440.0);
                     ui.label(RichText::new(tr("Give USB devices back to Windows?")).font(semibold(text::SECTION)));
-                    ui.label(RichText::new(trf("When Nightjar closed, it was still sharing USB devices through usbipd-win ({}). Windows asks for administrator rights to give them back to their own drivers. Not now leaves them shared; the stream menu’s USB devices section offers this again.", &[&count])).color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(trf("When Nightjar closed, it was still sharing USB devices through usbipd-win ({}). Windows asks for administrator rights to give them back to their own drivers. Not now leaves them shared; the Control Center’s USB devices section offers this again.", &[&count])).color(ON_SURFACE_VARIANT));
                     dialog_buttons(ui, |ui| {
                         let give = primary_button(ui, "Give back");
                         if focus_first {

@@ -7,7 +7,7 @@
     <string name="overlay_compact_loss">Втрати %1$s%%</string>
     <string name="overlay_compact_waiting">Очікування відео</string>
     <string name="link_notice_lowered">ПК знизив бітрейт до %1$s Мбіт/с: мережа</string>
-    <string name="link_notice_keep">ПК знизив бітрейт до %1$s Мбіт/с. Щоб зберегти свій бітрейт, відкрийте меню трансляції й увімкніть «Зберігати мій бітрейт».</string>
+    <string name="link_notice_keep">ПК знизив бітрейт до %1$s Мбіт/с. Щоб зберегти свій бітрейт, відкрийте Центр керування й увімкніть «Зберігати мій бітрейт».</string>
     <string name="link_notice_lowered_only">ПК знизив бітрейт до %1$s Мбіт/с через мережу.</string>
     <string name="stream_keep_bitrate">Зберігати мій бітрейт</string>
     <string name="stream_keep_bitrate_off">З наступної трансляції вирішує ПК; ця трансляція зберігає свій бітрейт.</string>
@@ -34,7 +34,7 @@
     <string name="stream_choice_selected">Вибрано</string>
     <string name="stream_choice_not_selected">Не вибрано</string>
     <string name="stream_web_ui_leaves">Відкриття браузера завершує трансляцію; гра продовжує працювати на ПК.</string>
-    <string name="stream_menu_hint">Щоб відкрити меню трансляції, %1$s.</string>
+    <string name="stream_menu_hint">Щоб відкрити Центр керування, %1$s.</string>
     <string name="stream_menu_hint_swipe">проведіть від краю екрана жестом «Назад»</string>
     <string name="stream_menu_hint_buttons">проведіть угору від низу екрана й торкніться «Назад»</string>
     <string name="stream_menu_hint_back">натисніть «Назад»</string>
@@ -52,12 +52,12 @@
     <string name="stream_menu_shortcuts">Сполучення клавіш</string>
     <string name="stream_menu_start_menu">Меню «Пуск»</string>
     <string name="stream_shortcut_pick_keys">Виберіть від 1 до 8 клавіш.</string>
-    <string name="stream_menu_model_failed">Не вдалося побудувати меню трансляції: %1$s</string>
+    <string name="stream_menu_model_failed">Не вдалося побудувати Центр керування: %1$s</string>
     <string name="stream_menu_button_show">Показати кнопку меню</string>
     <string name="stream_menu_button_hide">Сховати кнопку меню</string>
-    <string name="stream_menu_settings">Меню трансляції</string>
+    <string name="stream_menu_settings">Центр керування</string>
     <string name="title_floating_menu_button">Плавна кнопка меню</string>
-    <string name="summary_floating_menu_button">Кругла кнопка поверх трансляції, що дотиком відкриває меню трансляції; перетягніть її, щоб перемістити. Не потрібна, якщо меню відкриває «Назад» або контролер.</string>
+    <string name="summary_floating_menu_button">Кругла кнопка поверх трансляції, що дотиком відкриває Центр керування; перетягніть її, щоб перемістити. Не потрібна, якщо меню відкриває «Назад» або контролер.</string>
     <string name="stream_tile_keyboard">Клавіатура</string>
     <string name="stream_tile_pc_keyboard">Клавіатура ПК</string>
     <string name="stream_tile_mouse">Миша</string>

@@ -7,9 +7,9 @@
     <string name="summary_lower_bitrate">“Asla: bit hızımı koru”, taşıyamayan bir bağlantıda görüntünün donmasına veya bozulmasına yol açabilir ve yalnızca bit hızı değişikliklerini kabul eden bir PC ile çalışır; daha fazlasını taşıyabilen bir bağlantıda görüntü yumuşadığında bunu seçin. Varsayılan olarak PC, onaramadığı kareler kaybolduğunda bit hızını düşürür ve sonra yeniden yükseltir; “Daha erken düşür” bunu daha erken yapar, bedeli daha yumuşak görüntüdür.</string>
     <string name="title_back_button">Geri düğmesi</string>
     <string name="back_button_back">Geri</string>
-    <string name="back_button_menu">Yayın menüsü</string>
+    <string name="back_button_menu">Kontrol Merkezi</string>
     <string name="back_button_guide">Guide</string>
-    <string name="summary_back_button">Kumandanın veya el konsolunun Geri düğmesinin ne yaptığı: Geri, PC\'ye Geri olarak ulaşır; Yayın menüsü yayın menüsünü açar; Guide, PC\'ye Guide (Home veya PS) gönderir. Oyunlarınız bu düğmeyi kullanıyorsa Geri\'de bırakın.</string>
+    <string name="summary_back_button">Kumandanın veya el konsolunun Geri düğmesinin ne yaptığı: Geri, PC\'ye Geri olarak ulaşır; Kontrol Merkezi Kontrol Merkezini açar; Guide, PC\'ye Guide (Home veya PS) gönderir. Oyunlarınız bu düğmeyi kullanıyorsa Geri\'de bırakın.</string>
     <string name="settings_choice_off">Kapalı</string>
     <string name="system_keys_always">Her zaman</string>
     <string name="system_keys_full_screen">Tam ekranda</string>

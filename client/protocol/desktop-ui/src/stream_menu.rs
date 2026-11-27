@@ -39,7 +39,7 @@ pub enum Page {
 impl Page {
     pub fn title(&self) -> &'static str {
         match self {
-            Page::Grid => tr("Stream menu"),
+            Page::Grid => tr("Control Center"),
             Page::Shortcuts => tr("Shortcuts"),
             Page::More => tr("More"),
             Page::Quality => tr("Quality"),

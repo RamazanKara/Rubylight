@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="quick_suspend_paused">Il gioco è in pausa sul PC. Apri il menu dello stream per riprenderlo.</string>
+    <string name="quick_suspend_paused">Il gioco è in pausa sul PC. Apri il Centro di controllo per riprenderlo.</string>
     <string name="quick_suspend_resumed">Gioco ripreso.</string>
     <string name="quick_suspend_refused_anti_cheat">Sul PC è in esecuzione un anti-cheat, quindi non metterà in pausa il gioco.</string>
     <string name="quick_suspend_refused_protected">Con questo gioco è in esecuzione un programma protetto o di sistema, quindi il PC non lo metterà in pausa.</string>

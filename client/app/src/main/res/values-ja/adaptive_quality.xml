@@ -14,6 +14,6 @@
     <string name="quality_about">仕組み</string>
     <string name="quality_stream_help">この PC 用に保存されます。[動き] は先に解像度を、[精細さ] は先に FPS を下げます。[バッテリー] は最小値の範囲内で、処理を最大 60 FPS、短辺 1080 ピクセルまで徐々に制限します。コーデック、HDR、ディスプレイの選択はネゴシエートされたまま変わりません。</string>
     <string name="quality_unavailable">画質の自動調整はオフです: この PC またはデバイスはストリーム中に解像度とフレームレートを変更できません。</string>
-    <string name="quality_request_failed">画質の自動調整を停止しました: PC が新しいサイズを適用しませんでした。ストリームは続行されます。ストリームメニューで別のモードを選んでください。</string>
+    <string name="quality_request_failed">画質の自動調整を停止しました: PC が新しいサイズを適用しませんでした。ストリームは続行されます。コントロールセンターで別のモードを選んでください。</string>
     <string name="quality_status">画質の自動調整: %1$s · %2$d × %3$d · 目標 %4$d FPS</string>
 </resources>

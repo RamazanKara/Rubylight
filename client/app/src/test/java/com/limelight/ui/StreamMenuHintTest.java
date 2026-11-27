@@ -45,21 +45,21 @@ public class StreamMenuHintTest {
     @Test
     public void theHintNamesOnlyTheInputsThisDeviceHas() {
         Context en = context(Locale.US);
-        assertEquals("To open the stream menu, swipe back from the screen edge.",
+        assertEquals("To open the Control Center, swipe back from the screen edge.",
                 StreamMenuHint.text(en, StreamMenuHint.Back.GESTURE, false, null));
-        assertEquals("To open the stream menu, swipe up from the bottom and tap Back.",
+        assertEquals("To open the Control Center, swipe up from the bottom and tap Back.",
                 StreamMenuHint.text(en, StreamMenuHint.Back.BUTTONS, false, null));
-        assertEquals("To open the stream menu, swipe back from the screen edge or press Start + Back + LB + RB on the controller.",
+        assertEquals("To open the Control Center, swipe back from the screen edge or press Start + Back + LB + RB on the controller.",
                 StreamMenuHint.text(en, StreamMenuHint.Back.GESTURE, true, null));
         // A TV remote, a controller and a keyboard.
-        assertEquals("To open the stream menu, press Back, press Start + Back + LB + RB on the controller " +
+        assertEquals("To open the Control Center, press Back, press Start + Back + LB + RB on the controller " +
                         "or press Ctrl + Alt + Shift + Tab.",
                 StreamMenuHint.text(en, StreamMenuHint.Back.REMOTE, true, "Ctrl + Alt + Shift + Tab"));
     }
 
     @Test
     public void germanReadsAsOneNaturalSentence() {
-        assertEquals("Zum Öffnen des Streammenüs wische vom Bildschirmrand zurück oder drücke am Controller " +
+        assertEquals("Zum Öffnen des Kontrollzentrums wische vom Bildschirmrand zurück oder drücke am Controller " +
                         "Start + Back + LB + RB.",
                 StreamMenuHint.text(context(Locale.GERMANY), StreamMenuHint.Back.GESTURE, true, null));
     }
@@ -73,11 +73,11 @@ public class StreamMenuHintTest {
         Context en = context(Locale.US);
         assertEquals("Strg + Alt + Umschalt + Tab", StreamHotkeys.streamMenuLabel(context(Locale.GERMANY), prefs));
         StreamHotkeys.record(prefs, StreamHotkeys.STREAM_MENU, new String[] {"CTRL", "F2"});
-        assertEquals("To open the stream menu, press Back or press Ctrl + F2.",
+        assertEquals("To open the Control Center, press Back or press Ctrl + F2.",
                 StreamMenuHint.text(en, StreamMenuHint.Back.REMOTE, false, StreamHotkeys.streamMenuLabel(en, prefs)));
         StreamHotkeys.turnOff(prefs, StreamHotkeys.STREAM_MENU);
         assertNull(StreamHotkeys.streamMenuLabel(en, prefs));
-        assertEquals("To open the stream menu, press Back.",
+        assertEquals("To open the Control Center, press Back.",
                 StreamMenuHint.text(en, StreamMenuHint.Back.REMOTE, false, StreamHotkeys.streamMenuLabel(en, prefs)));
     }
 

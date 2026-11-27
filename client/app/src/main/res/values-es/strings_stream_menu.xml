@@ -7,7 +7,7 @@
     <string name="overlay_compact_loss">%1$s %% pérdida</string>
     <string name="overlay_compact_waiting">Esperando vídeo</string>
     <string name="link_notice_lowered">El PC bajó la tasa de bits a %1$s Mbps: red</string>
-    <string name="link_notice_keep">El PC bajó la tasa de bits a %1$s Mbps. Para mantener tu tasa de bits, abre el menú de transmisión y activa «Mantener mi tasa de bits».</string>
+    <string name="link_notice_keep">El PC bajó la tasa de bits a %1$s Mbps. Para mantener tu tasa de bits, abre el Centro de control y activa «Mantener mi tasa de bits».</string>
     <string name="link_notice_lowered_only">El PC bajó la tasa de bits a %1$s Mbps por la red.</string>
     <string name="stream_keep_bitrate">Mantener mi tasa de bits</string>
     <string name="stream_keep_bitrate_off">El PC decide a partir de la próxima transmisión; esta conserva su tasa de bits.</string>
@@ -34,7 +34,7 @@
     <string name="stream_choice_selected">Seleccionado</string>
     <string name="stream_choice_not_selected">No seleccionado</string>
     <string name="stream_web_ui_leaves">Al abrir el navegador se sale de la transmisión; el juego sigue en ejecución en el PC.</string>
-    <string name="stream_menu_hint">Para abrir el menú de transmisión, %1$s.</string>
+    <string name="stream_menu_hint">Para abrir el Centro de control, %1$s.</string>
     <string name="stream_menu_hint_swipe">desliza el dedo desde el borde de la pantalla para ir atrás</string>
     <string name="stream_menu_hint_buttons">desliza hacia arriba desde la parte inferior y toca Atrás</string>
     <string name="stream_menu_hint_back">pulsa Atrás</string>
@@ -52,12 +52,12 @@
     <string name="stream_menu_shortcuts">Atajos</string>
     <string name="stream_menu_start_menu">Menú Inicio</string>
     <string name="stream_shortcut_pick_keys">Elige de 1 a 8 teclas.</string>
-    <string name="stream_menu_model_failed">No se pudo montar el menú de la transmisión: %1$s</string>
+    <string name="stream_menu_model_failed">No se pudo montar el Centro de control: %1$s</string>
     <string name="stream_menu_button_show">Mostrar botón de menú</string>
     <string name="stream_menu_button_hide">Ocultar botón de menú</string>
-    <string name="stream_menu_settings">Menú de transmisión</string>
+    <string name="stream_menu_settings">Centro de control</string>
     <string name="title_floating_menu_button">Botón de menú flotante</string>
-    <string name="summary_floating_menu_button">Un botón redondo sobre la transmisión que abre el menú de transmisión con un toque; arrástralo para moverlo. No hace falta si Atrás o tu mando abren el menú.</string>
+    <string name="summary_floating_menu_button">Un botón redondo sobre la transmisión que abre el Centro de control con un toque; arrástralo para moverlo. No hace falta si Atrás o tu mando abren el menú.</string>
     <string name="stream_tile_keyboard">Teclado</string>
     <string name="stream_tile_pc_keyboard">Teclado de PC</string>
     <string name="stream_tile_mouse">Ratón</string>

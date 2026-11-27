@@ -7,7 +7,7 @@
     <string name="overlay_compact_loss">%1$s%% Verlust</string>
     <string name="overlay_compact_waiting">Warte auf Video</string>
     <string name="link_notice_lowered">PC hat die Bitrate auf %1$s Mbit/s gesenkt: Netzwerk</string>
-    <string name="link_notice_keep">Der PC hat die Bitrate auf %1$s Mbit/s gesenkt. Um deine Bitrate zu behalten, öffne das Stream-Menü und schalte „Meine Bitrate behalten“ ein.</string>
+    <string name="link_notice_keep">Der PC hat die Bitrate auf %1$s Mbit/s gesenkt. Um deine Bitrate zu behalten, öffne das Kontrollzentrum und schalte „Meine Bitrate behalten“ ein.</string>
     <string name="link_notice_lowered_only">Der PC hat die Bitrate wegen des Netzwerks auf %1$s Mbit/s gesenkt.</string>
     <string name="stream_keep_bitrate">Meine Bitrate behalten</string>
     <string name="stream_keep_bitrate_off">Ab dem nächsten Stream entscheidet der PC; dieser Stream behält seine Bitrate.</string>
@@ -36,7 +36,7 @@
     <string name="stream_choice_not_selected">Nicht ausgewählt</string>
     <string name="stream_web_ui_leaves">Der Browser verlässt den Stream; das Spiel läuft auf dem PC weiter.</string>
 
-    <string name="stream_menu_hint">Zum Öffnen des Streammenüs %1$s.</string>
+    <string name="stream_menu_hint">Zum Öffnen des Kontrollzentrums %1$s.</string>
     <string name="stream_menu_hint_swipe">wische vom Bildschirmrand zurück</string>
     <string name="stream_menu_hint_buttons">wische vom unteren Rand nach oben und tippe auf Zurück</string>
     <string name="stream_menu_hint_back">drücke Zurück</string>
@@ -55,12 +55,12 @@
     <string name="stream_menu_shortcuts">Tastenkürzel</string>
     <string name="stream_menu_start_menu">Startmenü</string>
     <string name="stream_shortcut_pick_keys">Wähle 1–8 Tasten.</string>
-    <string name="stream_menu_model_failed">Das Streammenü konnte nicht aufgebaut werden: %1$s</string>
+    <string name="stream_menu_model_failed">Das Kontrollzentrum konnte nicht aufgebaut werden: %1$s</string>
     <string name="stream_menu_button_show">Menütaste einblenden</string>
     <string name="stream_menu_button_hide">Menütaste ausblenden</string>
-    <string name="stream_menu_settings">Streammenü</string>
+    <string name="stream_menu_settings">Kontrollzentrum</string>
     <string name="title_floating_menu_button">Schwebende Menütaste</string>
-    <string name="summary_floating_menu_button">Ein runder Knopf über dem Stream, der das Stream-Menü mit einem Tipp öffnet; ziehe ihn, um ihn zu verschieben. Unnötig, wenn Zurück oder dein Controller das Menü öffnet.</string>
+    <string name="summary_floating_menu_button">Ein runder Knopf über dem Stream, der das Kontrollzentrum mit einem Tipp öffnet; ziehe ihn, um ihn zu verschieben. Unnötig, wenn Zurück oder dein Controller das Menü öffnet.</string>
     <string name="stream_tile_keyboard">Tastatur</string>
     <string name="stream_tile_pc_keyboard">PC-Tastatur</string>
     <string name="stream_tile_mouse">Maus</string>

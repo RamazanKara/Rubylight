@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_touch_off_help">터치가 꺼져 있습니다. 뒤로 스와이프하거나 뒤로 버튼을 누르면 스트림 메뉴가 열립니다.</string>
+    <string name="stream_touch_off_help">터치가 꺼져 있습니다. 뒤로 스와이프하거나 뒤로 버튼을 누르면 제어 센터가 열립니다.</string>
     <string name="title_local_cursor_speed">로컬 커서 속도</string>
     <string name="title_trackpad_acceleration">트랙패드 가속</string>
     <string name="summary_trackpad_acceleration">손가락을 천천히 움직이면 정밀하게 조준하고, 빠르게 스와이프하면 더 멀리 이동합니다. 손가락과 포인터가 1:1로 움직이길 원하지 않는 한 켜 두세요. ‘트랙패드’와 ‘로컬 커서’ 터치 모드에서 다음 스트림부터 적용됩니다.</string>

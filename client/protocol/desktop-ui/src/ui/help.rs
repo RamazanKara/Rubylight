@@ -35,7 +35,7 @@ const PROBLEMS: [(&str, &str); 5] = [
     ),
     (en("Pairing fails"), en("Cancel, clear the pending request in the PC’s web UI, and pair again with a new PIN.")),
     (en("Black picture or no video"), en("Try H.264 at 720p with HDR and upscaling off, then raise one setting at a time.")),
-    (en("Stutter or lag"), en("Lower the bitrate or connect the PC by cable. Why did my stream stutter? in the stream menu names the cause.")),
+    (en("Stutter or lag"), en("Lower the bitrate or connect the PC by cable. Why did my stream stutter? in the Control Center names the cause.")),
     (en("No sound"), en("Choose Stereo, check the PC’s audio output, then reconnect.")),
 ];
 
@@ -304,10 +304,10 @@ impl Launcher {
 
     fn help_sharing(&mut self, ui: &mut Ui, width: f32) {
         let tiles: [(Icon, &str, &str); 4] = [
-            (Icon::ClipboardUp, en("Clipboard"), en("Send text to the PC or copy the PC’s text here from the stream menu, or with the keys below. Clipboard sync in Settings does it as you copy.")),
+            (Icon::ClipboardUp, en("Clipboard"), en("Send text to the PC or copy the PC’s text here from the Control Center, or with the keys below. Clipboard sync in Settings does it as you copy.")),
             (Icon::File, en("Files"), en("Send files to a PC’s transfer folder and download from it: Files in the PC’s options.")),
             (Icon::Folder, en("Shared folders"), en("Browse the folders a PC shares with this device and download from them, on the PC’s details page.")),
-            (Icon::Usb, en("USB devices"), en("Attach a USB device plugged in here to the PC from the stream menu, when the PC supports it.")),
+            (Icon::Usb, en("USB devices"), en("Attach a USB device plugged in here to the PC from the Control Center, when the PC supports it.")),
         ];
         let columns = if width >= 1000.0 { 4 } else if width >= 560.0 { 2 } else { 1 };
         grid(ui, "help-sharing", columns, tiles.len(), |ui, n| {

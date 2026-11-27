@@ -172,7 +172,7 @@
     <string name="title_checkbox_usb_bind_all">USB-Treiber bevorzugen</string>
     <string name="summary_checkbox_usb_bind_all">Nutzt den Treiber von Nightjar auch für Xbox-Controller, die Android unterstützt. Schalte es ein, wenn ein USB-Controller über Android nicht vibriert, und verbinde ihn dann neu.</string>
     <string name="title_checkbox_mouse_emulation">Controller als Maus</string>
-    <string name="summary_checkbox_mouse_emulation">Start gedrückt halten schaltet den Controller zwischen Gamepad und Maus um. Schalte es aus, wenn das im Spiel versehentlich passiert; die Kachel „Maus“ im Stream-Menü schaltet weiterhin um.</string>
+    <string name="summary_checkbox_mouse_emulation">Start gedrückt halten schaltet den Controller zwischen Gamepad und Maus um. Schalte es aus, wenn das im Spiel versehentlich passiert; die Kachel „Maus“ im Kontrollzentrum schaltet weiterhin um.</string>
     <string name="title_checkbox_flip_face_buttons">Nintendo-Tastenbelegung</string>
     <string name="summary_checkbox_flip_face_buttons">Tauscht A mit B und X mit Y. Schalte es ein, wenn die Tasten eines Controllers im Nintendo-Stil die aufgedruckten Buchstaben senden sollen.</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">Controller-Touchpad als Maus</string>
@@ -391,7 +391,7 @@
     <string name="role_input_only">Nur steuern</string>
     <string name="stream_monitor_title">Zuschauen</string>
     <string name="stream_input_title">Steuern</string>
-    <string name="stream_input_only_help">Nur steuern\nTouch, Tastatur oder Controller.\nZurück öffnet das Stream-Menü.</string>
+    <string name="stream_input_only_help">Nur steuern\nTouch, Tastatur oder Controller.\nZurück öffnet das Kontrollzentrum.</string>
     <string name="stream_end_monitor">Zuschauen beenden</string>
     <string name="stream_end_input">Steuerung beenden</string>
     <string name="launch_confirm_title">Hier bestätigen</string>
@@ -445,8 +445,8 @@
     <string name="upscaling_timing_estimate">Schätzung umfasst Texturübergabe, GPU-Verarbeitung und Ausgabewartezeit (1-ms-Abfrage). Anzeigezeitmessung nicht verfügbar.</string>
     <string name="upscaling_last_timing">Letzte GPU-Zeitschätzung: %1$s</string>
     <string name="keyboard_shortcuts_title">Tastenkombinationen</string>
-    <string name="keyboard_shortcuts_summary">Tastenkombinationen wie Alt+F4, die als Kacheln im Stream-Menü stehen und mit einem Druck an den PC gehen.</string>
-    <string name="keyboard_shortcuts_help">Erstelle bis zu 32 Tastenkombinationen für „Zusätzliche Tasten“ im Streaming-Menü. Trenne Tasten mit +, zum Beispiel CTRL + SHIFT + ESC oder WIN + D. Jede Schaltfläche drückt die Tasten der Reihe nach und lässt sie in umgekehrter Reihenfolge los.</string>
+    <string name="keyboard_shortcuts_summary">Tastenkombinationen wie Alt+F4, die als Kacheln im Kontrollzentrum stehen und mit einem Druck an den PC gehen.</string>
+    <string name="keyboard_shortcuts_help">Erstelle bis zu 32 Tastenkombinationen für „Zusätzliche Tasten“ im Kontrollzentrum. Trenne Tasten mit +, zum Beispiel CTRL + SHIFT + ESC oder WIN + D. Jede Schaltfläche drückt die Tasten der Reihe nach und lässt sie in umgekehrter Reihenfolge los.</string>
     <string name="keyboard_shortcuts_add">Tastenkombination hinzufügen</string>
     <string name="keyboard_shortcuts_edit">Tastenkombination bearbeiten</string>
     <string name="keyboard_shortcuts_save">Speichern</string>
@@ -480,11 +480,11 @@
     <string name="keyboard_shortcuts_move_up">Nach oben</string>
     <string name="keyboard_shortcuts_move_down">Nach unten</string>
     <string name="stream_disconnect_confirm">Die Verbindung zum Stream trennen?\nDie Sitzung wartet auf dem PC, bereit zum Fortsetzen.</string>
-    <string name="title_stream_menu_button_y">Y im Streammenü</string>
-    <string name="title_stream_menu_button_x">X im Streammenü</string>
-    <string name="title_stream_menu_button_lb">LB im Streammenü</string>
-    <string name="title_stream_menu_button_rb">RB im Streammenü</string>
-    <string name="summary_stream_menu_button">Was diese Taste ausführt, solange das Stream-Menü offen ist. „Standard“ belässt es bei der Kachel, die die Taste in ihrer Ecke zeigt; ein Ausstieg wie „Trennen“ fragt vorher nach.</string>
+    <string name="title_stream_menu_button_y">Y im Kontrollzentrum</string>
+    <string name="title_stream_menu_button_x">X im Kontrollzentrum</string>
+    <string name="title_stream_menu_button_lb">LB im Kontrollzentrum</string>
+    <string name="title_stream_menu_button_rb">RB im Kontrollzentrum</string>
+    <string name="summary_stream_menu_button">Was diese Taste ausführt, solange das Kontrollzentrum offen ist. „Standard“ belässt es bei der Kachel, die die Taste in ihrer Ecke zeigt; ein Ausstieg wie „Trennen“ fragt vorher nach.</string>
     <string name="stream_menu_button_default">Standard</string>
     <string name="stream_menu_button_none">Aus</string>
     <string name="title_lower_refresh">Niedrigere Bildwiederholrate</string>

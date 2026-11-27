@@ -221,7 +221,7 @@ fn frame(ctx: &egui::Context, add: impl FnOnce(&mut Ui)) -> (Vec<(String, egui::
     let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0))), ..Default::default() };
     let mut add = Some(add);
     let mut output = ctx.run_ui(input, |ui| {
-        menu_style::show(ui.ctx(), "Stream menu", "footer-test", |ui| (add.take().unwrap())(ui));
+        menu_style::show(ui.ctx(), "Control Center", "footer-test", |ui| (add.take().unwrap())(ui));
     });
     output.textures_delta.clear();
     let tree = output.platform_output.accesskit_update.expect("AccessKit is on");
@@ -258,7 +258,7 @@ fn a_focused_controls_glow_ends_before_anything_cuts_it() {
         };
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0))), events, ..Default::default() };
         let mut output = ctx.run_ui(input, |ui| {
-            menu_style::show(ui.ctx(), "Stream menu", "glow-test", |ui| {
+            menu_style::show(ui.ctx(), "Control Center", "glow-test", |ui| {
                 menu_style::head(ui, "Racing Game", "1080p");
                 let reserve = menu_style::pinned_room(ui.ctx(), "glow-footer");
                 // As the real menu asks it.
@@ -319,11 +319,11 @@ fn quit_game_in_the_footer_is_quiet_with_red_words() {
     crate::theme::apply(&ctx);
     let layout = layout(&everything(), 0);
     let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0))), ..Default::default() };
-    let mut output = ctx.run_ui(input(), |ui| { menu_style::show(ui.ctx(), "Stream menu", "footer-test", |ui| { footer(ui, &layout); }); });
+    let mut output = ctx.run_ui(input(), |ui| { menu_style::show(ui.ctx(), "Control Center", "footer-test", |ui| { footer(ui, &layout); }); });
     for _ in 0..3 {
         // No renderer takes the textures here, and egui refuses to drop them unasked.
         output.textures_delta.clear();
-        output = ctx.run_ui(input(), |ui| { menu_style::show(ui.ctx(), "Stream menu", "footer-test", |ui| { footer(ui, &layout); }); });
+        output = ctx.run_ui(input(), |ui| { menu_style::show(ui.ctx(), "Control Center", "footer-test", |ui| { footer(ui, &layout); }); });
     }
     output.textures_delta.clear();
     let solid = crate::theme::shade::COLOR_DANGER_FILL.get();

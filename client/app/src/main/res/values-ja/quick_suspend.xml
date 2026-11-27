@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="quick_suspend_paused">PC でゲームが一時停止中です。再開するにはストリームメニューを開いてください。</string>
+    <string name="quick_suspend_paused">PC でゲームが一時停止中です。再開するにはコントロールセンターを開いてください。</string>
     <string name="quick_suspend_resumed">ゲームを再開しました。</string>
     <string name="quick_suspend_refused_anti_cheat">PC でチート対策ソフトが動作しているため、ゲームを一時停止しません。</string>
     <string name="quick_suspend_refused_protected">保護されたプログラムまたはシステムプログラムがこのゲームと一緒に動作しているため、PC は一時停止しません。</string>

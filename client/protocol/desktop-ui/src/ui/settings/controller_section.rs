@@ -71,14 +71,14 @@ pub(super) fn draw_controller_section(
     rows.group(en("Controllers"));
     rows.when(s.controllers);
     setting_row(ui, s, rows, &["swap_face_buttons"], "Nintendo button layout", "Swaps A with B and X with Y. Turn on if a Nintendo-style controller’s buttons should send the letters printed on them.", |ui, s| toggle(ui, &mut s.swap_face_buttons));
-    setting_row(ui, s, rows, &["gamepad_quit_combo"], "Buttons to leave the stream", "Hold these buttons together to leave the stream from the controller, without opening the stream menu. Pick a combination your games don’t use.", |ui, s| {
+    setting_row(ui, s, rows, &["gamepad_quit_combo"], "Buttons to leave the stream", "Hold these buttons together to leave the stream from the controller, without opening the Control Center. Pick a combination your games don’t use.", |ui, s| {
         Combo::from_id_salt("gamepad-quit-combo").selected_text(style.quit_combo(s.gamepad_quit_combo)).show_ui(ui, |ui| {
             for combo in crate::config::GamepadQuitCombo::ALL {
                 ui.selectable_value(&mut s.gamepad_quit_combo, combo, style.quit_combo(combo));
             }
         }).response
     });
-    setting_row(ui, s, rows, &["controller_mouse"], "Controller mouse mode", "Holding Start switches the controller between gamepad and mouse. Turn it off if that happens by accident in a game; the stream menu’s Mouse tile still switches it.", |ui, s| toggle(ui, &mut s.controller_mouse));
+    setting_row(ui, s, rows, &["controller_mouse"], "Controller mouse mode", "Holding Start switches the controller between gamepad and mouse. Turn it off if that happens by accident in a game; the Control Center’s Mouse tile still switches it.", |ui, s| toggle(ui, &mut s.controller_mouse));
     rows.when(s.controller_mouse);
     setting_row(ui, s, rows, &["analog_scrolling"], "Stick for scrolling", "The stick that scrolls in controller mouse mode; the other stick moves the pointer. Without a scroll stick, both move the pointer.", |ui, s| {
         use crate::config::AnalogScrolling;
@@ -98,16 +98,16 @@ pub(super) fn draw_controller_section(
     rows.always();
     // How the stream menu opens and what it holds, as Android's Stream menu group. Android's
     // floating menu button has no desktop row: a window has a pointer and keys to open the menu.
-    rows.group(en("Stream menu"));
+    rows.group(en("Control Center"));
     rows.when(s.controllers);
-    setting_row(ui, s, rows, &["guide_hold_ms"], "Hold Guide to open the stream menu", "How long Guide is held to open the stream menu; a shorter press goes to the PC. Choose Off if a game or the PC needs a long Guide press.", |ui, s| {
+    setting_row(ui, s, rows, &["guide_hold_ms"], "Hold Guide to open the Control Center", "How long Guide is held to open the Control Center; a shorter press goes to the PC. Choose Off if a game or the PC needs a long Guide press.", |ui, s| {
         Combo::from_id_salt("guide-hold").selected_text(guide_hold_name(s.guide_hold_ms)).show_ui(ui, |ui| {
             for ms in crate::config::GUIDE_HOLD_MS {
                 ui.selectable_value(&mut s.guide_hold_ms, ms, guide_hold_name(ms));
             }
         }).response
     });
-    setting_row(ui, s, rows, &["back_opens_menu", "back_as_guide"], "Back button", "What the controller’s or handheld’s Back button does: Back reaches the PC as Back, Stream menu opens the stream menu, Guide sends Guide (Home or PS) to the PC. Leave it on Back if your games use that button.", |ui, s| {
+    setting_row(ui, s, rows, &["back_opens_menu", "back_as_guide"], "Back button", "What the controller’s or handheld’s Back button does: Back reaches the PC as Back, Control Center opens the Control Center, Guide sends Guide (Home or PS) to the PC. Leave it on Back if your games use that button.", |ui, s| {
         let current = BackButton::from_saved(s.back_opens_menu, s.back_as_guide);
         let mut choice = current;
         let response = Combo::from_id_salt("back-button").selected_text(tr(back_button_name(current))).show_ui(ui, |ui| {
@@ -121,15 +121,15 @@ pub(super) fn draw_controller_section(
         response
     });
     for (hotkey, label) in [
-        (Hotkey::Y, en("Y in the stream menu")),
-        (Hotkey::X, en("X in the stream menu")),
-        (Hotkey::Lb, en("LB in the stream menu")),
-        (Hotkey::Rb, en("RB in the stream menu")),
+        (Hotkey::Y, en("Y in the Control Center")),
+        (Hotkey::X, en("X in the Control Center")),
+        (Hotkey::Lb, en("LB in the Control Center")),
+        (Hotkey::Rb, en("RB in the Control Center")),
     ] {
         let differs = s.stream_menu_buttons.get(&hotkey) != rows.defaults.stream_menu_buttons.get(&hotkey);
         rows.defer_reset();
         rows.custom_reset(en("Default"), differs);
-        setting_row(ui, s, rows, &["stream_menu_buttons"], label, "What this button runs while the stream menu is open. Default runs the tile marked with this button in its corner; an action that leaves the stream, such as Disconnect, asks first.", |ui, s| stream_menu_button(ui, s, hotkey));
+        setting_row(ui, s, rows, &["stream_menu_buttons"], label, "What this button runs while the Control Center is open. Default runs the tile marked with this button in its corner; an action that leaves the stream, such as Disconnect, asks first.", |ui, s| stream_menu_button(ui, s, hotkey));
         if rows.take_reset() {
             match rows.defaults.stream_menu_buttons.get(&hotkey) {
                 Some(v) => {
@@ -148,7 +148,7 @@ pub(super) fn draw_controller_section(
         toggle(ui, &mut s.controller_audio)
     });
     rows.always();
-    setting_row(ui, s, rows, &["usb_forwarding"], "Forward USB devices", "Lets the stream menu hand a USB device plugged in here, such as a drawing tablet or security key, to the PC. Needs a PC that offers USB forwarding.", |ui, s| {
+    setting_row(ui, s, rows, &["usb_forwarding"], "Forward USB devices", "Lets the Control Center hand a USB device plugged in here, such as a drawing tablet or security key, to the PC. Needs a PC that offers USB forwarding.", |ui, s| {
         toggle(ui, &mut s.usb_forwarding)
     });
 }

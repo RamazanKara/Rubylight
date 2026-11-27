@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_touch_off_help">El táctil está desactivado. Desliza hacia atrás o pulsa Atrás para abrir el menú de transmisión.</string>
+    <string name="stream_touch_off_help">El táctil está desactivado. Desliza hacia atrás o pulsa Atrás para abrir el Centro de control.</string>
     <string name="title_local_cursor_speed">Velocidad del cursor local</string>
     <string name="title_trackpad_acceleration">Aceleración del trackpad</string>
     <string name="summary_trackpad_acceleration">Los movimientos lentos del dedo apuntan con precisión y los deslizamientos rápidos llegan más lejos. Déjala activada salvo que prefieras que el puntero siga el dedo uno a uno; Trackpad y Cursor local la aplican desde la próxima transmisión.</string>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="quick_suspend_paused">Gra jest wstrzymana na komputerze. Otwórz menu strumienia, aby ją wznowić.</string>
+    <string name="quick_suspend_paused">Gra jest wstrzymana na komputerze. Otwórz Centrum sterowania, aby ją wznowić.</string>
     <string name="quick_suspend_resumed">Gra wznowiona.</string>
     <string name="quick_suspend_refused_anti_cheat">Na komputerze działa system anti-cheat, więc nie wstrzyma gry.</string>
     <string name="quick_suspend_refused_protected">Razem z tą grą działa chroniony lub systemowy program, więc komputer jej nie wstrzyma.</string>

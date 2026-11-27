@@ -8,7 +8,7 @@
     <string name="stream_mouse_step">マウスのステップ: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">システムキーを送信</string>
     <string name="title_checkbox_back_as_meta">キーボードの戻るキーで Windows キーを送信</string>
-    <string name="summary_checkbox_back_as_meta">物理キーボードの戻るキーで、「戻る」や Esc の代わりに Windows キーを PC に送ります。Android の「戻る」ジェスチャーとストリームメニューのホットキーでは、引き続きストリームメニューを開けます。</string>
+    <string name="summary_checkbox_back_as_meta">物理キーボードの戻るキーで、「戻る」や Esc の代わりに Windows キーを PC に送ります。Android の「戻る」ジェスチャーとコントロールセンターのホットキーでは、引き続きコントロールセンターを開けます。</string>
     <string name="title_checkbox_right_alt_as_meta">右 Alt を Windows キーとして使用</string>
     <string name="summary_checkbox_right_alt_as_meta">右 Alt で Windows キーを送ります。Mac ではこれが Command として使われます。AltGr で文字を入力する場合はオフのままにしてください。オンにすると、右 Alt は AltGr として働かなくなります。</string>
     <string name="title_checkbox_keyboard_follows_text_fields">テキスト欄に合わせてキーボードを表示</string>

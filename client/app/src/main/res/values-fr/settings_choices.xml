@@ -7,9 +7,9 @@
     <string name="summary_lower_bitrate">« Jamais : garder mon débit » peut figer ou déformer l’image sur une connexion qui ne supporte pas ce débit, et ne fonctionne qu’avec un PC qui accepte les changements de débit ; choisissez-le quand l’image devient floue sur une connexion qui supporte davantage. Par défaut, le PC baisse le débit quand des images perdues ne peuvent pas être réparées, puis le remonte ensuite ; « Baisser plus tôt » le baisse plus tôt, au prix d’une image plus douce.</string>
     <string name="title_back_button">Bouton Retour</string>
     <string name="back_button_back">Retour</string>
-    <string name="back_button_menu">Menu du stream</string>
+    <string name="back_button_menu">Centre de contrôle</string>
     <string name="back_button_guide">Guide</string>
-    <string name="summary_back_button">Ce que fait le bouton Retour de la manette ou de la console portable : Retour arrive au PC comme Retour, Menu du stream ouvre le menu du stream, Guide envoie Guide (Home ou PS) au PC. Laissez-le sur Retour si vos jeux utilisent ce bouton.</string>
+    <string name="summary_back_button">Ce que fait le bouton Retour de la manette ou de la console portable : Retour arrive au PC comme Retour, Centre de contrôle ouvre le Centre de contrôle, Guide envoie Guide (Home ou PS) au PC. Laissez-le sur Retour si vos jeux utilisent ce bouton.</string>
     <string name="settings_choice_off">Désactivée</string>
     <string name="system_keys_always">Toujours</string>
     <string name="system_keys_full_screen">En plein écran</string>

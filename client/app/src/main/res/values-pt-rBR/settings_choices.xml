@@ -7,9 +7,9 @@
     <string name="summary_lower_bitrate">“Nunca: manter minha taxa de bits” pode travar ou quebrar a imagem em uma conexão que não suporte essa taxa, e só funciona com um PC que aceite mudanças de taxa de bits; escolha quando a imagem ficar suave em uma conexão que suporte mais. Por padrão, o PC reduz a taxa de bits quando perde quadros que não consegue reparar e a aumenta de novo depois; “Reduzir mais cedo” reduz antes, ao custo de uma imagem mais suave.</string>
     <string name="title_back_button">Botão Voltar</string>
     <string name="back_button_back">Voltar</string>
-    <string name="back_button_menu">Menu da transmissão</string>
+    <string name="back_button_menu">Central de controle</string>
     <string name="back_button_guide">Guide</string>
-    <string name="summary_back_button">O que o botão Voltar do controle ou do portátil faz: Voltar chega ao PC como Voltar, Menu da transmissão abre o menu da transmissão e Guide envia Guide (Home ou PS) ao PC. Deixe em Voltar se seus jogos usam esse botão.</string>
+    <string name="summary_back_button">O que o botão Voltar do controle ou do portátil faz: Voltar chega ao PC como Voltar, Central de controle abre a Central de controle e Guide envia Guide (Home ou PS) ao PC. Deixe em Voltar se seus jogos usam esse botão.</string>
     <string name="settings_choice_off">Desativado</string>
     <string name="system_keys_always">Sempre</string>
     <string name="system_keys_full_screen">Em tela cheia</string>

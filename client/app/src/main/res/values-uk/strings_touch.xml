@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_touch_off_help">Сенсор вимкнено. Проведіть назад або натисніть «Назад», щоб відкрити меню трансляції.</string>
+    <string name="stream_touch_off_help">Сенсор вимкнено. Проведіть назад або натисніть «Назад», щоб відкрити Центр керування.</string>
     <string name="title_local_cursor_speed">Швидкість локального курсора</string>
     <string name="title_trackpad_acceleration">Прискорення трекпада</string>
     <string name="summary_trackpad_acceleration">Повільні рухи пальця дають точне наведення, а швидкі свайпи проходять далі. Залиште ввімкненим, якщо не хочете, щоб вказівник рухався за пальцем один до одного; режими «Трекпад» і «Локальний курсор» застосовують його з наступної трансляції.</string>

@@ -8,7 +8,7 @@
     <string name="stream_mouse_step">滑鼠步距：%1$d 像素</string>
     <string name="title_checkbox_capture_system_keys">傳送系統按鍵</string>
     <string name="title_checkbox_back_as_meta">鍵盤返回鍵傳送 Windows 鍵</string>
-    <string name="summary_checkbox_back_as_meta">實體鍵盤的返回鍵向電腦傳送 Windows 鍵，而不是返回或 Esc。Android 的返回手勢和串流選單快速鍵仍可開啟串流選單。</string>
+    <string name="summary_checkbox_back_as_meta">實體鍵盤的返回鍵向電腦傳送 Windows 鍵，而不是返回或 Esc。Android 的返回手勢和控制中心快速鍵仍可開啟控制中心。</string>
     <string name="title_checkbox_right_alt_as_meta">右 Alt 作為 Windows 鍵</string>
     <string name="summary_checkbox_right_alt_as_meta">右 Alt 傳送 Windows 鍵，Mac 會將其當作 Command。如果你用 AltGr 輸入字元，請保持關閉：開啟後右 Alt 不再有 AltGr 的作用。</string>
     <string name="title_checkbox_keyboard_follows_text_fields">鍵盤跟隨文字欄位</string>

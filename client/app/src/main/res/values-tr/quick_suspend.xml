@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="quick_suspend_paused">Oyun bilgisayarda duraklatıldı. Devam etmek için yayın menüsünü açın.</string>
+    <string name="quick_suspend_paused">Oyun bilgisayarda duraklatıldı. Devam etmek için Kontrol Merkezini açın.</string>
     <string name="quick_suspend_resumed">Oyuna devam edildi.</string>
     <string name="quick_suspend_refused_anti_cheat">Bilgisayarda hile önleyici çalışıyor, bu yüzden oyunu duraklatmaz.</string>
     <string name="quick_suspend_refused_protected">Bu oyunla birlikte korumalı veya sistem programı çalışıyor, bu yüzden bilgisayar onu duraklatmaz.</string>

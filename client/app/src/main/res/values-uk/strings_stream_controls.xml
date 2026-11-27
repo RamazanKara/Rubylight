@@ -7,7 +7,7 @@
     <string name="stream_controls_layout">Змінити розкладку контролера</string>
     <string name="stream_reconnect">Перепідключити трансляцію</string>
     <string name="stream_reconnecting">Повторне підключення до запущеного застосунку…</string>
-    <string name="stream_native_touch_help">Дотики керують ПК напряму.\nКлавіатура — у меню трансляції.</string>
+    <string name="stream_native_touch_help">Дотики керують ПК напряму.\nКлавіатура — у Центрі керування.</string>
     <string name="stream_native_touch_fallback">ПК не підтримує мультитач, тому дотики рухають мишу.</string>
     <string-array name="stream_touch_modes">
         <item>Трекпад</item>

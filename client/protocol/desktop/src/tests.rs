@@ -351,7 +351,7 @@ fn the_pointer_follows_real_controller_and_mouse_input_only() {
 
 #[test]
 fn under_gamescope_a_stream_starts_with_start_back_and_the_hdr_note() {
-    assert_eq!(start_toast(None, None, true), "Start+Back opens the stream menu");
+    assert_eq!(start_toast(None, None, true), "Start+Back opens the Control Center");
     assert_eq!(start_toast(None, Some(HDR_OFF_NOTE), true), HDR_OFF_NOTE, "a note replaces the hint");
     assert_eq!(shortcuts::stream_controls_mask(), 1 << SDL_GAMEPAD_BUTTON_START.0 | 1 << SDL_GAMEPAD_BUTTON_BACK.0,
         "the hint's chord is the one the stream opens its menu with");

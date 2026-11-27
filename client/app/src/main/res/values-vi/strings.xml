@@ -172,7 +172,7 @@
     <string name="title_checkbox_usb_bind_all">Luôn dùng driver USB</string>
     <string name="summary_checkbox_usb_bind_all">Dùng driver của Nightjar ngay cả với tay cầm Xbox mà Android hỗ trợ. Bật nếu tay cầm USB không rung khi chạy qua Android, rồi kết nối lại tay cầm.</string>
     <string name="title_checkbox_mouse_emulation">Chế độ chuột bằng tay cầm điều khiển</string>
-    <string name="summary_checkbox_mouse_emulation">Giữ Start sẽ chuyển tay cầm giữa chế độ tay cầm và chuột. Tắt nếu việc đó vô tình xảy ra trong trò chơi; ô “Chuột” trong menu stream vẫn chuyển được.</string>
+    <string name="summary_checkbox_mouse_emulation">Giữ Start sẽ chuyển tay cầm giữa chế độ tay cầm và chuột. Tắt nếu việc đó vô tình xảy ra trong trò chơi; ô “Chuột” trong Trung tâm điều khiển vẫn chuyển được.</string>
     <string name="title_checkbox_flip_face_buttons">Bố cục nút Nintendo</string>
     <string name="summary_checkbox_flip_face_buttons">Hoán đổi A với B và X với Y. Bật nếu muốn các nút của tay cầm kiểu Nintendo gửi đúng chữ cái in trên nút.</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">Touchpad tay cầm làm chuột</string>
@@ -391,7 +391,7 @@
     <string name="role_input_only">Chỉ đầu vào</string>
     <string name="stream_monitor_title">Giám sát từ xa</string>
     <string name="stream_input_title">Chỉ đầu vào</string>
-    <string name="stream_input_only_help">Chỉ đầu vào\nDùng cảm ứng, phím hoặc tay cầm điều khiển.\nQuay lại sẽ mở menu stream.</string>
+    <string name="stream_input_only_help">Chỉ đầu vào\nDùng cảm ứng, phím hoặc tay cầm điều khiển.\nQuay lại sẽ mở Trung tâm điều khiển.</string>
     <string name="stream_end_monitor">Kết thúc phiên giám sát</string>
     <string name="stream_end_input">Kết thúc phiên đầu vào</string>
     <string name="launch_confirm_title">Xác nhận trên thiết bị này</string>
@@ -445,8 +445,8 @@
     <string name="upscaling_timing_estimate">Ước tính bao gồm chuyển giao texture, hoàn tất GPU và chờ hoán đổi (lấy mẫu mỗi 1 ms). Không có định thời trình chiếu của màn hình.</string>
     <string name="upscaling_last_timing">Ước tính gần nhất của đường xử lý GPU: %1$s</string>
     <string name="keyboard_shortcuts_title">Phím tắt</string>
-    <string name="keyboard_shortcuts_summary">Các tổ hợp phím như Alt+F4, hiện thành ô trong menu stream và gửi đến PC chỉ với một lần nhấn.</string>
-    <string name="keyboard_shortcuts_help">Tạo tối đa 32 phím tắt cho Phím bàn phím bổ sung trong menu stream. Nhập các phím cách nhau bằng +, ví dụ CTRL + SHIFT + ESC hoặc WIN + D. Mỗi nút sẽ nhấn các phím theo thứ tự và nhả theo thứ tự ngược lại.</string>
+    <string name="keyboard_shortcuts_summary">Các tổ hợp phím như Alt+F4, hiện thành ô trong Trung tâm điều khiển và gửi đến PC chỉ với một lần nhấn.</string>
+    <string name="keyboard_shortcuts_help">Tạo tối đa 32 phím tắt cho Phím bàn phím bổ sung trong Trung tâm điều khiển. Nhập các phím cách nhau bằng +, ví dụ CTRL + SHIFT + ESC hoặc WIN + D. Mỗi nút sẽ nhấn các phím theo thứ tự và nhả theo thứ tự ngược lại.</string>
     <string name="keyboard_shortcuts_add">Thêm phím tắt</string>
     <string name="keyboard_shortcuts_edit">Sửa phím tắt</string>
     <string name="keyboard_shortcuts_save">Lưu</string>
@@ -480,11 +480,11 @@
     <string name="keyboard_shortcuts_move_up">Di chuyển lên</string>
     <string name="keyboard_shortcuts_move_down">Di chuyển xuống</string>
     <string name="stream_disconnect_confirm">Ngắt kết nối khỏi luồng phát?\nPhiên vẫn chờ trên PC, sẵn sàng để tiếp tục.</string>
-    <string name="title_stream_menu_button_y">Y trong menu phát</string>
-    <string name="title_stream_menu_button_x">X trong menu phát</string>
-    <string name="title_stream_menu_button_lb">LB trong menu phát</string>
-    <string name="title_stream_menu_button_rb">RB trong menu phát</string>
-    <string name="summary_stream_menu_button">Việc nút này thực hiện khi menu stream đang mở. “Mặc định” giữ ô có hiện nút này ở góc; lối thoát như “Ngắt kết nối” sẽ hỏi lại trước.</string>
+    <string name="title_stream_menu_button_y">Y trong Trung tâm điều khiển</string>
+    <string name="title_stream_menu_button_x">X trong Trung tâm điều khiển</string>
+    <string name="title_stream_menu_button_lb">LB trong Trung tâm điều khiển</string>
+    <string name="title_stream_menu_button_rb">RB trong Trung tâm điều khiển</string>
+    <string name="summary_stream_menu_button">Việc nút này thực hiện khi Trung tâm điều khiển đang mở. “Mặc định” giữ ô có hiện nút này ở góc; lối thoát như “Ngắt kết nối” sẽ hỏi lại trước.</string>
     <string name="stream_menu_button_default">Mặc định</string>
     <string name="stream_menu_button_none">Tắt</string>
     <string name="title_lower_refresh">Giảm tần số quét</string>

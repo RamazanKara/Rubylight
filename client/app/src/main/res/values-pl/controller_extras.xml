@@ -8,7 +8,7 @@
     <string name="stream_mouse_step">Krok myszy: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Wysyłaj klawisze systemowe</string>
     <string name="title_checkbox_back_as_meta">Wstecz na klawiaturze jako klawisz Windows</string>
-    <string name="summary_checkbox_back_as_meta">Klawisz Wstecz fizycznej klawiatury wysyła do komputera klawisz Windows zamiast Wstecz lub Esc. Gest Wstecz Androida i skrót menu strumienia nadal otwierają menu strumienia.</string>
+    <string name="summary_checkbox_back_as_meta">Klawisz Wstecz fizycznej klawiatury wysyła do komputera klawisz Windows zamiast Wstecz lub Esc. Gest Wstecz Androida i skrót Centrum sterowania nadal otwierają Centrum sterowania.</string>
     <string name="title_checkbox_right_alt_as_meta">Prawy Alt jako klawisz Windows</string>
     <string name="summary_checkbox_right_alt_as_meta">Prawy Alt wysyła klawisz Windows, którego Mac używa jako Command. Zostaw wyłączone, jeśli piszesz znaki z AltGr: prawy Alt przestaje wtedy działać jako AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Klawiatura podąża za polami tekstowymi</string>

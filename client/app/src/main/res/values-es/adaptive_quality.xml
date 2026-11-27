@@ -14,6 +14,6 @@
     <string name="quality_about">Cómo funciona</string>
     <string name="quality_stream_help">Se guarda para este PC. Fluidez reduce primero la resolución; Detalle reduce primero los FPS. Batería limita el trabajo poco a poco a un máximo de 60 FPS y un lado corto de 1080 píxeles, dentro de tus límites mínimos. El códec, HDR y la pantalla elegida se mantienen tal como se negociaron.</string>
     <string name="quality_unavailable">La calidad automática está desactivada: este PC o dispositivo no puede cambiar la resolución ni la velocidad de fotogramas durante una transmisión.</string>
-    <string name="quality_request_failed">La calidad automática se ha detenido: el PC no ha aplicado el nuevo tamaño. La transmisión continúa; elige otro modo en el menú de transmisión.</string>
+    <string name="quality_request_failed">La calidad automática se ha detenido: el PC no ha aplicado el nuevo tamaño. La transmisión continúa; elige otro modo en el Centro de control.</string>
     <string name="quality_status">Calidad automática: %1$s · %2$d × %3$d · objetivo %4$d FPS</string>
 </resources>

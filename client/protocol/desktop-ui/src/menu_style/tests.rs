@@ -16,7 +16,7 @@ fn run(ctx: &egui::Context, events: Vec<egui::Event>, add: impl FnMut(&mut Ui)) 
     };
     let mut add = add;
     let mut output = ctx.run_ui(input, |ui| {
-        show(ui.ctx(), "Stream menu", "menu-test", |ui| add(ui));
+        show(ui.ctx(), "Control Center", "menu-test", |ui| add(ui));
     });
     output.textures_delta.clear();
     output
@@ -26,7 +26,7 @@ fn run(ctx: &egui::Context, events: Vec<egui::Event>, add: impl FnMut(&mut Ui)) 
 fn sample(ctx: &egui::Context, events: Vec<egui::Event>, on: &mut bool) -> (egui::Rect, egui::Rect, bool) {
     let mut out = (egui::Rect::NOTHING, egui::Rect::NOTHING, false);
     run(ctx, events, |ui| {
-        header(ui, "Stream menu", "Game · PC");
+        header(ui, "Control Center", "Game · PC");
         out.0 = primary(ui, "Return to stream", None).rect;
         let r = switch(ui, Icon::Microphone, "Mute microphone", on);
         out.1 = r.rect;
@@ -440,7 +440,7 @@ fn shoot(dir: &std::path::Path, name: &str, width: f32, height: f32, ppp: f32, h
                 "quality" => crate::stream_menu::Page::Quality,
                 _ => crate::stream_menu::Page::Grid,
             };
-            show(ui.ctx(), tr("Stream menu"), "stream-controls", |ui| {
+            show(ui.ctx(), tr("Control Center"), "stream-controls", |ui| {
                 if what == "menu" {
                     // As app/overlay.rs draws the grid page: the game over its mode, the grid scrolling, the ways out pinned.
                     header(ui, "Open World", "1440p · 144 FPS · HEVC HDR");

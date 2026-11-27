@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_touch_off_help">Touch is off. Swipe back or press Back for the stream menu.</string>
+    <string name="stream_touch_off_help">Touch is off. Swipe back or press Back for the Control Center.</string>
     <string name="title_local_cursor_speed">Local cursor speed</string>
     <string name="title_trackpad_acceleration">Trackpad acceleration</string>
     <string name="summary_trackpad_acceleration">Slow finger movement aims precisely and fast swipes cover more distance. Leave it on unless you prefer the pointer to follow your finger one to one; Trackpad and Local cursor apply it from the next stream.</string>

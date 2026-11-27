@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">Mikrofon an den PC senden</string>
-    <string name="summary_checkbox_enable_mic">Sendet das Mikrofon dieses Geräts an den PC, damit du dort in Spielen und Chat-Apps sprechen kannst. Stummschalten geht im Stream-Menü; braucht Unterstützung durch den PC.</string>
+    <string name="summary_checkbox_enable_mic">Sendet das Mikrofon dieses Geräts an den PC, damit du dort in Spielen und Chat-Apps sprechen kannst. Stummschalten geht im Kontrollzentrum; braucht Unterstützung durch den PC.</string>
     <string name="mic_permission_denied">Der Mikrofonzugriff wurde nicht erlaubt, daher bleibt das Mikrofon aus. Erlaube ihn in den Android-Einstellungen, um über den PC zu sprechen.</string>
     <string name="mic_status_sending">Mikrofon: wird gesendet</string>
     <string name="mic_status_muted">Mikrofon: stumm</string>
@@ -20,7 +20,7 @@
     <string name="title_seekbar_mic_gain">Mikrofonverstärkung</string>
     <string name="summary_seekbar_mic_gain">Macht das Mikrofon vor dem Senden leiser oder lauter. Erhöhe den Wert, wenn andere dich zu leise hören; senke ihn, wenn sie dich zu laut hören.</string>
     <string name="title_checkbox_mic_button">Mikrofontaste</string>
-    <string name="summary_checkbox_mic_button">Ein runder Knopf über dem Stream, der das Mikrofon mit einem Tipp stumm- und wieder einschaltet; ziehe ihn, um ihn zu verschieben. Ausgeschaltet schaltest du im Stream-Menü stumm.</string>
+    <string name="summary_checkbox_mic_button">Ein runder Knopf über dem Stream, der das Mikrofon mit einem Tipp stumm- und wieder einschaltet; ziehe ihn, um ihn zu verschieben. Ausgeschaltet schaltest du im Kontrollzentrum stumm.</string>
     <string name="mic_button_mute">Mikrofon stummschalten</string>
     <string name="mic_button_unmute">Mikrofon einschalten</string>
     <string name="stream_mic_button_show">Mikrofontaste einblenden</string>

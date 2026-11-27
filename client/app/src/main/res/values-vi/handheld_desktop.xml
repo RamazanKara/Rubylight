@@ -31,7 +31,7 @@
     <string name="desktop_zoom_help">Chụm hai ngón tay để thu phóng từ 0,5× đến 4×; kéo hai ngón tay để di chuyển khung hình tự do, kể cả qua các viền đen. Một ngón tay vẫn dùng chế độ cảm ứng đã chọn. Cuộn bằng hai ngón tay bị thay thế khi bật điều khiển thu phóng.</string>
     <string name="desktop_output">Đầu ra video (kết nối lại stream)</string>
     <string name="desktop_output_device">Thiết bị này</string>
-    <string name="desktop_touchpad_help">Video đang hiển thị trên màn hình ngoài. Hãy dùng màn hình này làm bàn di chuột. Bàn phím, nút trò chơi và menu stream vẫn có ở đây.</string>
+    <string name="desktop_touchpad_help">Video đang hiển thị trên màn hình ngoài. Hãy dùng màn hình này làm bàn di chuột. Bàn phím, nút trò chơi và Trung tâm điều khiển vẫn có ở đây.</string>
     <string name="desktop_pacing_fallback">Màn hình ngoài: khung hình được hiển thị ngay khi nhận được.</string>
     <string name="desktop_display_unavailable">Không có màn hình ngoài nào hiển thị được stream nên stream vẫn ở trên thiết bị này.</string>
     <string name="controller_axes_title">Cần analog, cò và D-pad</string>

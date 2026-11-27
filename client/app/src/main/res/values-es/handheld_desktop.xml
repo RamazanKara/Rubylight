@@ -31,7 +31,7 @@
     <string name="desktop_zoom_help">Pellizca con dos dedos para ampliar de 0,5× a 4×; arrastra dos dedos para mover la imagen libremente, incluso por los bordes negros. Un dedo mantiene el modo táctil seleccionado. El desplazamiento con dos dedos se sustituye mientras los controles de zoom están activados.</string>
     <string name="desktop_output">Salida de vídeo (reconecta la transmisión)</string>
     <string name="desktop_output_device">Este dispositivo</string>
-    <string name="desktop_touchpad_help">El vídeo se muestra en tu pantalla externa. Usa esta pantalla como touchpad. El teclado, los botones del juego y el menú de transmisión siguen disponibles aquí.</string>
+    <string name="desktop_touchpad_help">El vídeo se muestra en tu pantalla externa. Usa esta pantalla como touchpad. El teclado, los botones del juego y el Centro de control siguen disponibles aquí.</string>
     <string name="desktop_pacing_fallback">Pantalla externa: los fotogramas se muestran en cuanto llegan.</string>
     <string name="desktop_display_unavailable">Ninguna pantalla externa puede mostrar la transmisión, así que se queda en este dispositivo.</string>
     <string name="controller_axes_title">Joysticks, gatillos y cruceta</string>

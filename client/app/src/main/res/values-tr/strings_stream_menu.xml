@@ -7,7 +7,7 @@
     <string name="overlay_compact_loss">%%%1$s kayıp</string>
     <string name="overlay_compact_waiting">Video bekleniyor</string>
     <string name="link_notice_lowered">Bilgisayar bit hızını %1$s Mbps’ye düşürdü: ağ</string>
-    <string name="link_notice_keep">PC bit hızını %1$s Mbps’ye düşürdü. Bit hızınızı korumak için yayın menüsünü açın ve “Bit hızımı koru”yu açın.</string>
+    <string name="link_notice_keep">PC bit hızını %1$s Mbps’ye düşürdü. Bit hızınızı korumak için Kontrol Merkezini açın ve “Bit hızımı koru”yu açın.</string>
     <string name="link_notice_lowered_only">PC ağ nedeniyle bit hızını %1$s Mbps’ye düşürdü.</string>
     <string name="stream_keep_bitrate">Bit hızımı koru</string>
     <string name="stream_keep_bitrate_off">Bir sonraki yayından itibaren PC karar verir; bu yayın bit hızını korur.</string>
@@ -34,7 +34,7 @@
     <string name="stream_choice_selected">Seçili</string>
     <string name="stream_choice_not_selected">Seçili değil</string>
     <string name="stream_web_ui_leaves">Tarayıcıyı açmak yayından çıkarır; oyun bilgisayarda çalışmaya devam eder.</string>
-    <string name="stream_menu_hint">Yayın menüsünü açmak için %1$s.</string>
+    <string name="stream_menu_hint">Kontrol Merkezini açmak için %1$s.</string>
     <string name="stream_menu_hint_swipe">ekran kenarından geri kaydırın</string>
     <string name="stream_menu_hint_buttons">alttan yukarı kaydırıp Geri’ye dokunun</string>
     <string name="stream_menu_hint_back">Geri’ye basın</string>
@@ -52,12 +52,12 @@
     <string name="stream_menu_shortcuts">Kısayollar</string>
     <string name="stream_menu_start_menu">Başlat menüsü</string>
     <string name="stream_shortcut_pick_keys">1–8 tuş seçin.</string>
-    <string name="stream_menu_model_failed">Yayın menüsü oluşturulamadı: %1$s</string>
+    <string name="stream_menu_model_failed">Kontrol Merkezi oluşturulamadı: %1$s</string>
     <string name="stream_menu_button_show">Menü düğmesini göster</string>
     <string name="stream_menu_button_hide">Menü düğmesini gizle</string>
-    <string name="stream_menu_settings">Yayın menüsü</string>
+    <string name="stream_menu_settings">Kontrol Merkezi</string>
     <string name="title_floating_menu_button">Kayan menü düğmesi</string>
-    <string name="summary_floating_menu_button">Yayının üzerinde, dokununca yayın menüsünü açan yuvarlak bir düğme; taşımak için sürükleyin. Menüyü Geri veya kumandanız açıyorsa gerekmez.</string>
+    <string name="summary_floating_menu_button">Yayının üzerinde, dokununca Kontrol Merkezini açan yuvarlak bir düğme; taşımak için sürükleyin. Menüyü Geri veya kumandanız açıyorsa gerekmez.</string>
     <string name="stream_tile_keyboard">Klavye</string>
     <string name="stream_tile_pc_keyboard">PC klavyesi</string>
     <string name="stream_tile_mouse">Fare</string>

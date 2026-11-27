@@ -8,7 +8,7 @@
     <string name="stream_mouse_step">Passo do mouse: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Enviar teclas do sistema</string>
     <string name="title_checkbox_back_as_meta">Voltar do teclado envia a tecla Windows</string>
-    <string name="summary_checkbox_back_as_meta">A tecla Voltar de um teclado físico envia ao PC a tecla Windows em vez de Voltar ou Esc. O gesto Voltar do Android e o atalho do menu da transmissão continuam abrindo o menu da transmissão.</string>
+    <string name="summary_checkbox_back_as_meta">A tecla Voltar de um teclado físico envia ao PC a tecla Windows em vez de Voltar ou Esc. O gesto Voltar do Android e o atalho da Central de controle continuam abrindo a Central de controle.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt direito como tecla Windows</string>
     <string name="summary_checkbox_right_alt_as_meta">O Alt direito envia a tecla Windows, que um Mac usa como Command. Deixe desativado se você digita caracteres com AltGr: o Alt direito deixa de funcionar como AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Teclado acompanha campos de texto</string>

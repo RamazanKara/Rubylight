@@ -44,7 +44,7 @@ mod tests {
         let none = [(Op::SaveClip, "Save clip", "", true, false), (Op::StartRecord, "Start recording", "", true, false)];
         for entries in [lines, none] {
             let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-                menu_style::show(ui.ctx(), "Stream menu", "dvr-test", |ui| notes(ui, &entries));
+                menu_style::show(ui.ctx(), "Control Center", "dvr-test", |ui| notes(ui, &entries));
             });
             // No renderer takes the textures here, and egui refuses to drop them unasked.
             output.textures_delta.clear();

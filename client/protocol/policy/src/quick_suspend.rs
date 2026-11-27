@@ -23,7 +23,7 @@ pub const RESUME_TILE: &str = "resume_game";
 /// What the stream shows while the game is paused, until it resumes.
 pub const PAUSED: Words = w(
     "paused",
-    "The game is paused on the PC. Open the stream menu to resume it.",
+    "The game is paused on the PC. Open the Control Center to resume it.",
 );
 /// What it says once the game runs again.
 pub const RESUMED: Words = w("resumed", "Game resumed.");

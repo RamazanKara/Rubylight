@@ -14,6 +14,6 @@
     <string name="quality_about">Nasıl çalışır</string>
     <string name="quality_stream_help">Bu bilgisayar için kaydedilir. Hareket önce çözünürlüğü, Ayrıntı önce FPS’yi düşürür. Pil, minimum sınırlarınız dahilinde iş yükünü kademeli olarak en fazla 60 FPS ve 1080 piksel kısa kenarla sınırlar. Codec, HDR ve ekran seçimi anlaşıldığı gibi kalır.</string>
     <string name="quality_unavailable">Otomatik kalite kapalı: bu bilgisayar veya cihaz yayın sırasında çözünürlüğü ve kare hızını değiştiremiyor.</string>
-    <string name="quality_request_failed">Otomatik kalite durduruldu: bilgisayar yeni boyutu uygulamadı. Yayın devam ediyor; yayın menüsünden başka bir mod seçin.</string>
+    <string name="quality_request_failed">Otomatik kalite durduruldu: bilgisayar yeni boyutu uygulamadı. Yayın devam ediyor; Kontrol Merkezinden başka bir mod seçin.</string>
     <string name="quality_status">Otomatik kalite: %1$s · %2$d × %3$d · hedef %4$d FPS</string>
 </resources>

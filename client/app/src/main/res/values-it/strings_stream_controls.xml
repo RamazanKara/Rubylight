@@ -7,7 +7,7 @@
     <string name="stream_controls_layout">Modifica layout del controller</string>
     <string name="stream_reconnect">Riconnetti stream</string>
     <string name="stream_reconnecting">Riconnessione all’app in esecuzione…</string>
-    <string name="stream_native_touch_help">Il tocco controlla direttamente il PC.\nApri il menu dello stream per la tastiera.</string>
+    <string name="stream_native_touch_help">Il tocco controlla direttamente il PC.\nApri il Centro di controllo per la tastiera.</string>
     <string name="stream_native_touch_fallback">Il PC non accetta il multi-touch, quindi il tocco muove il mouse.</string>
     <string-array name="stream_touch_modes">
         <item>Trackpad</item>

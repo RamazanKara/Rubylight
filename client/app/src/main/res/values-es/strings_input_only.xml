@@ -5,7 +5,7 @@
     <string name="input_only_start">Solo entrada</string>
     <string name="input_only_small_stream_note">El vídeo se sigue transmitiendo al tamaño mínimo, unos %1$.1f Mbit/s (%2$d MB por hora), pero no se muestra</string>
     <string name="input_only_reason_input_permission">Permite la entrada de este dispositivo en el PC</string>
-    <string name="input_only_small_stream_status">Solo entrada\nUsa la pantalla táctil, el teclado o un mando.\nEl PC sigue transmitiendo vídeo pequeño (unos %1$.1f Mbit/s); no se muestra.\nAtrás abre el menú de transmisión.</string>
+    <string name="input_only_small_stream_status">Solo entrada\nUsa la pantalla táctil, el teclado o un mando.\nEl PC sigue transmitiendo vídeo pequeño (unos %1$.1f Mbit/s); no se muestra.\nAtrás abre el Centro de control.</string>
     <string name="input_only_small_stream_refused">Solo entrada usa en este PC una transmisión normal pequeña, y el PC la rechazó. Algunas aplicaciones de transmisión solo permiten una transmisión a la vez: termina la otra transmisión o permite más en los ajustes o en la interfaz web del PC.</string>
     <string name="input_only_other_game">Hay otro juego en ejecución en el PC. Solo entrada se une al juego en ejecución y nunca lo cierra: elige ese juego o ciérralo primero.</string>
 </resources>

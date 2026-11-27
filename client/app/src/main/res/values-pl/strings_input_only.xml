@@ -5,7 +5,7 @@
     <string name="input_only_start">Tylko sterowanie</string>
     <string name="input_only_small_stream_note">Obraz nadal jest przesyłany w najmniejszym rozmiarze, ok. %1$.1f Mbit/s (%2$d MB na godzinę), ale nie jest pokazywany</string>
     <string name="input_only_reason_input_permission">Zezwól temu urządzeniu na komputerze na sterowanie</string>
-    <string name="input_only_small_stream_status">Tylko sterowanie\nUżywaj dotyku, klawiszy lub kontrolera.\nKomputer nadal przesyła mały obraz (ok. %1$.1f Mbit/s); nie jest pokazywany.\nWstecz otwiera menu strumienia.</string>
+    <string name="input_only_small_stream_status">Tylko sterowanie\nUżywaj dotyku, klawiszy lub kontrolera.\nKomputer nadal przesyła mały obraz (ok. %1$.1f Mbit/s); nie jest pokazywany.\nWstecz otwiera Centrum sterowania.</string>
     <string name="input_only_small_stream_refused">Tylko sterowanie używa na tym komputerze małego zwykłego strumienia, a komputer go odrzucił. Niektóre aplikacje do strumieniowania pozwalają na jeden strumień naraz: zakończ drugi strumień lub zezwól na więcej w ustawieniach lub interfejsie WWW komputera.</string>
     <string name="input_only_other_game">Na komputerze działa inna gra. Tylko sterowanie dołącza do uruchomionej gry i nigdy jej nie zamyka: wybierz tę grę lub najpierw ją zakończ.</string>
 </resources>

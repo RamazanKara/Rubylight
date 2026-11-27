@@ -8,7 +8,7 @@
     <string name="overlay_compact_loss">%1$s%% loss</string>
     <string name="overlay_compact_waiting">Waiting for video</string>
     <string name="link_notice_lowered">PC lowered the bitrate to %1$s Mbps: network</string>
-    <string name="link_notice_keep">The PC lowered the bitrate to %1$s Mbps. To keep your bitrate, open the stream menu and turn on Keep my bitrate.</string>
+    <string name="link_notice_keep">The PC lowered the bitrate to %1$s Mbps. To keep your bitrate, open the Control Center and turn on Keep my bitrate.</string>
     <string name="link_notice_lowered_only">The PC lowered the bitrate to %1$s Mbps for the network.</string>
     <string name="stream_keep_bitrate">Keep my bitrate</string>
     <string name="stream_keep_bitrate_off">The PC decides from the next stream; this stream keeps its bitrate.</string>
@@ -39,7 +39,7 @@
     <string name="stream_web_ui_leaves">Opening the browser leaves the stream; the game keeps running on the PC.</string>
 
     <!-- First-stream hint: "To open the stream menu, swipe back from the screen edge or press …" -->
-    <string name="stream_menu_hint">To open the stream menu, %1$s.</string>
+    <string name="stream_menu_hint">To open the Control Center, %1$s.</string>
     <string name="stream_menu_hint_swipe">swipe back from the screen edge</string>
     <string name="stream_menu_hint_buttons">swipe up from the bottom and tap Back</string>
     <string name="stream_menu_hint_back">press Back</string>
@@ -60,12 +60,12 @@
     <string name="stream_menu_shortcuts">Shortcuts</string>
     <string name="stream_menu_start_menu">Start menu</string>
     <string name="stream_shortcut_pick_keys">Pick 1–8 keys.</string>
-    <string name="stream_menu_model_failed">The stream menu could not be laid out: %1$s</string>
+    <string name="stream_menu_model_failed">The Control Center could not be laid out: %1$s</string>
     <string name="stream_menu_button_show">Show menu button</string>
     <string name="stream_menu_button_hide">Hide menu button</string>
-    <string name="stream_menu_settings">Stream menu</string>
+    <string name="stream_menu_settings">Control Center</string>
     <string name="title_floating_menu_button">Floating menu button</string>
-    <string name="summary_floating_menu_button">A round button over the stream that opens the stream menu with a tap; drag it to move it. Not needed if Android’s Back or your controller opens the menu.</string>
+    <string name="summary_floating_menu_button">A round button over the stream that opens the Control Center with a tap; drag it to move it. Not needed if Android’s Back or your controller opens the menu.</string>
     <!-- A stream menu tile's short name, the same on desktop Nightjar (nightjar-policy's stream_menu::label); two lines at most in a compact tile. -->
     <string name="stream_tile_keyboard">Keyboard</string>
     <string name="stream_tile_pc_keyboard">PC keyboard</string>

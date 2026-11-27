@@ -7,7 +7,7 @@
     <string name="stream_controls_layout">コントローラのレイアウトを編集</string>
     <string name="stream_reconnect">ストリームに再接続</string>
     <string name="stream_reconnecting">実行中のアプリに再接続しています…</string>
-    <string name="stream_native_touch_help">タッチで PC を直接操作します。\nキーボードはストリームメニューから開けます。</string>
+    <string name="stream_native_touch_help">タッチで PC を直接操作します。\nキーボードはコントロールセンターから開けます。</string>
     <string name="stream_native_touch_fallback">PC がマルチタッチに対応していないため、タッチでマウスを操作します。</string>
     <string-array name="stream_touch_modes">
         <item>トラックパッド</item>

@@ -393,7 +393,7 @@ impl Launcher {
         let saved = &self.shortcuts;
         let focus_first = ctx.memory(|m| m.focused().is_none());
         let line = "Racing Game · Living Room PC";
-        style::show(&ctx, tr("Stream menu"), "stream-controls", |ui| match menu {
+        style::show(&ctx, tr("Control Center"), "stream-controls", |ui| match menu {
             DemoMenu::Grid | DemoMenu::White => {
                 style::head(ui, "Racing Game", "1080p · 120 FPS · HEVC HDR");
                 let reserve = style::pinned_room(ui.ctx(), "stream-menu-footer");

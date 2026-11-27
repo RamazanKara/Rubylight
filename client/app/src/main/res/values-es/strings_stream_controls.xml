@@ -7,7 +7,7 @@
     <string name="stream_controls_layout">Editar diseño de controles</string>
     <string name="stream_reconnect">Reconectar transmisión</string>
     <string name="stream_reconnecting">Reconectando con la aplicación en ejecución…</string>
-    <string name="stream_native_touch_help">La pantalla táctil controla el PC directamente.\nAbre el menú de transmisión para usar el teclado.</string>
+    <string name="stream_native_touch_help">La pantalla táctil controla el PC directamente.\nAbre el Centro de control para usar el teclado.</string>
     <string name="stream_native_touch_fallback">El PC no admite multitáctil, así que la pantalla táctil mueve el ratón.</string>
     <string-array name="stream_touch_modes">
         <item>Trackpad</item>

@@ -211,7 +211,7 @@
     <string name="title_checkbox_usb_bind_all">Always use the USB driver</string>
     <string name="summary_checkbox_usb_bind_all">Uses Nightjar’s driver even for Xbox controllers Android supports. Turn on if a USB controller has no rumble through Android, then reconnect it.</string>
     <string name="title_checkbox_mouse_emulation">Controller mouse mode</string>
-    <string name="summary_checkbox_mouse_emulation">Holding Start switches the controller between gamepad and mouse. Turn it off if that happens by accident in a game; the stream menu’s Mouse tile still switches it.</string>
+    <string name="summary_checkbox_mouse_emulation">Holding Start switches the controller between gamepad and mouse. Turn it off if that happens by accident in a game; the Control Center’s Mouse tile still switches it.</string>
     <string name="title_checkbox_flip_face_buttons">Nintendo button layout</string>
     <string name="summary_checkbox_flip_face_buttons">Swaps A with B and X with Y. Turn on if a Nintendo-style controller’s buttons should send the letters printed on them.</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">Controller touchpad as mouse</string>
@@ -497,7 +497,7 @@
     <string name="role_input_only">Input only</string>
     <string name="stream_monitor_title">Remote Monitor</string>
     <string name="stream_input_title">Input-only</string>
-    <string name="stream_input_only_help">Input only\nUse touch, keys or a controller.\nBack opens the stream menu.</string>
+    <string name="stream_input_only_help">Input only\nUse touch, keys or a controller.\nBack opens the Control Center.</string>
     <string name="stream_end_monitor">End monitor session</string>
     <string name="stream_end_input">End input session</string>
     <string name="launch_confirm_title">Confirm on this device</string>
@@ -551,8 +551,8 @@
     <string name="upscaling_timing_estimate">Estimate includes texture handoff, GPU completion and swap wait (1 ms polling). Display presentation timing is unavailable.</string>
     <string name="upscaling_last_timing">Last GPU path estimate: %1$s</string>
     <string name="keyboard_shortcuts_title">Keyboard shortcuts</string>
-    <string name="keyboard_shortcuts_summary">Key combinations such as Alt+F4, shown as tiles in the stream menu and sent to the PC with one press.</string>
-    <string name="keyboard_shortcuts_help">Create up to 32 shortcuts for Extra keyboard keys in the stream menu. Enter keys separated by +, for example CTRL + SHIFT + ESC or WIN + D. Each button presses the keys in order and releases them in reverse order.</string>
+    <string name="keyboard_shortcuts_summary">Key combinations such as Alt+F4, shown as tiles in the Control Center and sent to the PC with one press.</string>
+    <string name="keyboard_shortcuts_help">Create up to 32 shortcuts for Extra keyboard keys in the Control Center. Enter keys separated by +, for example CTRL + SHIFT + ESC or WIN + D. Each button presses the keys in order and releases them in reverse order.</string>
     <string name="keyboard_shortcuts_add">Add shortcut</string>
     <string name="keyboard_shortcuts_reorder">Drag, or select and press up or down, to change the order</string>
     <string name="keyboard_shortcuts_move_up">Move up</string>

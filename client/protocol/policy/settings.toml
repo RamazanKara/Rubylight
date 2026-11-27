@@ -1734,7 +1734,7 @@ kind = "list"
 xml_default = "pc"
 scope = "global"
 desktop_key = "lower_bitrate"
-advice = "The PC decides is the default and is recommended: the PC lowers the bitrate when frames are lost that it cannot repair and raises it again afterwards, with nothing to set up on this device. Lower it sooner lets this device lower or raise the bitrate from its own frame loss and network delay readings with a host that offers bitrate changes (Rubylight); the PC's own lowering stands back while it runs. On a PC that takes no bitrate changes from the device, Lower it sooner runs this device's busy-network controller instead: it lowers the bitrate when the connection, decoder or device heat can't keep up and raises it again when things recover, never above Bitrate and never below a built-in floor (2 Mbps, or more for large streams); it needs a host that reports its stream bitrate, and a Sunshine-based PC with its own automatic bitrate runs that instead, following the network reports Nightjar sends every three seconds. Never: keep my bitrate sends the bitrate the stream started with (after a reconnect, the one the player chose in the stream) to a PC that accepts bitrate changes once the stream runs, so the PC stops lowering it for that stream and again after a reconnect, and no bitrate controller of this device runs, Automatic quality's included (it then changes only the resolution and frame rate); on a link that cannot carry that bitrate the picture freezes or breaks up. On a PC that does not accept bitrate changes from the device nothing is sent and the stream runs as The PC decides. A Recommended choice changes Lower bitrate only for Save data, which sets Lower it sooner, and for the next choice after it, which sets The PC decides again. While the performance overlay is hidden, Nightjar says once per stream when the PC lowered the bitrate for the network, and on a PC that accepts bitrate changes that the stream menu's Keep my bitrate stops it (not with Never, nor while the PC keeps the bitrate). Keep my bitrate is a switch in the stream menu's Change bitrate / frame rate dialog, only on a PC that accepts bitrate changes: on sends the bitrate last chosen in the stream (else the stream's own) once, stops this device's own lowering and stores Never; off stores The PC decides, which applies from the next stream since the PC cannot take the bitrate back. The choice is the default for every PC; the stream menu's Turn on or Turn off Lower bitrate when the network is busy saves Lower it sooner or The PC decides for one PC, and choosing anew in Settings makes every PC follow it again. Stored as `lower_bitrate` (`pc`, `sooner` or `keep`). Earlier versions stored three switches, which move here once: `keep_bitrate` on is Never; otherwise `adaptive_bitrate` (`checkbox_auto_bitrate` before) or `checkbox_rate_change_bitrate` on is Lower it sooner (When the network is busy, an earlier choice, is now Lower it sooner); otherwise The PC decides. A PC's own choice of the busy controller becomes its own Lower it sooner or The PC decides."
+advice = "The PC decides is the default and is recommended: the PC lowers the bitrate when frames are lost that it cannot repair and raises it again afterwards, with nothing to set up on this device. Lower it sooner lets this device lower or raise the bitrate from its own frame loss and network delay readings with a host that offers bitrate changes (Rubylight); the PC's own lowering stands back while it runs. On a PC that takes no bitrate changes from the device, Lower it sooner runs this device's busy-network controller instead: it lowers the bitrate when the connection, decoder or device heat can't keep up and raises it again when things recover, never above Bitrate and never below a built-in floor (2 Mbps, or more for large streams); it needs a host that reports its stream bitrate, and a Sunshine-based PC with its own automatic bitrate runs that instead, following the network reports Nightjar sends every three seconds. Never: keep my bitrate sends the bitrate the stream started with (after a reconnect, the one the player chose in the stream) to a PC that accepts bitrate changes once the stream runs, so the PC stops lowering it for that stream and again after a reconnect, and no bitrate controller of this device runs, Automatic quality's included (it then changes only the resolution and frame rate); on a link that cannot carry that bitrate the picture freezes or breaks up. On a PC that does not accept bitrate changes from the device nothing is sent and the stream runs as The PC decides. A Recommended choice changes Lower bitrate only for Save data, which sets Lower it sooner, and for the next choice after it, which sets The PC decides again. While the performance overlay is hidden, Nightjar says once per stream when the PC lowered the bitrate for the network, and on a PC that accepts bitrate changes that the Control Center's Keep my bitrate stops it (not with Never, nor while the PC keeps the bitrate). Keep my bitrate is a switch in the Control Center's Change bitrate / frame rate dialog, only on a PC that accepts bitrate changes: on sends the bitrate last chosen in the stream (else the stream's own) once, stops this device's own lowering and stores Never; off stores The PC decides, which applies from the next stream since the PC cannot take the bitrate back. The choice is the default for every PC; the Control Center's Turn on or Turn off Lower bitrate when the network is busy saves Lower it sooner or The PC decides for one PC, and choosing anew in Settings makes every PC follow it again. Stored as `lower_bitrate` (`pc`, `sooner` or `keep`). Earlier versions stored three switches, which move here once: `keep_bitrate` on is Never; otherwise `adaptive_bitrate` (`checkbox_auto_bitrate` before) or `checkbox_rate_change_bitrate` on is Lower it sooner (When the network is busy, an earlier choice, is now Lower it sooner); otherwise The PC decides. A PC's own choice of the busy controller becomes its own Lower it sooner or The PC decides."
 
 [[android_setting]]
 key = "list_mobile_bitrate_kbps"
@@ -1821,7 +1821,7 @@ kind = "list"
 xml_default = "off"
 scope = "global"
 desktop_key = "adaptive_quality"
-advice = "Off by default. Motion preserves FPS first, Detail preserves resolution first, and Battery also reduces work on healthy links. Lowers resolution or frame rate when the network, slow decoding or heat keep the stream from running well; not available with PyroWave. The stream menu can override the mode per PC."
+advice = "Off by default. Motion preserves FPS first, Detail preserves resolution first, and Battery also reduces work on healthy links. Lowers resolution or frame rate when the network, slow decoding or heat keep the stream from running well; not available with PyroWave. The Control Center can override the mode per PC."
 
 [[android_setting]]
 key = "adaptive_quality_min_resolution"
@@ -1861,7 +1861,7 @@ tier = "main"
 kind = "action"
 scope = "global"
 desktop_key = "video_scaling"
-advice = "How the stream fills a screen of another shape: Fit shows all of it with bars, Safe fit does the same but keeps the picture clear of a camera cutout and rounded screen corners, Fill (crop) fills the screen and cuts off the edges that do not fit, Stretch fills it and distorts shapes, 1:1 pixels shows the stream at its own size, centred. The key is the older Stretch switch, still written (on only for Stretch) so older versions behave sensibly; the mode itself is stored as `video_scaling`. Also in the stream menu. See [video scaling](video-and-latency.md#video-scaling)."
+advice = "How the stream fills a screen of another shape: Fit shows all of it with bars, Safe fit does the same but keeps the picture clear of a camera cutout and rounded screen corners, Fill (crop) fills the screen and cuts off the edges that do not fit, Stretch fills it and distorts shapes, 1:1 pixels shows the stream at its own size, centred. The key is the older Stretch switch, still written (on only for Stretch) so older versions behave sensibly; the mode itself is stored as `video_scaling`. Also in the Control Center. See [video scaling](video-and-latency.md#video-scaling)."
 
 [[android_setting]]
 key = "stream_orientation"
@@ -1968,7 +1968,7 @@ category = "category_upscaling"
 tier = "more"
 kind = "action"
 scope = "global"
-advice = "Moves the picture by hand to make up for a camera cutout or curved screen edges, up to 15% of the screen's side, saved for each screen of the device in its natural orientation so it stays on the same side when the phone is turned over. Leave it centred unless part of the picture is hidden. Also in the stream menu, where the picture moves live. Hidden on TVs."
+advice = "Moves the picture by hand to make up for a camera cutout or curved screen edges, up to 15% of the screen's side, saved for each screen of the device in its natural orientation so it stays on the same side when the phone is turned over. Leave it centred unless part of the picture is hidden. Also in the Control Center, where the picture moves live. Hidden on TVs."
 
 [[android_setting]]
 key = "checkbox_full_range"
@@ -2015,7 +2015,7 @@ category = "category_input_main"
 tier = "main"
 kind = "action"
 scope = "global"
-advice = "Use Trackpad for relative cursor movement, Trackpad (touchpad gestures) for the same with a physical touchpad’s gestures (tap-and-a-half drag, flick momentum), Direct mouse to point at a screen location, Multi-touch for host touch input, Local cursor for a pointer drawn on this device with no round trip, or Touch off to ignore fingers while playing with a controller (Back still opens the stream menu). Unsupported native touch falls back to Direct mouse. The picker's Help explains each mode. See [touch modes](controls.md#touch-modes)."
+advice = "Use Trackpad for relative cursor movement, Trackpad (touchpad gestures) for the same with a physical touchpad’s gestures (tap-and-a-half drag, flick momentum), Direct mouse to point at a screen location, Multi-touch for host touch input, Local cursor for a pointer drawn on this device with no round trip, or Touch off to ignore fingers while playing with a controller (Back still opens the Control Center). Unsupported native touch falls back to Direct mouse. The picker's Help explains each mode. See [touch modes](controls.md#touch-modes)."
 
 [[android_setting]]
 key = "checkbox_absolute_mouse_mode"
@@ -2080,7 +2080,7 @@ kind = "bool"
 xml_default = "false"
 scope = "global"
 desktop_key = "clipboard_sync"
-advice = "Off by default. Turn on to share copied text both ways while streaming. Android lets the app read the clipboard only while the stream is in front, so copies made in other apps go when you return. Needs a host that offers clipboard sync and lets this device read and write its clipboard. It carries text only: copy a PC image from the stream menu, and send large copies with Send clipboard to host."
+advice = "Off by default. Turn on to share copied text both ways while streaming. Android lets the app read the clipboard only while the stream is in front, so copies made in other apps go when you return. Needs a host that offers clipboard sync and lets this device read and write its clipboard. It carries text only: copy a PC image from the Control Center, and send large copies with Send clipboard to host."
 
 [[android_setting]]
 key = "controller_editor"
@@ -2124,7 +2124,7 @@ kind = "list"
 xml_default = "off"
 scope = "global"
 desktop_key = "gamepad_quit_combo"
-advice = "Off by default: Start+Select+LB+RB opens the stream menu, where Disconnect leaves. Choose a combination to leave the stream straight from the controller, for example on a TV; the stream ends once every button of it is let go, so none stays held on the PC. Pick one a game doesn't use. The stream menu's Controller mouse switch turns the controller mouse on or off whether or not holding Start does."
+advice = "Off by default: Start+Select+LB+RB opens the Control Center, where Disconnect leaves. Choose a combination to leave the stream straight from the controller, for example on a TV; the stream ends once every button of it is let go, so none stays held on the PC. Pick one a game doesn't use. The Control Center's Controller mouse switch turns the controller mouse on or off whether or not holding Start does."
 
 [[android_setting]]
 key = "seekbar_deadzone"
@@ -2263,7 +2263,7 @@ kind = "list"
 xml_default = "1000"
 scope = "global"
 desktop_key = "guide_hold_ms"
-advice = "1 s by default: holding a controller's Guide (Home/PS) that long opens the stream menu, also with Back button as Guide on. A shorter press still goes to the PC as Guide, and pressing another button while Guide is down sends Guide at once, so chords such as Guide+RB work as before. Turn it off if a game or the PC needs a long Guide press. Desktop has the same setting. Applies from the next stream."
+advice = "1 s by default: holding a controller's Guide (Home/PS) that long opens the Control Center, also with Back button as Guide on. A shorter press still goes to the PC as Guide, and pressing another button while Guide is down sends Guide at once, so chords such as Guide+RB work as before. Turn it off if a game or the PC needs a long Guide press. Desktop has the same setting. Applies from the next stream."
 
 [[android_setting]]
 key = "back_button"
@@ -2273,7 +2273,7 @@ kind = "action"
 scope = "global"
 desktop_key = "back_opens_menu"
 picker = { array = "@array/back_button_names", default_index = 0 }
-advice = "Back by default. Stream menu: a handheld's dedicated physical Back key, such as on AYN Thor, opens the stream menu instead of being forwarded as a controller button; Select/Start, mouse right-click and Keyboard Back sends Windows key keep their behavior. Guide: Back on any controller sends Guide (Home/PS), as does a handheld's system button that acts as Back, such as the Retroid Pocket's: a built-in Back key and a Back the firmware injects; a controller whose Select is Back sends Guide instead, and only a pad that uses Back as Start keeps it. Android's Back gesture and the controller menu chord still open the stream menu. Matches desktop's Back button. Stored as the switches `checkbox_back_opens_menu` and `checkbox_back_as_guide`; with both on, Stream menu applies. Applies from the next stream."
+advice = "Back by default. Control Center: a handheld's dedicated physical Back key, such as on AYN Thor, opens the Control Center instead of being forwarded as a controller button; Select/Start, mouse right-click and Keyboard Back sends Windows key keep their behavior. Guide: Back on any controller sends Guide (Home/PS), as does a handheld's system button that acts as Back, such as the Retroid Pocket's: a built-in Back key and a Back the firmware injects; a controller whose Select is Back sends Guide instead, and only a pad that uses Back as Start keeps it. Android's Back gesture and the controller menu chord still open the Control Center. Matches desktop's Back button. Stored as the switches `checkbox_back_opens_menu` and `checkbox_back_as_guide`; with both on, Control Center applies. Applies from the next stream."
 
 [[android_setting]]
 key = "checkbox_floating_menu_button"
@@ -2282,7 +2282,7 @@ tier = "more"
 kind = "bool"
 xml_default = "false"
 scope = "global"
-advice = "Off by default. Shows a round button over the stream that opens the stream menu with a tap; drag it to move it, and it keeps its place across sessions and rotations. **Show menu button** under the menu's More turns it on or off during a stream. Not shown on TVs. Android only: the desktop client opens the menu from the pointer and keys. See [the stream menu](controls.md#the-stream-menu)."
+advice = "Off by default. Shows a round button over the stream that opens the Control Center with a tap; drag it to move it, and it keeps its place across sessions and rotations. **Show menu button** under the menu's More turns it on or off during a stream. Not shown on TVs. Android only: the desktop client opens the menu from the pointer and keys. See [the Control Center](controls.md#the-control-center)."
 
 [[android_setting]]
 key = "list_stream_menu_button_y"
@@ -2291,7 +2291,7 @@ tier = "more"
 kind = "list"
 xml_default = "default"
 scope = "global"
-advice = "Default runs Keyboard, as the tile's corner shows. Choose what the button runs while the stream menu's first page is open, or Off. A way out such as Disconnect also runs from the button and asks first, Disconnect too, so a stray press never ends the stream; it shows the button's letter."
+advice = "Default runs Keyboard, as the tile's corner shows. Choose what the button runs while the Control Center's first page is open, or Off. A way out such as Disconnect also runs from the button and asks first, Disconnect too, so a stray press never ends the stream; it shows the button's letter."
 
 [[android_setting]]
 key = "list_stream_menu_button_x"
@@ -2300,7 +2300,7 @@ tier = "more"
 kind = "list"
 xml_default = "default"
 scope = "global"
-advice = "Default runs Mouse. See Y in the stream menu."
+advice = "Default runs Mouse. See Y in the Control Center."
 
 [[android_setting]]
 key = "list_stream_menu_button_lb"
@@ -2309,7 +2309,7 @@ tier = "more"
 kind = "list"
 xml_default = "default"
 scope = "global"
-advice = "Default runs Shortcuts. See Y in the stream menu."
+advice = "Default runs Shortcuts. See Y in the Control Center."
 
 [[android_setting]]
 key = "list_stream_menu_button_rb"
@@ -2318,7 +2318,7 @@ tier = "more"
 kind = "list"
 xml_default = "default"
 scope = "global"
-advice = "Default runs Overlay. See Y in the stream menu."
+advice = "Default runs Overlay. See Y in the Control Center."
 
 [[android_setting]]
 key = "keyboard_shortcuts_editor"
@@ -2326,7 +2326,7 @@ category = "category_keyboard_shortcuts"
 tier = "more"
 kind = "action"
 scope = "global"
-advice = "Create, edit or delete up to 32 named keyboard chords; they show as tiles in the stream menu and on the extra keyboard toolbar. Import/export JSON files to transfer them; importing asks before replacing the saved list. See [custom keyboard shortcuts](controls.md#custom-keyboard-shortcuts)."
+advice = "Create, edit or delete up to 32 named keyboard chords; they show as tiles in the Control Center and on the extra keyboard toolbar. Import/export JSON files to transfer them; importing asks before replacing the saved list. See [custom keyboard shortcuts](controls.md#custom-keyboard-shortcuts)."
 
 [[android_setting]]
 key = "seekbar_mouse_speed"
@@ -2388,7 +2388,7 @@ kind = "list"
 xml_default = "off"
 scope = "global"
 shown_only = "on a device with a touch screen"
-advice = "Off by default. Short, Medium and Long keep the pointer gliding after a quick flick, slowing down; a new touch, a mode change, the stream menu, picture-in-picture and disconnecting stop it at once. Trackpad and Local cursor."
+advice = "Off by default. Short, Medium and Long keep the pointer gliding after a quick flick, slowing down; a new touch, a mode change, the Control Center, picture-in-picture and disconnecting stop it at once. Trackpad and Local cursor."
 
 [[android_setting]]
 key = "list_trackpad_area"
@@ -2494,7 +2494,7 @@ category = "category_keyboard_shortcuts"
 tier = "more"
 kind = "action"
 scope = "global"
-advice = "Open to change, turn off or reset Nightjar's own key combinations in a stream (the same ones as desktop Nightjar): the stream menu (Ctrl+Alt+Shift+Tab), Disconnect, Release input, the performance overlay, the PC keyboard and the local cursor. Change records 2 to 4 keys, Ctrl, Alt or Shift and one other key; a combination that types, belongs to Windows or another hotkey has is refused. See [stream hotkeys](controls.md#stream-hotkeys)."
+advice = "Open to change, turn off or reset Nightjar's own key combinations in a stream (the same ones as desktop Nightjar): the Control Center (Ctrl+Alt+Shift+Tab), Disconnect, Release input, the performance overlay, the PC keyboard and the local cursor. Change records 2 to 4 keys, Ctrl, Alt or Shift and one other key; a combination that types, belongs to Windows or another hotkey has is refused. See [stream hotkeys](controls.md#stream-hotkeys)."
 
 [[android_setting]]
 key = "checkbox_capture_system_keys"
@@ -2504,7 +2504,7 @@ kind = "action"
 scope = "global"
 desktop_key = "capture_system_keys"
 picker = { array = "@array/system_keys_names", default_index = 1 }
-advice = "Always by default. Esc, Alt+Tab, the Windows key and similar go to the PC while input is captured, and an external keyboard's Back key (the Esc key of many Android keyboards) sends Esc on Android 10 and newer; a built-in keyboard's Back stays Back. Android hands Alt+Tab and the Windows key to apps only on Android 16 QPR2 and newer (keyboard capture) and on many Samsung devices; elsewhere, and for Home, power and volume, Android keeps them. In full screen: while the stream is in split screen, a freeform window or picture-in-picture, the system keys and a keyboard's Back as Esc stay with Android, and in full screen they go to the PC again; keys held at the change are released. Keyboard Back sends Windows key and Back button's Stream menu take priority for keyboard Back. The stream menu's hotkey (Ctrl+Alt+Shift+Tab by default) and Android's Back gesture open the stream menu. Matches desktop's Send system keys. Stored as the switches `checkbox_capture_system_keys` and `checkbox_system_keys_fullscreen_only`. Applies from the next stream."
+advice = "Always by default. Esc, Alt+Tab, the Windows key and similar go to the PC while input is captured, and an external keyboard's Back key (the Esc key of many Android keyboards) sends Esc on Android 10 and newer; a built-in keyboard's Back stays Back. Android hands Alt+Tab and the Windows key to apps only on Android 16 QPR2 and newer (keyboard capture) and on many Samsung devices; elsewhere, and for Home, power and volume, Android keeps them. In full screen: while the stream is in split screen, a freeform window or picture-in-picture, the system keys and a keyboard's Back as Esc stay with Android, and in full screen they go to the PC again; keys held at the change are released. Keyboard Back sends Windows key and Back button's Control Center take priority for keyboard Back. The Control Center's hotkey (Ctrl+Alt+Shift+Tab by default) and Android's Back gesture open the Control Center. Matches desktop's Send system keys. Stored as the switches `checkbox_capture_system_keys` and `checkbox_system_keys_fullscreen_only`. Applies from the next stream."
 
 [[android_setting]]
 key = "checkbox_back_as_meta"
@@ -2716,7 +2716,7 @@ kind = "bool"
 xml_default = "false"
 scope = "global"
 desktop_key = "usb_forwarding"
-advice = "Off by default. Adds USB devices to the stream menu, which hands a device plugged into this one (a drawing tablet, a security key) to the PC until you detach or unplug it or the stream ends. Needs a PC that offers USB forwarding (Rubylight 3.0); hubs and controllers the drivers above take are not listed."
+advice = "Off by default. Adds USB devices to the Control Center, which hands a device plugged into this one (a drawing tablet, a security key) to the PC until you detach or unplug it or the stream ends. Needs a PC that offers USB forwarding (Rubylight 3.0); hubs and controllers the drivers above take are not listed."
 
 [[android_setting]]
 key = "list_audio_config"
@@ -2746,7 +2746,7 @@ kind = "bool"
 xml_default = "false"
 scope = "global"
 desktop_key = "microphone"
-advice = "Enable to talk in games and chat apps on the PC. Asks for microphone access; if it is not allowed, the setting stays off. The PC hears it as its streaming microphone. Mute it from the stream menu; the overlay shows whether it is sending."
+advice = "Enable to talk in games and chat apps on the PC. Asks for microphone access; if it is not allowed, the setting stays off. The PC hears it as its streaming microphone. Mute it from the Control Center; the overlay shows whether it is sending."
 
 [[android_setting]]
 key = "checkbox_mic_button"
@@ -2756,7 +2756,7 @@ kind = "bool"
 xml_default = "true"
 scope = "global"
 shown_while = { parent = "checkbox_enable_mic", on = true }
-advice = "Leave on for a round button on the stream that mutes and unmutes with one tap; drag it anywhere and it stays there. Shown only while the PC takes the microphone. Turn off to mute from the stream menu only; the menu's Input section can show or hide it during a stream."
+advice = "Leave on for a round button on the stream that mutes and unmutes with one tap; drag it anywhere and it stays there. Shown only while the PC takes the microphone. Turn off to mute from the Control Center only; the menu's Input section can show or hide it during a stream."
 
 [[android_setting]]
 key = "more_audio"
@@ -2846,7 +2846,7 @@ tier = "main"
 kind = "action"
 scope = "global"
 desktop_key = "overlay"
-advice = "Choose Compact, Statistics or Debug while diagnosing frame rate, network loss or delay; Off hides the overlay. Compact is one line: rendered FPS, network round trip (RTT) and frame loss behind a green, amber or red dot. Statistics summarizes the stream with a status line of lasting facts. Debug shows detailed measured stages and is always available. Stored as `checkbox_enable_perf_overlay` (On for any choice but Off) and `performance_overlay_mode` (compact, statistics or debug; Off keeps the last mode). Can also be changed in the stream menu → Display → Overlay and diagnostics; Copy stats includes Debug details."
+advice = "Choose Compact, Statistics or Debug while diagnosing frame rate, network loss or delay; Off hides the overlay. Compact is one line: rendered FPS, network round trip (RTT) and frame loss behind a green, amber or red dot. Statistics summarizes the stream with a status line of lasting facts. Debug shows detailed measured stages and is always available. Stored as `checkbox_enable_perf_overlay` (On for any choice but Off) and `performance_overlay_mode` (compact, statistics or debug; Off keeps the last mode). Can also be changed in the Control Center → Display → Overlay and diagnostics; Copy stats includes Debug details."
 
 [[android_setting]]
 key = "performance_overlay_position"
@@ -2856,8 +2856,8 @@ kind = "list"
 xml_default = "top_left"
 scope = "global"
 desktop_key = "overlay_position"
-shown_only = "while the performance overlay is on, or with Dual screen mode (the second screen's stream menu shows its overlay without saving it)"
-advice = "Choose the corner the performance overlay starts in. It moves to a free corner when on-screen controls would cover it, and always stays inside the camera cutout. Right-hand corners align the text to the right. Can also be changed in the stream menu → Display → Overlay and diagnostics → Position, which takes effect at once."
+shown_only = "while the performance overlay is on, or with Dual screen mode (the second screen's Control Center shows its overlay without saving it)"
+advice = "Choose the corner the performance overlay starts in. It moves to a free corner when on-screen controls would cover it, and always stays inside the camera cutout. Right-hand corners align the text to the right. Can also be changed in the Control Center → Display → Overlay and diagnostics → Position, which takes effect at once."
 
 [[android_setting]]
 key = "checkbox_auto_reconnect"
@@ -3059,7 +3059,7 @@ category = "category_app_main"
 tier = "main"
 kind = "action"
 scope = "global"
-advice = "Open the bundled help: connecting a PC, pairing, controls and the stream menu, common fixes and problem reports. Works offline; each topic links to these documents for detail."
+advice = "Open the bundled help: connecting a PC, pairing, controls and the Control Center, common fixes and problem reports. Works offline; each topic links to these documents for detail."
 
 [[android_setting]]
 key = "report_problem"
@@ -3476,7 +3476,7 @@ category = "category_debug_diagnostics"
 tier = "more"
 kind = "action"
 scope = "global"
-advice = "Run a 10-second local frame-callback, timer and input-dispatch benchmark without a host. Use Measure input latency in the stream menu for end-to-end timing."
+advice = "Run a 10-second local frame-callback, timer and input-dispatch benchmark without a host. Use Measure input latency in the Control Center for end-to-end timing."
 
 [[android_setting]]
 key = "export_latency_csv"

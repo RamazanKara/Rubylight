@@ -172,7 +172,7 @@
     <string name="title_checkbox_usb_bind_all">Toujours utiliser le pilote USB</string>
     <string name="summary_checkbox_usb_bind_all">Utilise le pilote de Nightjar même pour les manettes Xbox prises en charge par Android. Activez-le si une manette USB ne vibre pas via Android, puis rebranchez-la.</string>
     <string name="title_checkbox_mouse_emulation">Mode souris de la manette</string>
-    <string name="summary_checkbox_mouse_emulation">Maintenir Start fait basculer la manette entre le mode manette et le mode souris. Désactivez-le si cela arrive par accident en jeu ; la vignette « Souris » du menu du stream permet toujours de basculer.</string>
+    <string name="summary_checkbox_mouse_emulation">Maintenir Start fait basculer la manette entre le mode manette et le mode souris. Désactivez-le si cela arrive par accident en jeu ; la vignette « Souris » du Centre de contrôle permet toujours de basculer.</string>
     <string name="title_checkbox_flip_face_buttons">Disposition des boutons Nintendo</string>
     <string name="summary_checkbox_flip_face_buttons">Échange A avec B et X avec Y. Activez-le si les boutons d’une manette de type Nintendo doivent envoyer les lettres imprimées dessus.</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">Pavé tactile de la manette en souris</string>
@@ -391,7 +391,7 @@
     <string name="role_input_only">Saisie uniquement</string>
     <string name="stream_monitor_title">Remote Monitor</string>
     <string name="stream_input_title">Input-only</string>
-    <string name="stream_input_only_help">Saisie uniquement\nUtilisez le tactile, le clavier ou une manette.\nRetour ouvre le menu du stream.</string>
+    <string name="stream_input_only_help">Saisie uniquement\nUtilisez le tactile, le clavier ou une manette.\nRetour ouvre le Centre de contrôle.</string>
     <string name="stream_end_monitor">Terminer la session de visualisation</string>
     <string name="stream_end_input">Terminer la session de saisie</string>
     <string name="launch_confirm_title">Confirmer sur cet appareil</string>
@@ -445,8 +445,8 @@
     <string name="upscaling_timing_estimate">L’estimation inclut le transfert de texture, l’achèvement GPU et l’attente d’échange (interrogation toutes les 1 ms). Le timing de présentation de l’affichage n’est pas disponible.</string>
     <string name="upscaling_last_timing">Dernière estimation du chemin GPU : %1$s</string>
     <string name="keyboard_shortcuts_title">Raccourcis clavier</string>
-    <string name="keyboard_shortcuts_summary">Des combinaisons de touches comme Alt+F4, affichées en vignettes dans le menu du stream et envoyées au PC d’un seul appui.</string>
-    <string name="keyboard_shortcuts_help">Créez jusqu’à 32 raccourcis pour Touches clavier supplémentaires dans le menu du stream. Saisissez des touches séparées par +, par exemple CTRL + SHIFT + ESC ou WIN + D. Chaque bouton appuie sur les touches dans l’ordre et les relâche dans l’ordre inverse.</string>
+    <string name="keyboard_shortcuts_summary">Des combinaisons de touches comme Alt+F4, affichées en vignettes dans le Centre de contrôle et envoyées au PC d’un seul appui.</string>
+    <string name="keyboard_shortcuts_help">Créez jusqu’à 32 raccourcis pour Touches clavier supplémentaires dans le Centre de contrôle. Saisissez des touches séparées par +, par exemple CTRL + SHIFT + ESC ou WIN + D. Chaque bouton appuie sur les touches dans l’ordre et les relâche dans l’ordre inverse.</string>
     <string name="keyboard_shortcuts_add">Ajouter un raccourci</string>
     <string name="keyboard_shortcuts_edit">Modifier le raccourci</string>
     <string name="keyboard_shortcuts_save">Enregistrer</string>
@@ -480,11 +480,11 @@
     <string name="keyboard_shortcuts_move_up">Monter</string>
     <string name="keyboard_shortcuts_move_down">Descendre</string>
     <string name="stream_disconnect_confirm">Se déconnecter du stream ?\nLa session attend sur le PC, prête à reprendre.</string>
-    <string name="title_stream_menu_button_y">Y dans le menu du stream</string>
-    <string name="title_stream_menu_button_x">X dans le menu du stream</string>
-    <string name="title_stream_menu_button_lb">LB dans le menu du stream</string>
-    <string name="title_stream_menu_button_rb">RB dans le menu du stream</string>
-    <string name="summary_stream_menu_button">Ce que fait ce bouton quand le menu du stream est ouvert. « Par défaut » garde la vignette qui affiche le bouton dans son coin ; une sortie comme « Se déconnecter » demande d’abord confirmation.</string>
+    <string name="title_stream_menu_button_y">Y dans le Centre de contrôle</string>
+    <string name="title_stream_menu_button_x">X dans le Centre de contrôle</string>
+    <string name="title_stream_menu_button_lb">LB dans le Centre de contrôle</string>
+    <string name="title_stream_menu_button_rb">RB dans le Centre de contrôle</string>
+    <string name="summary_stream_menu_button">Ce que fait ce bouton quand le Centre de contrôle est ouvert. « Par défaut » garde la vignette qui affiche le bouton dans son coin ; une sortie comme « Se déconnecter » demande d’abord confirmation.</string>
     <string name="stream_menu_button_default">Par défaut</string>
     <string name="stream_menu_button_none">Désactivé</string>
     <string name="title_lower_refresh">Rafraîchissement plus bas</string>

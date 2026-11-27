@@ -5,7 +5,7 @@
     <string name="input_only_start">입력 전용</string>
     <string name="input_only_small_stream_note">영상은 여전히 가장 작은 크기로 스트리밍되지만(약 %1$.1fMbit/s, 시간당 %2$dMB) 표시되지 않습니다</string>
     <string name="input_only_reason_input_permission">PC에서 이 기기의 입력을 허용하세요</string>
-    <string name="input_only_small_stream_status">입력 전용\n터치, 키 또는 컨트롤러를 사용하세요.\nPC는 여전히 작은 영상을 스트리밍합니다(약 %1$.1fMbit/s). 표시되지는 않습니다.\n뒤로를 누르면 스트림 메뉴가 열립니다.</string>
+    <string name="input_only_small_stream_status">입력 전용\n터치, 키 또는 컨트롤러를 사용하세요.\nPC는 여전히 작은 영상을 스트리밍합니다(약 %1$.1fMbit/s). 표시되지는 않습니다.\n뒤로를 누르면 제어 센터가 열립니다.</string>
     <string name="input_only_small_stream_refused">이 PC의 입력 전용은 작은 일반 스트림을 사용하는데 PC가 이를 거부했습니다. 일부 스트리밍 앱은 한 번에 하나의 스트림만 허용합니다. 다른 스트림을 종료하거나 PC의 설정 또는 웹 UI에서 더 많이 허용하세요.</string>
     <string name="input_only_other_game">PC에서 다른 게임이 실행 중입니다. 입력 전용은 실행 중인 게임에 참여하며 게임을 종료하지 않습니다. 그 게임을 선택하거나 먼저 종료하세요.</string>
 </resources>

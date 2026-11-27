@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_touch_off_help">Le tactile est désactivé. Balayez vers l’arrière ou appuyez sur Retour pour ouvrir le menu du stream.</string>
+    <string name="stream_touch_off_help">Le tactile est désactivé. Balayez vers l’arrière ou appuyez sur Retour pour ouvrir le Centre de contrôle.</string>
     <string name="title_local_cursor_speed">Vitesse du curseur local</string>
     <string name="title_trackpad_acceleration">Accélération du pavé tactile</string>
     <string name="summary_trackpad_acceleration">Un mouvement lent du doigt vise avec précision et les balayages rapides vont plus loin. Laisse-la activée sauf si tu préfères que le pointeur suive ton doigt au plus près ; les modes « Pavé tactile » et « Curseur local » l’appliquent à partir du prochain stream.</string>

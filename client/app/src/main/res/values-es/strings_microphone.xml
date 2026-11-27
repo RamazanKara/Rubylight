@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">Enviar micrófono al PC</string>
-    <string name="summary_checkbox_enable_mic">Envía el micrófono de este dispositivo al PC, para que puedas hablar allí en juegos y aplicaciones de chat. Siléncialo desde el menú de transmisión; requiere un PC compatible.</string>
+    <string name="summary_checkbox_enable_mic">Envía el micrófono de este dispositivo al PC, para que puedas hablar allí en juegos y aplicaciones de chat. Siléncialo desde el Centro de control; requiere un PC compatible.</string>
     <string name="mic_permission_denied">No se ha permitido el acceso al micrófono, así que seguirá desactivado. Permítelo en los ajustes de Android para hablar a través del PC.</string>
     <string name="mic_status_sending">Micrófono: enviando</string>
     <string name="mic_status_muted">Micrófono: silenciado</string>
@@ -20,7 +20,7 @@
     <string name="title_seekbar_mic_gain">Ganancia del micrófono</string>
     <string name="summary_seekbar_mic_gain">Baja o sube el volumen del micrófono antes de enviarlo. Súbelo si los demás te oyen demasiado bajo; bájalo si te oyen demasiado alto.</string>
     <string name="title_checkbox_mic_button">Botón de micrófono</string>
-    <string name="summary_checkbox_mic_button">Un botón redondo sobre la transmisión que silencia y reactiva el micrófono con un toque; arrástralo para moverlo. Si lo desactivas, silencia desde el menú de transmisión.</string>
+    <string name="summary_checkbox_mic_button">Un botón redondo sobre la transmisión que silencia y reactiva el micrófono con un toque; arrástralo para moverlo. Si lo desactivas, silencia desde el Centro de control.</string>
     <string name="mic_button_mute">Silenciar micrófono</string>
     <string name="mic_button_unmute">Activar micrófono</string>
     <string name="stream_mic_button_show">Mostrar botón de micrófono</string>

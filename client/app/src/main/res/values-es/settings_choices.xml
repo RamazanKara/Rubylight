@@ -7,9 +7,9 @@
     <string name="summary_lower_bitrate">«Nunca: mantener mi tasa de bits» puede congelar o fragmentar la imagen en una conexión que no aguanta esa tasa, y solo funciona con un PC que acepte cambios de tasa de bits; elígelo cuando la imagen se vuelva suave en una conexión que aguanta más. Por defecto, el PC baja la tasa de bits cuando se pierden fotogramas que no puede reparar y la vuelve a subir después; «Bajarla antes» la baja antes, a costa de una imagen más suave.</string>
     <string name="title_back_button">Botón Atrás</string>
     <string name="back_button_back">Atrás</string>
-    <string name="back_button_menu">Menú de transmisión</string>
+    <string name="back_button_menu">Centro de control</string>
     <string name="back_button_guide">Guide</string>
-    <string name="summary_back_button">Lo que hace el botón Atrás del mando o la consola portátil: Atrás llega al PC como Atrás, Menú de transmisión abre el menú de transmisión y Guide envía Guide (Home o PS) al PC. Déjalo en Atrás si tus juegos usan ese botón.</string>
+    <string name="summary_back_button">Lo que hace el botón Atrás del mando o la consola portátil: Atrás llega al PC como Atrás, Centro de control abre el Centro de control y Guide envía Guide (Home o PS) al PC. Déjalo en Atrás si tus juegos usan ese botón.</string>
     <string name="settings_choice_off">Desactivada</string>
     <string name="system_keys_always">Siempre</string>
     <string name="system_keys_full_screen">En pantalla completa</string>

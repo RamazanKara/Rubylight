@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">Stream hotkeys</string>
-    <string name="stream_hotkeys_summary">Nightjar’s own key combinations in a stream, such as the one that opens the stream menu. Their keys never reach the PC; change one that a game or app needs.</string>
+    <string name="stream_hotkeys_summary">Nightjar’s own key combinations in a stream, such as the one that opens the Control Center. Their keys never reach the PC; change one that a game or app needs.</string>
     <string name="stream_hotkey_change">Change</string>
     <string name="stream_hotkey_off">Off</string>
     <string name="stream_hotkey_reset">Reset</string>
@@ -22,7 +22,7 @@
     <string name="stream_hotkey_action_quit">Disconnect</string>
     <string name="stream_hotkey_action_capture">Release or capture input</string>
     <string name="stream_hotkey_action_overlay">Performance overlay</string>
-    <string name="stream_hotkey_action_stream_menu">Stream menu</string>
+    <string name="stream_hotkey_action_stream_menu">Control Center</string>
     <string name="stream_hotkey_action_cursor">Show or hide the cursor</string>
     <string name="stream_hotkey_moved">%1$s is now %2$s</string>
     <string name="stream_hotkeys_unavailable">Stream hotkeys are unavailable: %1$s</string>

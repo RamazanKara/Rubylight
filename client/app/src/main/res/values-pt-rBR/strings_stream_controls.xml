@@ -7,7 +7,7 @@
     <string name="stream_controls_layout">Editar layout do controle</string>
     <string name="stream_reconnect">Reconectar transmissão</string>
     <string name="stream_reconnecting">Reconectando ao app em execução…</string>
-    <string name="stream_native_touch_help">O toque controla o PC diretamente.\nAbra o menu da transmissão para usar o teclado.</string>
+    <string name="stream_native_touch_help">O toque controla o PC diretamente.\nAbra a Central de controle para usar o teclado.</string>
     <string name="stream_native_touch_fallback">O PC não aceita multitoque, então o toque move o mouse.</string>
     <string-array name="stream_touch_modes">
         <item>Trackpad</item>

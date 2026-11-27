@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">Передавати мікрофон на ПК</string>
-    <string name="summary_checkbox_enable_mic">Передає звук мікрофона цього пристрою на ПК, щоб ви могли розмовляти там в іграх і чатах. Вимкнути мікрофон можна в меню трансляції; потрібна підтримка ПК.</string>
+    <string name="summary_checkbox_enable_mic">Передає звук мікрофона цього пристрою на ПК, щоб ви могли розмовляти там в іграх і чатах. Вимкнути мікрофон можна в Центрі керування; потрібна підтримка ПК.</string>
     <string name="mic_permission_denied">Доступ до мікрофона не надано, тому мікрофон залишається вимкненим. Дозвольте його в налаштуваннях Android, щоб говорити через ПК.</string>
     <string name="mic_status_sending">Мікрофон: передається</string>
     <string name="mic_status_muted">Мікрофон: вимкнено звук</string>
@@ -20,7 +20,7 @@
     <string name="title_seekbar_mic_gain">Підсилення мікрофона</string>
     <string name="summary_seekbar_mic_gain">Робить мікрофон тихішим або гучнішим перед надсиланням. Збільште, якщо вас чути надто тихо, зменште, якщо надто гучно.</string>
     <string name="title_checkbox_mic_button">Кнопка мікрофона</string>
-    <string name="summary_checkbox_mic_button">Кругла кнопка поверх трансляції, що одним дотиком вимикає та вмикає мікрофон; перетягніть її, щоб перемістити. Якщо вимкнено, мікрофон вимикається з меню трансляції.</string>
+    <string name="summary_checkbox_mic_button">Кругла кнопка поверх трансляції, що одним дотиком вимикає та вмикає мікрофон; перетягніть її, щоб перемістити. Якщо вимкнено, мікрофон вимикається з Центру керування.</string>
     <string name="mic_button_mute">Вимкнути мікрофон</string>
     <string name="mic_button_unmute">Увімкнути мікрофон</string>
     <string name="stream_mic_button_show">Показати кнопку мікрофона</string>

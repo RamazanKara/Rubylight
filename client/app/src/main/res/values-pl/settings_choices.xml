@@ -7,9 +7,9 @@
     <string name="summary_lower_bitrate">„Nigdy: zachowaj moją szybkość transmisji” może zawieszać lub rozbijać obraz na łączu, które jej nie uniesie, i działa tylko z komputerem, który przyjmuje zmiany szybkości transmisji; wybierz to, gdy obraz robi się miękki na łączu, które uniesie więcej. Domyślnie komputer obniża szybkość transmisji, gdy tracone są klatki, których nie da się naprawić, a potem ją podnosi; „Obniżaj wcześniej” robi to wcześniej, kosztem łagodniejszego obrazu.</string>
     <string name="title_back_button">Przycisk Wstecz</string>
     <string name="back_button_back">Wstecz</string>
-    <string name="back_button_menu">Menu strumienia</string>
+    <string name="back_button_menu">Centrum sterowania</string>
     <string name="back_button_guide">Guide</string>
-    <string name="summary_back_button">Co robi przycisk Wstecz kontrolera lub konsoli przenośnej: Wstecz trafia do komputera jako Wstecz, Menu strumienia otwiera menu strumienia, Guide wysyła do komputera Guide (Home lub PS). Zostaw Wstecz, jeśli twoje gry używają tego przycisku.</string>
+    <string name="summary_back_button">Co robi przycisk Wstecz kontrolera lub konsoli przenośnej: Wstecz trafia do komputera jako Wstecz, Centrum sterowania otwiera Centrum sterowania, Guide wysyła do komputera Guide (Home lub PS). Zostaw Wstecz, jeśli twoje gry używają tego przycisku.</string>
     <string name="settings_choice_off">Wyłączone</string>
     <string name="system_keys_always">Zawsze</string>
     <string name="system_keys_full_screen">Na pełnym ekranie</string>

@@ -61,7 +61,7 @@ pub(super) fn draw_controls_sections(
     rows.group(en("Keyboard"));
     if !layered {
         rows.action("stream_hotkeys");
-        setting_row(ui, s, rows, &[], "Stream hotkeys", "Nightjar’s own key combinations in a stream, such as the one that opens the stream menu. Their keys never reach the PC; change one that a game or app needs.", |ui, _| {
+        setting_row(ui, s, rows, &[], "Stream hotkeys", "Nightjar’s own key combinations in a stream, such as the one that opens the Control Center. Their keys never reach the PC; change one that a game or app needs.", |ui, _| {
             let hotkeys = quiet_button(ui, "Change");
             if hotkeys.clicked() { commands.push(Command::StreamHotkeys); }
             links.push(("stream-hotkeys-link", hotkeys.clone()));
@@ -70,7 +70,7 @@ pub(super) fn draw_controls_sections(
     }
     if !layered {
         rows.action("keyboard_shortcuts");
-        setting_row(ui, s, rows, &[], "Keyboard shortcuts", "Key combinations such as Alt+F4, shown as tiles in the stream menu and sent to the PC with one press.", |ui, _| {
+        setting_row(ui, s, rows, &[], "Keyboard shortcuts", "Key combinations such as Alt+F4, shown as tiles in the Control Center and sent to the PC with one press.", |ui, _| {
             let shortcuts = quiet_button(ui, "Change");
             if shortcuts.clicked() { commands.push(Command::Shortcuts); }
             links.push(("shortcuts-link", shortcuts.clone()));
@@ -110,7 +110,7 @@ pub(super) fn draw_controls_sections(
     setting_row(ui, s, rows, &["play_audio_on_host"], "Play audio on the PC too", "Keeps sound on the PC’s speakers while streaming.", |ui, s| {
         toggle(ui, &mut s.play_audio_on_host)
     });
-    setting_row(ui, s, rows, &["microphone"], "Send microphone to the PC", "Sends this device’s microphone to the PC, so you can talk in games and chat apps there. Mute it from the stream menu; needs PC support.", |ui, s| {
+    setting_row(ui, s, rows, &["microphone"], "Send microphone to the PC", "Sends this device’s microphone to the PC, so you can talk in games and chat apps there. Mute it from the Control Center; needs PC support.", |ui, s| {
         toggle(ui, &mut s.microphone)
     });
     rows.when(s.microphone);

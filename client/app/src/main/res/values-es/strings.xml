@@ -172,7 +172,7 @@
     <string name="title_checkbox_usb_bind_all">Usar siempre el controlador USB</string>
     <string name="summary_checkbox_usb_bind_all">Usa el controlador de Nightjar incluso con los mandos de Xbox que Android admite. Actívalo si un mando USB no vibra a través de Android; después, vuelve a conectarlo.</string>
     <string name="title_checkbox_mouse_emulation">Modo ratón del mando</string>
-    <string name="summary_checkbox_mouse_emulation">Mantener pulsado Start cambia el mando entre modo mando y modo ratón. Desactívalo si eso ocurre por accidente en un juego; el recuadro Ratón del menú de transmisión sigue cambiándolo.</string>
+    <string name="summary_checkbox_mouse_emulation">Mantener pulsado Start cambia el mando entre modo mando y modo ratón. Desactívalo si eso ocurre por accidente en un juego; el recuadro Ratón del Centro de control sigue cambiándolo.</string>
     <string name="title_checkbox_flip_face_buttons">Disposición de botones de Nintendo</string>
     <string name="summary_checkbox_flip_face_buttons">Intercambia A con B y X con Y. Actívalo si los botones de un mando de estilo Nintendo deben enviar las letras que llevan impresas.</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">Panel táctil del mando como ratón</string>
@@ -391,7 +391,7 @@
     <string name="role_input_only">Solo entrada</string>
     <string name="stream_monitor_title">Monitor remoto</string>
     <string name="stream_input_title">Solo entrada</string>
-    <string name="stream_input_only_help">Solo entrada\nUsa la pantalla táctil, el teclado o un mando.\nAtrás abre el menú de transmisión.</string>
+    <string name="stream_input_only_help">Solo entrada\nUsa la pantalla táctil, el teclado o un mando.\nAtrás abre el Centro de control.</string>
     <string name="stream_end_monitor">Terminar sesión de monitor</string>
     <string name="stream_end_input">Terminar sesión de entrada</string>
     <string name="launch_confirm_title">Confirmar en este dispositivo</string>
@@ -445,8 +445,8 @@
     <string name="upscaling_timing_estimate">La estimación incluye la entrega de texturas, la finalización de la GPU y la espera de intercambio (sondeo de 1 ms). La temporización de presentación en pantalla no está disponible.</string>
     <string name="upscaling_last_timing">Última estimación de la ruta de GPU: %1$s</string>
     <string name="keyboard_shortcuts_title">Atajos de teclado</string>
-    <string name="keyboard_shortcuts_summary">Combinaciones de teclas como Alt+F4, que se muestran como recuadros en el menú de transmisión y se envían al PC con una sola pulsación.</string>
-    <string name="keyboard_shortcuts_help">Crea hasta 32 atajos para Teclas adicionales en el menú de transmisión. Introduce las teclas separadas por +, por ejemplo CTRL + SHIFT + ESC o WIN + D. Cada botón pulsa las teclas en orden y las suelta en orden inverso.</string>
+    <string name="keyboard_shortcuts_summary">Combinaciones de teclas como Alt+F4, que se muestran como recuadros en el Centro de control y se envían al PC con una sola pulsación.</string>
+    <string name="keyboard_shortcuts_help">Crea hasta 32 atajos para Teclas adicionales en el Centro de control. Introduce las teclas separadas por +, por ejemplo CTRL + SHIFT + ESC o WIN + D. Cada botón pulsa las teclas en orden y las suelta en orden inverso.</string>
     <string name="keyboard_shortcuts_add">Añadir atajo</string>
     <string name="keyboard_shortcuts_edit">Editar atajo</string>
     <string name="keyboard_shortcuts_save">Guardar</string>
@@ -480,11 +480,11 @@
     <string name="keyboard_shortcuts_move_up">Subir</string>
     <string name="keyboard_shortcuts_move_down">Bajar</string>
     <string name="stream_disconnect_confirm">¿Desconectarse de la transmisión?\nLa sesión espera en el PC, lista para reanudarse.</string>
-    <string name="title_stream_menu_button_y">Y en el menú de la transmisión</string>
-    <string name="title_stream_menu_button_x">X en el menú de la transmisión</string>
-    <string name="title_stream_menu_button_lb">LB en el menú de la transmisión</string>
-    <string name="title_stream_menu_button_rb">RB en el menú de la transmisión</string>
-    <string name="summary_stream_menu_button">Lo que hace este botón mientras el menú de transmisión está abierto. Predeterminado mantiene el recuadro que muestra el botón en su esquina; una acción de salida como Desconectar pide confirmación antes.</string>
+    <string name="title_stream_menu_button_y">Y en el Centro de control</string>
+    <string name="title_stream_menu_button_x">X en el Centro de control</string>
+    <string name="title_stream_menu_button_lb">LB en el Centro de control</string>
+    <string name="title_stream_menu_button_rb">RB en el Centro de control</string>
+    <string name="summary_stream_menu_button">Lo que hace este botón mientras el Centro de control está abierto. Predeterminado mantiene el recuadro que muestra el botón en su esquina; una acción de salida como Desconectar pide confirmación antes.</string>
     <string name="stream_menu_button_default">Predeterminado</string>
     <string name="stream_menu_button_none">Desactivado</string>
     <string name="title_lower_refresh">Frecuencia de actualización menor</string>

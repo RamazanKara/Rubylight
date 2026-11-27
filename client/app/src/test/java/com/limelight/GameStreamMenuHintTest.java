@@ -63,7 +63,7 @@ public class GameStreamMenuHintTest {
         Game game = streamingGame();
         show(game);
         assertEquals(View.VISIBLE, hint(game).getVisibility());
-        assertTrue(hint(game).getText().toString().startsWith("To open the stream menu, "));
+        assertTrue(hint(game).getText().toString().startsWith("To open the Control Center, "));
         assertTrue(hint(game).getContentDescription().toString().endsWith("Tap to close"));
         hint(game).performClick();
         assertEquals(View.GONE, hint(game).getVisibility());

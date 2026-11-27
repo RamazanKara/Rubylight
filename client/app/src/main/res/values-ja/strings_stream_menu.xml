@@ -7,7 +7,7 @@
     <string name="overlay_compact_loss">損失 %1$s%%</string>
     <string name="overlay_compact_waiting">映像を待機中</string>
     <string name="link_notice_lowered">PC がビットレートを %1$s Mbps に下げました: ネットワーク</string>
-    <string name="link_notice_keep">PC がビットレートを %1$s Mbps に下げました。ビットレートを維持するには、ストリームメニューを開いて「ビットレートを維持」をオンにしてください。</string>
+    <string name="link_notice_keep">PC がビットレートを %1$s Mbps に下げました。ビットレートを維持するには、コントロールセンターを開いて「ビットレートを維持」をオンにしてください。</string>
     <string name="link_notice_lowered_only">PC がネットワークのためにビットレートを %1$s Mbps に下げました。</string>
     <string name="stream_keep_bitrate">ビットレートを維持</string>
     <string name="stream_keep_bitrate_off">次のストリームから PC に任せます。このストリームはビットレートを維持します。</string>
@@ -34,7 +34,7 @@
     <string name="stream_choice_selected">選択済み</string>
     <string name="stream_choice_not_selected">未選択</string>
     <string name="stream_web_ui_leaves">ブラウザを開くとストリームから離れますが、ゲームは PC 上で実行され続けます。</string>
-    <string name="stream_menu_hint">ストリームメニューを開くには: %1$s。</string>
+    <string name="stream_menu_hint">コントロールセンターを開くには: %1$s。</string>
     <string name="stream_menu_hint_swipe">画面の端から内側にスワイプして戻る</string>
     <string name="stream_menu_hint_buttons">下から上にスワイプして [戻る] をタップ</string>
     <string name="stream_menu_hint_back">[戻る] を押す</string>
@@ -52,12 +52,12 @@
     <string name="stream_menu_shortcuts">ショートカット</string>
     <string name="stream_menu_start_menu">スタートメニュー</string>
     <string name="stream_shortcut_pick_keys">キーを1～8個選んでください。</string>
-    <string name="stream_menu_model_failed">ストリームメニューを表示できませんでした: %1$s</string>
+    <string name="stream_menu_model_failed">コントロールセンターを表示できませんでした: %1$s</string>
     <string name="stream_menu_button_show">メニューボタンを表示</string>
     <string name="stream_menu_button_hide">メニューボタンを非表示</string>
-    <string name="stream_menu_settings">ストリームメニュー</string>
+    <string name="stream_menu_settings">コントロールセンター</string>
     <string name="title_floating_menu_button">フローティングメニューボタン</string>
-    <string name="summary_floating_menu_button">ストリームの上に表示される丸いボタンで、タップするとストリームメニューが開きます。ドラッグで移動できます。「戻る」やコントローラでメニューを開ける場合は不要です。</string>
+    <string name="summary_floating_menu_button">ストリームの上に表示される丸いボタンで、タップするとコントロールセンターが開きます。ドラッグで移動できます。「戻る」やコントローラでメニューを開ける場合は不要です。</string>
     <string name="stream_tile_keyboard">キーボード</string>
     <string name="stream_tile_pc_keyboard">PCキーボード</string>
     <string name="stream_tile_mouse">マウス</string>

@@ -128,7 +128,7 @@ impl Action {
             Self::PreviousTab => en("Previous tab"),
             Self::NextTab => en("Next tab"),
             Self::Screenshot => en("Save a screenshot"),
-            Self::StreamControls => en("Stream menu"),
+            Self::StreamControls => en("Control Center"),
             Self::StreamShortcuts => en("Shortcuts & help"),
             Self::Disconnect => en("Disconnect"),
             Self::Capture => en("Release or capture input"),
@@ -474,7 +474,7 @@ pub fn hotkey_error_text(error: &HotkeyError) -> String {
         HotkeyError::OneKey => tr("Use one key besides Ctrl, Alt and Shift.").into(),
         HotkeyError::Reserved => tr("Windows keeps this combination.").into(),
         HotkeyError::Typing => tr("This combination is for typing.").into(),
-        HotkeyError::LastWayOut => tr("Keep a hotkey for Stream menu or Disconnect.").into(),
+        HotkeyError::LastWayOut => tr("Keep a hotkey for Control Center or Disconnect.").into(),
         HotkeyError::UnsupportedKey(key) => trf("Unsupported key: {}", &[key]),
         HotkeyError::RepeatedKey(key) => trf("Repeated key: {}", &[key]),
         // The page lists only the desktop's own actions; these name a bug, in English.

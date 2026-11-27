@@ -7,9 +7,9 @@
     <string name="summary_lower_bitrate">“Không bao giờ: giữ tốc độ bit của tôi” có thể làm hình đứng hoặc vỡ trên kết nối không tải nổi, và chỉ hoạt động với PC chấp nhận thay đổi tốc độ bit; hãy chọn khi hình bị mềm trên kết nối tải được nhiều hơn. Mặc định, PC giảm tốc độ bit khi mất những khung hình mà nó không thể phục hồi rồi tăng lại sau đó; “Giảm sớm hơn” giảm sớm hơn, đổi lại hình mềm hơn.</string>
     <string name="title_back_button">Nút Quay lại</string>
     <string name="back_button_back">Quay lại</string>
-    <string name="back_button_menu">Menu stream</string>
+    <string name="back_button_menu">Trung tâm điều khiển</string>
     <string name="back_button_guide">Guide</string>
-    <string name="summary_back_button">Việc nút Quay lại của tay cầm hoặc máy cầm tay làm: Quay lại đến PC dưới dạng Quay lại, Menu stream mở menu stream, Guide gửi Guide (Home hoặc PS) đến PC. Để ở Quay lại nếu game của bạn dùng nút đó.</string>
+    <string name="summary_back_button">Việc nút Quay lại của tay cầm hoặc máy cầm tay làm: Quay lại đến PC dưới dạng Quay lại, Trung tâm điều khiển mở Trung tâm điều khiển, Guide gửi Guide (Home hoặc PS) đến PC. Để ở Quay lại nếu game của bạn dùng nút đó.</string>
     <string name="settings_choice_off">Tắt</string>
     <string name="system_keys_always">Luôn luôn</string>
     <string name="system_keys_full_screen">Khi toàn màn hình</string>

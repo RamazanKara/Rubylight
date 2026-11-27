@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="quick_suspend_paused">游戏已在电脑上暂停。打开串流菜单即可继续。</string>
+    <string name="quick_suspend_paused">游戏已在电脑上暂停。打开控制中心即可继续。</string>
     <string name="quick_suspend_resumed">游戏已继续。</string>
     <string name="quick_suspend_refused_anti_cheat">电脑上正在运行反作弊程序，因此不会暂停游戏。</string>
     <string name="quick_suspend_refused_protected">有受保护的程序或系统程序与此游戏一同运行，因此电脑不会暂停它。</string>

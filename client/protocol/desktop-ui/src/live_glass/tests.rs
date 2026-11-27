@@ -543,18 +543,35 @@ fn over_video_with_the_menu_closed_nothing_is_held_and_no_pass_runs() {
 }
 
 #[test]
-fn a_probe_that_never_finished_trips_the_guard_once() {
+fn one_unfinished_probe_gets_another_try_and_a_finished_one_forgets_it() {
+    let fingerprint = fingerprint_of(&stage());
+    // The last start armed the guard and never cleared it: a crash, or the app killed, or a
+    // device reset, between landing and the first clean frame.
+    let once = Stored { tier: None, guard: Guard::arm(&fingerprint), trips: 0 };
+    let mut glass = Glass::new(None).remembering(Memory::in_memory(once));
+    let mut stage = stage();
+    glass.settle(&mut stage);
+    assert_eq!(stage.calls, [Call::Try], "the targets are tried again");
+    assert_eq!(glass.pass_tier(), Tier::Lens);
+    assert_eq!(glass.memory().stored(), &Stored { tier: None, guard: Guard::arm(&fingerprint), trips: 1 }, "armed, counting the unfinished one");
+    // This try gets through its first frame: the count starts over.
+    glass.paint(&mut stage, &chrome_frame(Color32::RED), false);
+    assert_eq!(glass.memory().stored(), &Stored { tier: None, guard: Guard::clear(&fingerprint), trips: 0 });
+}
+
+#[test]
+fn a_probe_that_never_finished_twice_in_a_row_trips_the_guard() {
     let fingerprint = fingerprint_of(&stage());
     assert!(fingerprint.starts_with(crate::VERSION));
-    // The last start armed the guard on this build and driver and never cleared it.
-    let crashed = Stored { tier: None, guard: Guard::arm(&fingerprint) };
+    // The second start in a row whose probe never finished on this build and driver.
+    let crashed = Stored { tier: None, guard: Guard::arm(&fingerprint), trips: 1 };
     let mut glass = Glass::new(None).remembering(Memory::in_memory(crashed));
     let mut stage = stage();
     glass.settle(&mut stage);
     assert!(stage.calls.is_empty(), "no target is made: {:?}", stage.calls);
     assert_eq!(glass.pass_tier(), Tier::Baked);
     let stored = glass.memory().stored().clone();
-    assert_eq!(stored, Stored { tier: Some(Tier::Baked), guard: Guard::clear(&fingerprint) }, "baked stored, the guard cleared");
+    assert_eq!(stored, Stored { tier: Some(Tier::Baked), guard: Guard::clear(&fingerprint), trips: 0 }, "baked stored, the guard cleared");
 
     // The next start finds baked stored for this build: baked, and no guard armed again.
     let mut next = Glass::new(None).remembering(Memory::in_memory(stored.clone()));
@@ -563,12 +580,30 @@ fn a_probe_that_never_finished_trips_the_guard_once() {
     assert_eq!(next.pass_tier(), Tier::Baked);
     assert!(!next.memory().stored().guard.in_flight);
 
-    // An update of the build or the driver gets a fresh try.
-    let other = Stored { tier: Some(Tier::Baked), guard: Guard::arm("another build") };
+    // An update of the build, the GPU or its driver gets a fresh try, the count with it.
+    let other = Stored { tier: Some(Tier::Baked), guard: Guard::arm("another build or driver"), trips: 1 };
     let mut updated = Glass::new(None).remembering(Memory::in_memory(other));
     updated.settle(&mut stage);
     assert_eq!(stage.calls, [Call::Try]);
     assert_eq!(updated.pass_tier(), Tier::Lens);
+    assert_eq!(updated.memory().stored().trips, 0);
+}
+
+/// A device reset or the switch to another renderer in the first frames is no crash: the guard
+/// is cleared on disk before the new renderer's landing arms it again.
+#[test]
+fn a_new_renderer_clears_the_guard_on_disk_before_it_is_armed_again() {
+    let mut glass = Glass::new(None).remembering(Memory::in_memory(Stored::default()));
+    let mut stage = stage();
+    glass.settle(&mut stage);
+    let fingerprint = fingerprint_of(&stage);
+    assert!(glass.memory().stored().guard.tripped(&fingerprint), "armed before the first frame");
+    glass.renderer_changed();
+    assert!(!glass.memory().stored().guard.in_flight, "a start after this finds no unfinished probe");
+    // The new renderer's first launcher frame tries its targets and arms the guard again.
+    glass.settle(&mut stage);
+    assert_eq!(stage.calls, [Call::Try, Call::Try]);
+    assert_eq!(glass.memory().stored(), &Stored { tier: None, guard: Guard::arm(&fingerprint), trips: 0 });
 }
 
 #[test]
@@ -585,7 +620,7 @@ fn the_guard_is_armed_before_the_first_probed_frame_and_cleared_when_the_probe_e
         glass.paint(&mut stage, &chrome_frame(Color32::from_gray(n as u8)), false);
     }
     assert_eq!(glass.pass_tier(), Tier::Lens, "a fast chain keeps the lens");
-    assert_eq!(glass.memory().stored(), &Stored { tier: Some(Tier::Lens), guard: Guard::clear(&fingerprint) });
+    assert_eq!(glass.memory().stored(), &Stored { tier: Some(Tier::Lens), guard: Guard::clear(&fingerprint), trips: 0 });
 
     // A failing chain ends the probe too: the guard clears, nothing new is stored.
     let mut failing = Glass::new(None).remembering(Memory::in_memory(Stored::default()));

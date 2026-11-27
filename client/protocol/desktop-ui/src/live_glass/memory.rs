@@ -13,6 +13,9 @@ pub struct Stored {
     pub tier: Option<Tier>,
     /// `probe_in_flight` and the build fingerprint it was armed for.
     pub guard: Guard,
+    /// `probe_trips`: earlier probes in a row on `guard.fingerprint` that never finished, before
+    /// the one armed now (`glass_probe::GUARD_TRIPS`).
+    pub trips: u32,
 }
 
 impl Stored {
@@ -24,6 +27,7 @@ impl Stored {
                 "tier" => stored.tier = Tier::parse(value.trim()),
                 "probe_in_flight" => stored.guard.in_flight = value.trim() == "1",
                 "fingerprint" => stored.guard.fingerprint = value.trim().to_owned(),
+                "probe_trips" => stored.trips = value.trim().parse().unwrap_or(0),
                 _ => {}
             }
         }
@@ -32,10 +36,11 @@ impl Stored {
 
     fn text(&self) -> String {
         format!(
-            "tier={}\nprobe_in_flight={}\nfingerprint={}\n",
+            "tier={}\nprobe_in_flight={}\nfingerprint={}\nprobe_trips={}\n",
             self.tier.map_or("", Tier::key),
             u8::from(self.guard.in_flight),
-            self.guard.fingerprint.replace(['\r', '\n'], " ")
+            self.guard.fingerprint.replace(['\r', '\n'], " "),
+            self.trips
         )
     }
 }
@@ -98,8 +103,10 @@ mod tests {
 
     #[test]
     fn the_state_reads_back_as_written() {
-        let stored = Stored { tier: Some(Tier::Live), guard: Guard::arm("7.0.0 windows direct3d11") };
+        let stored = Stored { tier: Some(Tier::Live), guard: Guard::arm("7.0.0 windows direct3d11 10de:2c05 rev a1 driver 32.0.15.6614"), trips: 1 };
         assert_eq!(Stored::parse(&stored.text()), stored);
+        // A file from before the trips were counted reads as none.
+        assert_eq!(Stored::parse("tier=\nprobe_in_flight=1\nfingerprint=fp\n").trips, 0);
         assert_eq!(Stored::parse(""), Stored::default());
         assert_eq!(Stored::parse("tier=nonsense\nprobe_in_flight=1\n").tier, None);
     }
@@ -111,7 +118,7 @@ mod tests {
         let path = dir.join(FILE);
         let mut memory = Memory::at(path.clone());
         assert_eq!(memory.stored(), &Stored::default(), "no file yet");
-        memory.save(Stored { tier: None, guard: Guard::arm("fp") });
+        memory.save(Stored { tier: None, guard: Guard::arm("fp"), trips: 0 });
         assert!(Memory::at(path.clone()).stored().guard.tripped("fp"));
         let _ = std::fs::remove_dir_all(&dir);
     }

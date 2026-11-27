@@ -196,6 +196,11 @@ impl Probe {
 /// What the log says when the guard trips. Never shown as an error: baked is a finished look.
 pub const GUARD_WARNING: &str = "Previous live-surface probe did not finish; using baked surfaces";
 
+/// Unfinished probes in a row on one build and driver before the desktop lands on baked for good.
+/// One crash or kill between landing and the first clean frame can be anything's (the app closed
+/// by force, a device reset, a stream's crash); a second in a row is taken for the driver's.
+pub const GUARD_TRIPS: u32 = 2;
+
 /// The two-phase crash guard around the first live target a build allocates on a driver. The
 /// platform stores it: [`Guard::arm`] before the allocation, [`Guard::clear`] after the first
 /// frame presented. A launch that finds it still armed for the same build and driver

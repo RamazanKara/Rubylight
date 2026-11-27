@@ -81,6 +81,27 @@ pub fn renderer_gpu(device: *mut c_void) -> Option<String> {
     renderer_adapter(device).map(|adapter| adapter.name)
 }
 
+/// The renderer's GPU by its PCI ids and revision, and the version of its user-mode driver (as
+/// dxdiag shows it), for what a GPU or driver update changes (the live glass's crash guard).
+/// `device` is the renderer's `ID3D11Device`.
+pub fn renderer_driver(device: *mut c_void) -> Option<String> {
+    // SAFETY: A live device pointer from the renderer, only borrowed here.
+    let device = unsafe { ID3D11Device::from_raw_borrowed(&device) }?;
+    // SAFETY: Plain DXGI queries on the borrowed device.
+    unsafe {
+        let adapter = device.cast::<IDXGIDevice>().ok()?.GetAdapter().ok()?;
+        let desc = adapter.GetDesc().ok()?;
+        let driver = adapter.CheckInterfaceSupport(&IDXGIDevice::IID).map_or_else(|_| "unknown".to_owned(), driver_version);
+        Some(format!("{:04x}:{:04x} rev {:x} driver {driver}", desc.VendorId, desc.DeviceId, desc.Revision))
+    }
+}
+
+/// A user-mode driver version as DXGI packs it, four 16-bit parts from the highest.
+fn driver_version(packed: i64) -> String {
+    let packed = packed as u64;
+    format!("{}.{}.{}.{}", packed >> 48, (packed >> 32) & 0xffff, (packed >> 16) & 0xffff, packed & 0xffff)
+}
+
 /// Whether `adapter`'s video decoder has `profile` and decodes it into `format`.
 unsafe fn decodes(adapter: &IDXGIAdapter1, (profile, format): (GUID, DXGI_FORMAT)) -> bool {
     let mut device = None;
@@ -463,6 +484,14 @@ mod tests {
         assert_eq!(format!("{:?}", super::HEVC_MAIN10_444).to_ascii_lowercase(), "0dabeffa-4458-4602-bc03-0795659d617c");
     }
 
+    /// DXGI packs a driver version as dxdiag shows it, four 16-bit parts from the highest.
+    #[test]
+    fn a_driver_version_reads_as_dxdiag_shows_it() {
+        let packed = (32_i64 << 48) | (15 << 16) | 6614;
+        assert_eq!(super::driver_version(packed), "32.0.15.6614");
+        assert_eq!(super::driver_version((31_i64 << 48) | (0x7fff << 32) | 1), "31.32767.0.1");
+    }
+
     /// The check runs on this machine's GPUs without failing, and never lists the renderer's own.
     #[test]
     fn other_gpus_are_checked_without_the_renderers() {
@@ -483,6 +512,8 @@ mod tests {
         let raw = device.as_raw();
         let name = super::renderer_gpu(raw).expect("the device's GPU");
         assert!(!name.is_empty());
+        let driver = super::renderer_driver(raw).expect("the device's GPU and driver");
+        assert!(driver.contains(" driver "), "{driver}");
         for ten_bit in [false, true] {
             let (renderer, gpus) = super::others_decoding_hevc444(raw, ten_bit).expect("the renderer's GPU");
             assert_eq!(renderer, name);

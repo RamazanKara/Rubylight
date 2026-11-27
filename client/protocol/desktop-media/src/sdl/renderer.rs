@@ -31,6 +31,89 @@ pub fn renderer_pointer(renderer: *mut SDL_Renderer, name: *const c_char) -> *mu
     unsafe { SDL_GetPointerProperty(SDL_GetRendererProperties(renderer), name, std::ptr::null_mut()) }
 }
 
+/// The renderer, its GPU and the GPU's driver as far as the renderer tells them, on one line:
+/// what a GPU or driver update changes (the live glass's crash guard keys on it). SDL's GPU
+/// renderer names its device and driver (Vulkan's driverVersion and driverInfo), Direct3D 11 its
+/// adapter's PCI ids and user-mode driver version, OpenGL its GL_VENDOR, GL_RENDERER and
+/// GL_VERSION. macOS, whose GPU drivers come with the system, adds the system's build.
+pub fn renderer_driver(renderer: *mut SDL_Renderer) -> String {
+    let mut parts = vec![renderer_name(renderer)];
+    let gpu = renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER).cast::<SDL_GPUDevice>();
+    if !gpu.is_null() {
+        // SAFETY: the renderer's live GPU device.
+        let device = unsafe { SDL_GetGPUDeviceProperties(gpu) };
+        for key in [SDL_PROP_GPU_DEVICE_NAME_STRING, SDL_PROP_GPU_DEVICE_DRIVER_NAME_STRING, SDL_PROP_GPU_DEVICE_DRIVER_VERSION_STRING, SDL_PROP_GPU_DEVICE_DRIVER_INFO_STRING] {
+            // SAFETY: the device's properties and a property name constant; SDL keeps the string.
+            parts.push(unsafe { c_text(SDL_GetStringProperty(device, key, std::ptr::null())) });
+        }
+    }
+    #[cfg(windows)]
+    {
+        let d3d11 = renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER);
+        if !d3d11.is_null() {
+            parts.extend(crate::gpu_adapters::renderer_driver(d3d11));
+        }
+    }
+    if renderer_is(renderer, "opengl") || renderer_is(renderer, "opengles2") {
+        parts.extend(gl_strings());
+    }
+    #[cfg(target_os = "macos")]
+    parts.extend(macos_build());
+    one_line(&parts)
+}
+
+/// `parts` on one line with single spaces: a driver's own text can hold newlines
+/// (`SDL_PROP_GPU_DEVICE_DRIVER_INFO_STRING`), which the guard's file keeps as spaces.
+fn one_line(parts: &[String]) -> String {
+    parts.iter().flat_map(|part| part.split_whitespace()).collect::<Vec<_>>().join(" ")
+}
+
+/// A C string SDL or the driver keeps, or nothing for null.
+///
+/// # Safety
+/// `text` is null or a NUL-terminated string that outlives the call.
+unsafe fn c_text(text: *const c_char) -> String {
+    if text.is_null() {
+        return String::new();
+    }
+    // SAFETY: caller guarantees a NUL-terminated string.
+    unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned()
+}
+
+/// GL_VENDOR, GL_RENDERER and GL_VERSION of the OpenGL context current on this thread (the
+/// renderer's, on the thread that draws with it); nothing when there is none.
+fn gl_strings() -> Vec<String> {
+    // SAFETY: SDL's loader for the GL library the renderer loaded.
+    let Some(get) = (unsafe { SDL_GL_GetProcAddress(c"glGetString".as_ptr()) }) else { return Vec::new() };
+    // SAFETY: glGetString takes a GLenum and returns a static string, or null without a context.
+    let get_string = unsafe { std::mem::transmute::<unsafe extern "C" fn(), unsafe extern "system" fn(u32) -> *const c_char>(get) };
+    const GL_VENDOR: u32 = 0x1F00;
+    const GL_RENDERER: u32 = 0x1F01;
+    const GL_VERSION: u32 = 0x1F02;
+    // SAFETY: as above; the strings belong to the context.
+    [GL_VENDOR, GL_RENDERER, GL_VERSION].into_iter().map(|name| unsafe { c_text(get_string(name)) }).collect()
+}
+
+#[cfg(test)]
+mod driver_tests {
+    /// The crash guard's file keeps one line: a driver's multi-line text matches itself next time.
+    #[test]
+    fn a_drivers_text_goes_on_one_line() {
+        let parts = ["gpu".to_owned(), "AMD Radeon 780M (RADV PHOENIX)".to_owned(), String::new(), "Driver Build: 85da404\nDate: 11/30/20\n".to_owned()];
+        assert_eq!(super::one_line(&parts), "gpu AMD Radeon 780M (RADV PHOENIX) Driver Build: 85da404 Date: 11/30/20");
+    }
+}
+
+/// The macOS build (`kern.osversion`), which its GPU drivers come with.
+#[cfg(target_os = "macos")]
+fn macos_build() -> Option<String> {
+    let mut text = [0u8; 64];
+    let mut len = text.len();
+    // SAFETY: a sysctl name constant and a buffer of `len` bytes, which sysctl may fill.
+    let read = unsafe { libc::sysctlbyname(c"kern.osversion".as_ptr(), text.as_mut_ptr().cast(), &mut len, std::ptr::null_mut(), 0) };
+    (read == 0).then(|| String::from_utf8_lossy(&text[..len.min(text.len())]).trim_end_matches('\0').to_owned())
+}
+
 /// Makes Windows' renderer again on `window` after its device was lost (`App::recover_renderer`),
 /// in the colorspace the old one had (`linear`: scRGB, `create_renderer_with`'s `gpu`). While the
 /// driver restarts a try can fail, fall to another of SDL's renderers or to SDR: a try that is not

@@ -220,7 +220,8 @@ pub trait Stage {
     fn end_scene(&mut self, timed: bool) -> Result<Option<f32>, String>;
     /// Frees the chain's targets.
     fn release(&mut self);
-    /// The renderer and driver as the crash guard's fingerprint names them, beside the app's build.
+    /// The renderer, its GPU and the GPU's driver as the crash guard's fingerprint names them,
+    /// beside the app's build: a GPU or driver update gets a fresh probe.
     fn driver(&self) -> String {
         String::new()
     }
@@ -372,8 +373,10 @@ impl Glass {
     /// the tier is tried and measured again on this one, as at start.
     #[cfg_attr(windows, allow(dead_code))]
     pub fn renderer_changed(&mut self) {
-        // The guard stays as it is: the new landing arms it again.
-        self.armed = None;
+        // The old renderer went (a device reset, the switch): no crash, so the guard is cleared on
+        // disk before the new landing arms it again, and a reset in the first frames is not read
+        // as a crash on the next start.
+        self.disarm();
         let mut fresh = Self::new(self.forced);
         fresh.over_video = self.over_video;
         fresh.refresh_hz = self.refresh_hz;
@@ -409,6 +412,7 @@ impl Glass {
         }
         if let Some(fingerprint) = armed {
             stored.guard = Guard::clear(&fingerprint);
+            stored.trips = 0;
         }
         self.memory.save(stored);
     }
@@ -417,7 +421,7 @@ impl Glass {
     /// stream's, an abort) is not taken for the glass's.
     fn disarm(&mut self) {
         if let Some(fingerprint) = self.armed.take() {
-            self.memory.save(Stored { guard: Guard::clear(&fingerprint), ..self.memory.stored().clone() });
+            self.memory.save(Stored { guard: Guard::clear(&fingerprint), trips: 0, ..self.memory.stored().clone() });
         }
     }
 
@@ -534,7 +538,8 @@ impl Glass {
     }
 
     /// The first launcher frame: lands the tier. A guard still armed for this build and driver
-    /// lands on baked and stores that; otherwise the guard is armed before the targets are tried.
+    /// after `GUARD_TRIPS` unfinished probes in a row lands on baked and stores that; otherwise
+    /// the guard is armed, counting an unfinished last probe, before the targets are tried.
     fn land<S: Stage>(&mut self, stage: &mut S) {
         if let Some(forced) = self.forced {
             match stage.targets_work() {
@@ -545,12 +550,16 @@ impl Glass {
         }
         let fingerprint = fingerprint_of(stage);
         let stored = self.memory.stored().clone();
-        if stored.guard.tripped(&fingerprint) {
+        let trips = if stored.guard.tripped(&fingerprint) { stored.trips.saturating_add(1) } else { 0 };
+        if trips >= probe::GUARD_TRIPS {
             eprintln!("nightjar: {}", probe::GUARD_WARNING);
             self.landing = Some(Tier::Baked);
             self.changed = true;
-            self.memory.save(Stored { tier: Some(Tier::Baked), guard: Guard::clear(&fingerprint) });
+            self.memory.save(Stored { tier: Some(Tier::Baked), guard: Guard::clear(&fingerprint), trips: 0 });
             return;
+        }
+        if trips > 0 {
+            eprintln!("nightjar: the last live-surface probe on this build and driver did not finish; trying it once more before baked surfaces");
         }
         let stored_tier = stored.tier.filter(|_| stored.guard.fingerprint == fingerprint);
         if stored_tier == Some(Tier::Baked) {
@@ -559,7 +568,7 @@ impl Glass {
             self.changed = true;
             return;
         }
-        self.memory.save(Stored { tier: stored_tier, guard: Guard::arm(&fingerprint) });
+        self.memory.save(Stored { tier: stored_tier, guard: Guard::arm(&fingerprint), trips });
         self.armed = Some(fingerprint);
         match stage.targets_work() {
             Ok(()) => {

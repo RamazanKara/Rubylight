@@ -571,7 +571,7 @@ mod values {
     pub const PAD_STUDIO_HANDLE: f32 = 22.0;
     pub const PAD_STUDIO_INSPECTOR_FILL: Color32 = Color32::from_rgba_premultiplied(13, 15, 20, 235);
     pub const PAD_STUDIO_INSPECTOR_RIM: Color32 = Color32::from_rgba_premultiplied(46, 46, 46, 46);
-    pub const PAD_SKIN_FILL: Color32 = Color32::from_rgba_premultiplied(5, 6, 8, 89);
+    pub const PAD_SKIN_FILL: Color32 = Color32::from_rgba_premultiplied(7, 8, 11, 128);
     pub const PAD_SKIN_RIM: Color32 = Color32::from_rgba_premultiplied(166, 166, 166, 166);
     pub const PAD_SKIN_RIM_WIDTH: f32 = 1.5;
     pub const PAD_SKIN_LABEL: Color32 = Color32::from_rgba_premultiplied(226, 228, 230, 235);

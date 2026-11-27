@@ -60,6 +60,20 @@ public class PadSkin70Test {
         }
     }
 
+    /**
+     * Over white video the glyph also stands against its own body, not only its hairline: the body's fill over white
+     * and the label over that body keep 3:1, the floor for large text and icons (it was 1.9:1 at a 35 % fill).
+     */
+    @Test public void aGlyphStandsAgainstItsBodyOverWhite() {
+        Application app = RuntimeEnvironment.getApplication();
+        int fill = androidx.core.content.ContextCompat.getColor(app, com.limelight.R.color.nj_pad_skin_fill);
+        int label = androidx.core.content.ContextCompat.getColor(app, com.limelight.R.color.nj_pad_skin_label);
+        int body = androidx.core.graphics.ColorUtils.compositeColors(fill, WHITE);
+        int glyph = androidx.core.graphics.ColorUtils.compositeColors(label, body);
+        double contrast = androidx.core.graphics.ColorUtils.calculateContrast(glyph, body);
+        assertTrue("glyph against its body over white: " + contrast, contrast >= 3);
+    }
+
     /** A body's edge shows against white video through its dark hairline and against black video through its rim. */
     @Test public void aBodysEdgeShowsOverWhiteAndOverBlackVideo() {
         int size = Math.round(64 * density), middle = size / 2;

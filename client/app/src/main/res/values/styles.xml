@@ -449,6 +449,7 @@
         Tonal for secondary actions, Text for tertiary ones and Destructive for removing things.
     -->
     <style name="Widget.Nightjar.Button" parent="Widget.Material3.Button">
+        <item name="android:minHeight">@dimen/touch_target</item>
         <item name="strokeWidth">?attr/nightjarFocusRingWidth</item>
         <item name="strokeColor">@color/button_focus_ring_filled</item>
     </style>

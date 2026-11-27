@@ -809,7 +809,7 @@
     <dimen name="nj_pad_studio_handle">22dp</dimen>
     <color name="nj_pad_studio_inspector_fill">#EB0E1016</color>
     <color name="nj_pad_studio_inspector_rim">#2EFFFFFF</color>
-    <color name="nj_pad_skin_fill">#590E1016</color>
+    <color name="nj_pad_skin_fill">#800E1016</color>
     <color name="nj_pad_skin_rim">#A6FFFFFF</color>
     <dimen name="nj_pad_skin_rim_width">1.5dp</dimen>
     <color name="nj_pad_skin_label">#EBF5F7FA</color>

@@ -179,7 +179,7 @@ final class GameOverlays {
                 : compactPerformanceText;
         CharSequence text = compact ? compactLine : hardwarePerformanceText(isDebugOverlay());
         if (PerformanceOverlay.MODE_STATISTICS.equals(game.overlayMode) && text.length() != 0) {
-            text = PerformanceOverlay.withStatusLine(text, game.messages.notes());
+            text = PerformanceOverlay.withStatusLine(game, text, game.messages.notes());
         }
         if (text.length() == 0) {
             text = compact ? "● " + game.getString(R.string.overlay_compact_waiting) : game.getString(R.string.stats_waiting);

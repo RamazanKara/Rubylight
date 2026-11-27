@@ -47,7 +47,8 @@ public class ControlCenterPreviewTest {
 
     @Test @Config(qualifiers = ControlCenterTest.PHONE_UPRIGHT)
     public void anUprightPhoneGetsTheSheet() throws Exception {
-        draw("phone", ControlCenterModel.SHEET, false, ControlCenterModel.QUICK, ControlCenterModel.PICTURE);
+        draw("phone", ControlCenterModel.SHEET, false, ControlCenterModel.QUICK, ControlCenterModel.PICTURE,
+                ControlCenterModel.CLIPS, ControlCenterModel.POWER);
     }
 
     @Test
@@ -58,7 +59,7 @@ public class ControlCenterPreviewTest {
     @Test @Config(qualifiers = ControlCenterTest.TELEVISION)
     public void aTvGetsTheDock() throws Exception {
         draw("tv", ControlCenterModel.DOCK, true, ControlCenterModel.QUICK, ControlCenterModel.PICTURE,
-                ControlCenterModel.POWER);
+                ControlCenterModel.CLIPS, ControlCenterModel.POWER);
     }
 
     // Opens it over a stream that has everything, with a controller or without, and walks the modules named.
@@ -71,6 +72,10 @@ public class ControlCenterPreviewTest {
             state.overlayShown = true;
             state.launchNotice = activity.getString(R.string.launch_warning_virtual_display_unavailable);
             state.encoderLoad = "37.5";
+            // Instant Replay on Clips and a game paused by Quick Suspend (Resume game on Power), as the host offers them.
+            state.gates = java.util.Collections.singleton("stream_dvr");
+            state.dvr = new StreamMenuDvrSection(activity, (id, op, secs) -> true, text -> { }, () -> 0);
+            state.quickSuspendOffered = state.quickSuspendPaused = true;
             StreamMenu menu = ControlCenterTest.open(activity, state, new ArrayList<>(), null);
             ControlCenterTest.layOut(activity, menu);
             assertEquals(placement, menu.sheet().placement());

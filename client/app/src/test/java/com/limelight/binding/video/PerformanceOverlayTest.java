@@ -490,15 +490,13 @@ public class PerformanceOverlayTest {
         // Over video the overlay uses the media (night) tones whatever the app theme is.
         Context context = context(Locale.US);
         assertEquals(androidx.core.content.ContextCompat.getColor(context, com.limelight.R.color.night_status_ok),
-                PerformanceOverlay.healthColor(PerformanceOverlay.Health.GOOD));
+                PerformanceOverlay.healthColor(context, PerformanceOverlay.Health.GOOD));
         assertEquals(androidx.core.content.ContextCompat.getColor(context, com.limelight.R.color.night_status_warn),
-                PerformanceOverlay.healthColor(PerformanceOverlay.Health.FAIR));
+                PerformanceOverlay.healthColor(context, PerformanceOverlay.Health.FAIR));
         assertEquals(androidx.core.content.ContextCompat.getColor(context, com.limelight.R.color.night_error),
-                PerformanceOverlay.healthColor(PerformanceOverlay.Health.POOR));
+                PerformanceOverlay.healthColor(context, PerformanceOverlay.Health.POOR));
         assertEquals(androidx.core.content.ContextCompat.getColor(context, com.limelight.R.color.night_on_surface_variant),
-                PerformanceOverlay.healthColor(PerformanceOverlay.Health.UNKNOWN));
-        assertEquals(androidx.core.content.ContextCompat.getColor(context, com.limelight.R.color.night_tertiary),
-                PerformanceOverlay.MEDIA_INFO);
+                PerformanceOverlay.healthColor(context, PerformanceOverlay.Health.UNKNOWN));
     }
 
     @Test

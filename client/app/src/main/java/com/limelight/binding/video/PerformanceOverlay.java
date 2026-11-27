@@ -9,6 +9,8 @@ import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.StyleSpan;
 
+import androidx.core.content.ContextCompat;
+
 import com.limelight.R;
 import com.limelight.nvstream.http.HardwareMetrics;
 import com.limelight.nvstream.jni.MoonBridge;
@@ -265,21 +267,15 @@ public final class PerformanceOverlay {
         return Health.GOOD;
     }
 
-    // The overlay is always over video, so it takes the night (media) tones of the shared status tokens:
-    // night_status_ok, night_status_warn, night_error, night_on_surface_variant and night_tertiary in palette.xml.
-    static final int MEDIA_OK = 0xff5fd38d;
-    static final int MEDIA_WARN = 0xfff5d06b;
-    static final int MEDIA_ERROR = 0xffffb4ab;
-    // color.labelSecondary, as night_on_surface_variant takes it from the 7.0 tokens.
-    static final int MEDIA_INK_2 = 0xffc7cdd9;
-    static final int MEDIA_INFO = 0xffafc8e9;
-
-    static int healthColor(Health health) {
+    // The overlay is always over video, so it takes the night (media) tones of the shared status tokens,
+    // read from palette.xml (night_status_ok, night_status_warn, night_error, night_on_surface_variant and
+    // night_tertiary), so they follow the 7.0 tokens instead of copies of them.
+    static int healthColor(Context context, Health health) {
         switch (health) {
-            case GOOD: return MEDIA_OK;
-            case FAIR: return MEDIA_WARN;
-            case POOR: return MEDIA_ERROR;
-            default: return MEDIA_INK_2;
+            case GOOD: return ContextCompat.getColor(context, R.color.night_status_ok);
+            case FAIR: return ContextCompat.getColor(context, R.color.night_status_warn);
+            case POOR: return ContextCompat.getColor(context, R.color.night_error);
+            default: return ContextCompat.getColor(context, R.color.night_on_surface_variant);
         }
     }
 
@@ -351,7 +347,7 @@ public final class PerformanceOverlay {
         if (values.isEmpty()) return "";
         Health health = health(healthFps, receivedFps, refreshHz, networkMs, frameLossPercent, decodeMs);
         SpannableString text = new SpannableString(healthGlyph(health) + " " + android.text.TextUtils.join(" · ", values));
-        text.setSpan(new HealthSpan(health), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new HealthSpan(context, health), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return text;
     }
 
@@ -371,8 +367,8 @@ public final class PerformanceOverlay {
     static final class HealthSpan extends ForegroundColorSpan {
         final Health health;
 
-        HealthSpan(Health health) {
-            super(healthColor(health));
+        HealthSpan(Context context, Health health) {
+            super(healthColor(context, health));
             this.health = health;
         }
     }
@@ -397,9 +393,9 @@ public final class PerformanceOverlay {
 
     public static CharSequence debugText(Context context, String video, String network, String decode) {
         SpannableStringBuilder text = new SpannableStringBuilder();
-        appendSection(text, context.getString(R.string.overlay_video), video);
-        appendSection(text, context.getString(R.string.overlay_network), network);
-        appendSection(text, context.getString(R.string.overlay_decode), decode);
+        appendSection(context, text, context.getString(R.string.overlay_video), video);
+        appendSection(context, text, context.getString(R.string.overlay_network), network);
+        appendSection(context, text, context.getString(R.string.overlay_decode), decode);
         return text;
     }
 
@@ -407,12 +403,12 @@ public final class PerformanceOverlay {
      * The status line under the statistics: lasting facts about this stream, such as HDR or a codec the
      * PC or device lacks, in a quieter colour, so the messages that said them once are not needed again.
      */
-    public static CharSequence withStatusLine(CharSequence base, java.util.List<String> notes) {
+    public static CharSequence withStatusLine(Context context, CharSequence base, java.util.List<String> notes) {
         if (notes.isEmpty()) return base;
         SpannableStringBuilder text = new SpannableStringBuilder(base);
         int start = text.length();
         for (String note : notes) text.append('\n').append(note);
-        text.setSpan(new ForegroundColorSpan(MEDIA_INK_2), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new ForegroundColorSpan(healthColor(context, Health.UNKNOWN)), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return text;
     }
 
@@ -428,7 +424,7 @@ public final class PerformanceOverlay {
         SpannableStringBuilder text = new SpannableStringBuilder(base);
         int start = text.length();
         text.append('\n').append(linkNoticeText(context, status));
-        text.setSpan(new ForegroundColorSpan(healthColor(Health.FAIR)), start, text.length(),
+        text.setSpan(new ForegroundColorSpan(healthColor(context, Health.FAIR)), start, text.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return text;
     }
@@ -485,7 +481,7 @@ public final class PerformanceOverlay {
         }
         SpannableStringBuilder text = new SpannableStringBuilder(base);
         if (debug) {
-            appendSection(text, context.getString(R.string.hardware_title), hardware.toString());
+            appendSection(context, text, context.getString(R.string.hardware_title), hardware.toString());
         } else {
             if (text.length() != 0) text.append('\n');
             text.append(hardware);
@@ -498,12 +494,12 @@ public final class PerformanceOverlay {
         return value == null ? "—" : String.format(locale, format, value);
     }
 
-    private static void appendSection(SpannableStringBuilder text, String title, String body) {
+    private static void appendSection(Context context, SpannableStringBuilder text, String title, String body) {
         if (text.length() != 0) text.append("\n\n");
         int start = text.length();
         text.append(title);
         text.setSpan(new StyleSpan(Typeface.BOLD), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        text.setSpan(new ForegroundColorSpan(MEDIA_INFO), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new ForegroundColorSpan(ContextCompat.getColor(context, R.color.night_tertiary)), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         text.append('\n').append(body);
     }
 }

@@ -135,11 +135,11 @@
   .back:hover { color: var(--ink); text-decoration: underline; }
   .back-icon { display: inline-flex; transform: rotate(180deg); }
   .filters { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 260px); gap: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
-  .filters label { display: grid; gap: 6px; align-content: start; }
+  .filters label { display: grid; gap: var(--space-1-5); align-content: start; }
   .label { font-size: var(--text-sm); font-weight: var(--weight-medium); }
   .search { position: relative; }
   .search-icon { position: absolute; left: var(--space-3); top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
-  .search .input { padding-left: 38px; }
+  .search .input { padding-left: calc(var(--space-7) - 10px); }
   .scanning { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) 0; font-size: var(--text-sm); }
   .spinner { width: 18px; height: 18px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: var(--radius-pill); animation: spin var(--spin-duration) linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }

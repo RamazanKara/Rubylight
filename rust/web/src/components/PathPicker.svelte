@@ -205,7 +205,7 @@
     align-items: center;
     gap: var(--space-2);
     width: 100%;
-    padding: 7px var(--space-3);
+    padding: calc(var(--space-2) - 1px) var(--space-3);
     border: 0;
     background: none;
     color: var(--ink);

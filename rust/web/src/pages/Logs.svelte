@@ -251,7 +251,7 @@
     min-width: 0;
   }
   .search .input {
-    padding: 6px 10px 6px 30px;
+    padding: var(--space-1-5) calc(var(--space-3) - 2px) var(--space-1-5) calc(var(--space-6) - 2px);
     font-size: var(--text-sm);
   }
   .search-icon {
@@ -264,8 +264,8 @@
   }
   .level .select {
     width: auto;
-    padding-top: 6px;
-    padding-bottom: 6px;
+    padding-top: var(--space-1-5);
+    padding-bottom: var(--space-1-5);
     font-size: var(--text-sm);
   }
   .count {

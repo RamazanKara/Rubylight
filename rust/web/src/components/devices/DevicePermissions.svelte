@@ -72,7 +72,7 @@
   }
   fieldset {
     display: grid;
-    gap: 6px;
+    gap: var(--space-1-5);
     align-content: start;
     margin: 0;
     padding: var(--space-2) var(--space-3) var(--space-3);

@@ -115,8 +115,8 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) 320px;
     align-items: start;
-    gap: 6px var(--space-6);
-    padding: 14px var(--space-5);
+    gap: var(--space-1-5) var(--space-6);
+    padding: calc(var(--space-4) - 2px) var(--space-5);
   }
   .text {
     display: grid;

@@ -60,5 +60,5 @@
     background: var(--sunken);
     border-color: var(--line);
   }
-  .copy.labelled { display: inline-flex; gap: var(--space-2); width: auto; padding: 10px; }
+  .copy.labelled { display: inline-flex; gap: var(--space-2); width: auto; padding: calc(var(--space-3) - 2px); }
 </style>

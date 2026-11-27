@@ -48,6 +48,23 @@ function fault(property, raw) {
   if (/drop-shadow\(/.test(value)) return 'a raw drop shadow';
   if (/^border(?:-[a-z]+)*-radius$/.test(property) && !radiusOk(value)) return 'a raw radius';
   if (property === 'z-index' && !layerOk(value)) return 'a raw layer';
+  // Type and space come from the scale (--text-*, --space-*); a fluid clamp() or an em stays free.
+  if (property === 'font-size' && /(?<![\w.(,-])\d*\.?\d+px\b/.test(value.replace(/(?:calc|clamp|min|max)\([^;]*\)/g, ''))) {
+    return 'a raw type size (use a --text token)';
+  }
+  if (/^(?:(?:padding|margin)(?:-[a-z]+)*|gap|row-gap|column-gap)$/.test(property)) {
+    // Arithmetic on a token is no literal; a nudge of 1 to 3px aligns a hairline and is let be.
+    let bare = value;
+    for (let start; (start = bare.indexOf('calc(')) >= 0;) {
+      let end = start + 5;
+      for (let depth = 1; depth && end < bare.length; end++) depth += { '(': 1, ')': -1 }[bare[end]] ?? 0;
+      const group = bare.slice(start, end);
+      bare = bare.slice(0, start) + (group.includes('var(--') ? '' : group.replace('calc(', 'calc[')) + bare.slice(end);
+    }
+    if ([...bare.matchAll(/(?<![\w.-])-?(\d*\.?\d+)px\b/g)].some(([, amount]) => Number(amount) > 3)) {
+      return 'a raw space (use a --space token)';
+    }
+  }
   if (/^(?:transition|animation)(?:-duration|-delay)?$/.test(property)) {
     for (const [, amount] of value.replace(/var\([^)]*\)/g, '').matchAll(TIME)) {
       if (Number(amount) !== 0) return 'a raw duration';
@@ -88,7 +105,7 @@ test('the walk finds the console, /play and /guest', () => {
   assert.ok(names.length > 100);
 });
 
-test('no stylesheet or component outside tokens.css carries a raw colour, shadow, radius, layer or duration', () => {
+test('no stylesheet or component outside tokens.css carries a raw colour, shadow, radius, layer, duration, type size or space', () => {
   const found = sources.filter(([path]) => path !== TOKENS).flatMap(([path, source]) => faults(path.replaceAll('\\', '/'), source));
   assert.deepEqual(found, []);
 });
@@ -105,8 +122,11 @@ test('the rule catches what it is for', () => {
     .h { --local: #123456; }
     .i { color: white; }
     .j { filter: drop-shadow(0 1px 2px var(--scrim)); }
+    .k { font-size: 12px; }
+    .l { padding: 10px var(--space-4); }
+    .m { gap: 6px; margin-block: -8px; }
   </style>`;
-  assert.equal(faults('Bad.svelte', bad).length, 12);
+  assert.equal(faults('Bad.svelte', bad).length, 16);
   const good = `<div style="width: {size}px; color: var(--ink)"></div><svg fill="currentColor"></svg><style>
     a:hover { color: var(--accent-text); }
     .a { background: color-mix(in srgb, var(--accent) 20%, transparent); }
@@ -119,6 +139,8 @@ test('the rule catches what it is for', () => {
     .h { transition: color var(--duration-fast) var(--ease-standard), transform 0s; }
     .i { animation: spin var(--spin-duration) linear infinite; }
     .j { white-space: nowrap; grid-template-rows: 0fr; }
+    .k { font-size: var(--text-sm); padding: calc(var(--space-3) - 1px) var(--space-4); margin-top: 2px; }
+    .l { font-size: clamp(16px, 36cqi, 60px); gap: 0.5em; margin-block: calc((20px - var(--control-height)) / 2); }
     /* a comment may say #fff or 120ms */
   </style>`;
   assert.deepEqual(faults('Good.svelte', good), []);

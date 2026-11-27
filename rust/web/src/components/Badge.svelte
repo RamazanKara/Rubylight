@@ -16,7 +16,7 @@
   .badge {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-1-5);
     padding: 2px var(--space-2);
     border-radius: var(--radius-pill);
     font-size: var(--text-xs);

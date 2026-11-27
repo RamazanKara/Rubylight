@@ -53,7 +53,7 @@
     font-size: var(--text-xs);
     color: var(--muted);
     line-height: 1.45;
-    margin-top: -4px;
+    margin-top: calc(-1 * var(--space-1));
   }
   .item {
     display: grid;

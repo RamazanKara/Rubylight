@@ -20,6 +20,8 @@
 // SHOT_SETTLE=ms waits once more right before the shot (the stats capsule's second look).
 // SHOT_CLIPS sets the Clips page (SHOT_PAGES=/clips): full (saved clips, replay armed), empty, near-full (quota),
 // recording, off (Instant replay turned off) or pyrowave (a PyroWave stream cannot be clipped).
+// SHOT_DOCTOR=late (with SHOT_HOME=streaming) gives the live stage a Stream Doctor finding; SHOT_RELAY=on or off fills
+// the away wake relay panel (SHOT_PAGES=/settings/network).
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -229,6 +231,22 @@ if (home === 'streaming') {
     app: { name: 'Portal 2', id: 3, uuid: 'steam-620' } };
   replies['/api/rtsp/sessions'] = { status: true, sessions: [liveStream()] };
 }
+// SHOT_DOCTOR=late (with SHOT_HOME=streaming): the last 30 seconds had late pictures, as Stream Doctor reports them.
+if (process.env.SHOT_DOCTOR === 'late') {
+  const stream = { ...liveStream(), stutter_recent: { windows: 6, pictures: 3540, late_pictures: 212, lost_ms: 418, dominant: 'encode',
+    stages: [{ id: 'encode', lost_ms: 301, percent: 72 }, { id: 'capture', lost_ms: 117, percent: 28 }], not_measured: ['game', 'network', 'decode', 'present'] } };
+  replies['/api/rtsp/sessions'] = { status: true, sessions: [stream] };
+}
+// SHOT_RELAY: the away wake relay panel on /settings/network: on (two relays, one not refreshing) or off.
+const relayState = process.env.SHOT_RELAY || '';
+if (relayState && !['on', 'off'].includes(relayState)) throw new Error(`SHOT_RELAY is on or off, not ${relayState}`);
+{
+  const now = Math.floor(Date.now() / 1000);
+  replies['/api/wake-relay'] = { enabled: relayState === 'on', epoch: 2, relays: relayState ? [
+    { id: 'a'.repeat(64), name: 'Living room Shield', enrolled_unix: now - 9 * 86400, last_seen_unix: now - 180 },
+    { id: 'b'.repeat(64), name: '', enrolled_unix: now - 30 * 86400, last_seen_unix: now - 3 * 3600 },
+  ] : [] };
+}
 // SHOT_PAIR: pairing on /devices, with two devices paired already: on (a code shows), pin (a device
 // waits for its PIN) or now (a third device pairs a few seconds in; with SHOT_WAIT=7000).
 const pair = process.env.SHOT_PAIR || '';
@@ -350,6 +368,8 @@ function power(ready = false) {
             await page.keyboard.type(process.env.SHOT_TYPE);
             await page.waitForTimeout(300);
           }
+          // SHOT_SCROLL=<selector> brings that element to the top of a desktop shot.
+          if (process.env.SHOT_SCROLL) await page.locator(process.env.SHOT_SCROLL).first().evaluate(el => el.scrollIntoView({ block: "start" }));
           if (process.env.SHOT_SETTLE) await page.waitForTimeout(Number(process.env.SHOT_SETTLE));
           const name = where === '/' ? 'home' : where.slice(1).replace(/#.*$/, '').replace(/\/$/, '').replace(/\.html$/, '').replace(/\//g, '-');
           const file = path.join(out, `${label}-${name}-${theme}-${form}.png`);

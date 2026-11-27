@@ -126,7 +126,7 @@ button {
 :where(summary) {
   cursor: pointer;
   min-height: var(--control-height);
-  padding-block: 10px;
+  padding-block: calc(var(--space-3) - 2px);
   border-radius: var(--radius-sm);
   list-style: none;
   transition: color var(--duration-fast);
@@ -154,7 +154,7 @@ button {
 }
 
 @media (max-width: 520px) {
-  h1 { font-size: 32px; }
+  h1 { font-size: var(--text-xl); }
 }
 
 @media (prefers-reduced-motion: reduce) {

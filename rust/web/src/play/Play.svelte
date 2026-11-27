@@ -763,7 +763,7 @@
     place-items: start center;
     width: min(12em, 60vw);
     height: 44px;
-    padding: 8px 0 0;
+    padding: var(--space-2) 0 0;
     border: 0;
     background: none;
     opacity: 0;

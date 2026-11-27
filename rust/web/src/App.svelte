@@ -266,7 +266,7 @@
     z-index: var(--z-skip);
     inset-block-start: var(--space-2);
     inset-inline-start: var(--space-2);
-    padding: 10px var(--space-4);
+    padding: calc(var(--space-3) - 2px) var(--space-4);
     background: var(--panel);
     border: 2px solid var(--focus);
     border-radius: var(--radius);
@@ -516,7 +516,7 @@
     align-items: center;
     gap: 2px;
     min-width: 0;
-    margin-block: -8px;
+    margin-block: calc(-1 * var(--space-2));
     font-size: var(--text-xs);
     color: var(--ink-2);
   }

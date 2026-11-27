@@ -3476,7 +3476,7 @@ label = "Instant replay"
 description = "Keeps the last moments of the stream in this PC's memory so you can save clips or record without encoding again. Uses up to 512 MiB of memory; leave it off unless you save clips."
 details = "It also adds a keyframe every 4 seconds while it runs. Clips are MP4 files (H.264, HEVC or AV1 with Opus sound) written by a worker of their own after you press Save, which never holds up the stream. PyroWave streams and passthrough sound (PCM, AC3, E-AC3) cannot be clipped; the device and the console say so."
 control = { kind = "toggle" }
-console = { group = "Video and capture", label = "Instant replay and recording (Stream DVR)", control = "bool" }
+console = { group = "Video and capture", label = "Instant Replay and recording (Stream DVR)", control = "bool" }
 rust_accessor = { kind = "bool", method = "dvr_enabled", doc = "Stream DVR: keep a replay buffer and save clips (`dvr_enabled`, off by default)." }
 
 [[setting]]

@@ -124,7 +124,7 @@
   .release {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: calc(var(--space-1) + 1px);
     margin-right: var(--space-2);
   }
   .after {

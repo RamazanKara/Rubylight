@@ -465,7 +465,7 @@
   }
   .meta {
     display: flex;
-    gap: 6px;
+    gap: var(--space-1-5);
     flex-wrap: wrap;
     font-size: var(--text-sm);
   }

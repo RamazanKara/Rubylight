@@ -17,7 +17,7 @@
   }
   text {
     font-family: 'Segoe UI', var(--font);
-    font-size: 22px;
+    font-size: var(--text-lg);
     font-weight: 700;
   }
 </style>

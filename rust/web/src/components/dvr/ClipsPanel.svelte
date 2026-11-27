@@ -80,9 +80,9 @@
       <EmptyState icon="film" title="No clips yet">
         <p>
           {#if dvr && !dvr.enabled}
-            Turn on Instant replay, then press Save clip here or in Nightjar's stream menu while you play.
+            Turn on Instant Replay, then press Save clip here or in Nightjar's Control Center while you play.
           {:else}
-            Press Save clip here or in Nightjar's stream menu while you play; clips and recordings show here.
+            Press Save clip here or in Nightjar's Control Center while you play; clips and recordings show here.
           {/if}
         </p>
       </EmptyState>

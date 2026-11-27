@@ -52,7 +52,7 @@
   const buffering = $derived(!!dvr && dvr.enabled && (dvr.state === 'armed' || dvr.state === 'recording' || dvr.state === 'saving'));
 </script>
 
-<Panel title="Instant replay" description="Save the last moments of the stream, or record it, on this PC without encoding again.">
+<Panel title="Instant Replay" description="Save the last moments of the stream, or record it, on this PC without encoding again.">
   {#if dvr === null}
     <LoadState {error} what="Stream DVR's state" {onretry} />
   {:else}
@@ -66,7 +66,7 @@
       {#if !dvr.enabled}
         <p class="notice">
           <span>{reasonText('disabled')}</span>
-          <Button size="sm" href={DVR_SETTING_HREF}>Open the Instant replay setting</Button>
+          <Button size="sm" href={DVR_SETTING_HREF}>Open the Instant Replay setting</Button>
         </p>
       {:else if tone}
         <p class="notice {tone}" role="status">{liveLine(dvr)}</p>

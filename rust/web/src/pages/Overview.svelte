@@ -420,7 +420,7 @@
   .hero-copy { max-width: 520px; font-size: var(--text-md); color: var(--media-ink-2); }
   .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-5); margin-top: var(--space-2); }
   .hero-actions :global(.primary) { min-width: 168px; min-height: 48px; padding-inline: var(--space-5); font-size: var(--text); }
-  .text-action { display: inline-flex; gap: var(--space-1); align-items: center; padding: 10px 2px; min-height: var(--control-height); border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font-weight: var(--weight-medium); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 4px; cursor: pointer; transition: text-decoration-color var(--duration-fast); }
+  .text-action { display: inline-flex; gap: var(--space-1); align-items: center; padding: calc(var(--space-3) - 2px) 2px; min-height: var(--control-height); border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font-weight: var(--weight-medium); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 4px; cursor: pointer; transition: text-decoration-color var(--duration-fast); }
   .text-action:hover { text-decoration-color: currentColor; }
 
   /* The game: its cover, like the library's, with what it is to Home. */

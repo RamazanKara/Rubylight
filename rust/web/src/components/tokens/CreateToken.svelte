@@ -193,7 +193,7 @@
     max-width: 360px;
   }
   .search .input {
-    padding-left: 30px;
+    padding-left: calc(var(--space-6) - 2px);
   }
   .search-icon {
     position: absolute;
@@ -222,7 +222,7 @@
     align-items: center;
     flex-wrap: wrap;
     gap: var(--space-1) var(--space-4);
-    padding: 7px var(--space-3);
+    padding: calc(var(--space-2) - 1px) var(--space-3);
     border-bottom: 1px solid var(--line);
   }
   .routes li:last-child {
@@ -250,7 +250,7 @@
   .method {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: calc(var(--space-1) + 1px);
     font-size: var(--text-xs);
     cursor: pointer;
   }

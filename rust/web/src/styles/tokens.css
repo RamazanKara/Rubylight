@@ -35,6 +35,7 @@
 
   /* Space: a 4px base, doubling from 16px */
   --space-1: 4px;
+  --space-1-5: 6px; /* an icon to its label, chips in a row */
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;

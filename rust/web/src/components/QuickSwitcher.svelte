@@ -301,7 +301,7 @@
     pointer-events: none;
   }
   .field .input {
-    padding-left: 40px;
+    padding-left: calc(var(--space-6) + var(--space-2));
   }
   /* A steady height: the dialog doesn't jump as the results change. */
   .results {
@@ -357,7 +357,7 @@
     border-radius: var(--radius-sm);
   }
   .thumb :global(.mark) {
-    font-size: 9px;
+    font-size: 0.65em; /* a monogram in a 28px thumb, under the type scale */
   }
   .text {
     display: flex;
@@ -400,7 +400,7 @@
   kbd {
     display: inline-block;
     min-width: 1.6em;
-    padding: 1px 5px;
+    padding: 1px calc(var(--space-1) + 1px);
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
     background: var(--sunken);

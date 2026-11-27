@@ -108,7 +108,7 @@
     background: var(--sunken);
   }
   .code {
-    font-size: 34px;
+    font-size: var(--text-2xl);
     font-weight: var(--weight-semibold);
     line-height: 1;
     letter-spacing: 0.18em;

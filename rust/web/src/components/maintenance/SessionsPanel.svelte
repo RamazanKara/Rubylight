@@ -138,7 +138,7 @@
   .meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 0 6px;
+    gap: 0 var(--space-1-5);
     font-size: var(--text-xs);
     overflow-wrap: anywhere;
   }

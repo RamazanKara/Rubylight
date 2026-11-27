@@ -56,7 +56,7 @@
     font-weight: var(--weight-medium);
     font-size: var(--text-sm);
     line-height: 1.3;
-    padding: 11px var(--space-5);
+    padding: calc(var(--space-3) - 1px) var(--space-5);
     box-shadow: var(--edge);
     min-height: var(--control-height);
     cursor: pointer;
@@ -79,7 +79,7 @@
     transform: translateY(1px);
   }
   .sm {
-    padding: 9px var(--space-4);
+    padding: calc(var(--space-2) + 1px) var(--space-4);
   }
   .button:hover:not(:disabled) {
     background: var(--sunken);

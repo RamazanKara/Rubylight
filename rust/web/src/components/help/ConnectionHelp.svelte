@@ -48,7 +48,7 @@
     display: flex;
     align-items: center;
     gap: 2px;
-    margin-block: -10px;
+    margin-block: calc(-1 * (var(--space-3) - 2px));
   }
   .loading {
     font-size: var(--text-sm);

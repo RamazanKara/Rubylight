@@ -240,7 +240,7 @@
     overflow-wrap: anywhere;
   }
   code {
-    padding: 1px 6px;
+    padding: 1px var(--space-1-5);
     border: 1px solid var(--line);
     border-radius: var(--radius-xs);
     background: var(--panel);

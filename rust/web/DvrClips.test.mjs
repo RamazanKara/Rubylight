@@ -183,7 +183,7 @@ test('api.dvr sends through the consoleâ€™s request helper and keeps a refusalâ€
 
 test('streaming with the buffer armed: Save clip and Start recording are ready', () => {
   const out = live(status());
-  assert.match(out, /Instant replay/);
+  assert.match(out, /Instant Replay/);
   assert.match(out, /Replay ready/);
   assert.match(out, /Last 42 s of 60 s ready to save\./);
   assert.match(out, /role="meter"[^>]*aria-label="Replay buffer"/);
@@ -226,10 +226,10 @@ test('before the first answer the panel says it is loading, and a failure offers
 test('no clips yet: the empty state says how to save one', () => {
   const out = clipsPanel({ clips: [], quota: { used: 0, limit: 20 * GB }, dvr: status() });
   assert.match(out, /No clips yet/);
-  assert.match(out, /Press Save clip here or in Nightjar's stream menu/);
+  assert.match(out, /Press Save clip here or in Nightjar's Control Center/);
   assert.match(out, /0 KB of 20 GB used/);
   const off = clipsPanel({ clips: [], quota: { used: 0, limit: 20 * GB }, dvr: status({ enabled: false }) });
-  assert.match(off, /Turn on Instant replay/);
+  assert.match(off, /Turn on Instant Replay/);
 });
 
 test('saved clips: newest first with game, kind, codec, HDR, size and the row actions', () => {

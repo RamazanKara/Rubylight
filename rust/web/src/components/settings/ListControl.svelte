@@ -226,7 +226,7 @@
   }
   .command {
     display: grid;
-    gap: 6px;
+    gap: var(--space-1-5);
     padding: var(--space-2) var(--space-3);
     border: 1px solid var(--line);
     border-radius: var(--radius);
@@ -253,7 +253,7 @@
   .check {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-1-5);
     font-size: var(--text-sm);
     cursor: pointer;
   }

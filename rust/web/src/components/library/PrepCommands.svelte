@@ -164,7 +164,7 @@
   .check {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-1-5);
     font-size: var(--text-sm);
     white-space: nowrap;
     cursor: pointer;

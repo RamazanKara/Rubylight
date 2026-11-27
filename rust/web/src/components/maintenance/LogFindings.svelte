@@ -74,7 +74,7 @@
   a {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--space-1);
     margin-top: var(--space-1);
   }
 </style>

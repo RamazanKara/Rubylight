@@ -196,8 +196,8 @@
     grid-template-columns: minmax(0, 1fr) 320px;
     grid-template-areas: 'text control';
     align-items: start;
-    gap: 6px var(--space-6);
-    padding: 14px var(--space-5);
+    gap: var(--space-1-5) var(--space-6);
+    padding: calc(var(--space-4) - 2px) var(--space-5);
   }
   .has-meta {
     grid-template-rows: auto 1fr;
@@ -237,7 +237,7 @@
     cursor: pointer;
   }
   .tag {
-    padding: 0 7px;
+    padding: 0 calc(var(--space-2) - 1px);
     border: 1px solid var(--line);
     border-radius: var(--radius-pill);
     font-size: var(--text-xs);
@@ -300,7 +300,7 @@
   .control {
     grid-area: control;
     display: grid;
-    gap: 6px;
+    gap: var(--space-1-5);
     min-width: 0;
   }
   .switch-row .control {

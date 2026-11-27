@@ -362,7 +362,7 @@
     pointer-events: none;
   }
   .search .input {
-    padding-left: 38px;
+    padding-left: calc(var(--space-7) - 10px);
   }
   .sort {
     display: flex;
@@ -404,7 +404,7 @@
   .summary {
     display: flex;
     flex-wrap: wrap;
-    gap: 0 6px;
+    gap: 0 var(--space-1-5);
     font-size: var(--text-xs);
   }
   .count {

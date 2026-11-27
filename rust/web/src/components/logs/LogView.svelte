@@ -135,7 +135,7 @@
     border: 1px solid var(--line);
     border-radius: var(--radius-lg);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.6;
     overscroll-behavior: contain;
   }

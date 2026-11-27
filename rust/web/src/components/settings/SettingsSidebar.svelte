@@ -97,7 +97,7 @@
   }
   .picker {
     display: none;
-    gap: 6px;
+    gap: var(--space-1-5);
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
   }
@@ -112,7 +112,7 @@
   .tabs a {
     display: grid;
     gap: 1px;
-    padding: var(--space-3) 14px;
+    padding: var(--space-3) calc(var(--space-4) - 2px);
     min-height: var(--control-height);
     border-radius: var(--radius);
     color: var(--ink-2);
@@ -130,7 +130,7 @@
   .name {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-1-5);
     font-weight: var(--weight-medium);
     font-size: var(--text-sm);
   }

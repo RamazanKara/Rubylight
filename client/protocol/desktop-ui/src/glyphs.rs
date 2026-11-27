@@ -331,6 +331,10 @@ pub fn show(ui: &mut Ui, pieces: &[Piece]) -> Rect {
 pub enum Icon {
     Play,
     Pause,
+    /// Start recording: the record mark.
+    Record,
+    /// Stop recording.
+    Stop,
     Overlay,
     Corner,
     Screen,
@@ -384,6 +388,12 @@ pub fn icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
         Icon::Pause => {
             painter.rect_filled(r(-5.5, -6.5, -1.5, 6.5), CornerRadius::same(1), color);
             painter.rect_filled(r(1.5, -6.5, 5.5, 6.5), CornerRadius::same(1), color);
+        }
+        Icon::Record => {
+            painter.circle_filled(p(0.0, 0.0), 6.0, color);
+        }
+        Icon::Stop => {
+            painter.rect_filled(r(-5.5, -5.5, 5.5, 5.5), CornerRadius::same(2), color);
         }
         Icon::Overlay => {
             round(r(-7.5, -6.5, 7.5, 6.5), 2.0);

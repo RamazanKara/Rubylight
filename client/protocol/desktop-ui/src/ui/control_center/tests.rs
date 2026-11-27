@@ -89,7 +89,9 @@ impl Demo {
     }
 
     fn dock(&self) -> Dock {
-        stream_menu::dock(&self.available, self.saved.data.len(), &Default::default(), &Gates::default())
+        // Instant Replay's cards on Clips when the stream offers Stream DVR, as `app::control_center` gates them.
+        let gates = Gates { stream_dvr: self.available.dvr.is_some(), ..Gates::default() };
+        stream_menu::dock(&self.available, self.saved.data.len(), &Default::default(), &gates)
     }
 
     fn frame(&mut self, ctx: &Context, events: Vec<egui::Event>) -> Vec<egui::epaint::ClippedShape> {
@@ -144,6 +146,10 @@ impl Demo {
                         cards::wide(ui, Icon::Gauge, "Quality", None, |ui| crate::stream_overlay_widgets::bitrate_slider(ui, kbps, true));
                         ui.add_space(cards::GAP);
                         cards::status_row(ui, Icon::Gauge, "Video encoder load", "62%");
+                    }
+                    // As the app's pages: no empty group under a page of cards only (Clips).
+                    if page.rows.is_empty() {
+                        return;
                     }
                     menu_style::group(ui, |ui| {
                         for id in &page.rows {
@@ -592,6 +598,16 @@ fn control_center_screenshots() {
     }
     if wanted("cc-sub-page") {
         shoot(&dir, "cc-sub-page", deck, Look::Night, true, |demo| demo.sub_page = Some("Shortcuts"));
+    }
+    // Instant Replay while a recording runs, and Quick Suspend's paused game (Resume game on Power).
+    for (name, look, module) in [("cc-clips-recording", Look::Night, Module::Clips), ("cc-clips-day", Look::Day, Module::Clips), ("cc-power-paused", Look::Night, Module::Power)] {
+        if wanted(name) {
+            shoot(&dir, name, deck, look, true, |demo| {
+                demo.state.module = module;
+                demo.available.dvr = Some(true);
+                demo.available.suspend = Some(true);
+            });
+        }
     }
     for (name, look, size) in [("cc-help-sheet", Look::Night, deck), ("cc-help-sheet-day", Look::Day, deck), ("cc-help-sheet-4k", Look::Night, (1920.0, 1080.0, 2.0))] {
         if wanted(name) {

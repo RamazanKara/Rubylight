@@ -287,4 +287,23 @@ mod tests {
         let windows = Attention { words: UAC, launcher: None, title: String::new() };
         assert_eq!(with_lang(Lang::En, || attention_line(&windows)), UAC.en);
     }
+
+    /// The curtain's stage and its card over a white frame, for the eye:
+    /// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop-ui --lib launch_curtain_screenshots -- --ignored`.
+    #[test]
+    #[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
+    fn launch_curtain_screenshots() {
+        let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
+        std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
+        let sign_in = Attention { words: SIGN_IN, launcher: Some("Steam"), title: "Steam Guard - Computer Authorization Required".into() };
+        let cases = [
+            ("curtain-opening", View { stage: Some(OPENING), attention: None, dismissible: true }),
+            ("curtain-waiting", View { stage: None, attention: None, dismissible: false }),
+            ("curtain-sign-in", View { stage: Some(nightjar_policy::launch_curtain::STARTING), attention: Some(sign_in), dismissible: true }),
+            ("curtain-uac", View { stage: None, attention: Some(Attention { words: UAC, launcher: None, title: String::new() }), dismissible: true }),
+        ];
+        for (name, view) in cases {
+            draw(&view, None).canvas.save(&dir.join(format!("{name}.png")));
+        }
+    }
 }

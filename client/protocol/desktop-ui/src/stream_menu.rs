@@ -245,7 +245,7 @@ fn icon(id: &str) -> Icon {
         "suspend_game" => Icon::Pause,
         "resume_game" => Icon::Play,
         "save_clip" => Icon::Download,
-        "record" => Icon::Play,
+        "record" => Icon::Record,
         _ => Icon::More,
     }
 }
@@ -423,7 +423,7 @@ pub fn cards(ui: &mut Ui, dock: &Dock, module: Module, saved: &Shortcuts, hotkey
         let response = match cell {
             Cell::Tile { id, on, hotkey } => {
                 let (label, state) = card_text(id, *on);
-                cards::card(ui, card_id(id), width, &cards::Card { icon: icon(id), label, state, on: *on, cap: hotkey.map(Hotkey::cap) })
+                cards::card(ui, card_id(id), width, &cards::Card { icon: if *id == "record" && *on == Some(true) { Icon::Stop } else { icon(id) }, label, state, on: *on, cap: hotkey.map(Hotkey::cap) })
             }
             Cell::Shortcut(n) => {
                 let shortcut = &saved.data[*n];

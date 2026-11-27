@@ -53,11 +53,12 @@ GRADLE_ENV = 'RUBYLIGHT_GRADLE_LANE'
 DEFAULT_GRADLE_LANE = pathlib.Path(r'D:\CodexArtifacts\locks\gradle-lane')
 CARGO_SLOTS_ENV = 'RUBYLIGHT_CARGO_SLOTS'
 CARGO_JOBS_ENV = 'RUBYLIGHT_CARGO_JOBS'
+RESERVED_THREADS_ENV = 'RUBYLIGHT_RESERVED_THREADS'
 # Measured 2026-11-18 (docs/building.md, "Build locks and lanes"): a dev-check
 # Cargo stage (a cold host check) runs at -j 4 and peaked at 7.0 GB of commit charge,
 # 5.5 GB working set (rustc, the linker and the test binaries together).
 CARGO_STAGE_THREADS = 4
-CARGO_MAX_JOBS = 12
+CARGO_MAX_JOBS = 16
 CARGO_STAGE_PEAK_GB = 7
 # Left for the desktop, the user's games and streams, and Gradle.
 MEMORY_RESERVE_GB = 16
@@ -147,8 +148,12 @@ def busy_cargo_lanes(directory=None):
 
 def usable_build_threads(cpus=None):
     """Leave 1 physical core (2 logical threads) free on 8+ thread workstations so agents
-    and the desktop stay responsive; smaller/CI runners keep all threads."""
+    and the desktop stay responsive; smaller/CI runners keep all threads.
+    RUBYLIGHT_RESERVED_THREADS overrides the reserved thread count (e.g. 1 on a build laptop)."""
     cpus = cpus or os.cpu_count() or 1
+    override = os.environ.get(RESERVED_THREADS_ENV, '').strip()
+    if override.isdigit():
+        return max(1, cpus - int(override))
     return (cpus - 2) if cpus >= 8 else cpus
 
 

@@ -14,8 +14,9 @@ class BuildLease(unittest.TestCase):
         self.environment = mock.patch.dict(os.environ)
         self.environment.start()
         self.addCleanup(self.environment.stop)
-        os.environ.pop(build_lock.OWNER_ENV, None)
-        os.environ.pop(build_lock.PATH_ENV, None)
+        for name in (build_lock.OWNER_ENV, build_lock.PATH_ENV, build_lock.LANES_ENV,
+                     build_lock.POOL_ENV, build_lock.GRADLE_ENV, 'RUBYLIGHT_LOCK_DIRECTORY'):
+            os.environ.pop(name, None)
 
     def cli(self, *command, timeout=0):
         return [sys.executable, str(pathlib.Path(build_lock.__file__)), '--lock-directory', str(self.root),
@@ -259,8 +260,9 @@ class Lanes(unittest.TestCase):
 
     def test_cargo_jobs_scales_with_active_lanes_and_honors_override(self):
         os.environ.pop(build_lock.CARGO_JOBS_ENV, None)
-        # 16T reserves 1 physical core (2 threads -> 14 usable): 12 / 7 / 4 / 3 so total <= 14.
-        self.assertEqual(build_lock.cargo_jobs(self.root, cpus=16, active=1), 12)
+        os.environ.pop(build_lock.RESERVED_THREADS_ENV, None)
+        # 16T reserves 1 physical core (2 threads -> 14 usable): 14 / 7 / 4 / 3 so total <= 14.
+        self.assertEqual(build_lock.cargo_jobs(self.root, cpus=16, active=1), 14)
         # Missing lanes/ subdirectory (WinError 3 ERROR_PATH_NOT_FOUND) must treat all lanes as free.
         self.assertEqual(build_lock.busy_cargo_lanes(self.root / 'nonexistent-lock-dir'), 0)
         self.assertEqual(build_lock.cargo_jobs(self.root, cpus=16, active=2), 7)
@@ -269,6 +271,12 @@ class Lanes(unittest.TestCase):
         self.assertEqual(build_lock.cargo_jobs(self.root, cpus=4, active=1), 4)
         self.assertEqual(build_lock.nextest_threads(16), 14)
         self.assertEqual(build_lock.nextest_threads(4), 4)
+        os.environ[build_lock.RESERVED_THREADS_ENV] = '1'
+        try:
+            self.assertEqual(build_lock.cargo_jobs(self.root, cpus=16, active=1), 15)
+            self.assertEqual(build_lock.nextest_threads(16), 15)
+        finally:
+            os.environ.pop(build_lock.RESERVED_THREADS_ENV, None)
         os.environ[build_lock.CARGO_JOBS_ENV] = '6'
         try:
             self.assertEqual(build_lock.cargo_jobs(self.root, cpus=16, active=1), 6)

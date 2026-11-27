@@ -27,7 +27,7 @@ param(
     # Build (the release build and -Package). All runs them in order.
     [ValidateSet('All', 'Test', 'Lint', 'Build')]
     [string]$Stage = 'All',
-    [ValidateRange(1, 256)][int]$Jobs = ([Math]::Max(4, [Math]::Min(12, $(if ([Environment]::ProcessorCount -ge 8) { [Environment]::ProcessorCount - 2 } else { [Environment]::ProcessorCount }))))
+    [ValidateRange(1, 256)][int]$Jobs = ([Math]::Max(4, [Math]::Min(16, [Environment]::ProcessorCount - $(if ($env:RUBYLIGHT_RESERVED_THREADS -match '^\d+$') { [int]$env:RUBYLIGHT_RESERVED_THREADS } elseif ([Environment]::ProcessorCount -ge 8) { 2 } else { 0 }))))
 )
 $ErrorActionPreference = 'Stop'
 if ($Package -and $env:RLVD_IDDCX_LIB) {

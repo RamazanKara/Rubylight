@@ -13,6 +13,14 @@
 //! journal is simply cleared. The journal's reads and writes are serialised by
 //! a named mutex, so the helper of a crashed host and the next host never act
 //! on it at once.
+//!
+//! Both names live in `Global\`: after a user switch the service starts the
+//! next host in another Windows session while the last host's helper may still
+//! run, and a `Local\` name would give each its own mutex. Each object is made
+//! with a descriptor that lets only SYSTEM, Administrators and the account that
+//! made it wait for it and signal it, so a program of the signed-in user can
+//! neither set the helper's event nor hold the journal's mutex; a name another
+//! account took first fails loudly with access denied instead of waiting.
 use super::{inspect::created_at, owned, raw, suspend};
 use anyhow::{Context, Result, bail};
 use butterpollo_session::quick_suspend::{self, Journal, Recovery, journal};
@@ -22,18 +30,102 @@ use std::{
     process::{Child, Command},
     sync::Mutex,
 };
-use windows::Win32::{Foundation::*, System::Threading::*};
+use windows::Win32::{
+    Foundation::*,
+    Security::{
+        Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1},
+        PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
+    },
+    System::Threading::*,
+};
 
 /// This host's helper and the event that tells it nothing is suspended.
 static WATCH: Mutex<Option<(Child, OwnedHandle)>> = Mutex::new(None);
 
+/// What every opener of the journal's mutex asks for: wait for it, release it.
+const MUTEX_RIGHTS: u32 = 0x0010_0001;
+/// What every opener of the helper's event asks for: wait for it, set or reset it.
+const EVENT_RIGHTS: u32 = 0x0010_0002;
+
+/// A security descriptor that grants `rights` to SYSTEM, Administrators and
+/// the object's owner (the account that made it), and nothing to anyone else.
+struct Descriptor(PSECURITY_DESCRIPTOR);
+
+impl Descriptor {
+    fn new(rights: u32) -> Result<Self> {
+        let sddl: Vec<u16> =
+            format!("D:P(A;;{rights:#x};;;SY)(A;;{rights:#x};;;BA)(A;;{rights:#x};;;OW)\0")
+                .encode_utf16()
+                .collect();
+        let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        // SAFETY: the string is NUL-terminated and outlives the call; the
+        // descriptor it allocates is freed once, by Drop.
+        unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                windows::core::PCWSTR(sddl.as_ptr()),
+                SDDL_REVISION_1,
+                &mut descriptor,
+                None,
+            )?;
+        }
+        Ok(Self(descriptor))
+    }
+
+    fn attributes(&self) -> SECURITY_ATTRIBUTES {
+        SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: self.0.0,
+            bInheritHandle: false.into(),
+        }
+    }
+}
+
+impl Drop for Descriptor {
+    fn drop(&mut self) {
+        // SAFETY: the descriptor came from ConvertStringSecurityDescriptorToSecurityDescriptorW
+        // and is freed only here.
+        let _ = unsafe { LocalFree(Some(HLOCAL(self.0.0))) };
+    }
+}
+
+fn wide(name: &str) -> Vec<u16> {
+    name.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// The name of the event the host `host_pid` sets once nothing it suspended is left.
+fn done_event_name(host_pid: u32) -> String {
+    format!("Global\\Butterpollo.QuickSuspendWatch.{host_pid}")
+}
+
+/// The name of the journal's mutex for `profile`: FNV-1a over the lowercased
+/// path, one lock per profile.
+fn journal_lock_name(profile: &Path) -> String {
+    let hash = profile
+        .to_string_lossy()
+        .to_lowercase()
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+    format!("Global\\Butterpollo.QuickSuspendJournal.{hash:x}")
+}
+
 /// The event a host sets once nothing it suspended is left.
 fn done_event(host_pid: u32) -> Result<OwnedHandle> {
-    let name: Vec<u16> = format!("Local\\Butterpollo.QuickSuspendWatch.{host_pid}\0")
-        .encode_utf16()
-        .collect();
-    // SAFETY: the name is NUL-terminated and outlives the call; the handle is owned once.
-    let event = unsafe { CreateEventW(None, true, false, windows::core::PCWSTR(name.as_ptr()))? };
+    let name = wide(&done_event_name(host_pid));
+    let descriptor = Descriptor::new(EVENT_RIGHTS)?;
+    let attributes = descriptor.attributes();
+    // SAFETY: the name and the attributes outlive the call, which copies the
+    // descriptor; the handle is owned once.
+    let event = unsafe {
+        CreateEventExW(
+            Some(&attributes),
+            windows::core::PCWSTR(name.as_ptr()),
+            CREATE_EVENT_MANUAL_RESET,
+            EVENT_RIGHTS,
+        )
+    }
+    .context("opening the Quick Suspend watchdog's event")?;
     Ok(owned(event))
 }
 
@@ -50,25 +142,22 @@ impl Drop for JournalLock {
 
 /// Take the lock of the journal in `profile`.
 pub fn lock(profile: &Path) -> Result<JournalLock> {
-    // FNV-1a over the lowercased path: one lock per profile.
-    let hash = profile
-        .to_string_lossy()
-        .to_lowercase()
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-        });
-    let name: Vec<u16> = format!("Local\\Butterpollo.QuickSuspendJournal.{hash:x}\0")
-        .encode_utf16()
-        .collect();
-    // SAFETY: the name is NUL-terminated and outlives the call; the handle is owned at once
-    // and released by the guard only after this thread acquired it.
+    let name = wide(&journal_lock_name(profile));
+    let descriptor = Descriptor::new(MUTEX_RIGHTS)?;
+    let attributes = descriptor.attributes();
+    // SAFETY: the name and the attributes outlive the call, which copies the
+    // descriptor; the handle is owned at once and released by the guard only
+    // after this thread acquired it.
     unsafe {
-        let mutex = owned(CreateMutexW(
-            None,
-            false,
-            windows::core::PCWSTR(name.as_ptr()),
-        )?);
+        let mutex = owned(
+            CreateMutexExW(
+                Some(&attributes),
+                windows::core::PCWSTR(name.as_ptr()),
+                0,
+                MUTEX_RIGHTS,
+            )
+            .context("opening the Quick Suspend journal's lock")?,
+        );
         let waited = WaitForSingleObject(raw(&mutex), 30_000);
         if waited != WAIT_OBJECT_0 && waited != WAIT_ABANDONED {
             bail!("the Quick Suspend journal is busy");
@@ -287,6 +376,53 @@ mod tests {
         assert!(recover_at_start(profile.path()).is_err());
         assert!(profile.path().join("quick-suspend.json.bad").exists());
         assert_eq!(journal::load(profile.path()).unwrap(), None);
+    }
+
+    #[test]
+    fn the_lock_and_the_event_are_global_restricted_and_shared_by_every_opener() {
+        let profile = tempfile::tempdir().unwrap();
+        // One name in every Windows session, so a helper and the next host
+        // after a user switch take the same lock.
+        assert!(journal_lock_name(profile.path()).starts_with("Global\\"));
+        assert!(done_event_name(7).starts_with("Global\\"));
+        assert_eq!(
+            journal_lock_name(Path::new(r"C:\Profile")),
+            journal_lock_name(Path::new(r"c:\profile"))
+        );
+        // SYSTEM, Administrators and the object's owner, nobody else.
+        let descriptor = Descriptor::new(MUTEX_RIGHTS).unwrap();
+        let mut text = windows::core::PWSTR::null();
+        // SAFETY: the descriptor is valid; the string it returns is freed once below.
+        let sddl = unsafe {
+            windows::Win32::Security::Authorization::ConvertSecurityDescriptorToStringSecurityDescriptorW(
+                descriptor.0,
+                SDDL_REVISION_1,
+                windows::Win32::Security::DACL_SECURITY_INFORMATION,
+                &mut text,
+                None,
+            )
+            .unwrap();
+            let sddl = text.to_string().unwrap();
+            let _ = LocalFree(Some(HLOCAL(text.0.cast())));
+            sddl
+        };
+        assert_eq!(
+            sddl,
+            "D:P(A;;0x100001;;;SY)(A;;0x100001;;;BA)(A;;0x100001;;;OW)"
+        );
+        // Taken, let go and taken again by this account.
+        drop(lock(profile.path()).unwrap());
+        drop(lock(profile.path()).unwrap());
+        // A second opener, as the helper is, shares the host's event.
+        let pid = u32::MAX - 11;
+        let host = done_event(pid).unwrap();
+        let helper = done_event(pid).unwrap();
+        // SAFETY: both handles are owned and open.
+        unsafe {
+            assert_eq!(WaitForSingleObject(raw(&helper), 0), WAIT_TIMEOUT);
+            SetEvent(raw(&host)).unwrap();
+            assert_eq!(WaitForSingleObject(raw(&helper), 0), WAIT_OBJECT_0);
+        }
     }
 
     #[test]

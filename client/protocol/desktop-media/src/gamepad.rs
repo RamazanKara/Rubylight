@@ -93,6 +93,9 @@ pub struct Gamepads {
     arbitrated: u64,
     /// When each open pad was opened, as a generation of `arbitration`.
     opened_at: Vec<(SDL_JoystickID, u64)>,
+    /// Controllers whose Bluetooth audio stopped this stream ([`Self::reap_bt_audio`]): not
+    /// opened again until they reconnect (a new instance id) or the next stream starts.
+    bt_audio_failed: Vec<SDL_JoystickID>,
 }
 
 /// The physical buttons of a quit combo, as bits of `1 << SDL_GamepadButton`. Face buttons are
@@ -242,6 +245,7 @@ impl Gamepads {
     pub fn removed(&mut self, id: SDL_JoystickID) -> Option<u8> {
         self.paused.retain(|(paused, _)| *paused != id);
         self.opened_at.retain(|(opened, _)| *opened != id);
+        self.bt_audio_failed.retain(|failed| *failed != id);
         let position = self.pads.iter().position(|p| p.id == id)?;
         let pad = self.pads.remove(position);
         let slot = pad.slot();

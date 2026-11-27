@@ -1,5 +1,6 @@
 //! Controller audio with an SDL virtual gamepad: Bluetooth audio whose reports stopped is
-//! dropped, and the controller goes to the PC again without the PCM capability.
+//! dropped, the controller goes to the PC again without the PCM capability, and the audio stays
+//! off until the controller reconnects or the next stream.
 
 use std::time::{Duration, Instant};
 
@@ -53,7 +54,17 @@ fn bluetooth_audio_whose_reports_stopped_is_dropped_and_the_controller_announced
         assert!(pad.bt_audio.is_none() && !pad.announced, "dropped, and to be announced again");
         assert_eq!(describe(pad).2 & CAPABILITY, 0, "the new arrival asks for no PCM");
         assert!(!pads.reap_bt_audio());
+        // Controller and audio device events, and a controller back from USB forwarding, run
+        // auto_audio: it leaves this one off rather than fail and say so again a second later.
+        assert!(pads.bt_audio_failed(id), "remembered");
+        pads.auto_audio();
+        assert!(pads.pads[0].bt_audio.is_none() && pads.bt_audio_failed(id), "still off");
+        // Reconnecting (a new instance id) or the next stream tries again.
         pads.removed(id);
+        assert!(!pads.bt_audio_failed(id), "forgotten once removed");
+        pads.bt_audio_failed.push(id);
+        pads.prepare_audio(false);
+        assert!(!pads.bt_audio_failed(id), "forgotten at the next stream");
         SDL_DetachVirtualJoystick(id);
     }
 }

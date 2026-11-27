@@ -10,12 +10,21 @@ impl Gamepads {
             if let Some(audio) = pad.audio.take() { audio.reset(pad.handle); }
             pad.bt_audio = None;
         }
+        // A new stream tries the Bluetooth audio that stopped in the last one again.
+        self.bt_audio_failed.clear();
         if !enabled { return; }
         self.auto_audio();
     }
 
+    /// Whether controller `id`'s Bluetooth audio stopped this stream, so it stays off until the
+    /// controller reconnects.
+    pub fn bt_audio_failed(&self, id: sdl3_sys::everything::SDL_JoystickID) -> bool {
+        self.bt_audio_failed.contains(&id)
+    }
+
     pub fn auto_audio(&mut self) {
-        for pad in self.pads.iter_mut().filter(|p| p.bt_audio.is_none() && p.supports_bt_audio()) {
+        let failed = &self.bt_audio_failed;
+        for pad in self.pads.iter_mut().filter(|p| p.bt_audio.is_none() && !failed.contains(&p.id) && p.supports_bt_audio()) {
             match crate::dualsense_bt_audio::BtAudio::open(pad.handle) {
                 Ok(audio) => { pad.bt_audio = Some(audio); pad.announced = false; }
                 Err(error) => eprintln!("nightjar: controller speaker over Bluetooth: {error}"),
@@ -35,12 +44,14 @@ impl Gamepads {
 
     /// Drops the Bluetooth audio whose reports stopped (the link failed for a second) and marks
     /// those controllers for a new arrival without it, so the PC stops sending them PCM.
-    /// Whether any stopped; reconnecting the controller plays again.
+    /// Whether any stopped. [`Self::auto_audio`] leaves them off until they reconnect, so the
+    /// next controller or audio device event does not start it again only to fail once more.
     pub fn reap_bt_audio(&mut self) -> bool {
         let mut reaped = false;
         for pad in self.pads.iter_mut().filter(|p| p.bt_audio.as_ref().is_some_and(|bt| !bt.alive())) {
             pad.bt_audio = None;
             pad.announced = false;
+            self.bt_audio_failed.push(pad.id);
             reaped = true;
         }
         reaped

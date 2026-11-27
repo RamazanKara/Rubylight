@@ -129,7 +129,7 @@ function answer(state) {
         release: null, mode: null, game: null, earlier_upscaling: null, job: null };
     }
     if (url.pathname === '/api/metadata') {
-      return { ...film.metadata, version: '7.0.0', pc_address: '', pc_addresses: [],
+      return { ...film.metadata, pc_address: '', pc_addresses: [],
         audio_sinks: [{ id: 'speakers', name: 'Speakers', description: '', adapter: '', default: true, virtual_sink: false }] };
     }
     if (url.pathname === '/api/power') return power;

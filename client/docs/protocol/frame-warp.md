@@ -26,7 +26,7 @@ Where the model carries the game's field of view, the client turns the picture a
 <FrameWarpProtocol>2</FrameWarpProtocol>
 ```
 
-The version of this document the host speaks, as a decimal integer. A missing field, or anything that is not a decimal number from 2 to 65535, means no support. Hosts before Rubylight 7.0 listed `<FrameWarpVersion>1</FrameWarpVersion>` instead, for version 1, which took an 8-byte request; a current host does not list it, so an older client sees no Frame Warp, and a current client that sees only `FrameWarpVersion` tells the player that Frame Warp needs the current version on the PC and sends nothing.
+The version of this document the host speaks, as a decimal integer. A missing field, or anything that is not a decimal number from 2 to 65535, means no support. Hosts before Rubylight 6.5 listed `<FrameWarpVersion>1</FrameWarpVersion>` instead, for version 1, which took an 8-byte request; a current host does not list it, so an older client sees no Frame Warp, and a current client that sees only `FrameWarpVersion` tells the player that Frame Warp needs the current version on the PC and sends nothing.
 
 **Per stream** (RTSP DESCRIBE answer, the line hosts use for host-to-client control message ids):
 
@@ -179,7 +179,7 @@ with `tau_g` the client's send time of gyro packet `gyro seq` plus `gyro held`, 
 - Tags are parsed on the control thread; models and masks are checked there and applied atomically between pictures. Video decoding is untouched: the shift happens where the picture is drawn.
 - The overlay shows the current shift, whether the model is locked, and how many pictures were shifted, extrapolated or untagged.
 - Every renderer draws the lens mapping above per pixel in its shader; the desktop's SDL renderer path draws it as triangles small enough to stay within a fifth of a pixel of it at 4K.
-- A host that lists only `FrameWarpVersion` (before Rubylight 7.0) gets no request; with the setting on, Nightjar says that Frame Warp needs the current version on the PC and streams without it.
+- A host that lists only `FrameWarpVersion` (before Rubylight 6.5) gets no request; with the setting on, Nightjar says that Frame Warp needs the current version on the PC and streams without it.
 
 ## Host requirements
 

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-labelledby="title desc">
   <title id="title">Rubylight — Low-latency Windows game-streaming host for Radeon &amp; NVIDIA</title>
-  <desc id="desc">Obsidian Studio 7.0 hero banner for Rubylight: a Rust-built Windows game-streaming host for AMD Radeon and NVIDIA GPUs, streaming to TV, handheld, desktop and phone clients.</desc>
+  <desc id="desc">Obsidian Studio hero banner for Rubylight: a Rust-built Windows game-streaming host for AMD Radeon and NVIDIA GPUs, streaming to TV, handheld, desktop and phone clients.</desc>
   <defs>
     <linearGradient id="canvas" x1="0" y1="0" x2="1280" y2="360" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#090A0D"/>

@@ -430,7 +430,7 @@ GET /api/native/v1/wake
 
 ## Away wake relay (`wake.relay`)
 
-Status: served since 7.0 ([design](designs/15-away-wake-relay.md)). Types in `rubylight_native_api::wake_relay`, fixtures `wake_relay.json` and `wake_relay_enrolled.json`. Serverinfo carries `<AwayWakeRelayVersion>1</AwayWakeRelayVersion>` while it is on; a client offers the relay only with both.
+Status: served since 6.5 ([design](designs/15-away-wake-relay.md)). Types in `rubylight_native_api::wake_relay`, fixtures `wake_relay.json` and `wake_relay_enrolled.json`. Serverinfo carries `<AwayWakeRelayVersion>1</AwayWakeRelayVersion>` while it is on; a client offers the relay only with both.
 
 A sleeping PC cannot answer from the internet. An always-on paired device on its network (a relay: Nightjar's desktop client on a mini PC or server) enrolls while the PC is awake, and a paired device that is away asks it over a punched Traverse path to send the PC's magic packets ([Play over the internet](internet-play.md#away-wake-relay)).
 

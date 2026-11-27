@@ -36,7 +36,7 @@ If the monitors stay off after a stream, **Advanced → Troubleshoot** brings th
 ## Smooth motion
 
 - **Real VRR** (Nightjar). On a device with a VRR screen, Nightjar shows each frame at the moment the game presented it on the PC, so the screen keeps the game's rhythm instead of the network's ([Real VRR](../client/docs/real-vrr.md)).
-- **Frame Warp** (Nightjar). A mouse, right-stick or gyro camera turn shows on the device's next screen refresh, and the game's HUD stays in place. 7.0 has Frame Warp 2 only, so Nightjar and Rubylight must both be current. The host only does the work for a device that asks ([Frame Warp](frame-warp.md)).
+- **Frame Warp** (Nightjar). A mouse, right-stick or gyro camera turn shows on the device's next screen refresh, and the game's HUD stays in place. 6.5 has Frame Warp 2 only, so Nightjar and Rubylight must both be current. The host only does the work for a device that asks ([Frame Warp](frame-warp.md)).
 - **Frame limits.** On a virtual display Rubylight caps games at the stream's frame rate through RTSS when RTSS is installed, so frames are evenly spaced. A game, a device or every stream can have a limit of its own ([Displays and RTSS](configuration.md#displays-and-rtss)).
 - **Driver settings.** A game's **Graphics driver** panel applies a Radeon or NVIDIA driver profile while it streams and puts the PC's own values back afterwards ([Radeon settings per game](configuration.md#radeon-settings-per-game)).
 

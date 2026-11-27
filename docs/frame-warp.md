@@ -12,7 +12,7 @@ camera turns (crosshair, health, minimap, the weapon) is found by the host and l
 
 On a test game the first Frame Warp removed nearly all of the picture's trail behind the mouse,
 also at the edges of a wide field of view, for a fraction of a millisecond of the host's GPU time
-a frame ([Measuring](#measuring)). Frame Warp 2, which replaced it in 7.0, has not been measured
+a frame ([Measuring](#measuring)). Frame Warp 2, which replaced it in 6.5, has not been measured
 that way yet.
 
 ## Turning it on
@@ -26,7 +26,7 @@ What a stream learned is kept for the next one: the host saves each game's gains
 curve, field of view and gyro gain in `frame_warp.json` in its configuration directory, by the
 app's uuid or else its name, for the 256 games streamed most recently. A later stream of that
 game applies the lags at once and locks the gains as soon as recent input confirms them. A file
-from before 7.0 is read and rewritten in the new format; a file that cannot be read is set aside
+from before 6.5 is read and rewritten in the new format; a file that cannot be read is set aside
 as `frame_warp.json.corrupt` and the game is learned afresh.
 
 ## How it works
@@ -177,9 +177,9 @@ on a 120 Hz screen.
 ## Frame Warp 2
 
 Frame Warp 2 replaces the first Frame Warp, and it needs the current Nightjar and host together.
-A host from before 7.0 lists `FrameWarpVersion` instead of `FrameWarpProtocol`: Nightjar sends it
+A host from before 6.5 lists `FrameWarpVersion` instead of `FrameWarpProtocol`: Nightjar sends it
 nothing and says that Frame Warp needs the current version on the PC. An older Nightjar sees no
-Frame Warp on a 7.0 host, and the host ignores the older request if one comes. Either way the
+Frame Warp on a 6.5 host, and the host ignores the older request if one comes. Either way the
 stream runs normally without Frame Warp, and the `frame_warp` settings on both sides keep their
 values.
 

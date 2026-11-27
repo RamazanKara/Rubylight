@@ -196,6 +196,10 @@ impl Streaming {
             }
         }
         pads.update_audio();
+        if pads.reap_bt_audio() {
+            if self.sends_controllers() { self.session.input(|q| pads.announce_new(q)); }
+            self.show_toast(trf("Controller audio unavailable: {}", &[&tr("The device stopped answering.")]));
+        }
     }
 
     pub fn save_statistics(&mut self, directory: &std::path::Path) {

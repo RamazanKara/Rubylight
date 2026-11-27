@@ -130,6 +130,9 @@ impl App {
                 unsafe {
                     crate::sdl::destroy_renderer(renderer);
                     SDL_DestroyWindow(window);
+                    // A controller's Bluetooth audio, dropped with the pads above, may still be
+                    // inside a write on its own HID handle.
+                    nightjar_desktop_media::dualsense_bt_audio::settle(deadline.saturating_duration_since(Instant::now()));
                     SDL_Quit();
                 }
             }

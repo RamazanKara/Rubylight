@@ -33,6 +33,19 @@ impl Gamepads {
         }
     }
 
+    /// Drops the Bluetooth audio whose reports stopped (the link failed for a second) and marks
+    /// those controllers for a new arrival without it, so the PC stops sending them PCM.
+    /// Whether any stopped; reconnecting the controller plays again.
+    pub fn reap_bt_audio(&mut self) -> bool {
+        let mut reaped = false;
+        for pad in self.pads.iter_mut().filter(|p| p.bt_audio.as_ref().is_some_and(|bt| !bt.alive())) {
+            pad.bt_audio = None;
+            pad.announced = false;
+            reaped = true;
+        }
+        reaped
+    }
+
     pub fn set_audio(&mut self, index: u8, device: Option<SDL_AudioDeviceID>) -> Result<(), String> {
         if device.is_some_and(|device| self.pads.iter().any(|p| p.index != index && p.audio.as_ref().is_some_and(|a| a.device == device))) {
             return Err("That output already belongs to another controller.".into());
@@ -92,3 +105,6 @@ impl Gamepads {
             && let Some(audio) = &mut pad.audio { audio.control(payload, pad.handle); }
     }
 }
+
+#[cfg(test)]
+mod tests;

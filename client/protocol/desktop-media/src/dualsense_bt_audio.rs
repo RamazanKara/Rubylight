@@ -12,11 +12,13 @@
 //! [`BtAudio::open`] probes the controller with a silent report and then runs a worker thread
 //! on its own HID handle, so SDL keeps the controller's input, rumble, lights and triggers.
 //! Reports go only while speaker or haptics samples arrive; a silent controller gets none.
+//! Writes failing for about a second in a row stop the worker, which [`BtAudio::alive`] then
+//! tells; dropping a [`BtAudio`] never waits for a write in progress.
 
 use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -41,6 +43,21 @@ const START_FRAMES: usize = 768;
 const MAX_FRAMES: usize = 1536;
 /// A stream with no sound for this long sends no more reports.
 const IDLE: Duration = Duration::from_millis(100);
+/// How long writes may fail in a row, a Bluetooth link busy for a moment, before the worker
+/// stops. One write can wait about this long on Windows before it fails.
+const GIVE_UP: Duration = Duration::from_secs(1);
+
+/// Workers not yet ended, each closing its HID handle on the way out.
+static RUNNING: AtomicUsize = AtomicUsize::new(0);
+
+/// Waits at most `limit` for the workers of dropped [`BtAudio`]s to close their HID handles, so
+/// none is inside a write when SDL quits.
+pub fn settle(limit: Duration) {
+    let deadline = Instant::now() + limit;
+    while RUNNING.load(Ordering::Acquire) > 0 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
 
 /// The standard CRC-32 (IEEE 802.3, reflected) of `bytes`, continuing from `crc`.
 fn crc32(mut crc: u32, bytes: &[u8]) -> u32 {
@@ -343,13 +360,21 @@ impl BtAudio {
             return Err("the controller took no audio report".into());
         }
         let stop = Arc::new(AtomicBool::new(false));
+        RUNNING.fetch_add(1, Ordering::AcqRel);
         let worker = std::thread::Builder::new()
             .name("nightjar-ds-bt-audio".into())
             .spawn({
                 let stop = stop.clone();
-                move || run(output, player, &stop)
+                move || {
+                    // The HID handle closes as `run` returns, before the count drops.
+                    run(output, player, &stop);
+                    RUNNING.fetch_sub(1, Ordering::AcqRel);
+                }
             })
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                RUNNING.fetch_sub(1, Ordering::AcqRel);
+                error.to_string()
+            })?;
         Ok(Self { mix, stop, worker: Some(worker) })
     }
 
@@ -360,31 +385,45 @@ impl BtAudio {
         fifo.offer(pcm, Instant::now());
     }
 
-    /// Whether the worker still runs: a failed write stops it until the controller reconnects.
+    /// Whether the worker still runs: writes failing for [`GIVE_UP`] stop it, and only a new
+    /// [`BtAudio`] plays again.
     pub fn alive(&self) -> bool {
         self.worker.as_ref().is_some_and(|worker| !worker.is_finished())
     }
 }
 
 impl Drop for BtAudio {
+    /// Tells the worker to stop and leaves it: a write in progress may take a second on
+    /// Windows, which the caller's thread does not wait for ([`settle`] does, before SDL quits).
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+        self.worker = None;
     }
 }
 
-/// One report per [`PERIOD`] while there is sound, until `stop` or a failed write.
+/// One report per [`PERIOD`] while there is sound, until `stop` or writes failing for
+/// [`GIVE_UP`].
 fn run(mut output: impl Output, mut player: Player, stop: &AtomicBool) {
     let mut next = Instant::now();
+    // Since when, and how many, writes failed in a row.
+    let mut failing: Option<(Instant, u32)> = None;
     while !stop.load(Ordering::Acquire) {
         let now = Instant::now();
-        if let Some(report) = player.tick(now)
-            && !output.write(&report)
-        {
-            eprintln!("nightjar: controller speaker over Bluetooth stopped: the controller took no report");
-            return;
+        match player.tick(now) {
+            Some(report) if output.write(&report) => failing = None,
+            Some(_) => {
+                let (since, count) = failing.get_or_insert((now, 0));
+                *count += 1;
+                if *count >= 2 && since.elapsed() >= GIVE_UP {
+                    eprintln!(
+                        "nightjar: controller speaker over Bluetooth stopped: the controller took no report for {} ms",
+                        since.elapsed().as_millis()
+                    );
+                    return;
+                }
+            }
+            // Silence sends nothing, so it tells nothing of the link.
+            None => failing = None,
         }
         next += PERIOD;
         if next + PERIOD * 4 < now {

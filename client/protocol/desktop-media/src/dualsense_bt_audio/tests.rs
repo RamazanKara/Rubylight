@@ -2,7 +2,7 @@
 //! decimation, the Opus packet size, and the worker on a recording HID device.
 
 use super::*;
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender};
 
 #[test]
 fn the_checksum_is_crc32_over_the_0xa2_seed() {
@@ -120,33 +120,39 @@ fn a_stream_starts_once_it_holds_enough_and_a_gap_starts_it_over() {
     assert!(fifo.frames.len() <= MAX_FRAMES);
 }
 
-/// A HID device that records reports and refuses after `accept` of them.
+/// A HID device that records the reports it takes: `refuse(n)` says whether its `n`th write
+/// (0 being the probe) fails, and each write takes `delay`.
 struct Recorder {
     sent: Sender<Vec<u8>>,
-    accept: usize,
+    refuse: fn(usize) -> bool,
+    writes: usize,
+    delay: Duration,
+}
+
+impl Recorder {
+    fn new(sent: Sender<Vec<u8>>, refuse: fn(usize) -> bool) -> Self {
+        Self { sent, refuse, writes: 0, delay: Duration::ZERO }
+    }
 }
 
 impl Output for Recorder {
     fn write(&mut self, report: &[u8]) -> bool {
-        if self.accept == 0 {
+        let n = self.writes;
+        self.writes += 1;
+        std::thread::sleep(self.delay);
+        if (self.refuse)(n) {
             return false;
         }
-        self.accept -= 1;
         let _ = self.sent.send(report.to_vec());
         true
     }
 }
 
-#[test]
-fn the_worker_probes_plays_and_stops_on_a_refused_write() {
-    let (sent, reports) = channel();
-    assert!(BtAudio::start(Recorder { sent: sent.clone(), accept: 0 }).is_err(), "probe refused");
-    let audio = BtAudio::start(Recorder { sent, accept: 3 }).unwrap();
-    let probe = reports.recv().unwrap();
-    assert_eq!((probe.len(), probe[0], probe[76]), (REPORT_BYTES, 0x36, 0x93));
-    // Sound keeps coming, a block per 5 ms as from a host, however late the worker runs.
+/// Feeds `audio` a speaker block per 5 ms, as a host does however late the worker runs, until
+/// it stops or `until` passes: the reports it took meanwhile.
+fn play(audio: &BtAudio, reports: &Receiver<Vec<u8>>, until: Duration) -> Vec<Vec<u8>> {
     let (mut sequence, mut played) = (0, Vec::new());
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + until;
     while audio.alive() && Instant::now() < deadline {
         audio.offer(&pcm(sequence, 2000), true);
         sequence += 1;
@@ -155,11 +161,50 @@ fn the_worker_probes_plays_and_stops_on_a_refused_write() {
         }
     }
     played.extend(reports.try_iter());
+    played
+}
+
+#[test]
+fn the_worker_probes_plays_and_stops_after_a_second_of_refused_writes() {
+    let (sent, reports) = channel();
+    assert!(BtAudio::start(Recorder::new(sent.clone(), |_| true)).is_err(), "probe refused");
+    let audio = BtAudio::start(Recorder::new(sent, |n| n >= 3)).unwrap();
+    let probe = reports.recv().unwrap();
+    assert_eq!((probe.len(), probe[0], probe[76]), (REPORT_BYTES, 0x36, 0x93));
+    let started = Instant::now();
+    let played = play(&audio, &reports, Duration::from_secs(10));
     assert_eq!(played.len(), 2, "two accepted reports");
     for out in played {
         let mut check = out.clone();
         seal(&mut check);
         assert_eq!(check, out, "a valid checksum");
     }
-    assert!(!audio.alive(), "a refused write stops the worker");
+    assert!(!audio.alive(), "refused writes stop the worker");
+    assert!(started.elapsed() >= GIVE_UP, "only after a second of them");
+}
+
+#[test]
+fn a_moment_of_refused_writes_leaves_it_playing() {
+    let (sent, reports) = channel();
+    let audio = BtAudio::start(Recorder::new(sent, |n| (2..=6).contains(&n))).unwrap();
+    reports.recv().unwrap();
+    let played = play(&audio, &reports, Duration::from_millis(400));
+    assert!(audio.alive(), "five refused writes in a row are a busy link");
+    assert!(played.len() >= 3, "it plays on after them: {} reports", played.len());
+}
+
+#[test]
+fn dropping_it_never_waits_for_a_write_in_progress() {
+    let (sent, reports) = channel();
+    let mut slow = Recorder::new(sent, |_| false);
+    slow.delay = Duration::from_millis(300);
+    let audio = BtAudio::start(slow).unwrap();
+    reports.recv().unwrap();
+    audio.offer(&pcm(0, 2000), true);
+    // The worker's next tick starts a write that takes 300 ms.
+    std::thread::sleep(Duration::from_millis(60));
+    let at = Instant::now();
+    drop(audio);
+    assert!(at.elapsed() < Duration::from_millis(100), "dropped in {:?}", at.elapsed());
+    settle(Duration::from_secs(2));
 }

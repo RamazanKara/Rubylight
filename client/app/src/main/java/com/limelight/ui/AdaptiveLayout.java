@@ -214,12 +214,25 @@ public final class AdaptiveLayout {
 
     private void setRootPadding(int left, int top, int right, int bottom) {
         root.setPadding(left, top, right, bottom);
-        if (streaming) expandTouchSurface(root, root.findViewById(R.id.backgroundTouchView));
+        if (!streaming) return;
+        expandTouchSurface(root, root.findViewById(R.id.backgroundTouchView));
+        if (root instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View child = group.getChildAt(i);
+                if (child instanceof GameTouchControls) {
+                    expandTouchSurface(root, child);
+                    ((GameTouchControls) child).setSafeInsets(left, top, right, bottom);
+                }
+            }
+        }
     }
 
     /**
-     * Expands a full-frame touch target (backgroundTouchView) across root's Safe Fit / cutout padding
-     * so touches on a shifted or zoomed StreamView arrive on one unsplit view.
+     * Expands a full-frame touch target (backgroundTouchView or GameTouchControls) across root's
+     * Safe Fit / cutout / hinge padding with top|left gravity so asymmetric insets always land at
+     * [0, 0, root.getWidth(), root.getHeight()] and touches on a shifted or zoomed StreamView arrive
+     * on one unsplit view.
      */
     public static void expandTouchSurface(View root, View target) {
         if (root == null || target == null) return;
@@ -229,7 +242,17 @@ public final class AdaptiveLayout {
         int top = -root.getPaddingTop();
         int right = -root.getPaddingRight();
         int bottom = -root.getPaddingBottom();
-        if (lp.leftMargin != left || lp.topMargin != top || lp.rightMargin != right || lp.bottomMargin != bottom) {
+        boolean gravityChanged = false;
+        if (lp instanceof android.widget.FrameLayout.LayoutParams) {
+            android.widget.FrameLayout.LayoutParams flp = (android.widget.FrameLayout.LayoutParams) lp;
+            int wanted = android.view.Gravity.TOP | android.view.Gravity.LEFT;
+            if (flp.gravity != wanted) {
+                flp.gravity = wanted;
+                gravityChanged = true;
+            }
+        }
+        if (gravityChanged || lp.leftMargin != left || lp.topMargin != top
+                || lp.rightMargin != right || lp.bottomMargin != bottom) {
             lp.setMargins(left, top, right, bottom);
             target.setLayoutParams(lp);
         }

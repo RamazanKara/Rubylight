@@ -68,6 +68,7 @@ public final class GameTouchControls extends FrameLayout {
     private View.OnTouchListener streamTouch;
     private Runnable gestureCancelled;
     private Runnable editingChanged;
+    private int safeLeft, safeTop, safeRight, safeBottom;
 
     @SuppressLint("ClickableViewAccessibility") // The passthrough layer only forwards touches; it has no click.
     public GameTouchControls(Activity activity, String profile, HeldInputState.Sink sink,
@@ -110,6 +111,17 @@ public final class GameTouchControls extends FrameLayout {
         addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> positionButtons());
         rebuild();
     }
+
+    /** Sets the Safe Fit / cutout insets kept for buttons while passthrough fills the full frame. */
+    public void setSafeInsets(int left, int top, int right, int bottom) {
+        if (safeLeft == left && safeTop == top && safeRight == right && safeBottom == bottom) return;
+        safeLeft = left; safeTop = top; safeRight = right; safeBottom = bottom;
+        positionButtons();
+        invalidate();
+    }
+
+    private int safeWidth() { return Math.max(0, getWidth() - safeLeft - safeRight); }
+    private int safeHeight() { return Math.max(0, getHeight() - safeTop - safeBottom); }
 
     /** Receives touches beside the controls in this overlay's coordinates, each pointer exactly once. */
     public void setStreamTouchListener(View.OnTouchListener listener) {
@@ -454,10 +466,12 @@ public final class GameTouchControls extends FrameLayout {
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             try {
                 // Hidden controls are not measured; they fill the stream surface they sit on.
-                View surface = getWidth() > 0 || !(getParent() instanceof View) ? this : (View) getParent();
+                int importWidth = getWidth() > 0 ? safeWidth() : (getParent() instanceof View
+                        ? ((View) getParent()).getWidth() - ((View) getParent()).getPaddingLeft() - ((View) getParent()).getPaddingRight() : 0);
+                int importHeight = getHeight() > 0 ? safeHeight() : (getParent() instanceof View
+                        ? ((View) getParent()).getHeight() - ((View) getParent()).getPaddingTop() - ((View) getParent()).getPaddingBottom() : 0);
                 TouchLayoutImport.Result result = TouchLayoutImport.importFiles(Collections.singletonList(text.getText().toString()),
-                        surface.getWidth() - surface.getPaddingLeft() - surface.getPaddingRight(),
-                        surface.getHeight() - surface.getPaddingTop() - surface.getPaddingBottom());
+                        importWidth, importHeight);
                 replace(result.layout);
                 dialog.dismiss();
                 if (result.format != TouchLayoutImport.Format.NIGHTJAR || !result.skipped.isEmpty()) {
@@ -628,15 +642,16 @@ public final class GameTouchControls extends FrameLayout {
     }
 
     private float gridPixels() {
-        return snapGrid / 1000f * Math.min(getWidth(), getHeight());
+        return snapGrid / 1000f * Math.min(safeWidth(), safeHeight());
     }
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         float grid = gridPixels();
-        if (!editing || grid < 4) return;
-        for (float x = grid; x < getWidth(); x += grid) canvas.drawLine(x, 0, x, getHeight(), gridPaint);
-        for (float y = grid; y < getHeight(); y += grid) canvas.drawLine(0, y, getWidth(), y, gridPaint);
+        int width = safeWidth(), height = safeHeight();
+        if (!editing || grid < 4 || width <= 0 || height <= 0) return;
+        for (float x = grid; x < width; x += grid) canvas.drawLine(safeLeft + x, safeTop, safeLeft + x, safeTop + height, gridPaint);
+        for (float y = grid; y < height; y += grid) canvas.drawLine(safeLeft, safeTop + y, safeLeft + width, safeTop + y, gridPaint);
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -673,8 +688,8 @@ public final class GameTouchControls extends FrameLayout {
                             float rawX = event.getX(index) + event.getRawX() - event.getX();
                             float rawY = event.getY(index) + event.getRawY() - event.getY();
                             float grid = gridPixels();
-                            v.setX(LayoutStick.snap(startX + rawX - downX, v.getWidth(), getWidth(), grid));
-                            v.setY(LayoutStick.snap(startY + rawY - downY, v.getHeight(), getHeight(), grid));
+                            v.setX(safeLeft + LayoutStick.snap(startX - safeLeft + rawX - downX, v.getWidth(), safeWidth(), grid));
+                            v.setY(safeTop + LayoutStick.snap(startY - safeTop + rawY - downY, v.getHeight(), safeHeight(), grid));
                         } else if (pad != null && pressGeneration == inputGeneration) {
                             pad.stick.move(event.getX(index), event.getY(index));
                             steer(pad, slot, directionKeys);
@@ -685,10 +700,11 @@ public final class GameTouchControls extends FrameLayout {
                         if (index != event.getActionIndex() || pressGeneration != inputGeneration) return true;
                         pressGeneration = -1;
                         pointerId = -1;
-                        if (editing && getWidth() > 0 && getHeight() > 0) {
+                        int sw = safeWidth(), sh = safeHeight();
+                        if (editing && sw > 0 && sh > 0) {
                             List<TouchLayout.Button> entries = new ArrayList<>(layout.buttons);
                             for (int i = 0; i < entries.size(); i++) if (entries.get(i).id.equals(initial.id))
-                                entries.set(i, entries.get(i).move(v.getX() / getWidth(), v.getY() / getHeight()));
+                                entries.set(i, entries.get(i).move((v.getX() - safeLeft) / sw, (v.getY() - safeTop) / sh));
                             layout = new TouchLayout(entries); layout.save(activity, profile);
                         } else if (pad != null) {
                             pad.stick.release();
@@ -713,14 +729,15 @@ public final class GameTouchControls extends FrameLayout {
     }
 
     private void positionButtons() {
-        if (getWidth() <= 0 || getHeight() <= 0) return;
+        int safeW = safeWidth(), safeH = safeHeight();
+        if (safeW <= 0 || safeH <= 0) return;
         int min = Math.round(48 * getResources().getDisplayMetrics().density);
         for (int i = 0; i < buttonCount(); i++) {
             TouchLayout.Button b = layout.buttons.get(i); View v = buttonAt(i);
-            int width = Math.min(getWidth(), Math.max(min, Math.round(b.width * getWidth())));
-            int height = Math.min(getHeight(), Math.max(min, Math.round(b.height * getHeight())));
-            int left = Math.min(getWidth() - width, Math.round(b.x * getWidth()));
-            int top = Math.min(getHeight() - height, Math.round(b.y * getHeight()));
+            int width = Math.min(safeW, Math.max(min, Math.round(b.width * safeW)));
+            int height = Math.min(safeH, Math.max(min, Math.round(b.height * safeH)));
+            int left = safeLeft + Math.min(safeW - width, Math.round(b.x * safeW));
+            int top = safeTop + Math.min(safeH - height, Math.round(b.y * safeH));
             LayoutParams params = (LayoutParams) v.getLayoutParams();
             // This runs after every layout of the overlay; asking for another one when nothing moved laid the
             // overlay out again on every frame while it showed buttons.

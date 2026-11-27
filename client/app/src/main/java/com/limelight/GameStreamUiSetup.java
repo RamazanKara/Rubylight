@@ -489,8 +489,12 @@ final class GameStreamUiSetup {
             game.gameTouchControls.setStreamTouchListener(game.touchInput::onTouchControlsPassthrough);
             game.gameTouchControls.setGestureCancelListener(game.touchInput::cancelTouchInput);
             game.gameTouchControls.setEditingListener(game::onGameButtonsEditing);
-            ((FrameLayout) game.streamView.getParent()).addView(game.gameTouchControls,
+            FrameLayout parent = (FrameLayout) game.streamView.getParent();
+            parent.addView(game.gameTouchControls,
                     new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            AdaptiveLayout.expandTouchSurface(parent, game.gameTouchControls);
+            game.gameTouchControls.setSafeInsets(parent.getPaddingLeft(), parent.getPaddingTop(),
+                    parent.getPaddingRight(), parent.getPaddingBottom());
         }
         // Which controllers are connected, once the game buttons are in the frame: a controller with its own on-screen
         // layout may show the controls now, and they must land above the game buttons, as the next line puts them.

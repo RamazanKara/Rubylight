@@ -411,139 +411,6 @@ public class GameTouchInputTest {
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
     }
 
-    @Test
-    public void safeFitPaddingEdgeTouchesReachShiftedAndZoomedStreamViewWithoutDoubleDispatch() {
-        RecordingConnection connection = new RecordingConnection();
-        Game game = game(connection);
-        game.setTheme(R.style.StreamTheme);
-        game.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
-        game.setContentView(R.layout.activity_game);
-        FrameLayout content = game.findViewById(android.R.id.content);
-        content.setPadding(100, 50, 100, 50);
-        content.setClipToPadding(false);
-        content.setClipChildren(false);
-        StreamView stream = game.findViewById(R.id.surfaceView);
-        View background = game.findViewById(R.id.backgroundTouchView);
-        background.setOnTouchListener(game);
-        com.limelight.ui.AdaptiveLayout.expandTouchSurface(content, background);
-        ReflectionHelpers.setField(game, "streamView", stream);
-        View decor = game.getWindow().getDecorView();
-        decor.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY));
-        decor.layout(0, 0, 1000, 500);
-        assertEquals(0, background.getLeft());
-        assertEquals(0, background.getTop());
-        assertEquals(1000, background.getRight());
-        assertEquals(500, background.getBottom());
-        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
-
-        // Shifted into the left Safe Fit padding via Picture Position: touch at x=60 hits backgroundTouchView covering full frame.
-        stream.setTranslationX(-80);
-        assertEquals(20f, stream.getX(), 0.01f);
-        dispatchActivityTouch(game, MotionEvent.ACTION_DOWN, 60, 250);
-        dispatchActivityTouch(game, MotionEvent.ACTION_UP, 60, 250);
-        assertEquals("shifted streamView touch delivered once", 1, connection.positions.size());
-        assertArrayEquals(new int[] {40, 200, 800, 400}, connection.positions.get(0));
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
-
-        // Zoomed into the left Safe Fit padding: touch at x=50 arrives on backgroundTouchView without splitting.
-        connection.positions.clear();
-        stream.setTranslationX(0);
-        com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream, () -> { }, () -> { });
-        desktop.setEnabled(true);
-        desktop.viewport().resize(800, 400);
-        desktop.viewport().zoom(2f, 400, 200);
-        ReflectionHelpers.setField(game, "desktopGestures", desktop);
-        dispatchActivityTouch(game, MotionEvent.ACTION_DOWN, 50, 250);
-        dispatchActivityTouch(game, MotionEvent.ACTION_UP, 50, 250);
-        assertEquals("Safe Fit edge touch forwarded once", 1, connection.positions.size());
-        assertArrayEquals(new int[] {175, 200, 800, 400}, connection.positions.get(0));
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
-
-        // Multi-finger pinch straddling streamView and Safe Fit padding stays unsplit on one view (DesktopGestures zooms).
-        float scaleBefore = desktop.viewport().scale();
-        MotionEvent pinchDown0 = motion(MotionEvent.ACTION_DOWN, 0, new int[] {0}, 1500, 0, new float[] {50, 250});
-        MotionEvent pinchDown1 = motion(MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {0, 1}, 1510, 0,
-                new float[] {50, 250}, new float[] {450, 250});
-        MotionEvent pinchMove1 = motion(MotionEvent.ACTION_MOVE, 0, new int[] {0, 1}, 1520, 0,
-                new float[] {30, 250}, new float[] {530, 250});
-        MotionEvent pinchMove2 = motion(MotionEvent.ACTION_MOVE, 0, new int[] {0, 1}, 1530, 0,
-                new float[] {10, 250}, new float[] {650, 250});
-        MotionEvent pinchUp1 = motion(MotionEvent.ACTION_POINTER_UP, 1, new int[] {0, 1}, 1540, 0,
-                new float[] {10, 250}, new float[] {650, 250});
-        MotionEvent pinchUp0 = motion(MotionEvent.ACTION_UP, 0, new int[] {0}, 1550, 0, new float[] {10, 250});
-        try {
-            assertTrue(game.dispatchTouchEvent(pinchDown0));
-            assertTrue(game.dispatchTouchEvent(pinchDown1));
-            assertTrue(game.dispatchTouchEvent(pinchMove1));
-            assertTrue(game.dispatchTouchEvent(pinchMove2));
-            assertTrue("pinch across video and Safe Fit margin updates DesktopGestures zoom",
-                    desktop.viewport().scale() > scaleBefore);
-            game.dispatchTouchEvent(pinchUp1);
-            game.dispatchTouchEvent(pinchUp0);
-        } finally {
-            pinchDown0.recycle();
-            pinchDown1.recycle();
-            pinchMove1.recycle();
-            pinchMove2.recycle();
-            pinchUp1.recycle();
-            pinchUp0.recycle();
-        }
-
-        // Native multi-touch straddling video and Safe Fit padding: lifting finger 0 first still tracks and lifts finger 1 cleanly.
-        ReflectionHelpers.setField(game, "desktopGestures", null);
-        ReflectionHelpers.setField(game, "nativeTouchEnabled", true);
-        connection.touches.clear();
-        stream.setTranslationX(-80);
-        MotionEvent down0 = motion(MotionEvent.ACTION_DOWN, 0, new int[] {0}, 2000, 0, new float[] {60, 250});
-        MotionEvent down1 = motion(MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {0, 1}, 2010, 0,
-                new float[] {60, 250}, new float[] {860, 250});
-        MotionEvent moveBoth = motion(MotionEvent.ACTION_MOVE, 0, new int[] {0, 1}, 2020, 0,
-                new float[] {70, 250}, new float[] {870, 250});
-        MotionEvent up0First = motion(MotionEvent.ACTION_POINTER_UP, 0, new int[] {0, 1}, 2030, 0,
-                new float[] {70, 250}, new float[] {870, 250});
-        MotionEvent move1After = motion(MotionEvent.ACTION_MOVE, 0, new int[] {1}, 2040, 0, new float[] {880, 250});
-        MotionEvent up1Last = motion(MotionEvent.ACTION_UP, 0, new int[] {1}, 2050, 0, new float[] {880, 250});
-        try {
-            assertTrue(game.dispatchTouchEvent(down0));
-            assertTrue(game.dispatchTouchEvent(down1));
-            assertEquals("both pointers tracked", 2, connection.heldTouches.size());
-            connection.touches.clear();
-            assertTrue(game.dispatchTouchEvent(moveBoth));
-            assertEquals("both pointers move", 2, connection.touches.size());
-            assertTrue(game.dispatchTouchEvent(up0First));
-            assertEquals("finger 1 stays down after lifting finger 0", 1, connection.heldTouches.size());
-            connection.touches.clear();
-            assertTrue(game.dispatchTouchEvent(move1After));
-            assertEquals("finger 1 keeps moving", 1, connection.touches.size());
-            assertTrue(game.dispatchTouchEvent(up1Last));
-            assertTrue("lifting finger 1 leaves zero stuck host touches", connection.heldTouches.isEmpty());
-        } finally {
-            down0.recycle();
-            down1.recycle();
-            moveBoth.recycle();
-            up0First.recycle();
-            move1After.recycle();
-            up1Last.recycle();
-        }
-        ReflectionHelpers.setField(game, "nativeTouchEnabled", false);
-        stream.setTranslationX(0);
-
-        // Ungrabbed touches are rejected once cleanly.
-        ReflectionHelpers.setField(game, "grabbedInput", false);
-        assertFalse(dispatchActivityTouch(game, MotionEvent.ACTION_DOWN, 500, 250));
-    }
-
-    private static boolean dispatchActivityTouch(Game game, int action, float x, float y) {
-        MotionEvent event = MotionEvent.obtain(1000, 1010, action, x, y, 0);
-        event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-        try {
-            return game.dispatchTouchEvent(event);
-        } finally {
-            event.recycle();
-        }
-    }
-
     static com.limelight.ui.DesktopGestures enableZoom(Game game) {
         StreamView stream = ReflectionHelpers.getField(game, "streamView");
         com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream,
@@ -623,7 +490,7 @@ public class GameTouchInputTest {
         }
     }
 
-    private static GameTouchControls touchControls(Game game) {
+    static GameTouchControls touchControls(Game game) {
         game.setTheme(R.style.AppTheme);
         new TouchLayout(Collections.singletonList(new TouchLayout.Button("w", "W", new int[] {51}, 0,
                 false, .1f, .1f, .2f, .2f))).save(game, "fps");

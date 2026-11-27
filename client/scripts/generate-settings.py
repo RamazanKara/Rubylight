@@ -98,12 +98,12 @@ def render_policy_rs(cat):
         "/// Total Desktop `Settings` fields declared in `settings.toml`.",
         f"pub const DESKTOP_SETTING_COUNT: usize = {len(cat['desktop_setting'])};",
         "",
-        "/// Default Hold Guide to open the stream menu duration in milliseconds.",
+        "/// Default Hold Guide to open the Control Center duration in milliseconds.",
         f"pub const DEFAULT_GUIDE_MENU_HOLD_MS: u32 = {c['default_guide_menu_hold_ms']};",
         *fmt_u32_array(
             "GUIDE_HOLD_MS",
             c["guide_hold_ms"],
-            "The choices for holding Guide to open the stream menu, in milliseconds; 0 is off.",
+            "The choices for holding Guide to open the Control Center, in milliseconds; 0 is off.",
         ),
         *fmt_u32_array(
             "DISPLAY_SCALES",
@@ -543,7 +543,7 @@ def generate_settings_md_body(cat, root=ROOT):
             advice += f" In the list only {shown_only[key]}, or while it holds another value than its default; search finds it either way."
         if key in always_listed:
             advice += (
-                " Always in the list, since the stream menu or a PC's, game's or profile's settings can make it act;"
+                " Always in the list, since the Control Center or a PC's, game's or profile's settings can make it act;"
                 f" it says why while {always_listed[key]} in the main settings."
             )
         tier = "Main" if key in main or key.startswith("more_") else "More"

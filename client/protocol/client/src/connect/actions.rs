@@ -356,7 +356,7 @@ pub fn validate_server_command(
         .get(index)
         .is_some_and(|actual| actual == expected_name);
     if !can_run_server_command(ctx, index, server_commands.len(), matches_name) {
-        return Err("Server command changed or permission denied. Reopen the stream menu.");
+        return Err("Server command changed or permission denied. Reopen the Control Center.");
     }
     if !server_command_throttle_allows(last_sent_ms, now_ms) {
         return Err("Wait one second between server commands");

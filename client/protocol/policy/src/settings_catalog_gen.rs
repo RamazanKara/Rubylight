@@ -8,9 +8,9 @@ pub const ANDROID_SETTING_COUNT: usize = 196;
 /// Total Desktop `Settings` fields declared in `settings.toml`.
 pub const DESKTOP_SETTING_COUNT: usize = 148;
 
-/// Default Hold Guide to open the stream menu duration in milliseconds.
+/// Default Hold Guide to open the Control Center duration in milliseconds.
 pub const DEFAULT_GUIDE_MENU_HOLD_MS: u32 = 1000;
-/// The choices for holding Guide to open the stream menu, in milliseconds; 0 is off.
+/// The choices for holding Guide to open the Control Center, in milliseconds; 0 is off.
 pub const GUIDE_HOLD_MS: [u32; 5] = [0, 500, 1000, 1500, 2000];
 /// Windows virtual display scales offered in percent; 0 keeps the PC's own setting.
 pub const DISPLAY_SCALES: [u32; 13] = [

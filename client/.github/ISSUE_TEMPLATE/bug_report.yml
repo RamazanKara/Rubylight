@@ -128,7 +128,7 @@ body:
       description: |
         Reproduce the problem, then open **Settings → App → Report a problem → Share** and drag
         `nightjar-problem.txt` into this box. For stream problems also paste **Copy stats** from the
-        stream menu; for pairing problems, long-press the PC and use **View details → Copy debug info**.
+        Control Center; for pairing problems, long-press the PC and use **View details → Copy debug info**.
         The report is redacted; see the troubleshooting guide for what it contains.
     validations:
       required: true

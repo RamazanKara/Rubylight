@@ -153,7 +153,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan.
 | The Control Center | Yes | Yes | Yes | A dock at the side, or a sheet on a phone held upright (Android) or in a narrow upright window (desktop). The desktop also steps through its modules with Ctrl+Tab. |
 | Controller editor (**Settings → Controller**) | Yes | Yes | Yes | The desktop's has no on-screen controls. |
 | Controllers and per-model mapping | Yes | Yes | Yes | The desktop drives rumble, motion, touchpads, LEDs, battery and DualSense features through SDL's gamepad API. |
-| Controller test, stick and trigger dead zones, Back button: Back, Stream menu, Guide | Yes | Yes | Yes | The desktop's **Controller buttons** page can also set dead zones per controller. |
+| Controller test, stick and trigger dead zones, Back button: Back, Control Center, Guide | Yes | Yes | Yes | The desktop's **Controller buttons** page can also set dead zones per controller. |
 | Steam Deck Game Mode (gamescope) | N/A | N/A | Yes | Under gamescope the Flatpak opens fullscreen without a border; the pointer hides while the controller is used, and Start+Back opens the Control Center since Steam keeps the Guide button. [Steam Deck](steam-deck.md) |
 | Extra buttons: touchpad click, Share / Capture, paddles | Yes | Yes | Yes | The desktop maps every SDL button. |
 | DualSense, Xbox and Switch Pro USB drivers | Yes | N/A | N/A | SDL handles these controllers on the desktop. |

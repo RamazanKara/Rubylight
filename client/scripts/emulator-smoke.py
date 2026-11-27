@@ -866,7 +866,7 @@ def stream_ui_checks():
         set_rotation(rotation)
         time.sleep(1)
         hint = find(hint_id)
-        assert (hint.get("text") or "").startswith("To open the stream menu, "), hint.attrib
+        assert (hint.get("text") or "").startswith("To open the Control Center, "), hint.attrib
         width, height = screenshot("stream-hint" + suffix)
         root = ET.fromstring(LOGS.joinpath("stream-hint" + suffix + ".xml").read_bytes())
         hint = next(n for n in root.iter("node") if n.get("resource-id") == hint_id)

@@ -437,7 +437,7 @@ final class NvConnectionActions {
                         matches);
         if (!allowed) {
             throw new IOException(
-                    "Server command changed or permission denied. Reopen the stream menu.");
+                    "Server command changed or permission denied. Reopen the Control Center.");
         }
         synchronized (MoonBridge.class) {
             if (conn.stopRequested || !conn.nativeConnected || conn.isMonkey) {

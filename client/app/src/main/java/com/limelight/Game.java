@@ -447,7 +447,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         boolean previous = dispatchingDesktopTouch;
         dispatchingDesktopTouch = lifecycle.isDesktopPointerTouch(event);
         try {
-            return touchInput.dispatchTouchEvent(event, () -> super.dispatchTouchEvent(event));
+            return super.dispatchTouchEvent(event);
         } finally {
             dispatchingDesktopTouch = previous;
         }
@@ -584,7 +584,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override public boolean onGenericMotion(View view, MotionEvent event) { return touchInput.handleMotionEvent(view, event); }
     @SuppressLint("ClickableViewAccessibility")
     @Override public boolean onTouch(View view, MotionEvent event) { return touchInput.onTouch(view, event); }
-    @Override public boolean onTouchEvent(MotionEvent event) { return touchInput.onActivityTouchEvent(event) || super.onTouchEvent(event); }
 
     @Override public void stageStarting(final String stage) { streamConnection.stageStarting(stage); }
 

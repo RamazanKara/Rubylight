@@ -424,16 +424,20 @@ public class GameTouchInputTest {
         content.setClipChildren(false);
         StreamView stream = game.findViewById(R.id.surfaceView);
         View background = game.findViewById(R.id.backgroundTouchView);
-        stream.setOnTouchListener(game);
         background.setOnTouchListener(game);
+        com.limelight.ui.AdaptiveLayout.expandTouchSurface(content, background);
         ReflectionHelpers.setField(game, "streamView", stream);
         View decor = game.getWindow().getDecorView();
         decor.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY));
         decor.layout(0, 0, 1000, 500);
+        assertEquals(0, background.getLeft());
+        assertEquals(0, background.getTop());
+        assertEquals(1000, background.getRight());
+        assertEquals(500, background.getBottom());
         ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
 
-        // Shifted into the left Safe Fit padding via Picture Position: touch at x=60 hits streamView, outside backgroundTouchView.
+        // Shifted into the left Safe Fit padding via Picture Position: touch at x=60 hits backgroundTouchView covering full frame.
         stream.setTranslationX(-80);
         assertEquals(20f, stream.getX(), 0.01f);
         dispatchActivityTouch(game, MotionEvent.ACTION_DOWN, 60, 250);
@@ -442,20 +446,51 @@ public class GameTouchInputTest {
         assertArrayEquals(new int[] {40, 200, 800, 400}, connection.positions.get(0));
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
 
-        // Zoomed into the left Safe Fit padding: touch at x=50 misses both views and flows through Game.onTouchEvent.
+        // Zoomed into the left Safe Fit padding: touch at x=50 arrives on backgroundTouchView without splitting.
         connection.positions.clear();
         stream.setTranslationX(0);
         com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream, () -> { }, () -> { });
         desktop.setEnabled(true);
+        desktop.viewport().resize(800, 400);
         desktop.viewport().zoom(2f, 400, 200);
         ReflectionHelpers.setField(game, "desktopGestures", desktop);
         dispatchActivityTouch(game, MotionEvent.ACTION_DOWN, 50, 250);
         dispatchActivityTouch(game, MotionEvent.ACTION_UP, 50, 250);
-        assertEquals("Safe Fit edge touch forwarded once via onTouchEvent", 1, connection.positions.size());
+        assertEquals("Safe Fit edge touch forwarded once", 1, connection.positions.size());
         assertArrayEquals(new int[] {175, 200, 800, 400}, connection.positions.get(0));
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
 
-        // Split multi-finger targets (finger 0 on shifted streamView, finger 1 on backgroundTouchView) both receive moves.
+        // Multi-finger pinch straddling streamView and Safe Fit padding stays unsplit on one view (DesktopGestures zooms).
+        float scaleBefore = desktop.viewport().scale();
+        MotionEvent pinchDown0 = motion(MotionEvent.ACTION_DOWN, 0, new int[] {0}, 1500, 0, new float[] {50, 250});
+        MotionEvent pinchDown1 = motion(MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {0, 1}, 1510, 0,
+                new float[] {50, 250}, new float[] {450, 250});
+        MotionEvent pinchMove1 = motion(MotionEvent.ACTION_MOVE, 0, new int[] {0, 1}, 1520, 0,
+                new float[] {30, 250}, new float[] {530, 250});
+        MotionEvent pinchMove2 = motion(MotionEvent.ACTION_MOVE, 0, new int[] {0, 1}, 1530, 0,
+                new float[] {10, 250}, new float[] {650, 250});
+        MotionEvent pinchUp1 = motion(MotionEvent.ACTION_POINTER_UP, 1, new int[] {0, 1}, 1540, 0,
+                new float[] {10, 250}, new float[] {650, 250});
+        MotionEvent pinchUp0 = motion(MotionEvent.ACTION_UP, 0, new int[] {0}, 1550, 0, new float[] {10, 250});
+        try {
+            assertTrue(game.dispatchTouchEvent(pinchDown0));
+            assertTrue(game.dispatchTouchEvent(pinchDown1));
+            assertTrue(game.dispatchTouchEvent(pinchMove1));
+            assertTrue(game.dispatchTouchEvent(pinchMove2));
+            assertTrue("pinch across video and Safe Fit margin updates DesktopGestures zoom",
+                    desktop.viewport().scale() > scaleBefore);
+            game.dispatchTouchEvent(pinchUp1);
+            game.dispatchTouchEvent(pinchUp0);
+        } finally {
+            pinchDown0.recycle();
+            pinchDown1.recycle();
+            pinchMove1.recycle();
+            pinchMove2.recycle();
+            pinchUp1.recycle();
+            pinchUp0.recycle();
+        }
+
+        // Native multi-touch straddling video and Safe Fit padding: lifting finger 0 first still tracks and lifts finger 1 cleanly.
         ReflectionHelpers.setField(game, "desktopGestures", null);
         ReflectionHelpers.setField(game, "nativeTouchEnabled", true);
         connection.touches.clear();
@@ -465,36 +500,38 @@ public class GameTouchInputTest {
                 new float[] {60, 250}, new float[] {860, 250});
         MotionEvent moveBoth = motion(MotionEvent.ACTION_MOVE, 0, new int[] {0, 1}, 2020, 0,
                 new float[] {70, 250}, new float[] {870, 250});
-        MotionEvent cancelBoth = motion(MotionEvent.ACTION_CANCEL, 0, new int[] {0, 1}, 2030, 0,
+        MotionEvent up0First = motion(MotionEvent.ACTION_POINTER_UP, 0, new int[] {0, 1}, 2030, 0,
                 new float[] {70, 250}, new float[] {870, 250});
+        MotionEvent move1After = motion(MotionEvent.ACTION_MOVE, 0, new int[] {1}, 2040, 0, new float[] {880, 250});
+        MotionEvent up1Last = motion(MotionEvent.ACTION_UP, 0, new int[] {1}, 2050, 0, new float[] {880, 250});
         try {
             assertTrue(game.dispatchTouchEvent(down0));
             assertTrue(game.dispatchTouchEvent(down1));
-            assertEquals("both split touch targets tracked", 2, connection.heldTouches.size());
+            assertEquals("both pointers tracked", 2, connection.heldTouches.size());
             connection.touches.clear();
             assertTrue(game.dispatchTouchEvent(moveBoth));
-            assertEquals("both split targets receive ACTION_MOVE", 2, connection.touches.size());
-            game.dispatchTouchEvent(cancelBoth);
-            assertTrue("ACTION_CANCEL clears both split targets", connection.heldTouches.isEmpty());
+            assertEquals("both pointers move", 2, connection.touches.size());
+            assertTrue(game.dispatchTouchEvent(up0First));
+            assertEquals("finger 1 stays down after lifting finger 0", 1, connection.heldTouches.size());
+            connection.touches.clear();
+            assertTrue(game.dispatchTouchEvent(move1After));
+            assertEquals("finger 1 keeps moving", 1, connection.touches.size());
+            assertTrue(game.dispatchTouchEvent(up1Last));
+            assertTrue("lifting finger 1 leaves zero stuck host touches", connection.heldTouches.isEmpty());
         } finally {
             down0.recycle();
             down1.recycle();
             moveBoth.recycle();
-            cancelBoth.recycle();
+            up0First.recycle();
+            move1After.recycle();
+            up1Last.recycle();
         }
         ReflectionHelpers.setField(game, "nativeTouchEnabled", false);
         stream.setTranslationX(0);
 
-        // Ungrabbed touches must not double-dispatch across streamView, backgroundTouchView, and onTouchEvent, and null streamView is safe.
+        // Ungrabbed touches are rejected once cleanly.
         ReflectionHelpers.setField(game, "grabbedInput", false);
         assertFalse(dispatchActivityTouch(game, MotionEvent.ACTION_DOWN, 500, 250));
-        ReflectionHelpers.setField(game, "streamView", null);
-        MotionEvent stray = MotionEvent.obtain(1000, 1010, MotionEvent.ACTION_DOWN, 50, 250, 0);
-        try {
-            assertFalse(game.onTouchEvent(stray));
-        } finally {
-            stray.recycle();
-        }
     }
 
     private static boolean dispatchActivityTouch(Game game, int action, float x, float y) {

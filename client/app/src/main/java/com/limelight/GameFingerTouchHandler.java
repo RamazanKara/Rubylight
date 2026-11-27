@@ -51,7 +51,7 @@ final class GameFingerTouchHandler {
     };
 
     private boolean nativeTouchUnsupported;
-    private boolean nativeTouchGestureActive;
+    private final java.util.Set<Integer> nativeTouchPointers = new java.util.HashSet<>();
 
     GameFingerTouchHandler(Game game, FingerTapGesture fingerTap) {
         this.game = game;
@@ -144,9 +144,9 @@ final class GameFingerTouchHandler {
                 context.setPointerCount(0);
             }
         }
-        if (nativeTouchGestureActive) {
+        if (!nativeTouchPointers.isEmpty()) {
             game.conn.sendTouchEvent(MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL, 0, 0, 0, 0, 0, 0, MoonBridge.LI_ROT_UNKNOWN);
-            nativeTouchGestureActive = false;
+            nativeTouchPointers.clear();
         }
         fingerTap.reset();
         twoFingerTap.reset();
@@ -269,10 +269,11 @@ final class GameFingerTouchHandler {
         }
 
         if (game.nativeTouchEnabled && !nativeTouchUnsupported) {
-            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                nativeTouchGestureActive = true;
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+                nativeTouchPointers.add(event.getPointerId(event.getActionIndex()));
             }
-            if (!nativeTouchGestureActive) {
+            if (nativeTouchPointers.isEmpty() && !fingerTap.isStarted()) {
                 return true;
             }
             if (game.prefConfig.multiTouchFingerTaps) {
@@ -283,22 +284,23 @@ final class GameFingerTouchHandler {
                     if (!tapBefore) {
                         game.conn.sendTouchEvent(MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL, 0, 0, 0, 0, 0, 0,
                                 MoonBridge.LI_ROT_UNKNOWN);
+                        nativeTouchPointers.clear();
                     }
-                    if (event.getActionMasked() == MotionEvent.ACTION_UP ||
-                            event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-                        nativeTouchGestureActive = false;
+                    if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                        nativeTouchPointers.clear();
                     }
                     return true;
                 }
             }
             if (GameNativeTouchSender.trySendTouchEvent(game, view, event)) {
-                if (event.getActionMasked() == MotionEvent.ACTION_UP ||
-                        event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-                    nativeTouchGestureActive = false;
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
+                    nativeTouchPointers.remove(event.getPointerId(event.getActionIndex()));
+                } else if (action == MotionEvent.ACTION_CANCEL) {
+                    nativeTouchPointers.clear();
                 }
                 return true;
             }
-            nativeTouchGestureActive = false;
+            nativeTouchPointers.clear();
             nativeTouchUnsupported = true;
             game.overlays.hostNotice(HostNotices.Notice.NATIVE_TOUCH_UNAVAILABLE, R.string.stream_native_touch_fallback);
         }

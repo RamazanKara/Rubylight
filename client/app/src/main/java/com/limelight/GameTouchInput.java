@@ -17,8 +17,6 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.ui.HostCursorShapes;
 import com.limelight.ui.NavigationDialogBuilder;
 
-import java.util.function.BooleanSupplier;
-
 /** The stream's pointer input: touch modes and contexts, the trackpad, mice and pens, the desktop pointer, on-screen controls and the mic button. */
 final class GameTouchInput {
     private final Game game;
@@ -35,8 +33,6 @@ final class GameTouchInput {
     private final GameFingerTouchHandler fingerTouch;
 
     private int desktopHeldButtons;
-    private boolean inTouchDispatch;
-    private boolean touchRejectedInDispatch;
     private MouseDeltaAccumulator desktopDeltaX = new MouseDeltaAccumulator();
     private MouseDeltaAccumulator desktopDeltaY = new MouseDeltaAccumulator();
     private MouseDeltaAccumulator desktopScrollV = new MouseDeltaAccumulator();
@@ -426,26 +422,6 @@ final class GameTouchInput {
         return onOverlayTouch(game.gameTouchControls, event);
     }
 
-    boolean dispatchTouchEvent(MotionEvent event, BooleanSupplier superDispatch) {
-        boolean previousInDispatch = inTouchDispatch;
-        boolean previousRejected = touchRejectedInDispatch;
-        inTouchDispatch = true;
-        touchRejectedInDispatch = false;
-        try {
-            return superDispatch.getAsBoolean();
-        } finally {
-            inTouchDispatch = previousInDispatch;
-            touchRejectedInDispatch = previousRejected;
-        }
-    }
-
-    boolean onActivityTouchEvent(MotionEvent event) {
-        if (game.streamView == null || (inTouchDispatch && touchRejectedInDispatch)) {
-            return false;
-        }
-        return onOverlayTouch(null, event);
-    }
-
     @SuppressLint("ClickableViewAccessibility")
     boolean onOverlayTouch(View view, MotionEvent event) {
         if (game.streamView == null) return false;
@@ -461,17 +437,6 @@ final class GameTouchInput {
 
     @SuppressLint("ClickableViewAccessibility")
     boolean onTouch(View view, MotionEvent event) {
-        if (inTouchDispatch && touchRejectedInDispatch) {
-            return false;
-        }
-        boolean handled = dispatchStreamTouch(view, event);
-        if (!handled && inTouchDispatch) {
-            touchRejectedInDispatch = true;
-        }
-        return handled;
-    }
-
-    private boolean dispatchStreamTouch(View view, MotionEvent event) {
         noteTouchArrivals(event);
         game.keyboardInput.noteStreamPress(view, event);
         if (game.desktopGestures != null && game.foreground && game.connected && game.streamMenu == null

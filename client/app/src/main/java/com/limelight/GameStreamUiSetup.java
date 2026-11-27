@@ -198,9 +198,10 @@ final class GameStreamUiSetup {
         game.findViewById(android.R.id.content).addOnLayoutChangeListener(
                 (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> game.videoOutput.onPaneLaidOut(view));
 
-        game.streamView.setOnTouchListener(game);
+        View content = game.findViewById(android.R.id.content);
         View backgroundTouchView = game.findViewById(R.id.backgroundTouchView);
         backgroundTouchView.setOnTouchListener(game);
+        AdaptiveLayout.expandTouchSurface(content, backgroundTouchView);
         Window window = game.getWindow();
         UnbufferedInputDispatch.enable(
                 window != null ? window.getDecorView() : null,

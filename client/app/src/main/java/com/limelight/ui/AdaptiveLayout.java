@@ -145,7 +145,7 @@ public final class AdaptiveLayout {
 
     private void update() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity.isInPictureInPictureMode()) {
-            root.setPadding(0, 0, 0, 0);
+            setRootPadding(0, 0, 0, 0);
             return;
         }
         // The TV margin is the screen's: a screen that is compact on a TV keeps it at the app's size.
@@ -196,7 +196,7 @@ public final class AdaptiveLayout {
         }
         if (fold == null || width == 0 || height == 0) {
             // The safe area alone needs no frame, so the first inset dispatch already gets it right.
-            root.setPadding(insets.left + margin, insets.top + margin, insets.right + margin, insets.bottom + margin);
+            setRootPadding(insets.left + margin, insets.top + margin, insets.right + margin, insets.bottom + margin);
             return;
         }
         Rect available = new Rect(insets.left + margin, insets.top + margin,
@@ -209,7 +209,30 @@ public final class AdaptiveLayout {
         hinge.offset(windowOrigin[0] - origin[0], windowOrigin[1] - origin[1]);
         Rect pane = usablePane(available, hinge, fold.getOrientation() == FoldingFeature.Orientation.VERTICAL,
                 ViewCompat.getLayoutDirection(root) == ViewCompat.LAYOUT_DIRECTION_RTL);
-        root.setPadding(pane.left, pane.top, width - pane.right, height - pane.bottom);
+        setRootPadding(pane.left, pane.top, width - pane.right, height - pane.bottom);
+    }
+
+    private void setRootPadding(int left, int top, int right, int bottom) {
+        root.setPadding(left, top, right, bottom);
+        if (streaming) expandTouchSurface(root, root.findViewById(R.id.backgroundTouchView));
+    }
+
+    /**
+     * Expands a full-frame touch target (backgroundTouchView) across root's Safe Fit / cutout padding
+     * so touches on a shifted or zoomed StreamView arrive on one unsplit view.
+     */
+    public static void expandTouchSurface(View root, View target) {
+        if (root == null || target == null) return;
+        if (!(target.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams)) return;
+        android.view.ViewGroup.MarginLayoutParams lp = (android.view.ViewGroup.MarginLayoutParams) target.getLayoutParams();
+        int left = -root.getPaddingLeft();
+        int top = -root.getPaddingTop();
+        int right = -root.getPaddingRight();
+        int bottom = -root.getPaddingBottom();
+        if (lp.leftMargin != left || lp.topMargin != top || lp.rightMargin != right || lp.bottomMargin != bottom) {
+            lp.setMargins(left, top, right, bottom);
+            target.setLayoutParams(lp);
+        }
     }
 
     /**

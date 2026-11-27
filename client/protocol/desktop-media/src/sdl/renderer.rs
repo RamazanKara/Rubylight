@@ -94,16 +94,6 @@ fn gl_strings() -> Vec<String> {
     [GL_VENDOR, GL_RENDERER, GL_VERSION].into_iter().map(|name| unsafe { c_text(get_string(name)) }).collect()
 }
 
-#[cfg(test)]
-mod driver_tests {
-    /// The crash guard's file keeps one line: a driver's multi-line text matches itself next time.
-    #[test]
-    fn a_drivers_text_goes_on_one_line() {
-        let parts = ["gpu".to_owned(), "AMD Radeon 780M (RADV PHOENIX)".to_owned(), String::new(), "Driver Build: 85da404\nDate: 11/30/20\n".to_owned()];
-        assert_eq!(super::one_line(&parts), "gpu AMD Radeon 780M (RADV PHOENIX) Driver Build: 85da404 Date: 11/30/20");
-    }
-}
-
 /// The macOS build (`kern.osversion`), which its GPU drivers come with.
 #[cfg(target_os = "macos")]
 fn macos_build() -> Option<String> {
@@ -512,5 +502,15 @@ fn make_renderer(window: *mut SDL_Window, gpu: bool, vulkan: *mut SDL_GPUVulkanO
         }
         SDL_DestroyProperties(props);
         renderer
+    }
+}
+
+#[cfg(test)]
+mod driver_tests {
+    /// The crash guard's file keeps one line: a driver's multi-line text matches itself next time.
+    #[test]
+    fn a_drivers_text_goes_on_one_line() {
+        let parts = ["gpu".to_owned(), "AMD Radeon 780M (RADV PHOENIX)".to_owned(), String::new(), "Driver Build: 85da404\nDate: 11/30/20\n".to_owned()];
+        assert_eq!(super::one_line(&parts), "gpu AMD Radeon 780M (RADV PHOENIX) Driver Build: 85da404 Date: 11/30/20");
     }
 }

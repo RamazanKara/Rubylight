@@ -75,7 +75,7 @@ fn picture(kind: i32, width: u32, height: u32, code: impl Fn(usize, u32, u32) ->
     let layout = media::PlanarLayout::of(&info).unwrap();
     let bytes = if layout.ten_bit { 2 } else { 1 };
     let mut planes = Vec::new();
-    for plane in 0..3 {
+    for (plane, linesize) in info.linesize.iter_mut().enumerate() {
         let (w, h) = layout.plane_size(plane);
         let pitch = w as usize * bytes + 24;
         let mut data = vec![0xEEu8; pitch * h as usize];
@@ -86,7 +86,7 @@ fn picture(kind: i32, width: u32, height: u32, code: impl Fn(usize, u32, u32) ->
                 if layout.ten_bit { data[at..at + 2].copy_from_slice(&value.to_le_bytes()); } else { data[at] = value as u8; }
             }
         }
-        info.linesize[plane] = pitch as i32;
+        *linesize = pitch as i32;
         planes.push(data);
     }
     for (plane, data) in planes.iter_mut().enumerate() { info.data[plane] = data.as_mut_ptr(); }

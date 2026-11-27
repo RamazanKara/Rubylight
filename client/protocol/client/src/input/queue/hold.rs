@@ -82,9 +82,9 @@ impl InputQueue {
                 active_mask,
                 ..
             } => {
-                for slot in 0..usize::from(MAX_CONTROLLERS) {
+                for (slot, binding) in held.speaker_bindings.iter_mut().enumerate() {
                     if active_mask & (1 << slot) == 0 {
-                        held.speaker_bindings[slot] = None;
+                        *binding = None;
                     }
                 }
                 if let Some(slot) = held.controllers.get_mut(usize::from(number)) {

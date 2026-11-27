@@ -341,9 +341,13 @@ fn a_probe_that_needs_a_signed_in_user_runs_again_after_sign_in() {
 /// waits for the probe up to its deadline.
 #[test]
 fn launch_readiness_does_not_wait_for_the_packed_probe() {
-    const PROBE: Duration = Duration::from_millis(600);
+    const PROBE: Duration = Duration::from_millis(1500);
+    static SLEPT: AtomicBool = AtomicBool::new(false);
+    SLEPT.store(false, Ordering::Release);
     fn probe(_: &Config, _: &Negotiated, _: &dyn Fn() -> bool) -> anyhow::Result<()> {
-        std::thread::sleep(PROBE);
+        if !SLEPT.swap(true, Ordering::AcqRel) {
+            std::thread::sleep(PROBE);
+        }
         Ok(())
     }
     let f = off();

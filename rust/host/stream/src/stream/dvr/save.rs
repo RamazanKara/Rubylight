@@ -109,6 +109,8 @@ pub(super) fn write_replay(
     let started = Instant::now();
     let temp = dvr_store::temp_path(dir, id);
     let written = (|| -> Result<ClipInfo, Reason> {
+        // A new profile has no clips folder until something makes it; the first save does.
+        std::fs::create_dir_all(dir).map_err(|e| io_reason(&e))?;
         let file = File::create(&temp).map_err(|e| io_reason(&e))?;
         let mut out = BufWriter::with_capacity(BUFFER, file);
         let info = write_clip(&mut out, clip).map_err(|error| {

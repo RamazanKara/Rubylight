@@ -1,7 +1,9 @@
 //! The stream's automatic attach: the devices on the `usb_auto` list are attached whenever they
-//! are plugged in, and retried after a cooldown when that fails. One whose password prompt the
-//! user cancelled (Linux's USB/IP server needs root) is left alone until the user attaches it
-//! by hand or ticks Automatic again: the prompt never comes back by itself.
+//! are plugged in, and retried after a cooldown when that fails. Linux's USB/IP server needs
+//! root, behind a password prompt: the automatic attach never brings one up for a device libusb
+//! is refused (`usb::open_or_kernel`), and one whose prompt was cancelled or refused, or whose
+//! helper failed after it, is left alone until the user attaches it by hand or ticks Automatic
+//! again. The prompt never comes back by itself.
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -23,25 +25,32 @@ pub fn auto_key(vid: u16, pid: u16) -> String {
 }
 
 thread_local! {
-    /// Password prompts cancelled or refused on this thread.
-    static REFUSED: Cell<u64> = const { Cell::new(0) };
+    /// Opens on this thread that needed the password and did not get through.
+    static PASSWORD_FAILED: Cell<u64> = const { Cell::new(0) };
 }
 
-/// Counts a password prompt the user cancelled, or polkit refused, on this thread (pkexec's
-/// exit 126 or 127).
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-pub(crate) fn note_password_refused() {
-    REFUSED.with(|refused| refused.set(refused.get() + 1));
+/// Counts an open on this thread that needed the password and did not get through: the prompt
+/// cancelled or refused (pkexec's exit 126 or 127), the helper failing after it, or the prompt
+/// the automatic attach does not bring up.
+pub(crate) fn note_password_failed() {
+    PASSWORD_FAILED.with(|failed| failed.set(failed.get() + 1));
 }
 
-/// Runs `open` for `local`. When it showed a password prompt that was cancelled or refused,
-/// `local` goes on `quiet`: the automatic attach doesn't ask for it again.
-pub(super) fn hushed_on_refusal<T>(quiet: &Mutex<Vec<String>>, local: &Local, open: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    let before = REFUSED.with(Cell::get);
+/// How many opens on this thread needed the password and did not get through, for tests.
+#[cfg(test)]
+pub(crate) fn password_failures() -> u64 {
+    PASSWORD_FAILED.with(Cell::get)
+}
+
+/// Runs `open` for `local`. When it needed the password and did not get through, `local` goes
+/// on `quiet`: the automatic attach doesn't ask for it again, so a helper that keeps failing
+/// after the password was given never brings the prompt back every retry.
+pub(super) fn hushed_on_password_failure<T>(quiet: &Mutex<Vec<String>>, local: &Local, open: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let before = PASSWORD_FAILED.with(Cell::get);
     let result = open();
-    if result.is_err() && REFUSED.with(Cell::get) != before {
+    if result.is_err() && PASSWORD_FAILED.with(Cell::get) != before {
         let key = auto_key(local.vid, local.pid);
-        eprintln!("nightjar: USB {}: the password prompt was cancelled; not attaching {key} automatically until it is attached by hand", local.busid);
+        eprintln!("nightjar: USB {}: forwarding it needs the password and did not get through; not attaching {key} automatically until it is attached by hand", local.busid);
         let mut quiet = quiet.lock().unwrap_or_else(PoisonError::into_inner);
         if !quiet.contains(&key) { quiet.push(key); }
     }
@@ -82,7 +91,7 @@ impl Panel {
         self.auto.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Lets the automatic attach ask for `local`'s password again: the user acted on it.
+    /// Lets the automatic attach try `local` again: the user acted on it.
     pub(super) fn unhush(&self, local: &Local) {
         let key = auto_key(local.vid, local.pid);
         self.quiet.lock().unwrap_or_else(PoisonError::into_inner).retain(|k| *k != key);
@@ -141,7 +150,7 @@ impl Panel {
                                     continue;
                                 }
                                 eprintln!("nightjar: USB {}: attaching {} automatically", device.busid, device.name);
-                                if !attach_tracked(&forwarder, owner, Route::Direct, &opening, &quiet, &device) {
+                                if !attach_tracked(&forwarder, owner, (Route::Direct, false), &opening, &quiet, &device) {
                                     tried.insert(device.busid, Some(Instant::now() + AUTO_RETRY_COOLDOWN));
                                 }
                             }

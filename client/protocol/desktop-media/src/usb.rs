@@ -5,7 +5,8 @@
 //! the picker explains why). On Linux isochronous devices prefer the kernel's USB/IP server
 //! ([`usb_linux`](crate::usb_linux)) when available and fall back to libusb's asynchronous
 //! isochronous transfers ([`iso`]) otherwise; macOS serves all devices through libusb ([`iso`]).
-//! A Linux device libusb may not open goes to the kernel's USB/IP server instead; a Windows
+//! A Linux device libusb may not open goes to the kernel's USB/IP server instead when the user
+//! attaches it by hand (its password prompt never comes up by itself); a Windows
 //! device another driver holds goes through usbipd-win when the user asks for it
 //! (`usb_windows`). A controller being forwarded pauses as a gamepad
 //! ([`usb_arbitration`](crate::usb_arbitration)).
@@ -30,7 +31,9 @@ mod winusb;
 
 pub use auto::auto_key;
 #[cfg(target_os = "linux")]
-pub(crate) use auto::note_password_refused;
+pub(crate) use auto::note_password_failed;
+#[cfg(all(target_os = "linux", test))]
+pub(crate) use auto::password_failures;
 
 const CLASS_HUB: u8 = 9;
 
@@ -231,7 +234,9 @@ fn list_with(context: &rusb::Context) -> Result<Vec<Local>, String> {
 }
 
 /// Opens `local` and claims every interface, for [`nightjar_core::usb::Forwarder::attach`].
-pub fn open(local: &Local) -> Result<Arc<dyn UsbDevice>, String> {
+/// `by_hand`: the user started this attach, so Linux's USB/IP server may take over a device
+/// libusb is refused, behind a password prompt ([`open_or_kernel`]).
+pub fn open(local: &Local, by_hand: bool) -> Result<Arc<dyn UsbDevice>, String> {
     if let Some(blocked) = &local.blocked { return Err(blocked.message()); }
     #[cfg(target_os = "linux")]
     if local.kernel {
@@ -269,7 +274,9 @@ pub fn open(local: &Local) -> Result<Arc<dyn UsbDevice>, String> {
     };
     #[cfg(not(target_os = "linux"))]
     let kernel = || None;
-    open_or_kernel(opened, kernel)
+    // Only Linux's fallback asks for a password, which an automatic attach never brings up.
+    let unattended = cfg!(target_os = "linux") && !by_hand;
+    open_or_kernel(opened, unattended, kernel)
 }
 
 /// Opens `local` through usbipd-win, which the user asked for: Windows keeps its own driver on
@@ -321,9 +328,16 @@ enum Route {
 /// libusb's answer for a device, with Linux's own USB/IP server ([`usb_linux`](crate::usb_linux))
 /// taking over when libusb was refused permission (`EACCES`, no udev rule gives the user the
 /// device): `kernel` opens it there, or is None when that can't run on this computer. The udev
-/// advice stays when there is no such fallback, and follows the fallback's own failure.
-fn open_or_kernel<T>(opened: Result<T, rusb::Error>, kernel: impl FnOnce() -> Option<Result<T, String>>) -> Result<T, String> {
+/// advice stays when there is no such fallback, and follows the fallback's own failure. That
+/// server asks for the password (polkit's `auth_admin`, every time), so an `unattended` attach
+/// (the automatic one) never starts it: it keeps the udev advice and counts as a password that
+/// did not go through, which leaves the device to an attach by hand ([`auto`]).
+fn open_or_kernel<T>(opened: Result<T, rusb::Error>, unattended: bool, kernel: impl FnOnce() -> Option<Result<T, String>>) -> Result<T, String> {
     match opened {
+        Err(rusb::Error::Access) if unattended => {
+            auto::note_password_failed();
+            Err(open_error(rusb::Error::Access))
+        }
         Err(rusb::Error::Access) => match kernel() {
             Some(Ok(device)) => Ok(device),
             Some(Err(why)) => Err(format!("{why} {}", open_error(rusb::Error::Access))),
@@ -409,12 +423,13 @@ impl Drop for OpeningGuard<'_> {
     }
 }
 
-/// Opens and attaches `local`, which the caller marked as being opened; returns whether attach
-/// succeeded, and records any failure on the panel. A cancelled password prompt puts `local` on
-/// `quiet` ([`auto::hushed_on_refusal`]).
-fn attach_tracked(forwarder: &Forwarder, owner: u64, route: Route, opening: &Mutex<Opening>, quiet: &Mutex<Vec<String>>, local: &Local) -> bool {
+/// Opens and attaches `local`, which the caller marked as being opened (`by_hand`: the user
+/// started it, not the automatic attach); returns whether attach succeeded, and records any
+/// failure on the panel. A failure behind the password puts `local` on `quiet`
+/// ([`auto::hushed_on_password_failure`]).
+fn attach_tracked(forwarder: &Forwarder, owner: u64, (route, by_hand): (Route, bool), opening: &Mutex<Opening>, quiet: &Mutex<Vec<String>>, local: &Local) -> bool {
     let _guard = OpeningGuard { opening, busid: local.busid.clone() };
-    match auto::hushed_on_refusal(quiet, local, || attach_now(forwarder, owner, route, local)) {
+    match auto::hushed_on_password_failure(quiet, local, || attach_now(forwarder, owner, route, by_hand, local)) {
         Ok(_) => true,
         Err(e) => {
             opening.lock().unwrap_or_else(PoisonError::into_inner).failed = Some(e);
@@ -568,7 +583,7 @@ impl Panel {
         let busid = local.busid.clone();
         let (forwarder, opening, quiet, local, owner) = (self.forwarder.clone(), self.opening.clone(), self.quiet.clone(), local.clone(), self.owner);
         let spawned = std::thread::Builder::new().name("usb-open".into()).spawn(move || {
-            let _ = attach_tracked(&forwarder, owner, route, &opening, &quiet, &local);
+            let _ = attach_tracked(&forwarder, owner, (route, true), &opening, &quiet, &local);
         });
         if let Err(e) = spawned {
             self.opening().finish(&busid);
@@ -627,14 +642,14 @@ const ARBITRATION_WAIT: Duration = Duration::from_millis(500);
 
 /// Opens `local` and asks the PC to attach it; what failed, for the user. A controller among
 /// them is paused here from now until the attachment ends ([`crate::usb_arbitration`]).
-fn attach_now(forwarder: &Forwarder, owner: u64, route: Route, local: &Local) -> Result<u32, String> {
+fn attach_now(forwarder: &Forwarder, owner: u64, route: Route, by_hand: bool, local: &Local) -> Result<u32, String> {
     use crate::usb_arbitration::{Arbitrated, Forwarded, Registry};
     let claim = Registry::global().claim(owner, Forwarded::new(local.vid, local.pid, &local.busid));
     if !claim.wait_applied(ARBITRATION_WAIT) {
         eprintln!("nightjar: USB {}: the controllers did not let go in time; opening it anyway", local.busid);
     }
     let opened = match route {
-        Route::Direct => open(local),
+        Route::Direct => open(local, by_hand),
         Route::Usbipd => open_usbipd(local),
     };
     let attached = opened.and_then(|device| forwarder.attach(Arbitrated::wrap(device, claim), &local.name).map_err(|e| attach_error(&e)));

@@ -170,7 +170,7 @@ impl System {
             crate::amd_decode::for_child(&mut command).arg("/bin/sh").arg(&script).arg("install");
             let output = run(command)?;
             if output.code == Some(0) && self.is_installed() { return Ok(()); }
-            refused(output.code);
+            password_failed();
             Err(match output.code {
                 Some(7) => tr("Setting up USB forwarding failed: the rule that gives a device back after it’s unplugged could not be loaded. Try again.").to_owned(),
                 code => failure(code, &output.stderr),
@@ -213,7 +213,7 @@ impl System {
             let mut text = String::new();
             let _ = stderr.read_to_string(&mut text);
             let code = child.wait().ok().and_then(|status| status.code());
-            refused(code);
+            password_failed();
             eprintln!("nightjar: USB {busid}: the helper did not bind it (exit {code:?}): {}", text.trim());
             return Err(failure(code, &text));
         }
@@ -230,10 +230,12 @@ impl System {
     }
 }
 
-/// Counts pkexec's cancelled or refused password prompt (exit 126 or 127), so the automatic
-/// attach doesn't ask again by itself.
-fn refused(code: Option<i32>) {
-    if matches!(code, Some(126 | 127)) { crate::usb::note_password_refused(); }
+/// Counts a pkexec run that did not get the device through, whatever failed: the prompt
+/// cancelled or refused (exit 126 or 127), or the helper after the password was given. The
+/// automatic attach then leaves the device to an attach by hand instead of asking again every
+/// retry, as it would for a helper that keeps failing.
+fn password_failed() {
+    crate::usb::note_password_failed();
 }
 
 /// What the helper made of a run, as the user reads it.

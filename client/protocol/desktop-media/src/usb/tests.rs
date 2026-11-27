@@ -54,19 +54,19 @@ fn automatic_devices_attach_once_per_plug_in_on_any_port_and_retry_failures() {
 #[test]
 fn a_cancelled_password_prompt_stops_the_automatic_attach_until_the_user_acts() {
     use std::time::Instant;
-    use super::auto::{auto_due, hushed_on_refusal, note_password_refused};
+    use super::auto::{auto_due, hushed_on_password_failure, note_password_failed};
 
     let quiet = Mutex::new(Vec::new());
     let deck = plugged("3-1", 0x28de, 0x1205, None);
     // Another failure leaves it to the retry cooldown, as before.
-    assert!(hushed_on_refusal::<()>(&quiet, &deck, || Err("busy".into())).is_err());
+    assert!(hushed_on_password_failure::<()>(&quiet, &deck, || Err("busy".into())).is_err());
     assert!(quiet.lock().unwrap().is_empty());
-    assert!(hushed_on_refusal(&quiet, &deck, || Ok(())).is_ok());
+    assert!(hushed_on_password_failure(&quiet, &deck, || Ok(())).is_ok());
     assert!(quiet.lock().unwrap().is_empty());
     // pkexec's prompt was cancelled during the open: hushed, once.
     for _ in 0..2 {
-        let cancelled = hushed_on_refusal::<()>(&quiet, &deck, || {
-            note_password_refused();
+        let cancelled = hushed_on_password_failure::<()>(&quiet, &deck, || {
+            note_password_failed();
             Err("cancelled".into())
         });
         assert_eq!(cancelled.unwrap_err(), "cancelled", "the user still hears why");
@@ -631,17 +631,43 @@ fn a_refused_libusb_open_falls_back_to_the_kernel_server_and_keeps_the_udev_advi
     let access = open_error(rusb::Error::Access);
     let tried = Cell::new(0);
     let kernel_ok = || { tried.set(tried.get() + 1); Some(Ok("kernel")) };
-    assert_eq!(open_or_kernel(Err(rusb::Error::Access), kernel_ok), Ok("kernel"));
+    assert_eq!(open_or_kernel(Err(rusb::Error::Access), false, kernel_ok), Ok("kernel"));
     assert_eq!(tried.get(), 1, "the fallback runs once");
 
-    assert_eq!(open_or_kernel::<&str>(Err(rusb::Error::Access), || None), Err(access.clone()), "nothing to fall back to: the advice alone");
+    assert_eq!(open_or_kernel::<&str>(Err(rusb::Error::Access), false, || None), Err(access.clone()), "nothing to fall back to: the advice alone");
 
-    let failed = open_or_kernel::<&str>(Err(rusb::Error::Access), || Some(Err("The prompt was cancelled.".to_owned()))).unwrap_err();
+    let failed = open_or_kernel::<&str>(Err(rusb::Error::Access), false, || Some(Err("The prompt was cancelled.".to_owned()))).unwrap_err();
     assert!(failed.starts_with("The prompt was cancelled."), "{failed}");
     assert!(failed.ends_with(&access), "the advice follows the fallback's failure: {failed}");
 
     let never = || -> Option<Result<&str, String>> { panic!("only EACCES falls back") };
-    assert_eq!(open_or_kernel(Ok("libusb"), never), Ok("libusb"));
-    assert_eq!(open_or_kernel::<&str>(Err(rusb::Error::Busy), never), Err(open_error(rusb::Error::Busy)));
-    assert_eq!(open_or_kernel::<&str>(Err(rusb::Error::NoDevice), never), Err(open_error(rusb::Error::NoDevice)));
+    assert_eq!(open_or_kernel(Ok("libusb"), false, never), Ok("libusb"));
+    assert_eq!(open_or_kernel::<&str>(Err(rusb::Error::Busy), false, never), Err(open_error(rusb::Error::Busy)));
+    assert_eq!(open_or_kernel::<&str>(Err(rusb::Error::NoDevice), false, never), Err(open_error(rusb::Error::NoDevice)));
+}
+
+/// The automatic attach never brings up the kernel server's password prompt (polkit's
+/// `auth_admin` asks every time): a device on the list without a udev rule keeps the advice and
+/// is left to an attach by hand, instead of a prompt on every plug-in and every retry.
+#[test]
+fn the_automatic_attach_never_asks_for_the_password_and_leaves_the_device_to_the_user() {
+    use super::auto::{auto_due, hushed_on_password_failure};
+    use std::time::{Duration, Instant};
+
+    let no_prompt = || -> Option<Result<&str, String>> { panic!("the automatic attach started the password prompt") };
+    let quiet = Mutex::new(Vec::new());
+    let webcam = plugged("2-3", 0x046d, 0x0825, None);
+    let opened = hushed_on_password_failure(&quiet, &webcam, || open_or_kernel::<&str>(Err(rusb::Error::Access), true, no_prompt));
+    assert_eq!(opened, Err(open_error(rusb::Error::Access)), "the udev advice");
+    assert_eq!(*quiet.lock().unwrap(), vec![auto_key(0x046d, 0x0825)]);
+    // Past the retry cooldown and after another plug-in: not tried again by itself.
+    let auto = vec![auto_key(0x046d, 0x0825)];
+    let mut tried = HashMap::from([("2-3".to_owned(), Some(Instant::now()))]);
+    let later = Instant::now() + Duration::from_secs(60);
+    assert!(auto_due(std::slice::from_ref(&webcam), &auto, &quiet.lock().unwrap(), |_| false, &mut tried, later).is_empty());
+    // Other answers on the automatic path stay with the retry cooldown, unhushed.
+    let calm = Mutex::new(Vec::new());
+    let busy = hushed_on_password_failure(&calm, &webcam, || open_or_kernel::<&str>(Err(rusb::Error::Busy), true, no_prompt));
+    assert_eq!(busy, Err(open_error(rusb::Error::Busy)));
+    assert!(calm.lock().unwrap().is_empty());
 }

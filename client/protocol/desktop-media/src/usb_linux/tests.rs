@@ -139,8 +139,12 @@ fn the_helpers_failures_read_as_what_to_do() {
     ] {
         let helper = fake.script(&format!("exit{code}"), &format!("echo '{stderr}' >&2\nexit {code}\n"));
         let system = fake.system(&helper);
+        let failures = crate::usb::password_failures();
         assert_eq!(system.open("1-2", 0x046d, 0x0825).err(), Some(expected), "exit {code}");
         assert!(!system.bound("1-2"));
+        // Whatever failed behind the password, the cancelled prompt or the helper after it was
+        // given, the automatic attach leaves the device to the user instead of asking again.
+        assert_eq!(crate::usb::password_failures(), failures + 1, "exit {code} counts");
     }
     let mut system = fake.system(Path::new("/bin/false"));
     system.helper = vec!["/nonexistent/pkexec".into()];

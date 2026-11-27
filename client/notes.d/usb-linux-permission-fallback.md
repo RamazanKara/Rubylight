@@ -1,2 +1,2 @@
 ## desktop
-- On Linux, a USB device your user may not open is forwarded through Linux's own USB/IP server after a password prompt, instead of asking you to write a udev rule first. If you cancel that prompt for an automatic device, it isn't asked again until you press Attach.
+- On Linux, Attach forwards a USB device your user may not open through Linux's own USB/IP server after a password prompt, instead of asking you to write a udev rule first. The automatic attach never asks for the password and leaves such a device for you to attach by hand (a webcam or audio device says it needs your password and to press Attach), and a device whose password prompt failed or was cancelled isn't attached automatically again until you attach it by hand.

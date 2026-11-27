@@ -14,6 +14,8 @@ pub const FIREWALL: &str = "firewall_blocked";
 pub const GUEST_PORT: &str = "guest_port";
 /// An app's cover is on a network or device path, which the host no longer opens.
 pub const NETWORK_COVER: &str = "network_cover";
+/// Graphics card on Automatic streams on a GPU Windows does not list first.
+pub const AUTOMATIC_GPU: &str = "automatic_gpu";
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 struct Saved {
@@ -163,6 +165,36 @@ pub fn network_covers(warnings: &Warnings, apps: &[butterpollo_session::state::A
     warnings.set(NETWORK_COVER, message);
 }
 
+/// Says which GPU Graphics card on Automatic streams on while Windows lists
+/// another first ([`butterpollo_win_graphics::capture::automatic_switch`]),
+/// where streams rendered before; gone as soon as `config` chooses a GPU. A
+/// plain warning: dismissed, it stays hidden until it names another GPU.
+pub fn automatic_gpu(warnings: &Warnings, config: &butterpollo_config::config::Config) {
+    show_automatic_gpu(
+        warnings,
+        config,
+        butterpollo_win_graphics::capture::automatic_switch(),
+    );
+}
+
+fn show_automatic_gpu(
+    warnings: &Warnings,
+    config: &butterpollo_config::config::Config,
+    switched: Option<String>,
+) {
+    let chosen =
+        !config.get("adapter_name", "").is_empty() || !config.get("adapter_pnp_id", "").is_empty();
+    match switched.filter(|_| !chosen) {
+        Some(gpu) => warnings.set(
+            AUTOMATIC_GPU,
+            format!(
+                "Graphics card is on Automatic, so Rubylight streams from {gpu} rather than the GPU Windows lists first, unless the streamed display is connected to another AMD or NVIDIA GPU. To stream on another GPU, choose it under Graphics card in Settings."
+            ),
+        ),
+        None => warnings.clear(AUTOMATIC_GPU),
+    }
+}
+
 /// The current warnings without those the console dismissed at this text.
 pub fn visible(directory: &Path, warnings: &Warnings) -> Vec<Warning> {
     let dismissed = load_cached(directory)
@@ -290,6 +322,39 @@ mod tests {
         );
         network_covers(&warnings, &[app]);
         assert!(warnings.snapshot().is_empty());
+    }
+
+    #[test]
+    fn the_gpu_automatic_picks_over_the_first_listed_shows_until_dismissed() -> Result<()> {
+        let directory = tempdir()?;
+        let warnings = Warnings::default();
+        let automatic = butterpollo_config::config::Config::parse("")?;
+        let show = |gpu: &str| show_automatic_gpu(&warnings, &automatic, Some(gpu.into()));
+        show("AMD Radeon RX 7900 XT");
+        let shown = visible(directory.path(), &warnings);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].code, AUTOMATIC_GPU);
+        assert!(shown[0].message.contains("AMD Radeon RX 7900 XT"));
+        assert!(shown[0].message.contains("under Graphics card"));
+        // Every later stream on that GPU: still the one warning, and once
+        // dismissed it stays hidden.
+        show("AMD Radeon RX 7900 XT");
+        assert_eq!(warnings.snapshot().len(), 1);
+        dismiss(directory.path(), &warnings, AUTOMATIC_GPU)?;
+        show("AMD Radeon RX 7900 XT");
+        assert!(visible(directory.path(), &warnings).is_empty());
+        // Another GPU is news.
+        show("AMD Radeon RX 9070 XT");
+        assert_eq!(visible(directory.path(), &warnings).len(), 1);
+        // A GPU chosen under Graphics card ends it at once, before any stream.
+        let chosen =
+            butterpollo_config::config::Config::parse("adapter_name = AMD Radeon RX 9070 XT\n")?;
+        show_automatic_gpu(&warnings, &chosen, Some("AMD Radeon RX 9070 XT".into()));
+        assert!(warnings.snapshot().is_empty());
+        show("AMD Radeon RX 9070 XT");
+        show_automatic_gpu(&warnings, &automatic, None);
+        assert!(warnings.snapshot().is_empty());
+        Ok(())
     }
 
     #[test]

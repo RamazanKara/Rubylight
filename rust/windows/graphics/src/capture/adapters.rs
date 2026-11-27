@@ -349,15 +349,51 @@ pub(super) fn pinned_choice(
     adapter_name: &str,
     pnp_id: &str,
 ) -> (String, String) {
-    if adapter_name.is_empty() && pnp_id.is_empty() {
-        let adapters: Vec<encoder_gpu::Ranked> = gpus.iter().map(Gpu::ranked).collect();
-        if let Some(gpu) = encoder_gpu::pinned(&adapters, display_vendor).map(|index| &gpus[index])
-        {
-            log_automatic_choice(gpu, gpus.len());
-            return (gpu.name.clone(), gpu.pnp_id.clone().unwrap_or_default());
-        }
+    let automatic = adapter_name.is_empty() && pnp_id.is_empty();
+    let pinned = automatic
+        .then(|| {
+            let adapters: Vec<encoder_gpu::Ranked> = gpus.iter().map(Gpu::ranked).collect();
+            encoder_gpu::pinned(&adapters, display_vendor)
+        })
+        .flatten();
+    {
+        let mut switch = AUTOMATIC_SWITCH.lock().unwrap_or_else(|e| e.into_inner());
+        *switch = next_switch(switch.take(), gpus, automatic, pinned);
+    }
+    if let Some(gpu) = pinned.map(|index| &gpus[index]) {
+        log_automatic_choice(gpu, gpus.len());
+        return (gpu.name.clone(), gpu.pnp_id.clone().unwrap_or_default());
     }
     (adapter_name.to_string(), pnp_id.to_string())
+}
+/// The GPU Graphics card on Automatic pins streams to while that is not the
+/// one Windows lists first, which renders and encodes with no GPU chosen.
+static AUTOMATIC_SWITCH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// The name of the GPU Automatic pins streams to although Windows lists
+/// another first, for the console to say so; None when no stream was pinned
+/// that way or a GPU is chosen under Graphics card.
+pub fn automatic_switch() -> Option<String> {
+    AUTOMATIC_SWITCH
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+/// [`automatic_switch`] after a stream's choice: a GPU chosen under Graphics
+/// card (`automatic` false), a PC left with one GPU or Automatic pinning the
+/// first GPU ends it, a pin to another GPU names that one, and a stream
+/// Automatic left to Windows, as on a display already on an AMD or NVIDIA
+/// GPU, keeps it.
+pub(super) fn next_switch(
+    current: Option<String>,
+    gpus: &[Gpu],
+    automatic: bool,
+    pinned: Option<usize>,
+) -> Option<String> {
+    match pinned {
+        _ if !automatic || gpus.len() < 2 => None,
+        Some(index) => (index > 0).then(|| gpus[index].name.clone()),
+        None => current,
+    }
 }
 /// Logs the GPU Automatic pins a stream to, once per change: on a PC with
 /// several GPUs the console log then says which one streams and why.

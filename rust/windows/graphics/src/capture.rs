@@ -47,7 +47,7 @@ mod wgc;
 mod window;
 
 pub use adapters::{
-    ComGuard, Display, Gpu, Priority, check_window, display_present, displays,
+    ComGuard, Display, Gpu, Priority, automatic_switch, check_window, display_present, displays,
     enable_dpi_awareness, gpu_adapters, gpus, panel_driver, primary_display, select_gpu,
     stream_adapter, stream_gpu, stream_gpu_vendor,
 };
@@ -57,7 +57,7 @@ use adapters::{
 };
 pub(crate) use adapters::{display_rect, window_client, window_cursor};
 #[cfg(test)]
-use adapters::{headless_gpu, orders_by_luid, pinned_choice};
+use adapters::{headless_gpu, next_switch, orders_by_luid, pinned_choice};
 pub use amd_direct::Presented;
 pub(crate) use app_window::Crop;
 #[cfg(test)]

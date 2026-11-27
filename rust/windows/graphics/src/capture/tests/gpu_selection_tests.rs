@@ -225,6 +225,22 @@ fn a_stream_pins_to_the_amd_gpu_when_the_pc_has_another_vendors_too() {
     assert_eq!(pinned_choice(&nvidia, Some(0x10de), "", ""), none());
 }
 #[test]
+fn the_console_hears_when_automatic_pins_a_gpu_windows_does_not_list_first() {
+    let gpus = hybrid_gpus();
+    let card = Some("AMD Radeon RX 6850M XT".to_string());
+    // Automatic pins the card Windows lists after the iGPU: named.
+    assert_eq!(next_switch(None, &gpus, true, Some(1)), card);
+    // A stream Automatic leaves to Windows, as on a display already on an
+    // AMD GPU, keeps it.
+    assert_eq!(next_switch(card.clone(), &gpus, true, None), card);
+    // The GPU Windows lists first, or one chosen under Graphics card, ends it.
+    assert_eq!(next_switch(card.clone(), &gpus, true, Some(0)), None);
+    assert_eq!(next_switch(card.clone(), &gpus, false, None), None);
+    // So does a PC left with one GPU, as with the iGPU turned off.
+    let [_, only] = hybrid_gpus();
+    assert_eq!(next_switch(card, &[only], true, None), None);
+}
+#[test]
 fn the_probe_without_a_display_opens_the_gpu_the_stream_pins() {
     // Issue 134: Automatic, no display, an AMD iGPU listed before an RTX 5090.
     let [igpu, _] = hybrid_gpus();

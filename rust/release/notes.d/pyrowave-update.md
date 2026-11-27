@@ -1,3 +1,0 @@
-# PyroWave rate control
-- **PyroWave keeps its colours at low bitrates.** The pinned PyroWave SDK fixes rate-control bugs that caused colour loss on busy scenes at low bitrates: a truncated prefix scan in the rate-control finalize pass and a distortion scale mismatch in the quantizer. The bitstream, the C API (1.0.0) and the `186f0393` stream the host advertises are unchanged, so Vibepollo 2.0 and older Nightjar clients still decode it.
-- **PyroWave decodes correctly on GPUs with narrow subgroups.** The SDK now places dequantization plane offsets correctly where Vulkan subgroups are smaller than 16 threads, instead of reading the following blocks' data.

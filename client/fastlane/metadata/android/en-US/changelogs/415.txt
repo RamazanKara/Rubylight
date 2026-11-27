@@ -1,0 +1,5 @@
+• New Control Center replaces the stream menu with modular Quick, Picture, Audio, Clips, PC, Controller, Guests and Power pages
+• Frame Warp 2 with gyro aiming, faster lock and menu fade-out
+• Instant Replay, Quick Suspend, Launch curtain, Stream Doctor 2.0 and Away wake relay
+• Safe fit, per-screen Picture position, Landscape (either side) and Flip screen 180°
+• Redesigned on-screen controller, snapping editor with Undo, Touch area, preview cards and Bluetooth stereo mic fix

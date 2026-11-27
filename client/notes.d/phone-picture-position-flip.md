@@ -1,3 +1,0 @@
-## en
-- The Control Center's Picture page and the video settings have Picture position, which moves the picture to make up for a camera cutout or curved screen edges; it is saved for each screen, so a foldable's inner and cover screens keep their own.
-- The Control Center's Picture page has Flip screen 180°, which turns a landscape stream over for the rest of the session, without the PC changing the stream.

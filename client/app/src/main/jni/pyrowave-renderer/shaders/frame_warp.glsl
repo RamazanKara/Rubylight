@@ -39,6 +39,8 @@ vec2 frameWarpEdgeV2(vec2 p, float strength, out float fade) {
 // fill. The first off the HUD with its brightness in `fade`, or `uv` as it is.
 vec2 frameWarpProbe(vec2 uv, vec2 p, out float fade) {
     fade = 1.0;
+    // A shift too short to square (its direction undefined) probes nothing: the pixel stays
+    if (dot(frameWarp.shift.xy, frameWarp.shift.xy) == 0.0) return uv;
     // One mask cell along the shift's direction, per axis
     vec2 cell = normalize(frameWarp.shift.xy) / vec2(textureSize(u_hud, 0));
     for (int k = 1; k <= 8; ++k) {

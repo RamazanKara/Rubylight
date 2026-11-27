@@ -114,6 +114,19 @@ fn the_hud_probe_finds_the_background_behind_the_shift() {
         None,
         "no shift"
     );
+    // A shift whose square underflows has no direction: normalising it would give NaN, so the
+    // point keeps its own pixel, whatever the lens terms did to `source`.
+    for tiny in [
+        [1e-30, 0.0],
+        [0.0, -1e-30],
+        [f32::MIN_POSITIVE, f32::MIN_POSITIVE],
+    ] {
+        assert_eq!(
+            hud_probe(source, tiny, [10.0, 10.0], 2, 0.35, hud),
+            None,
+            "shift {tiny:?}"
+        );
+    }
     // A HUD wider than the guard keeps the point's own pixel.
     let wide = |p: [f32; 2]| p[0] > 0.2;
     assert_eq!(

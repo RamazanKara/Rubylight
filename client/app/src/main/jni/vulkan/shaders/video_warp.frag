@@ -36,6 +36,8 @@ vec2 frameWarpEdgeV2(vec2 p, float strength, out float fade) {
 // up to pc.warpV2.y points one mask cell apart back along the shift, each through the edge fill.
 // True with the first off the HUD in `at` and its brightness in `fade`.
 bool frameWarpProbe(vec2 p, out vec2 at, out float fade) {
+    // A shift too short to square (its direction undefined) probes nothing: the pixel stays
+    if (dot(pc.warp.xy, pc.warp.xy) == 0.0) return false;
     // One mask cell along the shift's direction, per axis
     vec2 cell = normalize(pc.warp.xy) / vec2(textureSize(uHud, 0));
     for (int k = 1; k <= 8; ++k) {

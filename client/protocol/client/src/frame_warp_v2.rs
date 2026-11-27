@@ -150,8 +150,9 @@ pub fn edge_v2(p: [f32; 2], strength: f32) -> ([f32; 2], f32) {
 /// lands on the HUD samples instead: the first of up to `guard` points one mask cell apart back
 /// along the shift (`source - k * step`, `step` the shift's direction one cell long) whose fill
 /// ([`edge_v2`] with `strength`) is off the HUD, with its brightness; `None` keeps the point's own
-/// pixel. `cells` is the mask's size and `hud` reads it. Every
-/// renderer's shader probes the same (`frameWarpProbe` in `frame_warp.hlsl`).
+/// pixel, as does a shift too short to square (no direction to probe along). `cells` is the mask's
+/// size and `hud` reads it. Every renderer's shader probes the same (`frameWarpProbe` in
+/// `frame_warp.hlsl` and the Android shaders, which test `dot(shift, shift) == 0.0`).
 pub fn hud_probe(
     source: [f32; 2],
     shift: [f32; 2],
@@ -160,10 +161,11 @@ pub fn hud_probe(
     strength: f32,
     hud: impl Fn([f32; 2]) -> bool,
 ) -> Option<([f32; 2], f32)> {
-    let length = (shift[0] * shift[0] + shift[1] * shift[1]).sqrt();
-    if length <= 0.0 || cells[0] <= 0.0 || cells[1] <= 0.0 {
+    let squared = shift[0] * shift[0] + shift[1] * shift[1];
+    if squared <= 0.0 || cells[0] <= 0.0 || cells[1] <= 0.0 {
         return None;
     }
+    let length = squared.sqrt();
     let step = [shift[0] / length / cells[0], shift[1] / length / cells[1]];
     (1..=guard.min(u32::from(MAX_HUD_GUARD))).find_map(|k| {
         let at = [

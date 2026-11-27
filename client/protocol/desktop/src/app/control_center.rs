@@ -74,11 +74,8 @@ fn surface(ctx: &egui::Context) -> Surface {
     nightjar_policy::control_center::surface(true, &live).unwrap_or(Surface::Baked)
 }
 
-/// One frame of the open Control Center. True when a shortcut was saved or deleted in it.
-pub(crate) fn show(ctx: &egui::Context, window: *mut SDL_Window, s: &mut Streaming, overlay: &mut StreamOverlay, pads: &mut Gamepads, shortcuts: &mut shortcuts::Shortcuts, title: &str) -> bool {
-    if !overlay.center.is_open() {
-        overlay.triggers.prime();
-    }
+/// The modules and cards the stream offers now, with `saved` shortcuts of the user's own.
+fn dock_now(s: &Streaming, overlay: &StreamOverlay, pads: &Gamepads, saved: usize) -> nightjar_policy::control_center::Dock {
     let available = stream_menu::Available {
         mouse: s.controller_mouse_offered(pads).then(|| pads.mouse_active()),
         overlay: s.overlay_visible,
@@ -102,7 +99,28 @@ pub(crate) fn show(ctx: &egui::Context, window: *mut SDL_Window, s: &mut Streami
     };
     // Instant Replay's cards on Clips: the host offers Stream DVR for this stream.
     let gates = Gates { stream_dvr: available.dvr.is_some(), ..Gates::default() };
-    let dock = stream_menu::dock(&available, shortcuts.data.len(), pads.menu_buttons(), &gates);
+    stream_menu::dock(&available, saved, pads.menu_buttons(), &gates)
+}
+
+/// A page of the Control Center that no module draws (Session and graphics, Shortcuts & help):
+/// it stands in the dock's frame with the rail at rest, as a page a card opened does, and brings
+/// its own ways back, so no footer is pinned under it.
+pub(crate) fn show_page(ctx: &egui::Context, s: &Streaming, overlay: &mut StreamOverlay, pads: &Gamepads, saved: usize, title: &str, line: &str, page: impl FnOnce(&mut egui::Ui)) {
+    let dock = dock_now(s, overlay, pads, saved);
+    let frame = center::Frame { title, line, surface: surface(ctx), input: overlay.input, sub_page: true };
+    let menu_focus = &mut overlay.menu_focus;
+    center::show(ctx, &mut overlay.center, &dock, &frame, |ui, _| {
+        gui::follow_focus(ui, menu_focus);
+        page(ui);
+    }, |_| {});
+}
+
+/// One frame of the open Control Center. True when a shortcut was saved or deleted in it.
+pub(crate) fn show(ctx: &egui::Context, window: *mut SDL_Window, s: &mut Streaming, overlay: &mut StreamOverlay, pads: &mut Gamepads, shortcuts: &mut shortcuts::Shortcuts, title: &str) -> bool {
+    if !overlay.center.is_open() {
+        overlay.triggers.prime();
+    }
+    let dock = dock_now(s, overlay, pads, shortcuts.data.len());
     overlay.menu_hotkeys = dock.buttons.keys().copied().collect();
     let mut page = std::mem::take(&mut overlay.menu_page);
     // More, Quality and Guests were pages of the 6.x menu: their rows are the modules' own now.

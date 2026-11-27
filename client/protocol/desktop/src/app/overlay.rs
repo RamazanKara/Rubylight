@@ -163,39 +163,42 @@ pub(crate) fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mu
             });
         }
         if s.menu_visible && overlay.session_page.is_some() {
-            // The page stands in the Control Center's place: back from it is an opening again.
-            overlay.center.closed();
+            // The page stands in the Control Center's frame, as a page a card opened does.
             let lines = page_hosts::connection_lines(s, &overlay.session_link);
             let hints = overlay.hints;
             let mut outcome = session_ui::Outcome::Stay;
-            if let Some(page) = overlay.session_page.as_mut() {
-                menu_style::show(&ctx, tr("Session and graphics"), "session-and-graphics", |ui| menu_style::body(ui, |ui| {
-                        gui::follow_focus(ui, &mut overlay.menu_focus);
-                        menu_style::header(ui, tr("Session and graphics"), &title);
-                        outcome = session_ui::show(ui, page, &lines, hints);
-                    }));
+            if let Some(mut page) = overlay.session_page.take() {
+                control_center::show_page(&ctx, s, overlay, pads, shortcuts.data.len(), tr("Session and graphics"), &title, |ui| {
+                    outcome = session_ui::show(ui, &mut page, &lines, hints);
+                });
+                overlay.session_page = Some(page);
             }
             match outcome {
                 session_ui::Outcome::Stay => {}
                 session_ui::Outcome::Resume => s.toggle_menu(window, pads),
                 session_ui::Outcome::HostMenu => page_hosts::open_host_menu(s, window, pads),
-                session_ui::Outcome::Back => overlay.close_session_page(s),
+                session_ui::Outcome::Back => {
+                    overlay.close_session_page(s);
+                    // Back on the module's page, the card that opened this one has the focus again.
+                    overlay.center.restore_focus(&ctx);
+                }
                 session_ui::Outcome::Disconnect | session_ui::Outcome::Leave => s.exit = Some(Exit::User),
             }
         }
         if s.menu_visible && overlay.session_page.is_none() && s.shortcut_sheet.is_some() {
-            overlay.center.closed();
             let from_menu = s.shortcut_sheet == Some(stream::Sheet::FromMenu);
             let style = glyphs::Style::of_brands(pads.pads.iter().map(gamepad::Pad::brand));
             let offered = s.controller_mouse_offered(pads);
+            let (quit, back_opens) = (pads.quit_combo(), pads.back_opens_menu());
             let mut back = false;
-            menu_style::show(&ctx, tr("Shortcuts & help"), "stream-controls", |ui| menu_style::body(ui, |ui| {
-                    gui::follow_focus(ui, &mut overlay.menu_focus);
-                    menu_style::header(ui, tr("Shortcuts & help"), &title);
-                    back = menu_style::sheet(ui, style, pads.quit_combo(), pads.back_opens_menu(), offered, from_menu);
-                }));
+            control_center::show_page(&ctx, s, overlay, pads, shortcuts.data.len(), tr("Shortcuts & help"), &title, |ui| {
+                back = menu_style::sheet(ui, style, quit, back_opens, offered, from_menu);
+            });
             if back {
                 s.close_shortcut_sheet(window, pads);
+                if from_menu {
+                    overlay.center.restore_focus(&ctx);
+                }
             }
         } else if s.menu_visible && overlay.session_page.is_none() {
             shortcuts_changed |= control_center::show(&ctx, window, s, overlay, pads, shortcuts, &title);

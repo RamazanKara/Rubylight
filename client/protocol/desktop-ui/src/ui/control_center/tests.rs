@@ -122,6 +122,11 @@ impl Demo {
                 &frame,
                 |ui, module| {
                     let focus_first = ctx.memory(|m| m.focused().is_none());
+                    if sub_page == Some(HELP) {
+                        // The help sheet brings its own way back: no footer under it (`app::control_center::show_page`).
+                        menu_style::sheet(ui, crate::glyphs::Style::Xbox, crate::config::GamepadQuitCombo::default(), true, true, true);
+                        return;
+                    }
                     if sub_page.is_some() {
                         stream_menu::shortcuts_page(ui, saved, focus_first);
                         return;
@@ -153,7 +158,7 @@ impl Demo {
                         }
                     });
                 },
-                |ui| leave = stream_menu::dock_footer(ui, &dock, Some("Esc")),
+                |ui| leave = (sub_page != Some(HELP)).then(|| stream_menu::dock_footer(ui, &dock, Some("Esc"))).flatten(),
             );
             self.chosen = chosen;
             self.leave = leave;
@@ -209,6 +214,9 @@ fn texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<(String, Color32)> {
     shapes.iter().for_each(|clipped| walk(&clipped.shape, &mut out));
     out
 }
+
+/// The page title that stands for Shortcuts & help in a demo.
+const HELP: &str = "Shortcuts & help";
 
 fn paint(ctx: &Context, demo: &mut Demo) -> crate::shot::Canvas {
     let mut shapes = Vec::new();
@@ -584,6 +592,11 @@ fn control_center_screenshots() {
     }
     if wanted("cc-sub-page") {
         shoot(&dir, "cc-sub-page", deck, Look::Night, true, |demo| demo.sub_page = Some("Shortcuts"));
+    }
+    for (name, look, size) in [("cc-help-sheet", Look::Night, deck), ("cc-help-sheet-day", Look::Day, deck), ("cc-help-sheet-4k", Look::Night, (1920.0, 1080.0, 2.0))] {
+        if wanted(name) {
+            shoot(&dir, name, size, look, true, |demo| demo.sub_page = Some(HELP));
+        }
     }
     if wanted("cc-picture-4k") {
         shoot(&dir, "cc-picture-4k", (1920.0, 1080.0, 2.0), Look::Night, true, |demo| demo.state.module = Module::Picture);

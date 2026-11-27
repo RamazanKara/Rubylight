@@ -136,6 +136,18 @@ fn run(
     }
 }
 
+/// What a request for `op` may do while Quick Suspend is `on` or off. Turned
+/// off while a game is paused, the host still answers and resumes it;
+/// otherwise a request only learns the state (Unavailable, turned off), so the
+/// device stops offering it instead of waiting for an answer.
+fn permitted(on: bool, op: Op, suspended: impl FnOnce() -> bool) -> Op {
+    match op {
+        Op::Suspend if !on => Op::QueryState,
+        Op::Resume if !on && !suspended() => Op::QueryState,
+        op => op,
+    }
+}
+
 /// A device's request (0x554B). Only an encrypted one, on a stream the host
 /// offered Quick Suspend to.
 pub(super) fn request(
@@ -156,15 +168,10 @@ pub(super) fn request(
         tracing::debug!(len = payload.len(), "invalid Quick Suspend request");
         return;
     };
-    // Turned off while a game is paused, the host still answers and resumes it;
-    // otherwise a request only learns the state (Unavailable, turned off), so the
-    // device stops offering it instead of waiting for an answer.
-    let mut op = request.op;
-    if !crate::extensions::quick_suspend(&config)
-        && (op == Op::Suspend || !h.quick_suspend.suspended())
-    {
+    let on = crate::extensions::quick_suspend(&config);
+    let op = permitted(on, request.op, || h.quick_suspend.suspended());
+    if op != request.op {
         tracing::debug!("Quick Suspend request while it is off");
-        op = Op::QueryState;
     }
     if !p.quick_suspend.active {
         p.quick_suspend.active = true;
@@ -218,13 +225,18 @@ pub(super) fn send(
             }
         }
     }
-    let peer = &mut p.quick_suspend;
-    if !peer.busy.load(Ordering::Acquire)
-        && let Some((op, waited)) = peer.waiting.take()
+    if !p.quick_suspend.busy.load(Ordering::Acquire)
+        && let Some((op, waited)) = p.quick_suspend.waiting.take()
     {
+        // The setting may have been turned off while it waited.
+        let on = p
+            .config(h, s)
+            .is_ok_and(|config| crate::extensions::quick_suspend(&config));
+        let op = permitted(on, op, || h.quick_suspend.suspended());
         let ids = waited.into_iter().map(|(id, _)| id).collect();
-        run(h, control_wake, peer, s, op, ids);
+        run(h, control_wake, &mut p.quick_suspend, s, op, ids);
     }
+    let peer = &mut p.quick_suspend;
     let revision = h.quick_suspend.revision();
     if revision != peer.sent {
         peer.sent = revision;
@@ -303,6 +315,28 @@ mod tests {
         assert_eq!(op, Op::Resume);
         assert!(!ids.contains(&1) && !ids.contains(&70) && ids.contains(&71));
         assert_eq!(ids.len(), MAX_WAITING);
+    }
+
+    #[test]
+    fn turned_off_only_a_paused_games_resume_runs() {
+        let paused = || true;
+        let running = || false;
+        for op in [Op::QueryState, Op::Suspend, Op::Resume] {
+            assert_eq!(permitted(true, op, || unreachable!()), op);
+        }
+        assert_eq!(permitted(false, Op::Suspend, paused), Op::QueryState);
+        assert_eq!(permitted(false, Op::Resume, paused), Op::Resume);
+        assert_eq!(permitted(false, Op::Resume, running), Op::QueryState);
+        assert_eq!(
+            permitted(false, Op::QueryState, || unreachable!()),
+            Op::QueryState
+        );
+        // A request that waited for the worker is checked again before it
+        // runs: the setting may have been turned off meanwhile.
+        let source = include_str!("quick_suspend.rs");
+        let send = &source[source.find("pub(super) fn send(").unwrap()..];
+        let check = send.find("let op = permitted(on, op, ").unwrap();
+        assert!(check < send.find("run(h, control_wake, ").unwrap());
     }
 
     #[test]

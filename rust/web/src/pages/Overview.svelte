@@ -350,9 +350,9 @@
     skip={detailsOpen ? undefined : heroProblem?.id} /></div>
 {/if}
 {#if detailsOpen && metadata}
-  <Panel title="This PC"><dl class="facts"><dt>Address</dt><dd class="row"><span class="num">{metadata.pc_address}</span><CopyButton value={metadata.pc_address} label="Copy address" what="the address" /></dd>
-    {#each addresses as address}<dt>Other address</dt><dd class="num">{address}</dd>{/each}
-    <dt>Version</dt><dd>{metadata.version}</dd></dl></Panel>
+  <Panel title="This PC"><dl class="facts"><dt class="host-address">Address</dt><dd class="row host-address"><span class="num">{metadata.pc_address}</span><CopyButton value={metadata.pc_address} label="Copy address" what="the address" /></dd>
+    {#each addresses as address}<dt class="host-address">Other address</dt><dd class="num host-address">{address}</dd>{/each}
+    <dt class="host-version">Version</dt><dd class="host-version">{metadata.version}</dd></dl></Panel>
 {/if}
 {#if helpOpen}<Panel title="Connect from your device"><ConnectHelp {metadata} /></Panel>{/if}
 {#if !firstRun && !paired && metadata && !unavailable}<PairPanel />{/if}

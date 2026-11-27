@@ -36,7 +36,7 @@ final class GameTouchInput {
 
     private int desktopHeldButtons;
     private boolean inTouchDispatch;
-    private boolean touchAttemptedInDispatch;
+    private boolean touchRejectedInDispatch;
     private MouseDeltaAccumulator desktopDeltaX = new MouseDeltaAccumulator();
     private MouseDeltaAccumulator desktopDeltaY = new MouseDeltaAccumulator();
     private MouseDeltaAccumulator desktopScrollV = new MouseDeltaAccumulator();
@@ -428,19 +428,19 @@ final class GameTouchInput {
 
     boolean dispatchTouchEvent(MotionEvent event, BooleanSupplier superDispatch) {
         boolean previousInDispatch = inTouchDispatch;
-        boolean previousAttempted = touchAttemptedInDispatch;
+        boolean previousRejected = touchRejectedInDispatch;
         inTouchDispatch = true;
-        touchAttemptedInDispatch = false;
+        touchRejectedInDispatch = false;
         try {
             return superDispatch.getAsBoolean();
         } finally {
             inTouchDispatch = previousInDispatch;
-            touchAttemptedInDispatch = previousAttempted;
+            touchRejectedInDispatch = previousRejected;
         }
     }
 
     boolean onActivityTouchEvent(MotionEvent event) {
-        if (game.streamView == null || (inTouchDispatch && touchAttemptedInDispatch)) {
+        if (game.streamView == null || (inTouchDispatch && touchRejectedInDispatch)) {
             return false;
         }
         return onOverlayTouch(null, event);
@@ -461,12 +461,17 @@ final class GameTouchInput {
 
     @SuppressLint("ClickableViewAccessibility")
     boolean onTouch(View view, MotionEvent event) {
-        if (inTouchDispatch && touchAttemptedInDispatch) {
+        if (inTouchDispatch && touchRejectedInDispatch) {
             return false;
         }
-        if (inTouchDispatch) {
-            touchAttemptedInDispatch = true;
+        boolean handled = dispatchStreamTouch(view, event);
+        if (!handled && inTouchDispatch) {
+            touchRejectedInDispatch = true;
         }
+        return handled;
+    }
+
+    private boolean dispatchStreamTouch(View view, MotionEvent event) {
         noteTouchArrivals(event);
         game.keyboardInput.noteStreamPress(view, event);
         if (game.desktopGestures != null && game.foreground && game.connected && game.streamMenu == null

@@ -92,7 +92,7 @@
     <div class="stack">
       <!-- The versions and Check now stay in view; schedule, notes and links fold below. -->
       <dl class="facts">
-        <dt>Installed</dt><dd class="num">{installed || '…'}</dd>
+        <dt class="host-version">Installed</dt><dd class="num host-version">{installed || '…'}</dd>
         <dt>Latest release</dt>
         <dd>
           {#if latest}<span class="num">{latest.tag_name}</span>

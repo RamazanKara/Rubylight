@@ -40,7 +40,7 @@ The tables below have no macOS column. The Mac client shares the desktop library
 | Instant Replay: save a clip, record | Yes | Yes | Yes | On the Control Center's Clips page, with a PC that offers Stream DVR. |
 | Wake a sleeping PC from away through a wake relay | Yes | No | No | The desktop runs the relay itself instead (`nightjar wake-relay`, also on macOS). |
 | Continue here: move the running game's stream between devices | Yes | Yes | Yes | Hosts with `session.continue_here`, for a device with View and Launch |
-| Join co-op (Nucleus Co-op) | Yes | Yes | Yes | |
+| Join co-op | Yes | Yes | Yes | |
 | A game's frame generation on the PC | Yes | Yes | Yes | In the game's menu (Android) or on its page (desktop), on hosts with `neural.frame_generation`, for a device with View; turning it on or off needs Host control. On or Off with the reason, in the app's words, before any try (the Visual C++ runtime to install on the PC among them); the PC's note when frame generation runs on another GPU than the one it streams with; the release once on. |
 | Microphone only | Yes | Yes | Yes | A session that sends only this device's microphone, on hosts that offer it, for a device with Launch. |
 | Restart, shut down or sleep the PC; update its host | Yes | Yes | Yes | In the PC's options, where the host offers it and allows it for this device. See [the PC's power and host updates](console.md#the-pcs-power-and-host-updates). |

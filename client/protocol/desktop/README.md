@@ -230,12 +230,12 @@ Everything below works on Windows and Linux unless a platform is named; the [mac
 **Library**
 
 - Library with cached cover art; launch, resume, quit, and quit-and-start another app. Remote Monitor and Input-only entries start in their role where the host publishes them.
-- Home and the game page on hosts with the native API (Rubylight 3.0): a stage with the cover of the game to continue, games to continue, the library of all PCs merged by title, the PCs and what each knows, recently played games, and a page per game with Play or Resume, the stream settings that will apply, game settings and Close game. The last library of each PC is kept, so Home works while a PC is away. Home can group by collection, and a game can be hidden on this device.
+- Home and the game page on hosts with the native API (Rubylight 3.0): a stage with the cover of the game to continue, games to continue, the library of all PCs merged by title, the PCs and what each knows, recently played games, and a page per game with Play or Resume, the stream settings that will apply, game settings and Quit game. The last library of each PC is kept, so Home works while a PC is away. Home can group by collection, and a game can be hidden on this device.
 - While a stream connects, the whole window shows the game's cover, the PC and the current step, with **Cancel**; with a PC that offers the [launch curtain](../../docs/console.md#the-launch-curtain), the cover stays until the game is in front. A start that fails turns into a card that says why, with **Try again**, **Stream settings** and **Test the network**, which asks Moonlight's port-test server whether a firewall blocks the streaming ports.
 - **Continue here** moves a game another device is playing to this one; **Stream here too** streams beside it.
 - **When Nightjar opens** shows Home (the default) or the PCs, continues the last game or starts a chosen game, and **Start Nightjar when I sign in** starts it with the desktop session (also in the Flatpak).
-- **Co-op sessions** join or start a Nucleus Co-op session on hosts that offer it, and **Microphone only** sends just this device's microphone.
-- The [Control Center](../../docs/controls.md#the-control-center) over a stream: a dock at the right edge with a rail of modules (Quick, Picture, Audio, Clips, PC, Controller, Guests and Power), and Return to stream, Disconnect and Quit game under every page. Its PC page has the session and graphics page (Rubylight 3.0): Resume, Disconnect, End session and Close game with confirmation, the connection facts, and the Radeon panel.
+- **Co-op sessions** join or start a co-op session on hosts that offer it, and **Microphone only** sends just this device's microphone.
+- The [Control Center](../../docs/controls.md#the-control-center) over a stream: a dock at the right edge with a rail of modules (Quick, Picture, Audio, Clips, PC, Controller, Guests and Power), and Return to stream, Disconnect and Quit game under every page. Its PC page has the session and graphics page (Rubylight 3.0): Resume, Disconnect, End session and Quit game with confirmation, the connection facts, and the Radeon panel.
 - **Suspend game** and **Resume game** with a PC that has Quick Suspend on, and Instant Replay's **Save clip** and **Start recording** with a PC that offers Stream DVR (see [Quick Suspend](../../docs/console.md#quick-suspend) and [Instant Replay](../../docs/console.md#instant-replay)).
 - **Quick resume**, per-game quit on leave, and **Input-only on any PC**.
 
@@ -245,7 +245,7 @@ Everything below works on Windows and Linux unless a platform is named; the [mac
 - PyroWave decodes on the GPU or the CPU, with a bandwidth test and a frame-pace calibration per network, and skips to the newest frame when the decoder falls behind.
 - HDR: HDR10 and HLG, plus Dolby Vision profiles 8.1 and 10.1 on Windows from hosts that send them. On Linux, HDR streams present as HDR10 PQ where the compositor offers it, else scRGB. **Less color banding** (10-bit SDR) and **Sharper colored text** (YUV 4:4:4, native or packed full chroma) where the host and decoder support them; Windows decodes HEVC 4:4:4 in hardware on GPUs whose decoder has it.
 - Upscaling with bilinear, FSR 1, SGSR 1 or AI enhancement (the GPU vendor's video super resolution).
-- **Frame Warp** with a PC that offers it (Rubylight 7.0 or newer), in every presenter ([Frame Warp](../../docs/video-and-latency.md#frame-warp)).
+- **Frame Warp** with a PC that offers it (Rubylight 6.5 or newer), in every presenter ([Frame Warp](../../docs/video-and-latency.md#frame-warp)).
 - Variable refresh rate with frames shown at the PC's frame times, frame pacing modes and V-Sync without VRR, fractional refresh rates, virtual displays and the PC's display arrangement.
 - **Dual screen mode**: with a second monitor and a host that supports it, a second stream of the same game opens full screen on it.
 

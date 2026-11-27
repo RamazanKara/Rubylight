@@ -455,6 +455,36 @@ public class GameTouchInputTest {
         assertArrayEquals(new int[] {175, 200, 800, 400}, connection.positions.get(0));
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
 
+        // Split multi-finger targets (finger 0 on shifted streamView, finger 1 on backgroundTouchView) both receive moves.
+        ReflectionHelpers.setField(game, "desktopGestures", null);
+        ReflectionHelpers.setField(game, "nativeTouchEnabled", true);
+        connection.touches.clear();
+        stream.setTranslationX(-80);
+        MotionEvent down0 = motion(MotionEvent.ACTION_DOWN, 0, new int[] {0}, 2000, 0, new float[] {60, 250});
+        MotionEvent down1 = motion(MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {0, 1}, 2010, 0,
+                new float[] {60, 250}, new float[] {860, 250});
+        MotionEvent moveBoth = motion(MotionEvent.ACTION_MOVE, 0, new int[] {0, 1}, 2020, 0,
+                new float[] {70, 250}, new float[] {870, 250});
+        MotionEvent cancelBoth = motion(MotionEvent.ACTION_CANCEL, 0, new int[] {0, 1}, 2030, 0,
+                new float[] {70, 250}, new float[] {870, 250});
+        try {
+            assertTrue(game.dispatchTouchEvent(down0));
+            assertTrue(game.dispatchTouchEvent(down1));
+            assertEquals("both split touch targets tracked", 2, connection.heldTouches.size());
+            connection.touches.clear();
+            assertTrue(game.dispatchTouchEvent(moveBoth));
+            assertEquals("both split targets receive ACTION_MOVE", 2, connection.touches.size());
+            game.dispatchTouchEvent(cancelBoth);
+            assertTrue("ACTION_CANCEL clears both split targets", connection.heldTouches.isEmpty());
+        } finally {
+            down0.recycle();
+            down1.recycle();
+            moveBoth.recycle();
+            cancelBoth.recycle();
+        }
+        ReflectionHelpers.setField(game, "nativeTouchEnabled", false);
+        stream.setTranslationX(0);
+
         // Ungrabbed touches must not double-dispatch across streamView, backgroundTouchView, and onTouchEvent, and null streamView is safe.
         ReflectionHelpers.setField(game, "grabbedInput", false);
         assertFalse(dispatchActivityTouch(game, MotionEvent.ACTION_DOWN, 500, 250));

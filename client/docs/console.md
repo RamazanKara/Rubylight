@@ -98,7 +98,7 @@ Home and the PC list have dedicated TV layouts, chosen by Android's television m
 
 ## Join co-op
 
-A host with co-op sessions (Rubylight 3.0) can run a game as a [Nucleus Co-op](https://github.com/SplitScreen-Me/splitscreenme-nucleus) split-screen session with one stream per player. Start the game's "(Co-op)" entry from the library on one device; the other players join from theirs:
+A host with co-op sessions (Rubylight 3.0) can run a game as a split-screen co-op session with one stream per player. Start the game's "(Co-op)" entry from the library on one device; the other players join from theirs:
 
 - **Android:** **Join co-op** in the PC's options lists the PC's co-op sessions with their status, free slots and your own seat. Select a free slot to join, or your seat to return to it, and the stream starts.
 - **Windows and Linux:** the PC's details page lists the same sessions and joins a slot.

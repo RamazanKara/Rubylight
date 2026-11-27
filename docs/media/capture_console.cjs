@@ -292,7 +292,7 @@ function answer(scene) {
 // pictures stay current across releases. The PC's address goes with it.
 const HIDE_VERSION = `
   aside .host > .muted, aside .host > .address, aside .host > .version { display: none !important; }
-  .facts dt:first-of-type, .facts dd:first-of-type { display: none !important; }
+  .facts .host-address, .facts .host-version { display: none !important; }
 `;
 
 async function shoot(browser, base, name, { width, height: frame, scale, file }) {

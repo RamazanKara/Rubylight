@@ -117,19 +117,24 @@ export function palette(query: string, found: { apps: App[] | null; clients: Cli
     const catalog = new Map<string, Entry>(
       [...PAGES, ...actions, ...checks, ...games, ...devices, ...schema.settings.map(settingEntry)].map((entry) => [entry.id, entry]),
     );
-    const recent = (context.recentIds ?? [])
+    const recent = [...new Set(context.recentIds ?? [])]
       .map((id) => catalog.get(id))
       .filter((entry): entry is Entry => Boolean(entry))
       .slice(0, EMPTY_LIMITS.recent);
+    const seen = new Set(recent.map((entry) => entry.id));
+    const unique = (list: Entry[]) => list.filter((entry) => !seen.has(entry.id));
     const emptyGroups: Group[] = [];
+    const topGames = unique(games).slice(0, EMPTY_LIMITS.games);
+    const topDevices = unique(devices).slice(0, EMPTY_LIMITS.devices);
+    const topPages = unique(PAGES.filter((entry) => primary.some((item) => entry.id === `page:${item.path}`)));
+    const topActions = unique(actions);
+    const topChecks = unique(checks);
     if (recent.length) emptyGroups.push({ id: 'recent', title: 'Recent', entries: recent });
-    if (games.length) emptyGroups.push({ id: 'games', title: 'Games', entries: games.slice(0, EMPTY_LIMITS.games) });
-    if (devices.length) emptyGroups.push({ id: 'devices', title: 'Devices', entries: devices.slice(0, EMPTY_LIMITS.devices) });
-    emptyGroups.push(
-      { id: 'pages', title: 'Pages', entries: PAGES.filter((entry) => primary.some((item) => entry.id === `page:${item.path}`)) },
-      { id: 'actions', title: 'Host actions', entries: actions },
-      { id: 'diagnostics', title: 'Diagnostics', entries: checks },
-    );
+    if (topGames.length) emptyGroups.push({ id: 'games', title: 'Games', entries: topGames });
+    if (topDevices.length) emptyGroups.push({ id: 'devices', title: 'Devices', entries: topDevices });
+    if (topPages.length) emptyGroups.push({ id: 'pages', title: 'Pages', entries: topPages });
+    if (topActions.length) emptyGroups.push({ id: 'actions', title: 'Host actions', entries: topActions });
+    if (topChecks.length) emptyGroups.push({ id: 'diagnostics', title: 'Diagnostics', entries: topChecks });
     return emptyGroups;
   }
 

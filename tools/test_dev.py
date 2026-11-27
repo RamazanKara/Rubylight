@@ -978,6 +978,23 @@ class Execution(unittest.TestCase):
                 self.assertEqual(env['TEMP'], str(long_temp))
                 self.assertEqual(env['TMP'], str(long_temp))
 
+    def test_breakaway_shared_daemons_explicitly_request_normal_priority(self):
+        if os.name != 'nt':
+            self.skipTest('Windows breakaway daemon creation flags only')
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            seen = []
+            def fake_run(cmd, **kwargs):
+                seen.append((cmd, kwargs.get('creationflags', 0)))
+                return mock.Mock(returncode=0)
+            with mock.patch.object(dev.subprocess, 'run', side_effect=fake_run), \
+                    mock.patch.object(dev, '_has_compatible_gradle_daemon', return_value=False):
+                dev._ensure_sccache_server('sccache', {})
+                self.assertTrue(dev._ensure_gradle_daemon(root, {}))
+            self.assertEqual(len(seen), 2)
+            for _cmd, flags in seen:
+                self.assertTrue(flags & dev.build_lock.NORMAL_PRIORITY_CLASS)
+
 
 class HandRunCargo(unittest.TestCase):
     def cargo(self, *argv, code=0, error=None):

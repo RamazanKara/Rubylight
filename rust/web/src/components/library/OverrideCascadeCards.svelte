@@ -35,6 +35,7 @@
     skip = [],
     hostError = '',
     onretry,
+    invalid = $bindable(false),
   }: {
     /** Unique on the page: the cards' controls take their ids from it. */
     id: string;
@@ -48,6 +49,8 @@
     /** Why the host's settings could not be read; the cards still set overrides. */
     hostError?: string;
     onretry?: () => void;
+    /** Whether any field currently shows a range error. */
+    invalid?: boolean;
   } = $props();
 
   const top = $derived(layers[0]);
@@ -69,12 +72,29 @@
 
   /** Folds the user opened or closed; one with a value of this layer starts open. */
   let opened = $state<Record<string, boolean>>({});
-  /** Text being typed into a number or text field, kept as typed while it has the focus. */
+  /** Text being typed into a number or text field, kept as typed while it has the focus or an error. */
   let typing = $state<Record<string, string>>({});
+
+  const hasError = $derived(
+    folds.some((fold) =>
+      fold.settings.some((setting) => rangeError(setting, typing[setting.key] ?? controlText(setting, top?.values?.[setting.key])) !== ''),
+    ),
+  );
+  $effect(() => {
+    invalid = hasError;
+    return () => {
+      invalid = false;
+    };
+  });
 
   function type(setting: Setting, text: string) {
     typing[setting.key] = text;
     if (!rangeError(setting, text)) onset(setting.key, storedValue(setting, text));
+  }
+
+  function finishTyping(setting: Setting) {
+    const text = typing[setting.key];
+    if (text !== undefined && !rangeError(setting, text)) delete typing[setting.key];
   }
 
   function inherit(setting: Setting): string {
@@ -172,7 +192,7 @@
                     aria-describedby={error ? `${field}-error` : undefined}
                     value={text}
                     oninput={(event) => type(setting, event.currentTarget.value)}
-                    onblur={() => delete typing[setting.key]}
+                    onblur={() => finishTyping(setting)}
                   />
                   {#if control.kind === 'number' && control.unit}<span class="unit">{control.unit}</span>{/if}
                   {#if control.kind === 'text' && control.presets}

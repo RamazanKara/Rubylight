@@ -3,10 +3,10 @@
 //! Controller types, capability flags, and arrival/rumble reporting follow moonlight-qt's
 //! `app/streaming/input/gamepad.cpp` (GPL-3.0, Cameron Gutman and contributors).
 
-use nightjar_core::input::packets::{capability, motion_type};
 use nightjar_core::input::InputQueue;
-use rubylight_protocol::ps_speaker_pcm::PS_SPEAKER_CAPABILITY;
+use nightjar_core::input::packets::{capability, motion_type};
 use nightjar_policy::controllers::Controllers;
+use rubylight_protocol::ps_speaker_pcm::PS_SPEAKER_CAPABILITY;
 use sdl3_sys::everything::*;
 
 use crate::gamepad_types::*;
@@ -19,29 +19,39 @@ impl Gamepads {
     pub fn launch_controllers(&self, settings: &crate::config::Settings) -> String {
         let players = Controllers::from_saved(settings.controllers, settings.multi_controller);
         let mut listed = 0u16;
-        self.pads.iter().filter_map(|pad| {
-            let sent = players.sent_index(pad.index)?;
-            if listed & (1 << sent) != 0 {
-                return None;
-            }
-            listed |= 1 << sent;
-            let (kind, buttons, mut caps) = describe(pad);
-            if !settings.controller_motion {
-                caps &= !(capability::ACCEL | capability::GYRO);
-            }
-            let kind = if kind == CTYPE_UNKNOWN { CTYPE_XBOX } else { kind };
-            Some(format!("{sent}:{kind}:{caps}:{buttons}"))
-        }).collect::<Vec<_>>().join(",")
+        self.pads
+            .iter()
+            .filter_map(|pad| {
+                let sent = players.sent_index(pad.index)?;
+                if listed & (1 << sent) != 0 {
+                    return None;
+                }
+                listed |= 1 << sent;
+                let (kind, buttons, mut caps) = describe(pad);
+                if !settings.controller_motion {
+                    caps &= !(capability::ACCEL | capability::GYRO);
+                }
+                let kind = if kind == CTYPE_UNKNOWN {
+                    CTYPE_XBOX
+                } else {
+                    kind
+                };
+                Some(format!("{sent}:{kind}:{caps}:{buttons}"))
+            })
+            .collect::<Vec<_>>()
+            .join(",")
     }
 
     /// The gamepad slots a launch sends as PlayStation controllers (`psmap`), as
     /// [`Self::launch_controllers`] numbers them; the launch masks it by the gamepad mask.
     pub fn launch_playstation_mask(&self, settings: &crate::config::Settings) -> u32 {
         let players = Controllers::from_saved(settings.controllers, settings.multi_controller);
-        self.pads.iter().fold(0, |mask, pad| match players.sent_index(pad.index) {
-            Some(sent) if describe(pad).0 == CTYPE_PS && sent < 16 => mask | (1 << sent),
-            _ => mask,
-        })
+        self.pads
+            .iter()
+            .fold(0, |mask, pad| match players.sent_index(pad.index) {
+                Some(sent) if describe(pad).0 == CTYPE_PS && sent < 16 => mask | (1 << sent),
+                _ => mask,
+            })
     }
 
     /// Tells the host about every controller (at stream start).
@@ -54,7 +64,11 @@ impl Gamepads {
 
     pub fn announce_new(&mut self, queue: &mut InputQueue) {
         let mask = self.active_mask();
-        for pad in self.pads.iter_mut().filter(|pad| !pad.announced && !pad.refused) {
+        for pad in self
+            .pads
+            .iter_mut()
+            .filter(|pad| !pad.announced && !pad.refused)
+        {
             announce(pad, mask, self.motion, queue);
         }
     }
@@ -78,20 +92,42 @@ impl Gamepads {
     /// Rumble from the host for gamepad `index`, on every controller sent as it; motor speeds 0-65535.
     pub fn rumble(&self, index: u16, low: u16, high: u16) {
         use nightjar_policy::rumble::shape;
-        if self.disable_rumble { return; }
+        if self.disable_rumble {
+            return;
+        }
         for pad in self.sent_as(index) {
-            if pad.audio.as_ref().is_some_and(|audio| audio.active()) { continue; }
+            if pad.audio.as_ref().is_some_and(|audio| audio.active())
+                || pad.bt_audio.as_ref().is_some_and(|bt| bt.active())
+            {
+                continue;
+            }
             // SAFETY: an open gamepad. A long duration; the host sends 0 to stop.
-            unsafe { SDL_RumbleGamepad(pad.handle, shape(low, self.rumble_feel), shape(high, self.rumble_feel), 30_000) };
+            unsafe {
+                SDL_RumbleGamepad(
+                    pad.handle,
+                    shape(low, self.rumble_feel),
+                    shape(high, self.rumble_feel),
+                    30_000,
+                )
+            };
         }
     }
 
     pub fn rumble_triggers(&self, index: u16, left: u16, right: u16) {
         use nightjar_policy::rumble::shape;
-        if self.disable_rumble { return; }
+        if self.disable_rumble {
+            return;
+        }
         for pad in self.sent_as(index) {
             // SAFETY: an open gamepad.
-            unsafe { SDL_RumbleGamepadTriggers(pad.handle, shape(left, self.rumble_feel), shape(right, self.rumble_feel), 30_000) };
+            unsafe {
+                SDL_RumbleGamepadTriggers(
+                    pad.handle,
+                    shape(left, self.rumble_feel),
+                    shape(right, self.rumble_feel),
+                    30_000,
+                )
+            };
         }
     }
 
@@ -110,11 +146,21 @@ impl Gamepads {
         for pad in self.sent_as(index) {
             // SAFETY: an open gamepad.
             unsafe { SDL_SetGamepadLED(pad.handle, r, g, b) };
-            if let Some(audio) = &pad.audio { audio.send(pad.handle); }
+            if let Some(audio) = &pad.audio {
+                audio.send(pad.handle);
+            }
         }
     }
 
-    pub fn adaptive_triggers(&self, index: u16, flags: u8, type_left: u8, type_right: u8, left: &[u8; 10], right: &[u8; 10]) {
+    pub fn adaptive_triggers(
+        &self,
+        index: u16,
+        flags: u8,
+        type_left: u8,
+        type_right: u8,
+        left: &[u8; 10],
+        right: &[u8; 10],
+    ) {
         for pad in self.sent_as(index) {
             send_trigger_effect(pad, flags, type_left, type_right, left, right);
         }
@@ -138,7 +184,8 @@ impl Gamepads {
             // SAFETY: an open gamepad.
             unsafe {
                 let already = SDL_GamepadSensorEnabled(pad.handle, sensor);
-                if !should_apply_motion_rate(pad.motion_rates[slot].get(), wanted_rate, already, on) {
+                if !should_apply_motion_rate(pad.motion_rates[slot].get(), wanted_rate, already, on)
+                {
                     continue;
                 }
                 // Nightjar #177: if a Bluetooth controller missed its initial enhanced-mode report
@@ -168,7 +215,9 @@ impl Gamepads {
             send_trigger_effect(pad, 0x0C, 0x05, 0x05, &[0; 10], &[0; 10]);
         }
         for pad in &mut self.pads {
-            if let Some(audio) = pad.audio.take() { audio.reset(pad.handle); }
+            if let Some(audio) = pad.audio.take() {
+                audio.reset(pad.handle);
+            }
             pad.bt_audio = None;
             // SAFETY: open gamepads.
             unsafe {
@@ -198,7 +247,9 @@ impl Gamepads {
     pub fn close_all(&mut self) {
         self.forget_opened();
         for pad in self.pads.drain(..) {
-            if let Some(audio) = &pad.audio { audio.reset(pad.handle); }
+            if let Some(audio) = &pad.audio {
+                audio.reset(pad.handle);
+            }
             drop(pad.audio);
             // SAFETY: gamepads we opened.
             unsafe { SDL_CloseGamepad(pad.handle) };
@@ -207,7 +258,13 @@ impl Gamepads {
 }
 
 // SDL's DS5EffectsState_t excludes the USB/Bluetooth report framing and CRC.
-pub(super) fn trigger_effect(flags: u8, type_left: u8, type_right: u8, left: &[u8; 10], right: &[u8; 10]) -> [u8; 47] {
+pub(super) fn trigger_effect(
+    flags: u8,
+    type_left: u8,
+    type_right: u8,
+    left: &[u8; 10],
+    right: &[u8; 10],
+) -> [u8; 47] {
     let mut effect = [0; 47];
     effect[0] = flags & 0x0C;
     effect[10] = type_right;
@@ -218,7 +275,14 @@ pub(super) fn trigger_effect(flags: u8, type_left: u8, type_right: u8, left: &[u
 }
 
 /// The host's adaptive trigger effect, on a DualSense.
-fn send_trigger_effect(pad: &Pad, flags: u8, type_left: u8, type_right: u8, left: &[u8; 10], right: &[u8; 10]) {
+fn send_trigger_effect(
+    pad: &Pad,
+    flags: u8,
+    type_left: u8,
+    type_right: u8,
+    left: &[u8; 10],
+    right: &[u8; 10],
+) {
     // SAFETY: an open gamepad.
     unsafe {
         if SDL_GetGamepadType(pad.handle) == SDL_GAMEPAD_TYPE_PS5 {
@@ -240,7 +304,11 @@ pub(super) fn send_state(pad: &Pad, mask: u16, queue: &mut InputQueue) {
     if pad.refused {
         return;
     }
-    let report = if pad.mouse.active { Report::default() } else { pad.report() };
+    let report = if pad.mouse.active {
+        Report::default()
+    } else {
+        pad.report()
+    };
     let _ = queue.send_controller(
         u16::from(pad.sent_as),
         mask,
@@ -274,7 +342,9 @@ pub(super) fn describe(pad: &Pad) -> (u8, u32, u16) {
         let props = SDL_GetGamepadProperties(pad.handle);
         let has = |name: *const std::ffi::c_char| SDL_GetBooleanProperty(props, name, false);
         let mut caps = 0u16;
-        if pad.plays_pcm() { caps |= nightjar_core::control::haptics::CAPABILITY; }
+        if pad.plays_pcm() {
+            caps |= nightjar_core::control::haptics::CAPABILITY;
+        }
         if SDL_GamepadHasAxis(pad.handle, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) {
             caps |= capability::ANALOG_TRIGGERS;
         }
@@ -302,7 +372,10 @@ pub(super) fn describe(pad: &Pad) -> (u8, u32, u16) {
         }
         let mut percent = -1;
         let state = SDL_GetGamepadPowerInfo(pad.handle, &mut percent);
-        if state != SDL_POWERSTATE_UNKNOWN && state != SDL_POWERSTATE_NO_BATTERY && state != SDL_POWERSTATE_ERROR {
+        if state != SDL_POWERSTATE_UNKNOWN
+            && state != SDL_POWERSTATE_NO_BATTERY
+            && state != SDL_POWERSTATE_ERROR
+        {
             caps |= capability::BATTERY_STATE;
         }
         (kind, supported, pad.mapping.arrival_capabilities(caps))
@@ -314,10 +387,14 @@ fn announce(pad: &mut Pad, mask: u16, motion: bool, queue: &mut InputQueue) {
         return;
     }
     let (kind, supported, mut caps) = describe(pad);
-    if !motion { caps &= !(capability::ACCEL | capability::GYRO); }
+    if !motion {
+        caps &= !(capability::ACCEL | capability::GYRO);
+    }
     // A PlayStation controller that plays a speaker can take a host's speaker PCM (0x5602);
     // the queue keeps the flag only on a stream that has it, and only on the arrival.
-    if kind == CTYPE_PS && pad.plays_pcm() { caps |= PS_SPEAKER_CAPABILITY; }
+    if kind == CTYPE_PS && pad.plays_pcm() {
+        caps |= PS_SPEAKER_CAPABILITY;
+    }
     // Which controller it is goes first, so the host can choose its virtual pad on arrival
     // (a Switch 2 Pro Controller its own); the queue sends it only to a host that takes it.
     if pad.usb_id != (0, 0) {
@@ -359,7 +436,12 @@ fn should_cycle_sensor(want_on: bool, already_enabled: bool) -> bool {
 
 /// Whether `set_motion` should touch SDL's sensor state: skips repeated identical states once applied,
 /// while applying changes in rate or mismatched SDL sensor state.
-fn should_apply_motion_rate(prev_rate: u16, wanted_rate: u16, already_enabled: bool, want_on: bool) -> bool {
+fn should_apply_motion_rate(
+    prev_rate: u16,
+    wanted_rate: u16,
+    already_enabled: bool,
+    want_on: bool,
+) -> bool {
     prev_rate != wanted_rate || already_enabled != want_on
 }
 
@@ -377,10 +459,25 @@ mod tests {
 
     #[test]
     fn repeated_identical_motion_rate_is_skipped() {
-        assert!(should_apply_motion_rate(0, 250, true, true), "first enable even if SDL left enabled");
-        assert!(!should_apply_motion_rate(250, 250, true, true), "repeated host state does not cycle");
-        assert!(should_apply_motion_rate(250, 125, true, true), "changed rate reapplies");
-        assert!(should_apply_motion_rate(250, 0, true, false), "disabling reapplies");
-        assert!(!should_apply_motion_rate(0, 0, false, false), "repeated disable skipped");
+        assert!(
+            should_apply_motion_rate(0, 250, true, true),
+            "first enable even if SDL left enabled"
+        );
+        assert!(
+            !should_apply_motion_rate(250, 250, true, true),
+            "repeated host state does not cycle"
+        );
+        assert!(
+            should_apply_motion_rate(250, 125, true, true),
+            "changed rate reapplies"
+        );
+        assert!(
+            should_apply_motion_rate(250, 0, true, false),
+            "disabling reapplies"
+        );
+        assert!(
+            !should_apply_motion_rate(0, 0, false, false),
+            "repeated disable skipped"
+        );
     }
 }

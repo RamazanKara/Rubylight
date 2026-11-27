@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use nightjar_core::control::clipboard_sync::{ClipboardItem, Received, Refused};
-use nightjar_core::control::{haptics, ConnectionStatus, ControlEvent};
+use nightjar_core::control::{ConnectionStatus, ControlEvent, haptics};
 use nightjar_core::roaming::RoamEvent;
 use nightjar_core::session::{Listener, Stage};
 use rubylight_protocol::control::{HostTiming, HostTimingExtra, LinkNotice, LinkState};
@@ -501,9 +501,12 @@ impl Listener for Events {
                 ));
                 b.post(m.clipboard_sync_refused, &[bridge::int(2)]);
             }
-            // Android's stream menu reads and changes Quick Suspend through the native API
-            // (StreamMenuSuspendSection) and never asks on the control stream.
-            ControlEvent::QuickSuspend(_) => {}
+            ControlEvent::QuickSuspend(state) => {
+                let (ints, since_ms) = extras::quick_suspend_args(&state);
+                let mut args: Vec<_> = ints.into_iter().map(bridge::int).collect();
+                args.push(bridge::long(since_ms));
+                b.post(m.quick_suspend, &args);
+            }
             ControlEvent::StreamDvrState(state) => {
                 let (ints, longs) = extras::dvr_state_args(&state);
                 let mut args: Vec<_> = ints.into_iter().map(bridge::int).collect();

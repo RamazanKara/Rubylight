@@ -88,14 +88,19 @@ pub(crate) struct VideoTrack {
 pub(crate) fn video_track(
     info: &StreamInfo,
     idr: &VideoFrame,
+    fallback: Option<&ParamSets>,
 ) -> Result<(VideoTrack, ParamSets), MuxError> {
     if !idr.idr {
         return Err(MuxError::NotKeyframe);
     }
-    let params = ParamSets::from_frame(info.codec, &idr.data);
-    if !params.is_complete(info.codec) {
+    let sets = ParamSets::from_frame(info.codec, &idr.data);
+    let params = if sets.is_complete(info.codec) {
+        sets
+    } else if let Some(fallback) = fallback.filter(|p| p.is_complete(info.codec)) {
+        fallback.clone()
+    } else {
         return Err(MuxError::MissingParameterSets);
-    }
+    };
     let hdr = info.hdr.as_ref();
     let (sample_entry, width, height, depth) = match info.codec {
         VideoCodec::H264 => {
@@ -437,7 +442,7 @@ pub(crate) fn mux_fragment(
 /// Writes `clip` as a complete fragmented MP4: init segment, then one fragment per GOP.
 pub fn write_clip<W: Write>(out: &mut W, clip: &Clip) -> Result<ClipInfo, MuxError> {
     let first = clip.video.first().ok_or(MuxError::NoVideo)?;
-    let (track, _) = video_track(&clip.info, first)?;
+    let (track, _) = video_track(&clip.info, first, Some(&clip.params))?;
     let start = first.pts_us;
     let audio: &[AudioPacket] = if clip.info.audio.is_some() {
         &clip.audio[clip.audio.partition_point(|packet| packet.pts_us < start)..]

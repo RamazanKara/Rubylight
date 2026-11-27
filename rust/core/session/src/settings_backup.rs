@@ -60,6 +60,8 @@ const GAME_SETTINGS: &str = crate::game_settings::FOLDER;
 const CREDENTIALS_DIR: &str = "credentials";
 const CERTIFICATE: &str = "credentials/cacert.pem";
 const KEY: &str = "credentials/cakey.pem";
+const WAKE_RELAY_FILE: &str = crate::wake::relay::CREDENTIALS_FILE;
+const LEGACY_WAKE_RELAY_FILE: &str = crate::wake::relay::FILE;
 /// The settings that say where the host's files are (`ProfileFiles`).
 const LOCATION_KEYS: [&str; 6] = [
     "file_state",
@@ -350,6 +352,12 @@ pub fn export<W: Write + Seek>(
                 contents.push((name.into(), bytes));
             }
         }
+        // Carry an unmigrated root wake-relay.json inside `credentials/wake-relay.json`.
+        if !folders.iter().any(|(listed, _)| listed == WAKE_RELAY_FILE)
+            && let Some(bytes) = read_optional(&directory.join(LEGACY_WAKE_RELAY_FILE))?
+        {
+            contents.push((WAKE_RELAY_FILE.into(), bytes));
+        }
         // Carry webhook secrets cleanly inside `credentials/webhook_secrets.json`, merging any
         // unmigrated inline secrets from `sunshine.conf`.
         if let Some((_, inline)) = config
@@ -439,7 +447,7 @@ fn allowed(path: &str) -> Option<bool> {
     }
     match path {
         CONFIG | APPS | ALIASES | DEVICES => Some(false),
-        PAIRED | CREDENTIALS_FILE => Some(true),
+        PAIRED | CREDENTIALS_FILE | LEGACY_WAKE_RELAY_FILE => Some(true),
         _ => {
             let (top, _rest) = path.split_once('/')?;
             match top {
@@ -560,6 +568,8 @@ pub fn read<R: Read + Seek>(reader: R) -> Result<Archive> {
             crate::webhook::SECRETS_FILE,
             "the archive's webhook_secrets.json",
         ),
+        (WAKE_RELAY_FILE, "the archive's wake-relay.json"),
+        (LEGACY_WAKE_RELAY_FILE, "the archive's wake-relay.json"),
     ] {
         if let Some(bytes) = files.get(name) {
             json_object(bytes, what)?;

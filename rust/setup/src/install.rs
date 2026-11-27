@@ -7,7 +7,7 @@ mod staging;
 
 pub use driver_repair::{Driver, RepairRun, repair_drivers};
 pub(crate) use driver_repair::{
-    display_driver_declined, gamepad_driver_declined, repair_drivers_in,
+    display_driver_declined, gamepad_driver_declined, repair_drivers_in, verify_drivers_tree,
 };
 pub(crate) use drivers::{
     LIBVIRTUALDISPLAY, LIBVIRTUALGAMEPAD, RUBYLIGHT_DISPLAY_SCRIPT, RUBYLIGHT_GAMEPAD_SCRIPT,
@@ -249,7 +249,6 @@ fn install_with(
             SERVICE_DESCRIPTION,
             &install.join("butterpollo-service.exe"),
         )?;
-        remember_driver_choice(&profile, options.display_driver, options.gamepad_driver);
         crate::update::run(
             &install,
             options.start,
@@ -266,6 +265,7 @@ fn install_with(
                 );
             },
         )?;
+        remember_driver_choice(&profile, options.display_driver, options.gamepad_driver);
         if let Err(error) = crate::usbip::remember(&profile, options.usbip_driver) {
             notes.push(format!(
                 "The USB audio and haptics driver choice could not be saved: {error:#}"
@@ -658,7 +658,6 @@ fn move_install(
         &install.join("uninstall.exe"),
         payload::packaged_stub(staging.path(), &entries)?.as_deref(),
     )?;
-    remember_driver_choice(profile, options.display_driver, options.gamepad_driver);
     let mut restart_needed = false;
     let point_at = |folder: &Path| {
         system::install_service(
@@ -727,6 +726,7 @@ fn move_install(
         ));
     }
     refresh_entries(install, &mut notes);
+    remember_driver_choice(profile, options.display_driver, options.gamepad_driver);
     if let Err(error) = crate::usbip::remember(profile, options.usbip_driver) {
         notes.push(format!(
             "The USB audio and haptics driver choice could not be saved: {error:#}"

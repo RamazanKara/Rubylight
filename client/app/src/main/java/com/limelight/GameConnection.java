@@ -286,6 +286,7 @@ final class GameConnection {
         game.pyroWaveBitrate = null;
         game.displayCapsReporter = null;
         game.touchInput.stopHostCursorShapes();
+        game.menuActions.resetQuickSuspend();
         if (game.clipboardSync != null) { game.clipboardSync.stop(); game.clipboardSync = null; }
         if (game.streamGuests != null) { game.streamGuests.stop(); game.streamGuests = null; }
         com.limelight.binding.usb.UsbForwarding detaching = game.usbForwarding;

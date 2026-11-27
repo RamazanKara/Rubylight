@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use nightjar_core::control::haptics::{Pcm, CAPABILITY};
+use nightjar_core::control::haptics::{CAPABILITY, Pcm};
 
 use super::super::protocol::describe;
 use super::super::*;
@@ -45,20 +45,37 @@ fn bluetooth_audio_whose_reports_stopped_is_dropped_and_the_controller_announced
         while let Some(audio) = pads.pads[0].bt_audio.as_ref().filter(|audio| audio.alive())
             && Instant::now() < deadline
         {
-            audio.offer(&Pcm { controller: 0, sequence, samples: vec![0x10; 960] }, true);
+            audio.offer(
+                &Pcm {
+                    controller: 0,
+                    sequence,
+                    samples: vec![0x10; 960],
+                },
+                true,
+            );
             sequence += 1;
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(pads.reap_bt_audio(), "its stopped audio is noticed");
         let pad = &pads.pads[0];
-        assert!(pad.bt_audio.is_none() && !pad.announced, "dropped, and to be announced again");
-        assert_eq!(describe(pad).2 & CAPABILITY, 0, "the new arrival asks for no PCM");
+        assert!(
+            pad.bt_audio.is_none() && !pad.announced,
+            "dropped, and to be announced again"
+        );
+        assert_eq!(
+            describe(pad).2 & CAPABILITY,
+            0,
+            "the new arrival asks for no PCM"
+        );
         assert!(!pads.reap_bt_audio());
         // Controller and audio device events, and a controller back from USB forwarding, run
         // auto_audio: it leaves this one off rather than fail and say so again a second later.
         assert!(pads.bt_audio_failed(id), "remembered");
         pads.auto_audio();
-        assert!(pads.pads[0].bt_audio.is_none() && pads.bt_audio_failed(id), "still off");
+        assert!(
+            pads.pads[0].bt_audio.is_none() && pads.bt_audio_failed(id),
+            "still off"
+        );
         // Reconnecting (a new instance id) or the next stream tries again.
         pads.removed(id);
         assert!(!pads.bt_audio_failed(id), "forgotten once removed");
@@ -68,4 +85,107 @@ fn bluetooth_audio_whose_reports_stopped_is_dropped_and_the_controller_announced
         SDL_DetachVirtualJoystick(id);
         SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
     }
+}
+
+/// Takes every report without failing.
+struct Accepting;
+
+impl Output for Accepting {
+    fn write(&mut self, _: &[u8]) -> bool {
+        true
+    }
+}
+
+static BT_RUMBLE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static BT_RUMBLE_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+unsafe extern "C" fn record_bt_rumble(_: *mut std::ffi::c_void, low: u16, high: u16) -> bool {
+    BT_RUMBLE.store(
+        (u32::from(low) << 16) | u32::from(high),
+        std::sync::atomic::Ordering::SeqCst,
+    );
+    BT_RUMBLE_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    true
+}
+
+#[test]
+fn bluetooth_haptics_zeroes_and_suppresses_sdl_rumble_while_active() {
+    use std::sync::atomic::Ordering;
+    let _sdl = crate::sdl::TEST_LOCK.lock().unwrap();
+    BT_RUMBLE.store(0, Ordering::SeqCst);
+    BT_RUMBLE_CALLS.store(0, Ordering::SeqCst);
+    // SAFETY: SDL calls on this test's thread, which holds the SDL test lock.
+    unsafe {
+        assert!(SDL_Init(SDL_INIT_GAMEPAD), "{}", crate::sdl::error());
+        let mut desc: SDL_VirtualJoystickDesc = std::mem::zeroed();
+        desc.version = std::mem::size_of::<SDL_VirtualJoystickDesc>() as u32;
+        desc.r#type = SDL_JOYSTICK_TYPE_GAMEPAD.0 as u16;
+        desc.naxes = SDL_GAMEPAD_AXIS_COUNT.0 as u16;
+        desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT.0 as u16;
+        desc.name = c"Nightjar BT haptics pad".as_ptr();
+        desc.Rumble = Some(record_bt_rumble);
+        let id = SDL_AttachVirtualJoystick(&desc);
+        assert!(id.0 != 0, "{}", crate::sdl::error());
+
+        let mut pads = Gamepads::default();
+        pads.added(id).unwrap();
+        pads.pads[0].bt_audio = Some(BtAudio::start(Accepting).unwrap());
+
+        // Before BT haptics activates, SDL rumble goes through normally.
+        pads.rumble(0, 0x4000, 0x8000);
+        assert_eq!(BT_RUMBLE.load(Ordering::SeqCst), 0x4000_8000);
+        assert_eq!(BT_RUMBLE_CALLS.load(Ordering::SeqCst), 1);
+
+        // Speaker audio alone neither zeroes nor suppresses SDL rumble.
+        pads.pcm(
+            Pcm {
+                controller: 0,
+                sequence: 0,
+                samples: vec![0x10; 960],
+            },
+            true,
+        );
+        assert_eq!(BT_RUMBLE.load(Ordering::SeqCst), 0x4000_8000);
+        assert_eq!(BT_RUMBLE_CALLS.load(Ordering::SeqCst), 1);
+        pads.rumble(0, 0x3000, 0x5000);
+        assert_eq!(BT_RUMBLE.load(Ordering::SeqCst), 0x3000_5000);
+        assert_eq!(BT_RUMBLE_CALLS.load(Ordering::SeqCst), 2);
+
+        // Activating BT haptics zeroes active SDL rumble once and suppresses further SDL rumble.
+        pads.pcm(
+            Pcm {
+                controller: 0,
+                sequence: 0,
+                samples: vec![0x10; 960],
+            },
+            false,
+        );
+        assert_eq!(BT_RUMBLE.load(Ordering::SeqCst), 0);
+        assert_eq!(BT_RUMBLE_CALLS.load(Ordering::SeqCst), 3);
+        pads.rumble(0, 0x7000, 0x9000);
+        assert_eq!(BT_RUMBLE.load(Ordering::SeqCst), 0);
+        assert_eq!(BT_RUMBLE_CALLS.load(Ordering::SeqCst), 3);
+
+        // Subsequent haptics packets while active do not spam SDL_RumbleGamepad(0, 0, 0).
+        pads.pcm(
+            Pcm {
+                controller: 0,
+                sequence: 1,
+                samples: vec![0x20; 960],
+            },
+            false,
+        );
+        assert_eq!(BT_RUMBLE_CALLS.load(Ordering::SeqCst), 3);
+
+        // Once BT haptics goes idle (> 100 ms), ordinary SDL rumble works again.
+        std::thread::sleep(Duration::from_millis(130));
+        pads.rumble(0, 0x2000, 0x1000);
+        assert_eq!(BT_RUMBLE.load(Ordering::SeqCst), 0x2000_1000);
+        assert_eq!(BT_RUMBLE_CALLS.load(Ordering::SeqCst), 4);
+
+        pads.removed(id);
+        SDL_DetachVirtualJoystick(id);
+        SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+    }
+    crate::dualsense_bt_audio::settle(Duration::from_secs(2));
 }

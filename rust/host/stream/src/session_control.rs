@@ -326,9 +326,12 @@ impl Host {
     fn grace_ms(&self, owner: Option<&str>) -> Option<u64> {
         let lease = locked(&self.app_display).get(owner?)?.0.clone();
         let config = self.config.read().unwrap_or_else(PoisonError::into_inner);
-        config
-            .display_disconnect_delay(lease.exclusive_layout())
-            .map(|delay| delay.as_millis() as u64)
+        let delay = if self.quick_suspend.suspended() {
+            crate::quick_suspend::paused_display_timeout(&config)
+        } else {
+            config.display_disconnect_delay(lease.exclusive_layout())
+        };
+        delay.map(|delay| delay.as_millis() as u64)
     }
 
     /// The session as the native API shows it.

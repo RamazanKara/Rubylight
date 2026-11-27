@@ -31,6 +31,9 @@ pub fn recover(dir: &Path) -> Recovered {
 /// [`recover`] for the files last written before `cutoff`: a stream that started since writes
 /// its own.
 pub fn recover_before(dir: &Path, cutoff: SystemTime) -> Recovered {
+    if super::refused(dir) {
+        return Recovered::default();
+    }
     let old = |path: &Path| {
         std::fs::metadata(path)
             .and_then(|meta| meta.modified())

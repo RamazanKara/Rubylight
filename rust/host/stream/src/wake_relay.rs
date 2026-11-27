@@ -4,9 +4,10 @@
 //! hands each one what it may wake and for whom while it is awake, and each paired device that
 //! may launch games the keys it asks with.
 //!
-//! The relays and the key epoch live in `wake-relay.json` beside the paired devices
-//! ([`butterpollo_session::wake::relay`]); the keys a device gets are derived from a relay's
-//! secret ([`rubylight_traverse::wake_relay::device_secret`]) and never stored.
+//! The relays and the key epoch live in `credentials/wake-relay.json` (only readable by
+//! Administrators and SYSTEM; [`butterpollo_session::wake::relay`]); the keys a device gets are
+//! derived from a relay's secret ([`rubylight_traverse::wake_relay::device_secret`]) and never
+//! stored.
 use crate::state::Host;
 use anyhow::{Context, Result};
 use butterpollo_config::config::Config;
@@ -20,8 +21,8 @@ use rubylight_native_api::wake_relay::{
 };
 use rubylight_traverse::wake_relay as traverse;
 use std::{
-    net::IpAddr,
-    path::PathBuf,
+    net::SocketAddr,
+    path::{Path, PathBuf},
     sync::{Mutex, PoisonError},
 };
 
@@ -48,16 +49,74 @@ impl From<anyhow::Error> for Refused {
     }
 }
 
-/// Orders the reads and writes of `wake-relay.json`.
+/// Orders the reads and writes of `credentials/wake-relay.json`.
 static FILE: Mutex<()> = Mutex::new(());
 
+fn path_in(directory: &Path) -> PathBuf {
+    directory.join("credentials").join(relay::FILE)
+}
+
+fn legacy_path(directory: &Path) -> PathBuf {
+    directory.join(relay::FILE)
+}
+
 fn path(h: &Host) -> PathBuf {
-    h.directory.join(relay::FILE)
+    path_in(&h.directory)
+}
+
+fn ensure_credentials_dir(directory: &Path) -> Result<PathBuf> {
+    let folder = directory.join("credentials");
+    if butterpollo_win_io::process::is_system() {
+        match std::fs::symlink_metadata(&folder) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                butterpollo_win_io::process::create_folder_administrators_only(&folder)?;
+            }
+            Err(error) => return Err(error.into()),
+            Ok(_) => {}
+        }
+        butterpollo_win_io::process::restrict_to_administrators(&folder)
+            .with_context(|| format!("securing {}", folder.display()))?;
+    } else {
+        std::fs::create_dir_all(&folder)?;
+    }
+    Ok(folder)
+}
+
+/// Moves a legacy `config/wake-relay.json` into `config/credentials/wake-relay.json`
+/// and removes the old readable file. Caller holds [`FILE`] when concurrent access is possible.
+fn migrate_unlocked(directory: &Path) -> Result<bool> {
+    let legacy = legacy_path(directory);
+    let bytes = match std::fs::read(&legacy) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error).with_context(|| format!("reading {}", legacy.display())),
+    };
+    let target = path_in(directory);
+    if !target.exists() {
+        ensure_credentials_dir(directory)?;
+        butterpollo_session::state::atomic_write(&target, &bytes)?;
+    }
+    match std::fs::remove_file(&legacy) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).with_context(|| format!("removing {}", legacy.display())),
+    }
+    Ok(true)
+}
+
+/// Migrates a legacy `wake-relay.json` from the profile root into `credentials/` so
+/// non-administrator users cannot read relay secrets.
+pub fn migrate(directory: &Path) -> Result<bool> {
+    let _file = FILE.lock().unwrap_or_else(PoisonError::into_inner);
+    migrate_unlocked(directory)
 }
 
 /// The enrolled relays; none when the file is missing. A damaged file is an error, never
 /// silently a new epoch that would hand out keys again.
 pub fn load(h: &Host) -> Result<Relays> {
+    if legacy_path(&h.directory).exists() {
+        migrate_unlocked(&h.directory)?;
+    }
     let path = path(h);
     match std::fs::read(&path) {
         // serde's message can quote the value it stopped at, which may be a secret.
@@ -75,8 +134,18 @@ pub fn load(h: &Host) -> Result<Relays> {
 }
 
 fn save(h: &Host, relays: &Relays) -> Result<()> {
+    ensure_credentials_dir(&h.directory)?;
     let bytes = serde_json::to_vec_pretty(relays)?;
-    butterpollo_session::state::atomic_write(&path(h), &bytes)
+    butterpollo_session::state::atomic_write(&path(h), &bytes)?;
+    let legacy = legacy_path(&h.directory);
+    match std::fs::remove_file(&legacy) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            tracing::warn!(%error, path = %legacy.display(), "could not remove legacy wake-relay.json");
+        }
+    }
+    Ok(())
 }
 
 fn new_secret() -> String {
@@ -160,13 +229,13 @@ pub fn info(h: &Host, client: &Client) -> Result<WakeRelayInfo, Refused> {
     })
 }
 
-/// `POST /wake/relay/enroll` from `client` at `address`. Every action needs Host control;
-/// enrolling and refreshing also a caller on one of this PC's own private subnets, as only
-/// there its magic packets reach the PC.
+/// `POST /wake/relay/enroll` from `client` at `peer`. Every action needs Host control;
+/// enrolling and refreshing also require a caller directly on one of this PC's own private
+/// subnets (never through an internet play tunnel), as only there its magic packets reach the PC.
 pub fn enroll(
     h: &Host,
     client: &Client,
-    address: IpAddr,
+    peer: SocketAddr,
     action: RelayEnroll,
 ) -> Result<RelayEnrolled, Refused> {
     if !client.allows_host_control() {
@@ -184,10 +253,10 @@ pub fn enroll(
         }
         RelayEnroll::Enroll { name } => {
             let name = name.unwrap_or_else(|| client.name.clone());
-            assigned = Some(assign(h, &config, &mut relays, &id, &name, address, true)?);
+            assigned = Some(assign(h, &config, &mut relays, &id, &name, peer, true)?);
         }
         RelayEnroll::Refresh => {
-            assigned = Some(assign(h, &config, &mut relays, &id, "", address, false)?);
+            assigned = Some(assign(h, &config, &mut relays, &id, "", peer, false)?);
         }
         RelayEnroll::Leave => relays.remove(&id).map_err(Refused::Relay)?,
         RelayEnroll::Revoke { relay } => relays.remove(&relay).map_err(Refused::Relay)?,
@@ -196,7 +265,7 @@ pub fn enroll(
     save(h, &relays)?;
     Ok(RelayEnrolled {
         assignment: assigned,
-        relays: relays.relays.iter().map(peer).collect(),
+        relays: relays.relays.iter().map(self::peer).collect(),
     })
 }
 
@@ -207,15 +276,18 @@ fn assign(
     relays: &mut Relays,
     id: &str,
     name: &str,
-    address: IpAddr,
+    peer: SocketAddr,
     create: bool,
 ) -> Result<RelayAssignment, Refused> {
+    if crate::network::tunnelled(peer) {
+        return Err(Refused::Relay(Refusal::NotOnLan));
+    }
     let adapters = h
         .wake
         .power()
         .adapters()
         .context("reading the network adapters")?;
-    let own = relay::lan_address(address, &adapters).ok_or(Refused::Relay(Refusal::NotOnLan))?;
+    let own = relay::lan_address(peer.ip(), &adapters).ok_or(Refused::Relay(Refusal::NotOnLan))?;
     if !create && !relays.relays.iter().any(|relay| relay.id == id) {
         return Err(Refused::Relay(Refusal::UnknownRelay));
     }

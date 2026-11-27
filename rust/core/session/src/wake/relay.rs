@@ -1,7 +1,7 @@
 //! Away wake relay on the PC that is woken (`docs/designs/15-away-wake-relay.md`): the relays
 //! it enrolled, its key epoch, who may enroll, and what a relay and a device get. The keys
 //! themselves are `rubylight-traverse`'s (`wake_relay::device_secret`); the host's stream crate
-//! derives them. Kept in `wake-relay.json` beside the paired devices.
+//! derives them. Kept in `credentials/wake-relay.json`.
 //!
 //! A relay is a paired device with Host control on one of this PC's own private subnets. It
 //! enrolls itself over its paired connection and enrolls again every [`REFRESH_SECONDS`], which
@@ -20,6 +20,8 @@ pub const MAX_RELAYS: usize = 8;
 pub const MAX_MACS: usize = 4;
 pub const MAX_BROADCASTS: usize = 4;
 pub const FILE: &str = "wake-relay.json";
+/// Path of the wake relay secret file relative to the host profile directory.
+pub const CREDENTIALS_FILE: &str = "credentials/wake-relay.json";
 
 /// One enrolled relay.
 /// Its `Debug` leaves the secret out, so a log line never carries it.

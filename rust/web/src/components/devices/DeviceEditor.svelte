@@ -216,6 +216,8 @@
   const holdInvalid = $derived(!validCouchHold('couch_menu_hold_ms', draft.couch.couch_menu_hold_ms));
   const cornerInvalid = $derived(!validCouchHold('couch_menu_corner_hold_ms', draft.couch.couch_menu_corner_hold_ms));
   const couchInvalid = $derived(openWithUnknown || chordUnknown || holdInvalid || cornerInvalid);
+  let cascadeInvalid = $state(false);
+  let cascadeReset = $state(0);
   let couchOpen = $state(untrack(() => Object.values(draft.couch).some((value) => value !== '')));
   $effect(() => {
     if (couchInvalid) couchOpen = true;
@@ -242,7 +244,7 @@
 
   async function save(event: SubmitEvent) {
     event.preventDefault();
-    if (!changed || nameMissing || modeInvalid || delayInvalid || couchInvalid || saving || disabled) return;
+    if (!changed || nameMissing || modeInvalid || delayInvalid || couchInvalid || cascadeInvalid || saving || disabled) return;
     saving = true;
     // Edits made while the request is out stay unsaved.
     const submitted = $state.snapshot(draft);
@@ -261,6 +263,8 @@
 
   function discard() {
     customPicked = false;
+    cascadeInvalid = false;
+    cascadeReset += 1;
     draft = $state.snapshot(saved);
   }
 </script>
@@ -318,18 +322,21 @@
   <details class="override" bind:open={streamOpen}><summary>Stream settings</summary>
   <section>
     <p class="note">What this device sets for itself. A game’s own setting wins over these; “Inherit” follows the host.</p>
-    <OverrideCascadeCards
-      id="{uid}-cascade"
-      layers={[
-        { id: 'device', name: draft.name.trim() || 'This device', values: draft.other_overrides },
-        { id: 'host', name: 'Host', values: hostConfig },
-      ]}
-      hostError={hostConfigError}
-      onset={(key, value) => {
-        if (value === undefined) delete draft.other_overrides[key];
-        else draft.other_overrides[key] = value;
-      }}
-    />
+    {#key cascadeReset}
+      <OverrideCascadeCards
+        id="{uid}-cascade"
+        layers={[
+          { id: 'device', name: draft.name.trim() || 'This device', values: draft.other_overrides },
+          { id: 'host', name: 'Host', values: hostConfig },
+        ]}
+        hostError={hostConfigError}
+        bind:invalid={cascadeInvalid}
+        onset={(key, value) => {
+          if (value === undefined) delete draft.other_overrides[key];
+          else draft.other_overrides[key] = value;
+        }}
+      />
+    {/key}
   </section>
   </details>
 
@@ -570,7 +577,7 @@
   </details>
 
   <footer>
-    <Button type="submit" variant="primary" busy={saving} disabled={!changed || nameMissing || modeInvalid || delayInvalid || couchInvalid || disabled}>Save</Button>
+    <Button type="submit" variant="primary" busy={saving} disabled={!changed || nameMissing || modeInvalid || delayInvalid || couchInvalid || cascadeInvalid || disabled}>Save</Button>
     <Button disabled={!changed || saving} onclick={discard}>Discard</Button>
     <span class="status muted">
       {#if savingEndsStream(client.connected, saved, draft)}

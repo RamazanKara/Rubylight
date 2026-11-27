@@ -15,7 +15,7 @@ use nightjar_core::session::{
 use nightjar_core::video::{BufferType, Frame, FrameBuffer};
 use rubylight_protocol::pyrowave::PACKET_FRAME_END;
 
-use crate::bridge::{self, byte_array, Bridge};
+use crate::bridge::{self, Bridge, byte_array};
 use crate::extras::audio_configuration_to_int;
 use crate::{opus, platform};
 
@@ -124,7 +124,9 @@ impl Video {
 /// ~1 MB Java array, and garbage of the old one, a few times rather than at every new largest
 /// frame. Java reads only the length each call passes.
 fn grown_capacity(needed: usize, capacity: usize) -> usize {
-    needed.max(capacity.saturating_add(capacity / 2)).min(i32::MAX as usize)
+    needed
+        .max(capacity.saturating_add(capacity / 2))
+        .min(i32::MAX as usize)
 }
 
 /// Early chunks collected before one call into Java: about two dozen packets, so a frame of
@@ -214,6 +216,17 @@ fn decode_status(status: Option<i32>) -> DecodeStatus {
         DecodeStatus::Ok
     } else {
         DecodeStatus::NeedIdr
+    }
+}
+
+/// Records the first picture accepted by the decoder (`Some(DR_OK)`), returning true once so the
+/// launch curtain is only notified after a frame actually reached the decoder.
+fn mark_first_picture(pictured: &mut bool, status: Option<i32>) -> bool {
+    if !*pictured && status == Some(DR_OK) {
+        *pictured = true;
+        true
+    } else {
+        false
     }
 }
 
@@ -375,9 +388,8 @@ impl VideoDecoder for Video {
             ];
             Ok(b.int(env, b.m.dr_submit_direct, &args))
         });
-        if !self.pictured {
+        if mark_first_picture(&mut self.pictured, status) {
             // After the frame went, so the curtain's word costs it no time.
-            self.pictured = true;
             crate::launch_curtain::picture(&b);
         }
         decode_status(status)

@@ -129,7 +129,12 @@ pub fn now() -> u64 {
 pub fn creation_time(pid: u32) -> u64 {
     // SAFETY: the process handle is owned and open for the call.
     unsafe {
-        let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+        let Ok(process) = OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+            false,
+            pid,
+        )
+        .or_else(|_| OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)) else {
             return 0;
         };
         let process = owned(process);
@@ -137,11 +142,20 @@ pub fn creation_time(pid: u32) -> u64 {
     }
 }
 /// The creation time (100 ns since 1601) of the process behind `process`, a handle opened with
-/// `PROCESS_QUERY_LIMITED_INFORMATION`; 0 when it cannot be read or the process has exited.
+/// `PROCESS_QUERY_LIMITED_INFORMATION` (and ideally `PROCESS_SYNCHRONIZE`); 0 when it cannot be
+/// read or the process has exited.
 ///
 /// An exited process can still be opened while any other program (a launcher, Steam, an
 /// audio session) holds a handle to it, so being able to open it does not mean it runs.
+/// Probing `WaitForSingleObject(process, 0)` first distinguishes a process that exited with
+/// code `259` (`STILL_ACTIVE`) from one that is still running.
 pub(super) fn created_at(process: windows::Win32::Foundation::HANDLE) -> u64 {
+    // SAFETY: the caller's handle is open for the call; zero timeout never blocks. If the
+    // handle lacks `PROCESS_SYNCHRONIZE`, `WaitForSingleObject` returns `WAIT_FAILED` (not
+    // `WAIT_OBJECT_0`) and the exit-code check below still runs.
+    if unsafe { WaitForSingleObject(process, 0) } == WAIT_OBJECT_0 {
+        return 0;
+    }
     let mut created = FILETIME::default();
     let (mut exited, mut kernel, mut user) = (created, created, created);
     // SAFETY: the caller's handle is open for the call, and each out-pointer is a local FILETIME.
@@ -328,13 +342,47 @@ pub fn stop_processes(processes: &BTreeMap<u32, u64>, timeout: Duration) {
         // the process is the one its creation time is read through.
         // SAFETY: the handle OpenProcess returns is owned and closed once on drop.
         unsafe {
-            let access = PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION;
-            if let Ok(process) = OpenProcess(access, false, pid) {
+            let access =
+                PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE;
+            if let Ok(process) = OpenProcess(access, false, pid).or_else(|_| {
+                OpenProcess(
+                    PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+                    false,
+                    pid,
+                )
+            }) {
                 let process = owned(process);
                 if created_at(raw(&process)) == started {
                     let _ = TerminateProcess(raw(&process), 1);
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::windows::{io::AsRawHandle, process::CommandExt};
+
+    #[test]
+    fn exited_process_with_still_active_exit_code_259_is_not_counted_as_running() {
+        let mut child = std::process::Command::new("cmd.exe")
+            .args(["/c", "exit", "/b", "259"])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .spawn()
+            .unwrap();
+        let handle = HANDLE(child.as_raw_handle());
+        // Wait for exit while still holding the Child handle so the exited process object stays open.
+        // SAFETY: `handle` is owned by `child` and stays live across the calls.
+        unsafe {
+            assert_eq!(WaitForSingleObject(handle, 10_000), WAIT_OBJECT_0);
+            let mut code = 0u32;
+            GetExitCodeProcess(handle, &mut code).unwrap();
+            assert_eq!(code, STILL_ACTIVE.0 as u32);
+        }
+        assert_eq!(created_at(handle), 0);
+        assert_eq!(creation_time(child.id()), 0);
+        let _ = child.wait();
     }
 }

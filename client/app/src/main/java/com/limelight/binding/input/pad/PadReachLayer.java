@@ -2,6 +2,7 @@ package com.limelight.binding.input.pad;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.os.SystemClock;
 import android.util.SparseArray;
 import android.view.MotionEvent;
 import android.view.View;
@@ -123,15 +124,60 @@ final class PadReachLayer extends View {
      * stays. Trackpads let go without the click a lifted tap would send.
      */
     private void cancel(long time) {
-        for (int i = targets.size() - 1; i >= 0; i--) {
-            int pointer = targets.keyAt(i);
-            PadControlView target = targets.valueAt(i);
-            PadLayout.Shape shape = target.control.shape;
-            if (shape == PadLayout.Shape.STICK || shape == PadLayout.Shape.PAD || shape == PadLayout.Shape.TOUCHPAD) target.release();
-            else target.up(pointer, time);
+        drain(time, null);
+    }
+
+    /**
+     * Clears this area's tracked pointers when its owning control releases, letting go of any pointer that had been
+     * routed onto a neighbouring control without recursing back into {@code owner}.
+     */
+    void releaseOwner(long time) {
+        drain(time, owner);
+    }
+
+    private void drain(long time, PadControlView skip) {
+        if (targets.size() == 0) {
+            shifts.clear();
+            return;
+        }
+        int count = targets.size();
+        int[] pointers = new int[count];
+        PadControlView[] held = new PadControlView[count];
+        for (int i = 0; i < count; i++) {
+            pointers[i] = targets.keyAt(i);
+            held[i] = targets.valueAt(i);
         }
         targets.clear();
         shifts.clear();
+        for (int i = count - 1; i >= 0; i--) {
+            PadControlView target = held[i];
+            if (target == skip) continue;
+            PadLayout.Shape shape = target.control.shape;
+            if (shape == PadLayout.Shape.STICK || shape == PadLayout.Shape.PAD || shape == PadLayout.Shape.TOUCHPAD) target.release();
+            else target.up(pointers[i], time);
+        }
+    }
+
+    @Override
+    public void setVisibility(int visibility) {
+        super.setVisibility(visibility);
+        if (visibility != VISIBLE) cancel(SystemClock.uptimeMillis());
+    }
+
+    @Override
+    protected void onVisibilityChanged(View changedView, int visibility) {
+        super.onVisibilityChanged(changedView, visibility);
+        if (visibility != VISIBLE) cancel(SystemClock.uptimeMillis());
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        cancel(SystemClock.uptimeMillis());
+    }
+
+    int trackedPointerCount() {
+        return targets.size();
     }
 
     private void forget(int pointer) {

@@ -2,6 +2,8 @@
 
 use super::*;
 
+#[path = "tests/async_attach_tests.rs"]
+mod async_attach_tests;
 #[path = "tests/audio_lifecycle.rs"]
 mod audio_lifecycle;
 #[path = "tests/refusal_tests.rs"]

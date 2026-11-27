@@ -319,6 +319,9 @@ impl Host {
                 tracing::warn!(error = %format!("{error:#}"), "webhook secrets could not be migrated");
             }
         }
+        if let Err(error) = crate::wake_relay::migrate(&directory) {
+            tracing::warn!(error = %format!("{error:#}"), "wake-relay.json could not be migrated");
+        }
         if let Some(warning) = butterpollo_win_io::limiter::take_stale_nvidia(&directory) {
             crate::host_warnings::notice(&directory, &warnings, "nvidia_limiter_retired", &warning);
         }

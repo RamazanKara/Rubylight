@@ -68,8 +68,8 @@ fn paired(f: &Fixture, name: &str, perm: u32, host_control: bool, enabled: bool)
     client
 }
 
-fn ip(text: &str) -> IpAddr {
-    text.parse().unwrap()
+fn ip(text: &str) -> SocketAddr {
+    SocketAddr::new(text.parse().unwrap(), 50_000)
 }
 
 fn enroll_as(f: &Fixture, relay: &Client) -> RelayAssignment {
@@ -330,4 +330,80 @@ fn the_console_lists_without_secrets_and_says_why_it_refuses() {
     assert_eq!(after["relays"], serde_json::json!([]));
     let rotated = console(&f.host, "POST", "/api/wake-relay/rotate", &none).unwrap();
     assert_eq!(rotated["epoch"], assignment.epoch + 1);
+}
+
+#[test]
+fn wake_relay_stores_secrets_under_credentials_and_migrates_legacy_root_file() {
+    let f = host();
+    let relay = device(&f, "relay", PLAY_DEVICE_PERMISSION, true);
+    assert_eq!(
+        path(&f.host),
+        f.host.directory.join("credentials").join(relay::FILE)
+    );
+    // Remove credentials/ to verify save creates it cleanly before writing.
+    let _ = std::fs::remove_dir_all(f.host.directory.join("credentials"));
+    let assignment = enroll_as(&f, &relay);
+    assert!(path(&f.host).is_file());
+    assert!(!legacy_path(&f.host.directory).exists());
+
+    // Startup migration moves a legacy root wake-relay.json into credentials/ and removes the old file.
+    let legacy_dir = crate::state::test_support::Fixture::profile();
+    std::fs::create_dir_all(&legacy_dir).unwrap();
+    let legacy_json = std::fs::read_to_string(path(&f.host)).unwrap();
+    std::fs::write(legacy_dir.join(relay::FILE), &legacy_json).unwrap();
+    let loaded = crate::state::test_support::Fixture::load(legacy_dir.clone());
+    assert!(!legacy_dir.join(relay::FILE).exists());
+    assert!(legacy_dir.join("credentials").join(relay::FILE).is_file());
+    let migrated = load(&loaded.host).unwrap();
+    assert_eq!(migrated.relays.len(), 1);
+    assert_eq!(migrated.relays[0].secret, assignment.secret);
+
+    // When credentials/wake-relay.json already exists, migration keeps it and deletes the stale root copy.
+    std::fs::write(legacy_dir.join(relay::FILE), br#"{"epoch":99,"relays":[]}"#).unwrap();
+    assert!(migrate(&legacy_dir).unwrap());
+    assert!(!legacy_dir.join(relay::FILE).exists());
+    assert_eq!(
+        load(&loaded.host).unwrap().relays[0].secret,
+        assignment.secret
+    );
+}
+
+#[test]
+fn a_tunnelled_lan_peer_is_refused_for_enroll_and_refresh_but_may_revoke() {
+    let f = host();
+    let relay = device(&f, "relay", PLAY_DEVICE_PERMISSION, true);
+    // When bind_address is a LAN IPv4, a Traverse bridge arrives from that LAN IPv4
+    // registered as a tunnelled peer. It must never enroll or refresh as a LAN relay.
+    let tunnel_peer: SocketAddr = "192.168.4.20:50941".parse().unwrap();
+    let _mark = rubylight_traverse::peers::register(tunnel_peer, "phone");
+    assert_eq!(
+        enroll(
+            &f.host,
+            &relay,
+            tunnel_peer,
+            RelayEnroll::Enroll { name: None },
+        )
+        .unwrap_err(),
+        Refused::Relay(Refusal::NotOnLan)
+    );
+    assert!(load(&f.host).unwrap().relays.is_empty());
+
+    // Enroll directly on the LAN, then confirm Refresh over the tunnel is also refused.
+    enroll_as(&f, &relay);
+    assert_eq!(
+        enroll(&f.host, &relay, tunnel_peer, RelayEnroll::Refresh).unwrap_err(),
+        Refused::Relay(Refusal::NotOnLan)
+    );
+    // Management actions (RotateEpoch / Revoke) remain permitted from away.
+    enroll(&f.host, &relay, tunnel_peer, RelayEnroll::RotateEpoch).unwrap();
+    enroll(
+        &f.host,
+        &relay,
+        tunnel_peer,
+        RelayEnroll::Revoke {
+            relay: device_id(&relay.cert),
+        },
+    )
+    .unwrap();
+    assert!(load(&f.host).unwrap().relays.is_empty());
 }

@@ -64,7 +64,17 @@ impl Recorder {
     /// Starts a part at `first_idr`; returns the recorder and the init segment to write
     /// at the start of the file.
     pub fn start(info: &StreamInfo, first_idr: VideoFrame) -> Result<(Self, Vec<u8>), MuxError> {
-        let (track, params) = fmp4::video_track(info, &first_idr)?;
+        Self::start_with_params(info, first_idr, None)
+    }
+
+    /// Starts a part at `first_idr`, falling back to `fallback` parameter sets when
+    /// `first_idr` carries none in band.
+    pub fn start_with_params(
+        info: &StreamInfo,
+        first_idr: VideoFrame,
+        fallback: Option<&ParamSets>,
+    ) -> Result<(Self, Vec<u8>), MuxError> {
+        let (track, params) = fmp4::video_track(info, &first_idr, fallback)?;
         let (init, mehd_at) = fmp4::init_segment(info, &track, 0);
         let start_us = first_idr.pts_us;
         let recorder = Self {
@@ -95,7 +105,12 @@ impl Recorder {
     pub fn push_video(&mut self, info: &StreamInfo, frame: VideoFrame) -> RecPush {
         if frame.idr {
             let sets = ParamSets::from_frame(info.codec, &frame.data);
-            if *info != self.info || (sets.is_complete(info.codec) && sets != self.params) {
+            let complete = sets.is_complete(info.codec);
+            if info.codec != self.info.codec && !complete {
+                self.awaiting = true;
+                return RecPush::AwaitingKeyframe;
+            }
+            if *info != self.info || (complete && sets != self.params) {
                 return RecPush::Restart(frame);
             }
             self.awaiting = false;
@@ -142,6 +157,10 @@ impl Recorder {
 
     pub fn info(&self) -> &StreamInfo {
         &self.info
+    }
+
+    pub fn params(&self) -> &ParamSets {
+        &self.params
     }
 
     /// The pending frames up to `next_pts`, and the audio before it, as one fragment.

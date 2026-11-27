@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.os.Build;
+import android.os.SystemClock;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
@@ -162,7 +163,7 @@ final class PadControlView extends View {
     }
 
     /** This control's touch area past its box, to add under every control ({@link PadReachLayer}). */
-    View reachLayer() {
+    PadReachLayer reachLayer() {
         return reachLayer;
     }
 
@@ -613,6 +614,7 @@ final class PadControlView extends View {
 
     /** Lets go of everything this control holds, as a cancelled touch does; a grip lets go too. */
     void release() {
+        reachLayer.releaseOwner(SystemClock.uptimeMillis());
         if (group != null) {
             // Its own fingers let go; a member another member's finger still holds stays held until that one lifts.
             Arrays.fill(pointerIds, -1);

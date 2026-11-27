@@ -49,6 +49,13 @@ impl AudioQueue {
             self.pending |= 1 << id;
         }
     }
+    pub(super) fn arrived_mask(&mut self, mask: u16) {
+        for id in 0..16 {
+            if mask & (1 << id) != 0 {
+                self.arrived(id);
+            }
+        }
+    }
     pub(super) fn retain_controllers(&mut self, active: u16) {
         for (id, status) in self.status.iter_mut().enumerate() {
             if active & (1 << id) == 0 {

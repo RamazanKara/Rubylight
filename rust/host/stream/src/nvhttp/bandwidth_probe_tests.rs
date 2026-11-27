@@ -200,3 +200,27 @@ async fn the_pyrowave_probe_waits_for_streams_and_its_cooldown() {
     assert_eq!(length, "Stop streaming before testing bandwidth".len());
     drop(session);
 }
+
+#[tokio::test]
+async fn second_screen_shares_the_devices_probe_cooldown() {
+    let f = Fixture::new();
+    let client = f.client(u32::MAX);
+    let (status, ..) = get(&f, true, "?bytes=65536").await;
+    assert_eq!(status, StatusCode::OK);
+    // Asking with rlSecondScreen=1 (#screen2) must hit the same device's cooldown.
+    let (status, ..) = get(&f, true, "?bytes=65536&rlSecondScreen=1").await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+
+    let (status, ..) = pyrowave(&f, true).await;
+    assert_eq!(status, StatusCode::OK);
+    let second = client.second_screen();
+    assert!(
+        probe_refused(
+            &f.host,
+            &f.host.pyrowave_probes,
+            &second,
+            probe::PYROWAVE_BYTES,
+        )
+        .is_some_and(|r| r.status() == StatusCode::TOO_MANY_REQUESTS)
+    );
+}

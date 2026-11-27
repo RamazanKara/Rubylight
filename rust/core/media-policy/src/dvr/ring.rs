@@ -2,7 +2,7 @@
 //! beside them, evicted a whole GOP at a time from the front by time and byte limits, and
 //! snapshotted into a [`Clip`] without copying frame bytes.
 
-use super::{AudioPacket, ParamSets, StreamInfo, VideoFrame};
+use super::{AudioPacket, ParamSets, StreamInfo, VideoCodec, VideoFrame};
 use std::collections::VecDeque;
 
 /// Audio kept from before the oldest stored keyframe, for capture-latency skew between
@@ -43,6 +43,7 @@ impl std::error::Error for SnapshotError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Clip {
     pub info: StreamInfo,
+    pub params: ParamSets,
     pub video: Vec<VideoFrame>,
     pub audio: Vec<AudioPacket>,
 }
@@ -106,6 +107,14 @@ impl Ring {
     /// The stream configuration of the stored epoch.
     pub fn info(&self) -> Option<&StreamInfo> {
         self.config.as_ref().map(|config| &config.info)
+    }
+
+    /// The parameter sets of the stored epoch when it uses `codec`.
+    pub fn params_for(&self, codec: VideoCodec) -> Option<&ParamSets> {
+        self.config
+            .as_ref()
+            .filter(|config| config.info.codec == codec)
+            .map(|config| &config.params)
     }
 
     pub fn push_video(&mut self, info: &StreamInfo, frame: VideoFrame) -> Pushed {
@@ -235,6 +244,7 @@ impl Ring {
             .collect();
         Ok(Clip {
             info: config.info.clone(),
+            params: config.params.clone(),
             video,
             audio,
         })

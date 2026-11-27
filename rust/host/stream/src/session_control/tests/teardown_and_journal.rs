@@ -36,6 +36,29 @@ fn the_grace_period_follows_the_existing_disconnect_delay() {
 }
 
 #[test]
+fn quick_suspended_session_grace_follows_paused_virtual_display_timeout() {
+    for (settings, expected_ms) in [
+        ("", Some(7_200_000)),
+        ("dd_config_revert_delay=500", Some(7_200_000)),
+        ("dd_paused_virtual_display_timeout_secs=60", Some(60_000)),
+        ("dd_paused_virtual_display_timeout_secs=0", None),
+    ] {
+        let setup = Setup::new(settings);
+        setup.suspended();
+        setup.host().quick_suspend.set_suspended_for_test("Desktop");
+        let snapshot = setup.host().session_snapshot();
+        assert_eq!(
+            snapshot.suspended_until_unix_ms,
+            snapshot
+                .since_unix_ms
+                .zip(expected_ms)
+                .map(|(since, ms)| since + ms),
+            "{settings}"
+        );
+    }
+}
+
+#[test]
 fn when_the_grace_period_runs_out_the_session_ends_as_end_session_does() {
     let setup = Setup::new("dd_config_revert_delay=0");
     let _session = setup.suspended();

@@ -88,7 +88,7 @@ struct Inner {
 /// What counts as one peer: an IPv4 address, or an IPv6 /64. One PC rotates
 /// through many privacy addresses of its /64.
 pub(crate) fn peer_group(peer: IpAddr) -> IpAddr {
-    match peer {
+    match peer.to_canonical() {
         IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(u128::from(v6) & (u128::MAX << 64))),
         v4 => v4,
     }
@@ -677,5 +677,29 @@ mod tests {
         assert!(registry.may_notify(v6("2001:db8:1:2::7")));
         assert!(!registry.may_notify(v6("2001:db8:1:2:a:b:c:d")));
         assert!(registry.may_notify(v6("2001:db8:1:3::7")));
+    }
+
+    #[test]
+    fn ipv4_mapped_peers_do_not_collapse_into_one_group() {
+        let a_v4: IpAddr = "1.2.3.4".parse().unwrap();
+        let a_mapped = v6("::ffff:1.2.3.4");
+        let b_mapped = v6("::ffff:5.6.7.8");
+        assert_eq!(peer_group(a_mapped), a_v4);
+        assert_ne!(peer_group(a_mapped), peer_group(b_mapped));
+
+        let registry = Registry::new();
+        assert!(registry.may_notify(a_v4));
+        assert!(!registry.may_notify(a_mapped));
+        assert!(registry.may_notify(b_mapped));
+
+        let mut a_conns: Vec<_> = (0..MAX_UNAUTHENTICATED_PER_IP)
+            .map(|_| registry.open(a_mapped).unwrap())
+            .collect();
+        let mut b_conns: Vec<_> = (0..MAX_UNAUTHENTICATED_PER_IP)
+            .map(|_| registry.open(b_mapped).unwrap())
+            .collect();
+        for conn in a_conns.iter_mut().chain(b_conns.iter_mut()) {
+            assert!(conn.closed.try_recv().is_err());
+        }
     }
 }

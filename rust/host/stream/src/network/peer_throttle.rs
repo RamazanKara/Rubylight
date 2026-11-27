@@ -54,7 +54,7 @@ pub fn local_network(peer: IpAddr) -> bool {
 /// What counts as one peer: an IPv4 address, or an IPv6 /64. One PC rotates
 /// through many privacy addresses of its /64.
 pub fn peer_group(peer: IpAddr) -> IpAddr {
-    match peer {
+    match peer.to_canonical() {
         IpAddr::V6(v6) => IpAddr::V6(std::net::Ipv6Addr::from(u128::from(v6) & (u128::MAX << 64))),
         v4 => v4,
     }
@@ -110,6 +110,26 @@ mod port_state_tests {
         assert_eq!(
             failed[1].reason.as_deref(),
             Some("the router refused the mapping")
+        );
+    }
+
+    #[test]
+    fn peer_group_unmaps_ipv4_mapped_ipv6_addresses() {
+        use super::peer_group;
+        use std::net::IpAddr;
+
+        let v4: IpAddr = "1.2.3.4".parse().unwrap();
+        let mapped: IpAddr = "::ffff:1.2.3.4".parse().unwrap();
+        let other_mapped: IpAddr = "::ffff:5.6.7.8".parse().unwrap();
+        assert_eq!(peer_group(mapped), v4);
+        assert_ne!(peer_group(mapped), peer_group(other_mapped));
+        assert_eq!(
+            peer_group("2001:db8:1:2::a".parse().unwrap()),
+            peer_group("2001:db8:1:2::b".parse().unwrap())
+        );
+        assert_ne!(
+            peer_group("2001:db8:1:2::a".parse().unwrap()),
+            peer_group("2001:db8:1:3::a".parse().unwrap())
         );
     }
 }

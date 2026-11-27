@@ -37,7 +37,10 @@ impl KeyframeBackoff {
     /// guest's own backoff does not hold it back, and the backoff starts over. Returns whether
     /// a keyframe was asked for.
     pub fn request(&mut self, now: Instant, fresh: bool, ask: impl FnOnce() -> bool) -> bool {
-        if !fresh && !self.ready(now) {
+        if fresh {
+            self.last = None;
+            self.interval = BASE_INTERVAL;
+        } else if !self.ready(now) {
             return false;
         }
         if !ask() {
@@ -142,5 +145,24 @@ mod tests {
         assert_eq!(backoff.interval(), BASE_INTERVAL);
         assert!(backoff.request(later, false, || true));
         assert_eq!(backoff.interval(), Duration::from_secs(4));
+    }
+
+    #[test]
+    fn a_refused_fresh_request_still_resets_the_backoff() {
+        let start = Instant::now();
+        let mut backoff = KeyframeBackoff::default();
+        assert!(backoff.request(start, true, || true));
+        grants(&mut backoff, start, 250, 14_000);
+        assert_eq!(backoff.interval(), MAX_INTERVAL);
+
+        let back = start + Duration::from_millis(14_500);
+        assert!(!backoff.ready(back));
+        // The shared allowance refuses the fresh return, yet the guest's own backoff resets.
+        assert!(!backoff.request(back, true, || false));
+        assert_eq!(backoff.interval(), BASE_INTERVAL);
+        assert!(backoff.ready(back));
+        // The transport's retry (fresh = false) is not held back by the pre-outage 8 s wait.
+        assert!(backoff.request(back + Duration::from_millis(250), false, || true));
+        assert_eq!(backoff.interval(), BASE_INTERVAL);
     }
 }

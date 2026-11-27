@@ -4,13 +4,19 @@
 //! without that stream (the PC's page, a companion device). Types come from
 //! `rubylight_native_api::dvr`.
 
+use std::time::Duration;
+
 use super::super::native_api::dvr::{
     ClipList, ClipRequest, ClipSaved, DvrStatus, RecordAction, RecordRequest, RecordResult,
 };
-use super::{ACTION_READ_TIMEOUT, Error, HostClient, MAX_JSON_BYTES, READ_TIMEOUT, url_component};
+use super::{Error, HostClient, MAX_JSON_BYTES, READ_TIMEOUT, url_component};
 
 /// Most clips one page of [`HostClient::dvr_clips`] asks for.
 pub const MAX_CLIPS_PAGE: u32 = 200;
+
+/// Read timeout for saving a replay clip or starting/stopping a recording: exceeds the host's
+/// 120 s `API_WAIT` so large clip mux writes finish or return the host's error cleanly.
+const DVR_ACTION_READ_TIMEOUT: Duration = Duration::from_secs(125);
 
 impl HostClient {
     /// The DVR state for the current stream (`GET /dvr`).
@@ -25,7 +31,12 @@ impl HostClient {
         let body = serde_json::to_vec(&ClipRequest { duration_secs })
             .map_err(|e| Error::InvalidArgument(format!("dvr clip: {e}")))?;
         // Writing the clip waits for the host to finish it.
-        self.native("dvr/clip", Some(&body), MAX_JSON_BYTES, ACTION_READ_TIMEOUT)
+        self.native(
+            "dvr/clip",
+            Some(&body),
+            MAX_JSON_BYTES,
+            DVR_ACTION_READ_TIMEOUT,
+        )
     }
 
     /// Starts or stops a recording (`POST /dvr/record`); a stop carries the finished clip.
@@ -36,7 +47,7 @@ impl HostClient {
             "dvr/record",
             Some(&body),
             MAX_JSON_BYTES,
-            ACTION_READ_TIMEOUT,
+            DVR_ACTION_READ_TIMEOUT,
         )
     }
 
@@ -49,5 +60,16 @@ impl HostClient {
             path.push_str(&url_component(cursor));
         }
         self.native(&path, None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dvr_write_timeout_exceeds_host_api_wait() {
+        assert_eq!(DVR_ACTION_READ_TIMEOUT, Duration::from_secs(125));
+        assert!(DVR_ACTION_READ_TIMEOUT > super::super::ACTION_READ_TIMEOUT);
     }
 }

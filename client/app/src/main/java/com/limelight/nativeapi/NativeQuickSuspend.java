@@ -52,6 +52,42 @@ public final class NativeQuickSuspend {
         return REFUSED.equals(state);
     }
 
+    /**
+     * Decodes a host Quick Suspend state from control message {@code 0x554B}
+     * ({@code rubylight_protocol::quick_suspend::HostState}); null for an unknown wire state.
+     */
+    public static NativeQuickSuspend fromControlState(int wireState, int wireReason, int suspendedCount,
+                                                      long suspendedSinceUnixMs) {
+        String stateName;
+        switch (wireState) {
+            case 0: stateName = UNAVAILABLE; break;
+            case 1: stateName = READY; break;
+            case 2: stateName = SUSPENDED; break;
+            case 3: stateName = RESUMING; break;
+            case 4: stateName = REFUSED; break;
+            default: return null;
+        }
+        return new NativeQuickSuspend(stateName, controlReason(wireReason), null, null,
+                Math.max(0, suspendedCount), Math.max(0L, suspendedSinceUnixMs), null);
+    }
+
+    private static String controlReason(int wireReason) {
+        switch (wireReason) {
+            case 0: return "none";
+            case 1: return "disabled_for_app";
+            case 2: return "no_owned_process";
+            case 3: return "anti_cheat_detected";
+            case 4: return "protected_process";
+            case 5: return "denylisted_process";
+            case 6: return "guests_active";
+            case 7: return "coop_session";
+            case 8: return "not_owner";
+            case 9: return "session_busy";
+            case 10: return "no_session";
+            default: return "io_or_os_error";
+        }
+    }
+
     static NativeQuickSuspend parse(Json.Obj json) {
         return new NativeQuickSuspend(json.getString("state"), json.optString("reason", "none"),
                 nullable(json, "message"), nullable(json, "app_title"), json.optInt("suspended_count", 0),

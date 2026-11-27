@@ -202,3 +202,34 @@ fn every_way_a_session_ends_resumes_the_game_first() {
     assert!(resumed < replace.find("h.end_app(previous").unwrap());
     assert!(replace.contains("\"a stream of the game starts\""));
 }
+
+#[test]
+fn protected_roots_report_protected_process_not_no_owned_process() {
+    use butterpollo_session::steam::Process;
+    use std::collections::BTreeMap;
+
+    let protected = Process {
+        pid: 4200,
+        parent: 1000,
+        started: 0,
+        name: "protected.exe".into(),
+    };
+    let refused = plan_for_roots(&BTreeMap::from([(4200, 0)]), &[protected], 900).unwrap_err();
+    assert_eq!(refused.reason, Reason::ProtectedProcess);
+    assert_eq!(refused.program.as_deref(), Some("protected.exe"));
+
+    // Even if the live protected root had not yet appeared in `all`, report ProtectedProcess.
+    let refused = plan_for_roots(&BTreeMap::from([(4200, 0)]), &[], 900).unwrap_err();
+    assert_eq!(refused.reason, Reason::ProtectedProcess);
+
+    // If `all` already shows a different process under a recycled PID (`started != 0`),
+    // never misreport it as protected or freeze it.
+    let recycled = Process {
+        pid: 4200,
+        parent: 1000,
+        started: 12_345,
+        name: "unrelated.exe".into(),
+    };
+    let refused = plan_for_roots(&BTreeMap::from([(4200, 0)]), &[recycled], 900).unwrap_err();
+    assert_eq!(refused.reason, Reason::NoOwnedProcess);
+}

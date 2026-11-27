@@ -6,7 +6,7 @@ use super::*;
 use crate::dvr::fmp4::boxes::{NON_SYNC_SAMPLE, SYNC_SAMPLE};
 use crate::dvr::fmp4::codec::{opus_entry, opus_mapping};
 use crate::dvr::fmp4::{AudioTimeline, VideoTimeline};
-use crate::dvr::{Clip, ClipInfo, MuxError, write_clip};
+use crate::dvr::{Clip, ClipInfo, Limits, MuxError, ParamSets, Ring, write_clip};
 
 const FRAME_US: u64 = 33_333;
 
@@ -22,7 +22,12 @@ fn clip(codec: VideoCodec, info: StreamInfo, gops: u64) -> Clip {
     } else {
         Vec::new()
     };
-    Clip { info, video, audio }
+    Clip {
+        info,
+        params: ParamSets::default(),
+        video,
+        audio,
+    }
 }
 
 fn mux(clip: &Clip) -> (Vec<u8>, ClipInfo, Vec<Node>) {
@@ -235,6 +240,7 @@ fn colr_follows_the_stream_and_hlg_takes_no_static_metadata() {
         .collect();
     let hlg = Clip {
         info: hdr_info(VideoCodec::Hevc),
+        params: ParamSets::default(),
         video,
         audio: Vec::new(),
     };
@@ -256,6 +262,7 @@ fn colr_follows_the_stream_and_hlg_takes_no_static_metadata() {
             audio: None,
             ..info(VideoCodec::H264)
         },
+        params: ParamSets::default(),
         video,
         audio: Vec::new(),
     };
@@ -344,6 +351,7 @@ fn mux_errors_name_the_problem() {
     let mut out = Vec::new();
     let empty = Clip {
         info: base.clone(),
+        params: ParamSets::default(),
         video: vec![],
         audio: vec![],
     };
@@ -439,4 +447,47 @@ fn salvage_reads_back_a_written_clip() {
     let (at, bytes) = salvage.mehd_patch.unwrap();
     assert_eq!(bmff::be64(&out, at as usize), info.duration_ms);
     assert_eq!(bytes, 1000u64.to_be_bytes());
+}
+
+#[test]
+fn snapshot_from_bare_keyframe_muxes_with_rings_parameter_sets() {
+    let h264_info = info(VideoCodec::H264);
+    let mut ring = Ring::new(Limits {
+        max_us: 60_000_000,
+        max_bytes: usize::MAX,
+    });
+    ring.push_video(&h264_info, h264_frame(0, true));
+    let bare_h264 = VideoFrame::new(FRAME_US, true, annexb(&[H264_AUD, &[0x65, 0x88, 0x11]]));
+    ring.push_video(&h264_info, bare_h264);
+    let clip = ring.snapshot(0).unwrap();
+    assert_eq!(clip.video.len(), 1);
+    assert!(clip.params.is_complete(VideoCodec::H264));
+    let (out, clip_info, tree) = mux(&clip);
+    assert_eq!((clip_info.width, clip_info.height), (200, 120));
+    assert!(
+        !entry(&tree, 0, "avc1")
+            .child("avcC")
+            .payload(&out)
+            .is_empty()
+    );
+
+    let av1_info = info(VideoCodec::Av1);
+    let mut av1_ring = Ring::new(Limits {
+        max_us: 60_000_000,
+        max_bytes: usize::MAX,
+    });
+    av1_ring.push_video(&av1_info, av1_frame(0, true));
+    let mut bare_av1 = AV1_TEMPORAL_DELIMITER.to_vec();
+    bare_av1.extend_from_slice(&[0x32, 0x03, 0x10, 0x44, 0x02]);
+    av1_ring.push_video(&av1_info, VideoFrame::new(FRAME_US, true, bare_av1));
+    let clip = av1_ring.snapshot(0).unwrap();
+    assert!(clip.params.is_complete(VideoCodec::Av1));
+    let (out, clip_info, tree) = mux(&clip);
+    assert_eq!((clip_info.width, clip_info.height), (200, 120));
+    assert!(
+        !entry(&tree, 0, "av01")
+            .child("av1C")
+            .payload(&out)
+            .is_empty()
+    );
 }

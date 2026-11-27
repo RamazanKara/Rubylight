@@ -77,8 +77,11 @@
 
   /** Joins the owner's stream. From the click, up to `play`, so Safari plays the sound. */
   function join() {
-    if (!token || !video) return;
+    if (!token || !video || phase === 'joining') return;
     clearTimeout(retry);
+    const prior = stream;
+    stream = null;
+    prior?.leave();
     rememberName();
     ended = null;
     if (phase !== 'waiting') phase = 'joining';

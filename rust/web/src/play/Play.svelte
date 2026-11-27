@@ -258,6 +258,7 @@
     notice = '';
     status = 'Starting…';
     menu = false;
+    backKey = false;
     playing = app.title;
     playingApp = app;
     stats = null;
@@ -342,6 +343,7 @@
     attempt = null;
     playingApp = null;
     menu = false;
+    backKey = false;
     leaveFullscreen();
     if (closed && /another tab/i.test(from.closeReason)) return failed(new Error(reason));
     notice = reason;
@@ -369,6 +371,7 @@
     attempt = null;
     playingApp = null;
     menu = false;
+    backKey = false;
     stream?.disconnect();
     leaveFullscreen();
     void library();
@@ -378,6 +381,7 @@
     attempt = null;
     playingApp = null;
     menu = false;
+    backKey = false;
     status = 'Quitting…';
     leaveFullscreen();
     try {
@@ -442,13 +446,23 @@
   function windowKey(event: KeyboardEvent) {
     const from = keySource(event, agent);
     if (from !== source) source = from;
-    if (live && !menu) return;
+    if (live && !menu) {
+      if (keyAction(event) === 'back') {
+        if (!event.repeat) backKey = true;
+        if (phase === 'starting') event.preventDefault();
+      }
+      return;
+    }
     const action = keyAction(event);
     if (!action) return;
     event.preventDefault();
     // Holding Back opened the menu; its repeats must not close it again.
     if (action === 'back' && event.repeat) return;
     act(action);
+  }
+
+  function windowKeyUp(event: KeyboardEvent) {
+    if (keyAction(event) === 'back') backKey = false;
   }
 
   // Keys and the mouse go to the PC while the picture has the focus.
@@ -520,7 +534,7 @@
   });
 </script>
 
-<svelte:window onkeydown={windowKey} onpointerdown={pointed} onpointermove={pointed} onpagehide={() => stream?.close()} />
+<svelte:window onkeydown={windowKey} onkeyup={windowKeyUp} onblur={blurred} onpointerdown={pointed} onpointermove={pointed} onpagehide={() => stream?.close()} />
 <svelte:document onfullscreenchange={() => (fullscreen = !!document.fullscreenElement)} />
 
 <main class="media-plane" class:live class:hinted={footHints} bind:this={page}>
@@ -585,8 +599,10 @@
       {#if muted}<p class="sound" role="status">Sound is off. Press a key or click to hear it.</p>{/if}
       {#if hint}<PlayGlyphBar {source} context="stream" floating />{/if}
       {#if statsOn}<PlayStatsCapsule {stats} codec={picture} />{/if}
-      <!-- The pointer's way to the dock; a key or a pad holds Back or Select instead. -->
-      <button class="handle" class:peek={hint && pointing} tabindex="-1" aria-label="Stream menu" onclick={openMenu}>
+    {/if}
+    {#if live && !menu}
+      <!-- The pointer's way to the dock (during launch too); a key or a pad holds Back or Select instead. -->
+      <button class="handle" class:peek={(phase === 'starting' || hint) && pointing} tabindex="-1" aria-label="Stream menu" onclick={openMenu}>
         <span aria-hidden="true"></span>
       </button>
     {/if}

@@ -163,3 +163,44 @@ fn every_refusal_reads_as_plain_english() {
         "Quick Suspend works only for games Rubylight launched, not Desktop sessions."
     );
 }
+
+#[test]
+fn zero_started_roots_never_match_recycled_pids_and_report_protected_processes() {
+    // A live process whose creation time could not be read (`started == 0` in both
+    // `owned` and `all`) refuses with ProtectedProcess instead of walking children
+    // with `started >= 0` or misreporting NoOwnedProcess.
+    let mut all = table();
+    all.push(process(4000, 2000, 0, "protected_game.exe"));
+    all.push(process(4100, 4000, 5 * MINUTE, "unrelated.exe"));
+    let refused = plan(&owned(&[(4000, 0)]), &all, HOST).unwrap_err();
+    assert_eq!(refused.reason, Reason::ProtectedProcess);
+    assert_eq!(refused.program.as_deref(), Some("protected_game.exe"));
+
+    // Alongside a normal game process, a protected owned root still refuses the whole tree.
+    let refused = plan(&owned(&[(3000, 30 * MINUTE), (4000, 0)]), &all, HOST).unwrap_err();
+    assert_eq!(refused.reason, Reason::ProtectedProcess);
+    assert_eq!(refused.program.as_deref(), Some("protected_game.exe"));
+
+    // A `started == 0` root whose PID now belongs to a different process (`started != 0`)
+    // or is absent from `all` is skipped, never frozen.
+    assert_eq!(
+        plan(&owned(&[(3000, 0)]), &table(), HOST),
+        Err(Refused {
+            reason: Reason::NoOwnedProcess,
+            program: None
+        })
+    );
+    assert_eq!(
+        plan(&owned(&[(9999, 0)]), &table(), HOST),
+        Err(Refused {
+            reason: Reason::NoOwnedProcess,
+            program: None
+        })
+    );
+
+    // An anti-cheat elsewhere on the PC still takes precedence over ProtectedProcess.
+    all.push(process(7000, 650, 0, "vgc.exe"));
+    let refused = plan(&owned(&[(4000, 0)]), &all, HOST).unwrap_err();
+    assert_eq!(refused.reason, Reason::AntiCheatDetected);
+    assert_eq!(refused.program.as_deref(), Some("Riot Vanguard"));
+}

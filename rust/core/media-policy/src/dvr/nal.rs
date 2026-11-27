@@ -206,9 +206,10 @@ pub struct H264Sps {
 }
 
 impl H264Sps {
-    /// Profiles whose `avcC` carries the chroma format and bit depth extension.
+    /// Profiles whose `avcC` carries the chroma format and bit depth extension
+    /// (ISO/IEC 14496-15 §5.3.3.1.2: everything except Baseline, Main and Extended).
     pub fn high_profile(&self) -> bool {
-        matches!(self.profile_idc, 100 | 110 | 122 | 144)
+        !matches!(self.profile_idc, 66 | 77 | 88)
     }
 }
 
@@ -227,7 +228,7 @@ pub fn h264_sps(unit: &[u8]) -> Option<H264Sps> {
     let (mut bit_depth_luma, mut bit_depth_chroma) = (8, 8);
     if matches!(
         profile_idc,
-        100 | 110 | 122 | 244 | 44 | 83 | 86 | 118 | 128 | 138 | 139 | 134 | 135
+        100 | 110 | 122 | 144 | 244 | 44 | 83 | 86 | 118 | 128 | 138 | 139 | 134 | 135
     ) {
         chroma_format_idc = bits.ue()?;
         if chroma_format_idc > 3 {

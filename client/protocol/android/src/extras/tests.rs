@@ -4,8 +4,14 @@ use super::*;
 fn passthrough_keeps_only_the_codecs_java_can_route() {
     use rubylight_protocol::audio_ext::{CODEC_AC3, CODEC_EAC3, CODEC_OPUS, CODEC_PCM};
     assert_eq!(audio_passthrough(0), 0);
-    assert_eq!(audio_passthrough(i32::from(CODEC_AC3 | CODEC_EAC3)), CODEC_AC3 | CODEC_EAC3);
-    assert_eq!(audio_passthrough(i32::from(CODEC_OPUS | CODEC_PCM)), CODEC_PCM);
+    assert_eq!(
+        audio_passthrough(i32::from(CODEC_AC3 | CODEC_EAC3)),
+        CODEC_AC3 | CODEC_EAC3
+    );
+    assert_eq!(
+        audio_passthrough(i32::from(CODEC_OPUS | CODEC_PCM)),
+        CODEC_PCM
+    );
     assert_eq!(audio_passthrough(-1), CODEC_PCM | CODEC_AC3 | CODEC_EAC3);
     assert_eq!(audio_passthrough(0x100), 0);
 }
@@ -13,7 +19,13 @@ fn passthrough_keeps_only_the_codecs_java_can_route() {
 #[test]
 fn the_video_fec_choice_comes_back_from_its_summary_percentage() {
     use rubylight_protocol::fec_report::FecChoice;
-    for choice in [FecChoice::Host, FecChoice::Auto, FecChoice::Fixed(0), FecChoice::Fixed(30), FecChoice::Fixed(100)] {
+    for choice in [
+        FecChoice::Host,
+        FecChoice::Auto,
+        FecChoice::Fixed(0),
+        FecChoice::Fixed(30),
+        FecChoice::Fixed(100),
+    ] {
         assert_eq!(video_fec(choice.summary_percentage()), choice);
     }
     assert_eq!(video_fec(i32::MIN), FecChoice::Host);
@@ -133,6 +145,31 @@ fn stream_dvr_requests_reach_the_wire_and_answers_reach_java() {
         clip_id: String::new(),
     };
     assert_eq!(dvr_clip_args(&clip), ([4, 1, 2, 0], 0));
+}
+
+#[test]
+fn quick_suspend_query_and_host_state_reach_the_wire_and_java() {
+    use rubylight_protocol::quick_suspend::{ClientRequest, HostState, Message, Op, Reason, State};
+    let query = quick_suspend_query();
+    assert!(query.is_valid());
+    assert_eq!(
+        Message::decode(&query.payload()),
+        Some(Message::Request(ClientRequest {
+            flags: 0,
+            request_id: 1,
+            op: Op::QueryState,
+        }))
+    );
+
+    let state = HostState {
+        flags: 0,
+        request_id: u32::MAX,
+        state: State::Suspended,
+        reason: Reason::AntiCheatDetected,
+        suspended_count: 4,
+        suspended_since_unix_ms: u64::MAX,
+    };
+    assert_eq!(quick_suspend_args(&state), ([-1, 2, 3, 4], i64::MAX));
 }
 
 #[test]
@@ -299,7 +336,11 @@ fn phase_lock_asks_for_more_room_at_one_frame_per_refresh() {
     let lead = |frame_ms: u64, period_ns: i64| {
         let mut reports = PhaseLockReports::default();
         let mut frame = 0;
-        while !reports.push(2_000_000 + (frame % 10) as i64 * 400_000, period_ns, 1000 + frame * frame_ms) {
+        while !reports.push(
+            2_000_000 + (frame % 10) as i64 * 400_000,
+            period_ns,
+            1000 + frame * frame_ms,
+        ) {
             frame += 1;
         }
         reports.lead_us()
@@ -321,7 +362,10 @@ fn microphone_frames_are_opus_sizes() {
 fn the_grid_is_converted_from_nanoseconds() {
     let grid = grid_from_ns(5_000_123_456, 16_666_667, 4_000_000, 8_333_333);
     assert_eq!(grid.anchor_us, 5_000_123);
-    assert_eq!(grid.interval_us, 16_667, "rounded to the nearest microsecond");
+    assert_eq!(
+        grid.interval_us, 16_667,
+        "rounded to the nearest microsecond"
+    );
     assert_eq!(grid.lead_us, 4_000);
     assert_eq!(grid.slack_us, 8_333);
     assert_eq!(grid_from_ns(0, 8_333_333, 0, 0).interval_us, 8_333);
@@ -343,7 +387,10 @@ fn a_grid_schedule_is_reported_in_nanoseconds() {
     assert_eq!(out[2], 1);
     assert_eq!(out[0], out[1] - lead_ns, "released a lead before it");
     assert_eq!(out[3], 0);
-    assert!((out[4] - (out[0] - ready_ns) / 1000).abs() <= 1, "the hold, to rounding");
+    assert!(
+        (out[4] - (out[0] - ready_ns) / 1000).abs() <= 1,
+        "the hold, to rounding"
+    );
     assert_eq!(out[5], -1, "no clock sync");
     assert_eq!(out[6], 0);
     // Ready 2 ms before the next vsync, inside the lead: released at the ready time, to the

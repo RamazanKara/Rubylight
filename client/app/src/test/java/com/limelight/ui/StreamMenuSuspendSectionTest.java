@@ -46,6 +46,7 @@ public class StreamMenuSuspendSectionTest {
     private final class FakeHost implements StreamMenuSuspendSection.Host {
         boolean offered = true;
         final List<String> said = new ArrayList<>();
+        final List<Boolean> pausedStates = new ArrayList<>();
         int refreshed;
         int suspended;
 
@@ -68,6 +69,8 @@ public class StreamMenuSuspendSectionTest {
         @Override public void refreshMenu() { refreshed++; }
 
         @Override public void onSuspended() { suspended++; }
+
+        @Override public void onPausedChanged(boolean paused) { pausedStates.add(paused); }
     }
 
     private static List<StreamMenu.Item> tiles(StreamMenuSuspendSection section, NvApp.Role role) {
@@ -144,5 +147,62 @@ public class StreamMenuSuspendSectionTest {
             int words = StreamMenuSuspendSection.refusal(reason[0]);
             assertEquals(String.valueOf(reason[0]), "quick_suspend_" + reason[1], context.getResources().getResourceEntryName(words));
         }
+    }
+
+    @Test
+    public void controlStreamPushStopsRumbleShowsPausedNoticeAndLiveUpdatesMenu() {
+        FakeHost host = new FakeHost();
+        StreamMenuSuspendSection section = new StreamMenuSuspendSection(context, host);
+
+        // Initial Op::QueryState answer: Ready (1).
+        section.onControlState(1, 1, 0, 0, 0L);
+        assertEquals(Arrays.asList(StreamMenu.Item.SUSPEND_GAME), tiles(section, NvApp.Role.STREAM));
+        assertEquals(0, host.suspended);
+        assertTrue(host.said.isEmpty());
+        assertEquals(1, host.refreshed);
+
+        // PC console or companion device pauses the game -> pushed Suspended (2) with requestId 0.
+        section.onControlState(0, 2, 0, 3, 1_763_772_200_000L);
+        assertTrue(section.paused());
+        assertEquals(1, host.suspended);
+        assertEquals(Arrays.asList(Boolean.TRUE), host.pausedStates);
+        assertEquals(Arrays.asList(context.getString(R.string.quick_suspend_paused)), host.said);
+        assertEquals(Arrays.asList(StreamMenu.Item.RESUME_GAME), tiles(section, NvApp.Role.STREAM));
+        assertEquals(2, host.refreshed);
+
+        // Opening the menu keeps live control-stream state; a Resuming (3) push or Refused (4) does not duplicate alerts.
+        section.forget();
+        assertTrue("live control-stream state survives menu open", section.paused());
+        section.onControlState(0, 3, 0, 3, 1_763_772_200_000L);
+        section.onControlState(9, 4, 8, 0, 0L);
+        assertEquals(1, host.suspended);
+        assertEquals(1, host.said.size());
+        assertEquals(Arrays.asList(StreamMenu.Item.RESUME_GAME), tiles(section, NvApp.Role.STREAM));
+
+        // PC console resumes the game -> pushed Ready (1) with requestId 0.
+        section.onControlState(0, 1, 0, 0, 0L);
+        assertFalse(section.paused());
+        assertEquals(Arrays.asList(Boolean.TRUE, Boolean.FALSE), host.pausedStates);
+        assertEquals(context.getString(R.string.quick_suspend_resumed), host.said.get(1));
+        assertEquals(Arrays.asList(StreamMenu.Item.SUSPEND_GAME), tiles(section, NvApp.Role.STREAM));
+
+        // Unavailable (0) hides the tile.
+        section.onControlState(0, 0, 1, 0, 0L);
+        assertFalse(section.offered());
+        assertEquals(Arrays.asList(), tiles(section, NvApp.Role.STREAM));
+    }
+
+    @Test
+    public void controlWireStatesAndReasonsDecodeCleanly() {
+        com.limelight.nativeapi.NativeQuickSuspend suspended =
+                com.limelight.nativeapi.NativeQuickSuspend.fromControlState(2, 0, 5, 42L);
+        assertTrue(suspended.paused());
+        assertEquals(5, suspended.suspendedCount);
+        assertEquals(42L, suspended.suspendedSinceUnixMs);
+        assertEquals("anti_cheat_detected",
+                com.limelight.nativeapi.NativeQuickSuspend.fromControlState(4, 3, 0, 0L).reason);
+        assertEquals("io_or_os_error",
+                com.limelight.nativeapi.NativeQuickSuspend.fromControlState(4, 99, 0, 0L).reason);
+        assertEquals(null, com.limelight.nativeapi.NativeQuickSuspend.fromControlState(9, 0, 0, 0L));
     }
 }

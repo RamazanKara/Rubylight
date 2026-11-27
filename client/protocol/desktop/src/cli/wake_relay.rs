@@ -116,14 +116,22 @@ fn interface_of(ip: Ipv4Addr, netmask: Ipv4Addr) -> Option<Interface> {
 /// takes an enrollment only from one of its own subnets, so a public, tunnelled or IPv6
 /// address would only earn a refusal.
 fn on_this_network(address: &str) -> bool {
-    match address
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .parse::<IpAddr>()
-    {
-        Ok(IpAddr::V4(ip)) => is_lan(ip),
-        Ok(IpAddr::V6(_)) => false,
-        Err(_) => !address.trim().is_empty(),
+    let trimmed = address.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let unbracketed = trimmed
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .unwrap_or(trimmed);
+    let (candidate, stripped_zone) = match unbracketed.split_once('%') {
+        Some((host, _)) if host.contains(':') => (host, true),
+        _ => (unbracketed, false),
+    };
+    match candidate.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) if !stripped_zone => is_lan(ip),
+        Ok(IpAddr::V4(_)) | Ok(IpAddr::V6(_)) => false,
+        Err(_) => true,
     }
 }
 

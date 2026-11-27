@@ -248,6 +248,11 @@ impl Confidence {
         let gated = self.gated(now_us);
         self.state = match self.state {
             State::Disabled => State::Disabled,
+            State::WarmPrior | State::ColdAcquiring if locked && gated => {
+                self.decaying_since_us = Some(now_us);
+                self.confirms = 0;
+                State::ConfidenceDecaying
+            }
             State::WarmPrior | State::ColdAcquiring if locked => State::Locked,
             State::WarmPrior if !warm => State::ColdAcquiring,
             state @ (State::WarmPrior | State::ColdAcquiring) => state,

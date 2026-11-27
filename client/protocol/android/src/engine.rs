@@ -6,15 +6,17 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use nightjar_core::control::clipboard_sync::{ClipboardItem, ClipboardSync, PreparedLocal, Received};
 use nightjar_core::control::ClientMessage;
+use nightjar_core::control::clipboard_sync::{
+    ClipboardItem, ClipboardSync, PreparedLocal, Received,
+};
 use nightjar_core::rtsp::MicrophoneState;
 use nightjar_core::sdp::{self, StreamConfig};
 use nightjar_core::session::{
     AudioGauges, HostInfo, Interrupt, NetworkChange, NetworkHint, Session, SessionConfig,
     VideoGauges,
 };
-use rubylight_protocol::clipboard_sync::{Frame, CLIPBOARD_SYNC_MESSAGE_TYPE};
+use rubylight_protocol::clipboard_sync::{CLIPBOARD_SYNC_MESSAGE_TYPE, Frame};
 use rubylight_protocol::control::ClockSyncReply;
 use rubylight_protocol::present_clock::{Grid, GridSchedule, PresentClock, Schedule, Settings};
 
@@ -202,7 +204,9 @@ pub fn start(bridge: Arc<Bridge>, params: StartParams) -> i32 {
     *lock(&ENGINE.phase_lock) = PhaseLockReports::default();
     ENGINE.phase_lock_lead_us.store(i32::MIN, Ordering::SeqCst);
     *lock(&ENGINE.microphone) = None;
-    ENGINE.microphone_state.store(MIC_STATE_OFF, Ordering::SeqCst);
+    ENGINE
+        .microphone_state
+        .store(MIC_STATE_OFF, Ordering::SeqCst);
     let interrupt = Interrupt::default();
     *lock(&ENGINE.interrupt) = interrupt.clone();
     set_host_messages(&[]);
@@ -256,6 +260,7 @@ pub fn start(bridge: Arc<Bridge>, params: StartParams) -> i32 {
     };
 
     let outcome = session.outcome();
+    let query_quick_suspend = should_query_quick_suspend(&outcome.host_control_messages);
     platform::info(&format!(
         "Stream negotiated: format=0x{:x} {}x{} packet={} encryption=0x{:x} control messages {:x?}",
         outcome.negotiated_video_format,
@@ -290,7 +295,9 @@ pub fn start(bridge: Arc<Bridge>, params: StartParams) -> i32 {
         }
         MicrophoneState::On => MIC_STATE_UNAVAILABLE,
     };
-    ENGINE.microphone_state.store(microphone_state, Ordering::SeqCst);
+    ENGINE
+        .microphone_state
+        .store(microphone_state, Ordering::SeqCst);
     // Before the session is published: no controller arrives before the queue knows.
     session.input(|q| q.set_controller_identity(controller_identity));
     *lock(&ENGINE.video_gauges) = session.video_gauges();
@@ -301,8 +308,17 @@ pub fn start(bridge: Arc<Bridge>, params: StartParams) -> i32 {
     if events.started.load(Ordering::SeqCst) {
         bridge.post(bridge.m.connection_started, &[]);
     }
+    if query_quick_suspend && !send(extras::quick_suspend_query()) {
+        platform::warn("Quick Suspend: initial state query could not be sent");
+    }
     events.publish_and_flush_termination();
     0
+}
+
+/// Whether the host announced Quick Suspend (`0x554B`), so Android should send an initial
+/// `Op::QueryState` to learn the state and subscribe to pushed changes.
+fn should_query_quick_suspend(messages: &[u16]) -> bool {
+    messages.contains(&rubylight_protocol::quick_suspend::QUICK_SUSPEND_MESSAGE_TYPE)
 }
 
 /// Whether `session_id` is still the active stream stored in `ENGINE.session`.
@@ -327,7 +343,9 @@ pub fn stop() {
             microphone.sent, microphone.errors
         ));
     }
-    ENGINE.microphone_state.store(MIC_STATE_OFF, Ordering::SeqCst);
+    ENGINE
+        .microphone_state
+        .store(MIC_STATE_OFF, Ordering::SeqCst);
     // Detaches what is attached here; the host detaches its side as the stream ends.
     if let Some((id, session)) = session {
         crate::usb::end(id);
@@ -357,7 +375,9 @@ pub fn announce_host_packed444_modes(modes: u8) {
     if lock(&ENGINE.interrupt).is_interrupted() {
         return;
     }
-    ENGINE.host_packed444_modes.store(i32::from(modes), Ordering::SeqCst);
+    ENGINE
+        .host_packed444_modes
+        .store(i32::from(modes), Ordering::SeqCst);
 }
 
 /// `MoonBridge.getHostPacked444Modes`: what this stream's DESCRIBE offered, -1 before it.
@@ -370,7 +390,9 @@ pub fn announce_hdr_format(format: u8) {
     if lock(&ENGINE.interrupt).is_interrupted() {
         return;
     }
-    ENGINE.announced_hdr_format.store(i32::from(format), Ordering::SeqCst);
+    ENGINE
+        .announced_hdr_format
+        .store(i32::from(format), Ordering::SeqCst);
 }
 
 /// `MoonBridge.getAnnouncedHdrFormat`: the HDR format this stream's ANNOUNCE asked for, 0 for
@@ -402,7 +424,9 @@ pub fn report_frame_slack(slack_ns: i64, period_ns: i64) -> bool {
     let mut reports = lock(&ENGINE.phase_lock);
     let ready = reports.push(slack_ns, period_ns, now_ms());
     if ready {
-        ENGINE.phase_lock_lead_us.store(reports.lead_us(), Ordering::SeqCst);
+        ENGINE
+            .phase_lock_lead_us
+            .store(reports.lead_us(), Ordering::SeqCst);
     }
     ready
 }
@@ -472,7 +496,14 @@ pub fn send_microphone(pcm: &[i16]) -> i32 {
 /// ([`Settings::adaptive`]); on a fixed vsync grid the percentile rule stays as it is.
 pub fn present_clock_start(min_interval_us: i32, adaptive: bool) {
     let min_interval_us = i64::from(min_interval_us.max(0));
-    let settings = if adaptive { Settings::adaptive(min_interval_us) } else { Settings { min_interval_us, ..Settings::default() } };
+    let settings = if adaptive {
+        Settings::adaptive(min_interval_us)
+    } else {
+        Settings {
+            min_interval_us,
+            ..Settings::default()
+        }
+    };
     *lock(&ENGINE.present_clock) = Some(PresentClock::new(settings));
 }
 
@@ -495,7 +526,9 @@ pub fn decode_queue_len() -> usize {
 
 /// Milliseconds of audio queued for the renderer, read without taking `ENGINE.session`.
 pub fn pending_audio_ms() -> u32 {
-    lock(&ENGINE.audio_gauges).as_ref().map_or(0, |g| g.pending_audio_ms())
+    lock(&ENGINE.audio_gauges)
+        .as_ref()
+        .map_or(0, |g| g.pending_audio_ms())
 }
 
 /// Frames dropped over a full decode queue since the stream started (`VideoStats::decoder_drops`);
@@ -510,13 +543,17 @@ fn video_gauges<R>(default: R, f: impl FnOnce(&VideoGauges) -> R) -> R {
 
 pub fn present_clock_schedule(rtp: u32, ready_us: u64) -> Option<Schedule> {
     let queued = decode_queue_len();
-    lock(&ENGINE.present_clock).as_mut().map(|clock| clock.schedule_queued(rtp, ready_us, queued))
+    lock(&ENGINE.present_clock)
+        .as_mut()
+        .map(|clock| clock.schedule_queued(rtp, ready_us, queued))
 }
 
 /// As [`present_clock_schedule`], onto a vsync grid.
 pub fn present_clock_schedule_on_grid(rtp: u32, ready_us: u64, grid: Grid) -> Option<GridSchedule> {
     let queued = decode_queue_len();
-    lock(&ENGINE.present_clock).as_mut().map(|clock| clock.schedule_on_grid_queued(rtp, ready_us, grid, queued))
+    lock(&ENGINE.present_clock)
+        .as_mut()
+        .map(|clock| clock.schedule_on_grid_queued(rtp, ready_us, grid, queued))
 }
 
 /// Notes a frame for the content rate.
@@ -528,7 +565,10 @@ pub fn present_clock_observe(rtp: u32) {
 
 /// The content rate in millihertz, 0 until it held steady for two seconds or without a clock.
 pub fn present_clock_content_rate() -> u32 {
-    lock(&ENGINE.present_clock).as_ref().and_then(|c| c.content_rate_mhz()).unwrap_or(0)
+    lock(&ENGINE.present_clock)
+        .as_ref()
+        .and_then(|c| c.content_rate_mhz())
+        .unwrap_or(0)
 }
 
 /// Frames scheduled, frames late, clock sync round trip (-1 without).

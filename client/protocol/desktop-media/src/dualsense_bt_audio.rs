@@ -81,7 +81,12 @@ pub fn seal(report: &mut [u8]) {
 
 /// Report 0x36 with `opus` as its speaker packet and `haptics`, if any, as its actuator frames.
 /// `report` counts reports (its low four bits are sent), `audio` counts audio packets.
-pub fn report(report: u8, audio: u8, opus: &[u8; OPUS_BYTES], haptics: Option<&[u8; 64]>) -> [u8; REPORT_BYTES] {
+pub fn report(
+    report: u8,
+    audio: u8,
+    opus: &[u8; OPUS_BYTES],
+    haptics: Option<&[u8; 64]>,
+) -> [u8; REPORT_BYTES] {
     let mut out = [0u8; REPORT_BYTES];
     out[0] = 0x36;
     out[1] = (report & 15) << 4;
@@ -116,8 +121,12 @@ pub fn resample(frames: &[[i16; 2]; REPORT_FRAMES]) -> [i16; OPUS_FRAMES * 2] {
         let (index, fraction) = (numerator / last_out, (numerator % last_out) as i32);
         let next = (index + 1).min(last_in);
         for channel in 0..2 {
-            let (a, b) = (i32::from(frames[index][channel]), i32::from(frames[next][channel]));
-            out[i * 2 + channel] = ((a * (last_out as i32 - fraction) + b * fraction) / last_out as i32) as i16;
+            let (a, b) = (
+                i32::from(frames[index][channel]),
+                i32::from(frames[next][channel]),
+            );
+            out[i * 2 + channel] =
+                ((a * (last_out as i32 - fraction) + b * fraction) / last_out as i32) as i16;
         }
     }
     out
@@ -138,10 +147,21 @@ pub fn decimate(frames: &[[i16; 2]; REPORT_FRAMES]) -> [u8; HAPTICS_FRAMES * 2] 
 }
 
 unsafe extern "C" {
-    fn opus_encoder_create(rate: i32, channels: i32, application: i32, error: *mut i32) -> *mut c_void;
+    fn opus_encoder_create(
+        rate: i32,
+        channels: i32,
+        application: i32,
+        error: *mut i32,
+    ) -> *mut c_void;
     fn opus_encoder_destroy(encoder: *mut c_void);
     fn opus_encoder_ctl(encoder: *mut c_void, request: i32, ...) -> i32;
-    fn opus_encode(encoder: *mut c_void, pcm: *const i16, frames: i32, data: *mut u8, length: i32) -> i32;
+    fn opus_encode(
+        encoder: *mut c_void,
+        pcm: *const i16,
+        frames: i32,
+        data: *mut u8,
+        length: i32,
+    ) -> i32;
 }
 
 const OPUS_APPLICATION_RESTRICTED_LOWDELAY: i32 = 2051;
@@ -163,8 +183,12 @@ impl Opus {
     fn new() -> Result<Self, String> {
         let mut error = 0;
         // SAFETY: valid arguments; the result is checked.
-        let raw = unsafe { opus_encoder_create(48_000, 2, OPUS_APPLICATION_RESTRICTED_LOWDELAY, &mut error) };
-        let encoder = NonNull::new(raw).map(Self).ok_or_else(|| format!("speaker encoder failed ({error})"))?;
+        let raw = unsafe {
+            opus_encoder_create(48_000, 2, OPUS_APPLICATION_RESTRICTED_LOWDELAY, &mut error)
+        };
+        let encoder = NonNull::new(raw)
+            .map(Self)
+            .ok_or_else(|| format!("speaker encoder failed ({error})"))?;
         for (request, value) in [
             (OPUS_SET_BITRATE, 160_000),
             (OPUS_SET_VBR, 0),
@@ -175,7 +199,9 @@ impl Opus {
             // SAFETY: a live encoder; each request takes one i32.
             let result = unsafe { opus_encoder_ctl(encoder.0.as_ptr(), request, value) };
             if result != 0 {
-                return Err(format!("speaker encoder setting {request} failed ({result})"));
+                return Err(format!(
+                    "speaker encoder setting {request} failed ({result})"
+                ));
             }
         }
         Ok(encoder)
@@ -185,7 +211,13 @@ impl Opus {
         let mut packet = [0u8; OPUS_BYTES];
         // SAFETY: a live encoder, 480 stereo frames in, 200 bytes of room out.
         let length = unsafe {
-            opus_encode(self.0.as_ptr(), stereo.as_ptr(), OPUS_FRAMES as i32, packet.as_mut_ptr(), OPUS_BYTES as i32)
+            opus_encode(
+                self.0.as_ptr(),
+                stereo.as_ptr(),
+                OPUS_FRAMES as i32,
+                packet.as_mut_ptr(),
+                OPUS_BYTES as i32,
+            )
         };
         (length == OPUS_BYTES as i32).then_some(packet)
     }
@@ -209,10 +241,16 @@ struct Fifo {
 
 impl Fifo {
     fn offer(&mut self, pcm: &Pcm, now: Instant) {
-        if self.sequence.is_some_and(|last| pcm.sequence.wrapping_sub(last) as i32 <= 0) {
+        if self
+            .sequence
+            .is_some_and(|last| pcm.sequence.wrapping_sub(last) as i32 <= 0)
+        {
             return;
         }
-        if self.sequence.is_some_and(|last| pcm.sequence != last.wrapping_add(1)) {
+        if self
+            .sequence
+            .is_some_and(|last| pcm.sequence != last.wrapping_add(1))
+        {
             // A gap: start over rather than splice.
             self.frames.clear();
             self.playing = false;
@@ -220,7 +258,10 @@ impl Fifo {
         self.sequence = Some(pcm.sequence);
         let mut loud = false;
         for frame in pcm.samples.as_chunks::<4>().0 {
-            let frame = [i16::from_le_bytes([frame[0], frame[1]]), i16::from_le_bytes([frame[2], frame[3]])];
+            let frame = [
+                i16::from_le_bytes([frame[0], frame[1]]),
+                i16::from_le_bytes([frame[2], frame[3]]),
+            ];
             loud |= frame != [0, 0];
             self.frames.push_back(frame);
         }
@@ -269,10 +310,19 @@ struct Player {
 
 impl Player {
     fn new(mix: Arc<Mutex<Mix>>) -> Result<Self, String> {
-        Ok(Self { opus: Opus::new()?, mix, report: 0, audio: 0 })
+        Ok(Self {
+            opus: Opus::new()?,
+            mix,
+            report: 0,
+            audio: 0,
+        })
     }
 
-    fn make(&mut self, speaker: &[[i16; 2]; REPORT_FRAMES], haptics: Option<[u8; 64]>) -> Option<[u8; REPORT_BYTES]> {
+    fn make(
+        &mut self,
+        speaker: &[[i16; 2]; REPORT_FRAMES],
+        haptics: Option<[u8; 64]>,
+    ) -> Option<[u8; REPORT_BYTES]> {
         let opus = self.opus.encode(&resample(speaker))?;
         let out = report(self.report, self.audio, &opus, haptics.as_ref());
         self.report = self.report.wrapping_add(1);
@@ -343,7 +393,11 @@ impl BtAudio {
         // SAFETY: an open gamepad on the UI thread; SDL owns the returned path.
         let hid = unsafe {
             let path = SDL_GetGamepadPath(pad);
-            if path.is_null() { std::ptr::null_mut() } else { SDL_hid_open_path(path) }
+            if path.is_null() {
+                std::ptr::null_mut()
+            } else {
+                SDL_hid_open_path(path)
+            }
         };
         if hid.is_null() {
             return Err(format!("no HID device: {}", crate::sdl::error()));
@@ -375,20 +429,35 @@ impl BtAudio {
                 RUNNING.fetch_sub(1, Ordering::AcqRel);
                 error.to_string()
             })?;
-        Ok(Self { mix, stop, worker: Some(worker) })
+        Ok(Self {
+            mix,
+            stop,
+            worker: Some(worker),
+        })
     }
 
     /// Queues `pcm`, a speaker block when `speaker`, else haptics.
     pub fn offer(&self, pcm: &Pcm, speaker: bool) {
         let mut mix = lock(&self.mix);
-        let fifo = if speaker { &mut mix.speaker } else { &mut mix.haptics };
+        let fifo = if speaker {
+            &mut mix.speaker
+        } else {
+            &mut mix.haptics
+        };
         fifo.offer(pcm, Instant::now());
+    }
+
+    /// Whether Bluetooth waveform haptics are currently active.
+    pub fn active(&self) -> bool {
+        self.alive() && lock(&self.mix).haptics.active(Instant::now())
     }
 
     /// Whether the worker still runs: writes failing for [`GIVE_UP`] stop it, and only a new
     /// [`BtAudio`] plays again.
     pub fn alive(&self) -> bool {
-        self.worker.as_ref().is_some_and(|worker| !worker.is_finished())
+        self.worker
+            .as_ref()
+            .is_some_and(|worker| !worker.is_finished())
     }
 }
 

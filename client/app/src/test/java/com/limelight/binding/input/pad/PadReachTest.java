@@ -210,4 +210,44 @@ public class PadReachTest extends ModernControllerHarness {
                 0, last()[0] & ControllerPacket.LS_CLK_FLAG);
         stickArea.dispatchTouchEvent(touch(t2 + 60, t2 + 90, MotionEvent.ACTION_UP, 2f, stickArea.getHeight() / 2f));
     }
+
+    @Test public void releaseHidingAndDetachingClearTrackedReachPointers() {
+        ModernController controller = withLayout(draft -> {
+            draft.setReach(PadLayout.Control.LEFT_STICK, 2f);
+            draft.setReach(PadLayout.Control.LB, 2f);
+        });
+        PadControlView stick = controller.view(PadLayout.Control.LEFT_STICK);
+        PadReachLayer stickArea = stick.reachLayer();
+        long t = SystemClock.uptimeMillis();
+        // Start a stick gesture in the reach area, then release the control without an ACTION_CANCEL on the reach layer.
+        stickArea.dispatchTouchEvent(touch(t, t, MotionEvent.ACTION_DOWN, 2f, stickArea.getHeight() / 2f));
+        assertEquals(1, stickArea.trackedPointerCount());
+        stick.release();
+        assertEquals("release() clears tracked reach pointers", 0, stickArea.trackedPointerCount());
+        // A stale MOVE after release() must not deflect the stick.
+        stickArea.dispatchTouchEvent(touch(t, t + 20, MotionEvent.ACTION_MOVE, stickArea.getWidth() - 2f, stickArea.getHeight() / 2f));
+        assertEquals(0, last()[1]);
+        assertEquals(0, last()[2]);
+
+        // Hiding the reach layer clears pointers and releases the button it held.
+        PadControlView lb = controller.view(PadLayout.Control.LB);
+        PadReachLayer lbArea = lb.reachLayer();
+        long t2 = t + 100;
+        lbArea.dispatchTouchEvent(touch(t2, t2, MotionEvent.ACTION_DOWN, 2f, lbArea.getHeight() / 2f));
+        assertNotEquals(0, last()[0] & PadInput.buttonFlag(PadLayout.Control.LB));
+        assertEquals(1, lbArea.trackedPointerCount());
+        lbArea.setVisibility(View.GONE);
+        assertEquals("hiding clears tracked pointers", 0, lbArea.trackedPointerCount());
+        assertEquals("hiding releases the held button", 0, last()[0] & PadInput.buttonFlag(PadLayout.Control.LB));
+
+        // Detaching the reach layer from the window also clears pointers and releases the button it held.
+        lbArea.setVisibility(View.VISIBLE);
+        long t3 = t + 200;
+        lbArea.dispatchTouchEvent(touch(t3, t3, MotionEvent.ACTION_DOWN, 2f, lbArea.getHeight() / 2f));
+        assertNotEquals(0, last()[0] & PadInput.buttonFlag(PadLayout.Control.LB));
+        assertEquals(1, lbArea.trackedPointerCount());
+        lbArea.onDetachedFromWindow();
+        assertEquals("detaching clears tracked pointers", 0, lbArea.trackedPointerCount());
+        assertEquals("detaching releases the held button", 0, last()[0] & PadInput.buttonFlag(PadLayout.Control.LB));
+    }
 }

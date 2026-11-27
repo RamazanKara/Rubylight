@@ -157,6 +157,10 @@ test('a key repeat of Back never closes the menu it just opened', () => {
   // The focus moves to the menu and the picture never sees the key let go.
   const openMenu = page.slice(page.indexOf('function openMenu'), page.indexOf('function closeMenu'));
   assert.match(openMenu, /backKey = false/);
+  // Holding Back works during phase === 'starting' and when .surface loses focus, and .handle renders while live.
+  assert.match(windowKey, /if \(live && !menu\)[\s\S]*?keyAction\(event\) === 'back'[\s\S]*?backKey = true/);
+  assert.match(page, /<svelte:window[^>]*onkeyup=\{windowKeyUp\}[^>]*onblur=\{blurred\}/);
+  assert.match(page, /\{#if live && !menu\}[\s\S]*?<button class="handle"/);
 });
 
 test('the page opens on Connecting with its picture ready and no Experimental label', () => {

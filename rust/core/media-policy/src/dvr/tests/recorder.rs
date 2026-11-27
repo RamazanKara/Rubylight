@@ -193,6 +193,31 @@ fn recorder_restarts_when_the_configuration_changes() {
     assert!(next.info().hdr.is_some());
 }
 
+#[test]
+fn recorder_restart_reuses_param_sets_for_same_codec_and_waits_for_new_codec_headers() {
+    let base = info(VideoCodec::H264);
+    let (mut recorder, _) = Recorder::start(&base, h264_frame(0, true)).unwrap();
+    let bare_h264 = VideoFrame::new(FRAME_US, true, annexb(&[H264_AUD, &[0x65, 0x88, 0x11]]));
+    let mut video_only = base.clone();
+    video_only.audio = None;
+    let restarted = match recorder.push_video(&video_only, bare_h264.clone()) {
+        RecPush::Restart(frame) => frame,
+        other => panic!("unexpected {other:?}"),
+    };
+    let (next, init) =
+        Recorder::start_with_params(&video_only, restarted, Some(recorder.params())).unwrap();
+    assert_eq!(kinds(&parse(&init)), ["ftyp", "moov"]);
+    assert_eq!(next.params(), recorder.params());
+
+    // A bare keyframe for a different codec cannot reuse the old codec's parameter sets.
+    let hevc_info = info(VideoCodec::Hevc);
+    let bare_hevc = VideoFrame::new(2 * FRAME_US, true, annexb(&[HEVC_AUD, &[0x26, 0x01, 0xaf]]));
+    assert!(matches!(
+        recorder.push_video(&hevc_info, bare_hevc),
+        RecPush::AwaitingKeyframe
+    ));
+}
+
 fn trun_count(fragment: &[u8]) -> usize {
     let tree = parse(fragment);
     trun(fragment, tree[0].all("traf")[0].child("trun"))
@@ -298,6 +323,53 @@ fn salvage_reads_large_size_boxes() {
     file.extend_from_slice(payload);
     let found = salvage(&mut Cursor::new(&file)).unwrap();
     assert_eq!((found.valid_len, found.fragments), (file.len() as u64, 1));
+}
+
+fn replace_mehd(file: &[u8], payload: &[u8]) -> Vec<u8> {
+    let tree = parse(file);
+    let moov = &tree[1];
+    let mvex = moov.child("mvex");
+    let mehd = mvex.child("mehd");
+    let new_box_len = 8 + payload.len();
+    let old_box_len = mehd.end - mehd.start;
+    let delta = new_box_len as isize - old_box_len as isize;
+    let mut out = Vec::with_capacity((file.len() as isize + delta) as usize);
+    out.extend_from_slice(&file[..mehd.start]);
+    out.extend_from_slice(&(new_box_len as u32).to_be_bytes());
+    out.extend_from_slice(b"mehd");
+    out.extend_from_slice(payload);
+    out.extend_from_slice(&file[mehd.end..]);
+    let patch_size = |buf: &mut [u8], at: usize| {
+        let old = u32::from_be_bytes(buf[at..at + 4].try_into().unwrap()) as isize;
+        let updated = (old + delta) as u32;
+        buf[at..at + 4].copy_from_slice(&updated.to_be_bytes());
+    };
+    patch_size(&mut out, moov.start);
+    patch_size(&mut out, mvex.start);
+    out
+}
+
+#[test]
+fn salvage_ignores_truncated_or_unknown_version_mehd() {
+    let recording = record(VideoCodec::H264);
+    for bad_payload in [
+        // Version 1 needs 12 bytes (4 header + 8 duration).
+        &[1u8, 0, 0, 0, 0, 0, 0, 0][..],
+        // Version 0 needs 8 bytes (4 header + 4 duration).
+        &[0u8, 0, 0, 0, 0, 0][..],
+        // Unknown version 2.
+        &[2u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0][..],
+    ] {
+        let file = replace_mehd(&recording.file, bad_payload);
+        let found = salvage(&mut Cursor::new(&file)).unwrap();
+        assert_eq!((found.valid_len, found.fragments), (file.len() as u64, 3));
+        assert_eq!(found.mehd_patch, None, "{bad_payload:?}");
+    }
+    // Valid version 0 mehd (8 bytes) produces a 4-byte duration patch.
+    let v0_file = replace_mehd(&recording.file, &[0u8; 8]);
+    let found = salvage(&mut Cursor::new(&v0_file)).unwrap();
+    let (_, patch) = found.mehd_patch.expect("valid v0 mehd");
+    assert_eq!(patch, 5000u32.to_be_bytes());
 }
 
 proptest! {

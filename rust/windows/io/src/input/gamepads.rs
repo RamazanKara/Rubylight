@@ -111,6 +111,8 @@ pub struct Gamepads {
     next_attach_gen: u64,
     /// Wakes the owning gamepad thread when a background attach finishes.
     wake: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    /// Controllers whose async USB/IP attach completed with motion sensors and need a motion request.
+    pending_motion_requests: Vec<(u8, u16)>,
     /// Test hook overriding USB/IP background plug without calling `usbip.exe`.
     #[cfg(test)]
     pub(super) test_attach_hook: Option<TestAttachHook>,
@@ -283,6 +285,7 @@ impl Gamepads {
             detaching: Vec::new(),
             next_attach_gen: 0,
             wake: None,
+            pending_motion_requests: Vec::new(),
             #[cfg(test)]
             test_attach_hook: None,
         })
@@ -306,6 +309,8 @@ impl Gamepads {
                 retain_usb_pads(&mut self.switch2s, *active, &mut self.detaching);
                 self.switch2_failed.retain(|i| active & (1 << *i) != 0);
                 self.attaching.retain(|(_, i), _| active & (1 << *i) != 0);
+                self.pending_motion_requests
+                    .retain(|(i, _)| active & (1 << *i) != 0);
                 self.arrivals.retain(|i, _| active & (1 << *i) != 0);
                 self.steam_at_arrival.retain(|i, _| active & (1 << *i) != 0);
                 self.carried_steam.retain(|i, _| active & (1 << *i) != 0);
@@ -425,6 +430,8 @@ impl Gamepads {
                     }
                     self.attaching.remove(&(attach::AttachKind::Switch2, id));
                 }
+                self.pending_motion_requests
+                    .retain(|(i, _)| u16::from(*i) != id);
                 self.arrivals.insert(id, (*kind, *capabilities));
                 // A Steam Controller sends its attributes after each arrival.
                 self.steam_attributes.remove(&id);

@@ -402,11 +402,14 @@ pub(super) fn settle(
 /// and put it back again within the bound when Windows moved it; a stream
 /// that leases the display's scale meanwhile has it.
 pub fn settle_scale(id: &str, percent: u32) -> Result<()> {
-    let outcome = settle(&BTreeMap::from([(id.to_owned(), percent)]), |id, set| {
-        while_journal(
-            |journal| journal.entries.get(id).is_none_or(|e| e.scale.is_none()),
-            set,
-        )
+    let expected = BTreeMap::from([(id.to_owned(), percent)]);
+    let outcome = crate::desktop::on_input_desktop(|| {
+        settle(&expected, |id, set| {
+            while_journal(
+                |journal| journal.entries.get(id).is_none_or(|e| e.scale.is_none()),
+                set,
+            )
+        })
     });
     if outcome.drifted.is_empty() {
         Ok(())
@@ -549,5 +552,15 @@ mod tests {
             back.entries[ID].dpi_baseline,
             Some(scales(&[("side", 125)]))
         );
+    }
+
+    #[test]
+    fn settle_scale_runs_on_the_input_desktop() {
+        let source = include_str!("dpi.rs");
+        let settle_fn = source.split("pub fn settle_scale(").nth(1).unwrap();
+        let settle_fn = settle_fn.split("/// The scale of each").next().unwrap();
+        let desktop_call = settle_fn.find("crate::desktop::on_input_desktop(").unwrap();
+        let inner_settle = settle_fn.find("settle(").unwrap();
+        assert!(desktop_call < inner_settle);
     }
 }

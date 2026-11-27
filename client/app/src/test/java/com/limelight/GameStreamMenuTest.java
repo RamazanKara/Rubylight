@@ -386,6 +386,30 @@ public class GameStreamMenuTest {
         assertTrue(zoomedOutOptions.zoomed);
     }
 
+    @Test
+    public void controlStreamQuickSuspendUpdatesOpenMenuAndStatusLine() {
+        Game game = streamingGame("rubylight-serverinfo.xml");
+        StreamMenu menu = open(game);
+        com.limelight.nvstream.jni.MoonBridge.setupBridge(null, null, game, null);
+        try {
+            com.limelight.nvstream.jni.MoonBridge.bridgeClQuickSuspend(0, 2, 0, 2, 1_763_772_200_000L);
+            idle();
+            assertNotNull("open Control Center switches to Resume game", menu.reveal(StreamMenu.Item.RESUME_GAME));
+            assertTrue("paused status stays in stream notes",
+                    game.messages.notes().contains(game.getString(R.string.quick_suspend_paused)));
+
+            com.limelight.nvstream.jni.MoonBridge.bridgeClQuickSuspend(0, 1, 0, 0, 0L);
+            idle();
+            assertNotNull("open Control Center switches back to Suspend game", menu.reveal(StreamMenu.Item.SUSPEND_GAME));
+            assertFalse("paused status clears on resume",
+                    game.messages.notes().contains(game.getString(R.string.quick_suspend_paused)));
+        } finally {
+            com.limelight.nvstream.jni.MoonBridge.cleanupBridge();
+            menu.sheet().dismiss();
+            idle();
+        }
+    }
+
     private static void runMenuAction(Game game) {
         idle();
         WindowFocusActionQueue queue = ReflectionHelpers.getField(game, "windowFocusActions");

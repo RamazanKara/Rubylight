@@ -17,6 +17,8 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.ui.HostCursorShapes;
 import com.limelight.ui.NavigationDialogBuilder;
 
+import java.util.function.BooleanSupplier;
+
 /** The stream's pointer input: touch modes and contexts, the trackpad, mice and pens, the desktop pointer, on-screen controls and the mic button. */
 final class GameTouchInput {
     private final Game game;
@@ -33,6 +35,8 @@ final class GameTouchInput {
     private final GameFingerTouchHandler fingerTouch;
 
     private int desktopHeldButtons;
+    private boolean inTouchDispatch;
+    private boolean touchAttemptedInDispatch;
     private MouseDeltaAccumulator desktopDeltaX = new MouseDeltaAccumulator();
     private MouseDeltaAccumulator desktopDeltaY = new MouseDeltaAccumulator();
     private MouseDeltaAccumulator desktopScrollV = new MouseDeltaAccumulator();
@@ -422,8 +426,29 @@ final class GameTouchInput {
         return onOverlayTouch(game.gameTouchControls, event);
     }
 
+    boolean dispatchTouchEvent(MotionEvent event, BooleanSupplier superDispatch) {
+        boolean previousInDispatch = inTouchDispatch;
+        boolean previousAttempted = touchAttemptedInDispatch;
+        inTouchDispatch = true;
+        touchAttemptedInDispatch = false;
+        try {
+            return superDispatch.getAsBoolean();
+        } finally {
+            inTouchDispatch = previousInDispatch;
+            touchAttemptedInDispatch = previousAttempted;
+        }
+    }
+
+    boolean onActivityTouchEvent(MotionEvent event) {
+        if (game.streamView == null || (inTouchDispatch && touchAttemptedInDispatch)) {
+            return false;
+        }
+        return onOverlayTouch(null, event);
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     boolean onOverlayTouch(View view, MotionEvent event) {
+        if (game.streamView == null) return false;
         MotionEvent translated = MotionEvent.obtain(event);
         translated.offsetLocation(GameNativeTouchSender.getStreamViewOffsetX(game, view),
                 GameNativeTouchSender.getStreamViewOffsetY(game, view));
@@ -436,6 +461,12 @@ final class GameTouchInput {
 
     @SuppressLint("ClickableViewAccessibility")
     boolean onTouch(View view, MotionEvent event) {
+        if (inTouchDispatch && touchAttemptedInDispatch) {
+            return false;
+        }
+        if (inTouchDispatch) {
+            touchAttemptedInDispatch = true;
+        }
         noteTouchArrivals(event);
         game.keyboardInput.noteStreamPress(view, event);
         if (game.desktopGestures != null && game.foreground && game.connected && game.streamMenu == null

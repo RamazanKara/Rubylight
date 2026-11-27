@@ -7,7 +7,7 @@
 use super::Reply;
 use crate::dvr_store::{self, DvrStore};
 use butterpollo_media_policy::dvr::{
-    AudioPacket, StreamInfo, VideoCodec, VideoFrame,
+    AudioPacket, ParamSets, StreamInfo, VideoCodec, VideoFrame,
     fmp4::{ClipInfo, write_clip},
     quota,
     recorder::{RecPush, Recorder},
@@ -57,7 +57,7 @@ pub(super) fn codec_name(codec: VideoCodec) -> &'static str {
 }
 
 /// The reason a write failed with `error`.
-pub(super) fn io_reason(error: &io::Error) -> Reason {
+fn io_reason(error: &io::Error) -> Reason {
     match error.raw_os_error() {
         Some(ERROR_DISK_FULL | ERROR_HANDLE_DISK_FULL) => Reason::DiskFull,
         _ => Reason::IoError,
@@ -71,21 +71,24 @@ pub(super) struct ReplayJob {
 }
 
 impl ReplayJob {
-    /// Starts writing `clip` as `id` in `dir`.
+    /// Starts writing `clip` as `id` in `dir`. Returns `reply` on spawn failure so the caller
+    /// can answer it instead of dropping it.
     pub(super) fn spawn(
         dir: PathBuf,
         id: String,
         title: String,
         clip: Clip,
         reply: Reply,
-    ) -> io::Result<Self> {
-        let handle = std::thread::Builder::new()
+    ) -> Result<Self, (Reply, io::Error)> {
+        match std::thread::Builder::new()
             .name("dvr-write".into())
             .spawn(move || {
                 butterpollo_win_io::background_write::lower_current_thread();
                 write_replay(&dir, &id, &title, &clip)
-            })?;
-        Ok(Self { handle, reply })
+            }) {
+            Ok(handle) => Ok(Self { handle, reply }),
+            Err(error) => Err((reply, error)),
+        }
     }
 
     pub(super) fn is_finished(&self) -> bool {
@@ -106,6 +109,9 @@ pub(super) fn write_replay(
     title: &str,
     clip: &Clip,
 ) -> Result<ClipSummary, Reason> {
+    if dvr_store::refused(dir) {
+        return Err(Reason::IoError);
+    }
     let started = Instant::now();
     let temp = dvr_store::temp_path(dir, id);
     let written = (|| -> Result<ClipInfo, Reason> {
@@ -175,6 +181,7 @@ pub(super) struct Recording {
 
 impl Recording {
     /// Opens part `part` of recording `base` with `first`, a keyframe.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn start(
         dir: &Path,
         base: &str,
@@ -182,6 +189,7 @@ impl Recording {
         title: &str,
         info: &StreamInfo,
         first: VideoFrame,
+        fallback: Option<&ParamSets>,
         since: Instant,
     ) -> Result<Self, Reason> {
         let id = if part <= 1 {
@@ -189,15 +197,17 @@ impl Recording {
         } else {
             format!("{base}-part{part}")
         };
-        if !quota::valid_clip_id(&id) {
+        if !quota::valid_clip_id(&id) || dvr_store::refused(dir) {
             return Err(Reason::IoError);
         }
-        let (recorder, init) = Recorder::start(info, first).map_err(|error| {
-            tracing::warn!(%error, "stream dvr: the recording could not start");
-            Reason::IoError
-        })?;
+        let (recorder, init) =
+            Recorder::start_with_params(info, first, fallback).map_err(|error| {
+                tracing::warn!(%error, "stream dvr: the recording could not start");
+                Reason::IoError
+            })?;
         let temp = dvr_store::temp_path(dir, &id);
         let opened = (|| -> io::Result<BufWriter<File>> {
+            std::fs::create_dir_all(dir)?;
             let mut out = BufWriter::with_capacity(BUFFER, File::create(&temp)?);
             out.write_all(&init)?;
             out.flush()?;
@@ -236,6 +246,14 @@ impl Recording {
             written: init.len() as u64,
             broken: false,
         })
+    }
+
+    pub(super) fn codec(&self) -> VideoCodec {
+        self.recorder.info().codec
+    }
+
+    pub(super) fn params(&self) -> &ParamSets {
+        self.recorder.params()
     }
 
     /// The bytes written so far.

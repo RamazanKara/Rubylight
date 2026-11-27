@@ -193,6 +193,8 @@ struct Engaged {
     /// Moonlight's colour space and range of the pictures.
     color: (i32, i32),
     blobs: Vec<u32>,
+    /// The active `HDR_OUTPUT_METADATA` blob currently committed on the connector, if any.
+    hdr_blob: Option<u32>,
     /// Each property the stream set, with the value it had (put back at the end).
     restore: Vec<(u32, u32, u64)>,
     /// The stream's properties must go out again (HDR changed).
@@ -493,8 +495,9 @@ impl Scanout {
         sets.clear();
         let mut only_fb = true;
         let mut allow_modeset = false;
+        let mut pending_hdr_blob = None;
         if engaged.props_dirty {
-            Self::stream_sets(card, engaged, output, wishes, sets)?;
+            pending_hdr_blob = Self::stream_sets(card, engaged, output, wishes, sets)?;
             only_fb = false;
             allow_modeset = true;
         }
@@ -524,22 +527,36 @@ impl Scanout {
             }
         }
         if sets.is_empty() {
+            if let Some(blob) = pending_hdr_blob {
+                card.destroy_blob(blob);
+            }
             return Ok(());
         }
         let may_tear = plan::may_tear(wishes.tearing, engaged.vrr_on, wishes.tear_free);
         let tear = plan::async_flip(may_tear, *async_cap && !*async_failed, engaged.layout.video_on_primary(engaged.snapshot.planes.iter().map(|(p, _)| p)), only_fb);
         let flags = if tear { drm::ATOMIC_PAGE_FLIP_ASYNC } else if allow_modeset { drm::ATOMIC_ALLOW_MODESET } else { 0 };
         let began = std::time::Instant::now();
-        match card.commit_with(commit_buffers, sets, flags) {
-            Ok(()) => {}
+        let committed = match card.commit_with(commit_buffers, sets, flags) {
+            Ok(()) => Ok(()),
             Err(e) if tear => {
                 eprintln!("nightjar: kms: the card refused an async flip ({e}); pictures wait for the refresh from here");
                 *async_failed = true;
-                card.commit_with(commit_buffers, sets, 0).map_err(|e| format!("the card refused a picture: {e}"))?;
+                card.commit_with(commit_buffers, sets, 0).map_err(|e| format!("the card refused a picture: {e}"))
             }
-            Err(e) => return Err(format!("the card refused a commit: {e}")),
+            Err(e) => Err(format!("the card refused a commit: {e}")),
+        };
+        if let Err(why) = committed {
+            if let Some(blob) = pending_hdr_blob {
+                card.destroy_blob(blob);
+            }
+            return Err(why);
         }
         commit_times.add(began.elapsed());
+        if engaged.props_dirty
+            && let Some(old) = atomic::retire_hdr_blob(&mut engaged.hdr_blob, pending_hdr_blob)
+        {
+            card.destroy_blob(old);
+        }
         engaged.shown_fb = engaged.next_fb;
         engaged.shown_rect = Some(engaged.rect);
         engaged.props_dirty = false;
@@ -576,6 +593,9 @@ impl Scanout {
         }
         if let Some(buffer) = engaged.background {
             card.destroy_dumb(buffer);
+        }
+        if let Some(blob) = engaged.hdr_blob {
+            card.destroy_blob(blob);
         }
         for blob in engaged.blobs {
             card.destroy_blob(blob);

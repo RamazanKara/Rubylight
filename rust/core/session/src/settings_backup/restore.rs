@@ -1,8 +1,9 @@
 //! Restore summary, config/device merging, and staged archive application for settings backups.
 use super::{
     ALIASES, APPS, Archive, BACKUPS, CERTIFICATE, CONFIG, COVERS, CREDENTIALS_DIR,
-    CREDENTIALS_FILE, Change, DEVICES, GAME_SETTINGS, KEY, LOCATION_KEYS, PAIRED, STAGED, Summary,
-    device_identity_key, keeping_sessions, named_devices, read, read_optional, secret_key,
+    CREDENTIALS_FILE, Change, DEVICES, GAME_SETTINGS, KEY, LEGACY_WAKE_RELAY_FILE, LOCATION_KEYS,
+    PAIRED, STAGED, Summary, WAKE_RELAY_FILE, device_identity_key, keeping_sessions, named_devices,
+    read, read_optional, secret_key,
 };
 use crate::state::ProfileFiles;
 use anyhow::{Context, Result};
@@ -479,6 +480,18 @@ fn apply_inner(
         }
         for (name, bytes) in archive.under(CREDENTIALS_DIR) {
             tx.write(&folder_target(directory, name), bytes)?;
+        }
+        // Restore a legacy root `wake-relay.json` entry into `credentials/wake-relay.json`
+        // and clear any stale root file so non-administrators cannot read relay secrets.
+        if !archive.files.contains_key(WAKE_RELAY_FILE)
+            && let Some(bytes) = archive.files.get(LEGACY_WAKE_RELAY_FILE)
+        {
+            tx.write(&folder_target(directory, WAKE_RELAY_FILE), bytes)?;
+        }
+        if archive.files.contains_key(WAKE_RELAY_FILE)
+            || archive.files.contains_key(LEGACY_WAKE_RELAY_FILE)
+        {
+            tx.remove(&directory.join(LEGACY_WAKE_RELAY_FILE))?;
         }
         for (name, path) in [(CERTIFICATE, &files.certificate), (KEY, &files.key)] {
             if let Some(bytes) = archive.files.get(name)

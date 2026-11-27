@@ -411,6 +411,72 @@ public class GameTouchInputTest {
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
     }
 
+    @Test
+    public void safeFitPaddingEdgeTouchesReachShiftedAndZoomedStreamViewWithoutDoubleDispatch() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        game.setTheme(R.style.StreamTheme);
+        game.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        game.setContentView(R.layout.activity_game);
+        FrameLayout content = game.findViewById(android.R.id.content);
+        content.setPadding(100, 50, 100, 50);
+        content.setClipToPadding(false);
+        content.setClipChildren(false);
+        StreamView stream = game.findViewById(R.id.surfaceView);
+        View background = game.findViewById(R.id.backgroundTouchView);
+        stream.setOnTouchListener(game);
+        background.setOnTouchListener(game);
+        ReflectionHelpers.setField(game, "streamView", stream);
+        View decor = game.getWindow().getDecorView();
+        decor.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY));
+        decor.layout(0, 0, 1000, 500);
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
+
+        // Shifted into the left Safe Fit padding via Picture Position: touch at x=60 hits streamView, outside backgroundTouchView.
+        stream.setTranslationX(-80);
+        assertEquals(20f, stream.getX(), 0.01f);
+        dispatchActivityTouch(game, MotionEvent.ACTION_DOWN, 60, 250);
+        dispatchActivityTouch(game, MotionEvent.ACTION_UP, 60, 250);
+        assertEquals("shifted streamView touch delivered once", 1, connection.positions.size());
+        assertArrayEquals(new int[] {40, 200, 800, 400}, connection.positions.get(0));
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
+
+        // Zoomed into the left Safe Fit padding: touch at x=50 misses both views and flows through Game.onTouchEvent.
+        connection.positions.clear();
+        stream.setTranslationX(0);
+        com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream, () -> { }, () -> { });
+        desktop.setEnabled(true);
+        desktop.viewport().zoom(2f, 400, 200);
+        ReflectionHelpers.setField(game, "desktopGestures", desktop);
+        dispatchActivityTouch(game, MotionEvent.ACTION_DOWN, 50, 250);
+        dispatchActivityTouch(game, MotionEvent.ACTION_UP, 50, 250);
+        assertEquals("Safe Fit edge touch forwarded once via onTouchEvent", 1, connection.positions.size());
+        assertArrayEquals(new int[] {175, 200, 800, 400}, connection.positions.get(0));
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS);
+
+        // Ungrabbed touches must not double-dispatch across streamView, backgroundTouchView, and onTouchEvent, and null streamView is safe.
+        ReflectionHelpers.setField(game, "grabbedInput", false);
+        assertFalse(dispatchActivityTouch(game, MotionEvent.ACTION_DOWN, 500, 250));
+        ReflectionHelpers.setField(game, "streamView", null);
+        MotionEvent stray = MotionEvent.obtain(1000, 1010, MotionEvent.ACTION_DOWN, 50, 250, 0);
+        try {
+            assertFalse(game.onTouchEvent(stray));
+        } finally {
+            stray.recycle();
+        }
+    }
+
+    private static boolean dispatchActivityTouch(Game game, int action, float x, float y) {
+        MotionEvent event = MotionEvent.obtain(1000, 1010, action, x, y, 0);
+        event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+        try {
+            return game.dispatchTouchEvent(event);
+        } finally {
+            event.recycle();
+        }
+    }
+
     static com.limelight.ui.DesktopGestures enableZoom(Game game) {
         StreamView stream = ReflectionHelpers.getField(game, "streamView");
         com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream,

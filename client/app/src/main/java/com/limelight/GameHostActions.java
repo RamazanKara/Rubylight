@@ -95,6 +95,14 @@ final class GameHostActions {
         @Override public void onSuspended() {
             if (game.controllerHandler != null) game.controllerHandler.stopAllRumble();
         }
+
+        @Override public void onPausedChanged(boolean paused) {
+            if (game.messages.status("quick_suspend",
+                    paused ? game.getString(R.string.quick_suspend_paused) : null)
+                    && game.performanceOverlayView != null) {
+                game.overlays.updatePerformanceOverlay();
+            }
+        }
     }
 
     void resetHostAudio() {

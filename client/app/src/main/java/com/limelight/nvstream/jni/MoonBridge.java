@@ -363,6 +363,14 @@ public class MoonBridge extends MoonBridgeForwarders {
         if (listener != null) listener.dvrClip(requestId, outcome, reason, durationSecs, fileBytes);
     }
 
+    public static void bridgeClQuickSuspend(int requestId, int state, int reason, int suspendedCount,
+                                            long suspendedSinceUnixMs) {
+        NvConnectionListener listener = connectionListener;
+        if (listener != null) {
+            listener.quickSuspend(requestId, state, reason, suspendedCount, suspendedSinceUnixMs);
+        }
+    }
+
     public static void bridgeClTextInput(int kind, int inputType, int flags, int element) {
         NvConnectionListener listener = connectionListener;
         if (listener != null) listener.textInput(kind, inputType, flags, element);

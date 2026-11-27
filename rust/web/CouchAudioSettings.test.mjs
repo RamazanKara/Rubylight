@@ -152,7 +152,7 @@ test('the device editor has Sound and Couch menu groups that open on a saved val
     assert.match(section(body({ config_overrides: { audio_sink: '{sink-avr}' } }), 'Sound'), /\sopen/);
     assert.match(section(body({ config_overrides: { couch_menu_hold_ms: 'soon' } }), 'Couch menu'), /\sopen/);
     const editorSource = await readFile(new URL('./src/components/devices/DeviceEditor.svelte', import.meta.url), 'utf8');
-    assert.match(editorSource, /disabled=\{!changed \|\| nameMissing \|\| modeInvalid \|\| delayInvalid \|\| couchInvalid \|\| disabled\}/);
+    assert.match(editorSource, /disabled=\{!changed \|\| nameMissing \|\| modeInvalid \|\| delayInvalid \|\| couchInvalid \|\| cascadeInvalid \|\| disabled\}/);
   } finally {
     session.metadata = prevMetadata;
   }

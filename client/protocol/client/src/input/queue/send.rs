@@ -4,12 +4,12 @@
 use rubylight_protocol::pen;
 
 use super::{
-    Entry, InputError, InputQueue, Pending, GFE_CONTROLLERS, MAX_MOTION_TYPES, WHEEL_DELTA,
+    Entry, GFE_CONTROLLERS, InputError, InputQueue, MAX_MOTION_TYPES, Pending, WHEEL_DELTA,
 };
 use crate::control::negotiation::feature;
 use crate::control::wire::Delivery;
 use crate::input::packets::{
-    button, capability, touch_event, touchpad, InputEvent, TouchpadContact, MAX_CONTROLLERS,
+    InputEvent, MAX_CONTROLLERS, TouchpadContact, button, capability, touch_event, touchpad,
 };
 
 impl InputQueue {
@@ -154,7 +154,18 @@ impl InputQueue {
             }
             number % u16::from(GFE_CONTROLLERS)
         };
+        let left = self.speaker_slots & !active_mask;
         self.speaker_slots = active_mask;
+        if left != 0 {
+            for slot in 0..MAX_CONTROLLERS {
+                if left & (1 << slot) != 0 {
+                    if let Some(owners) = &self.ps_speaker {
+                        owners.set(slot, 0);
+                    }
+                    self.held.clear_speaker_binding(slot);
+                }
+            }
+        }
         let event = InputEvent::Controller {
             number,
             active_mask,
@@ -271,6 +282,10 @@ impl InputQueue {
     fn bind_speaker(&mut self, number: u8, kind: u8, capabilities: u16) -> u16 {
         use rubylight_protocol::ps_speaker_pcm::{CTYPE_PS, PS_SPEAKER_CAPABILITY};
         if kind != CTYPE_PS {
+            if let Some(owners) = &self.ps_speaker {
+                owners.set(number, 0);
+            }
+            self.held.clear_speaker_binding(number);
             return capabilities;
         }
         let Some(owners) = self.ps_speaker.clone() else {
@@ -280,6 +295,7 @@ impl InputQueue {
         self.speaker_slots |= 1 << number;
         if capabilities & PS_SPEAKER_CAPABILITY == 0 {
             owners.set(number, 0);
+            self.held.clear_speaker_binding(number);
             return capabilities;
         }
         if present {
@@ -288,10 +304,12 @@ impl InputQueue {
             return if owners.get(u16::from(number)) != 0 {
                 capabilities
             } else {
+                self.held.clear_speaker_binding(number);
                 capabilities & !PS_SPEAKER_CAPABILITY
             };
         }
         owners.set(number, 0);
+        self.held.clear_speaker_binding(number);
         let bound = crate::control::ps_speaker::next_owner().filter(|owner| {
             self.offer_event(InputEvent::SpeakerBinding {
                 number,
@@ -431,11 +449,19 @@ impl InputQueue {
         if !units.is_finite() || units == 0.0 {
             return Ok(());
         }
-        let held = if vertical { self.wheel_units.1 } else { self.wheel_units.0 };
+        let held = if vertical {
+            self.wheel_units.1
+        } else {
+            self.wheel_units.0
+        };
         let total = held + units * f64::from(WHEEL_DELTA);
         let whole = total.trunc().clamp(-32_000.0, 32_000.0) as i16;
         if whole == 0 {
-            if vertical { self.wheel_units.1 = total } else { self.wheel_units.0 = total };
+            if vertical {
+                self.wheel_units.1 = total
+            } else {
+                self.wheel_units.0 = total
+            };
             return Ok(());
         }
         let result = if vertical {
@@ -452,7 +478,11 @@ impl InputQueue {
             Err(_) if vertical && self.batched_scroll => total - f64::from(whole),
             Err(_) => total,
         };
-        if vertical { self.wheel_units.1 = kept } else { self.wheel_units.0 = kept };
+        if vertical {
+            self.wheel_units.1 = kept
+        } else {
+            self.wheel_units.0 = kept
+        };
         result
     }
 
@@ -583,7 +613,11 @@ impl InputQueue {
             height_mm,
             contacts: frame,
         };
-        self.offer(Entry::Event(Pending { channel: event.channel(), delivery, event }))?;
+        self.offer(Entry::Event(Pending {
+            channel: event.channel(),
+            delivery,
+            event,
+        }))?;
         self.touchpad_buttons = buttons;
         Ok(())
     }
@@ -615,7 +649,11 @@ impl InputQueue {
             contact_major: 0.0,
             contact_minor: 0.0,
         };
-        self.offer(Entry::Event(Pending { channel: event.channel(), delivery, event }))?;
+        self.offer(Entry::Event(Pending {
+            channel: event.channel(),
+            delivery,
+            event,
+        }))?;
         self.touchpad_buttons = buttons;
         Ok(())
     }

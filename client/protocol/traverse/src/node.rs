@@ -7,16 +7,18 @@
 //! through a handler.
 
 use crate::{
+    Millis,
     dht::{self, Id, Item, Lookup, Message, Newest, Tid},
-    stun, Millis,
+    stun,
 };
 use std::{
     collections::HashMap,
     io,
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket},
     sync::{
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc, Arc, Mutex,
+        mpsc,
     },
     thread,
     time::{Duration, Instant},
@@ -266,6 +268,9 @@ impl Node {
         make: impl Fn(Tid) -> Vec<u8>,
         mut on_reply: impl FnMut(&dht::Reply),
     ) -> Lookup {
+        if self.is_stopped() {
+            return Lookup::new(target, &[], 0);
+        }
         let (sender, answers) = mpsc::channel::<DhtAnswer>();
         let first = {
             let mut state = self.shared.state.lock().unwrap();
@@ -277,6 +282,9 @@ impl Node {
         let mut registered: Vec<Tid> = Vec::new();
         let start = self.now();
         loop {
+            if self.is_stopped() {
+                break;
+            }
             let now = self.now();
             let queries = lookup.poll(now);
             if !queries.is_empty() {
@@ -340,7 +348,13 @@ impl Node {
 
     /// Stores `item` on the nodes closest to it; returns how many confirmed.
     pub fn put(&self, item: &Item) -> usize {
+        if self.is_stopped() {
+            return 0;
+        }
         let (_, writable) = self.get(&item.key, &item.salt);
+        if self.is_stopped() || writable.is_empty() {
+            return 0;
+        }
         let (sender, answers) = mpsc::channel::<DhtAnswer>();
         let mut expected: std::collections::HashMap<Tid, SocketAddr> =
             std::collections::HashMap::new();
@@ -360,11 +374,9 @@ impl Node {
         }
         let deadline = Instant::now() + Duration::from_millis(PUT_WAIT);
         let mut confirmed = 0;
-        while confirmed < registered.len() && Instant::now() < deadline {
+        while confirmed < registered.len() && Instant::now() < deadline && !self.is_stopped() {
             match answers.recv_timeout(Duration::from_millis(100)) {
-                Ok((tid, from, Message::Reply { .. }))
-                    if expected.get(&tid) == Some(&from) =>
-                {
+                Ok((tid, from, Message::Reply { .. })) if expected.get(&tid) == Some(&from) => {
                     expected.remove(&tid);
                     confirmed += 1;
                 }
@@ -546,5 +558,76 @@ mod tests {
         let answers = node.stun(&[server_address.to_string()]);
         assert_eq!(answers, vec![node.local_addr().unwrap()]);
         node.stop();
+    }
+
+    #[test]
+    fn put_exits_promptly_when_node_is_stopped() {
+        let item = Item::sign(&[3; 32], b"salt".to_vec(), 1, b"value".to_vec());
+        // Pre-stopped node returns immediately without touching the network.
+        let stopped = Node::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            vec!["127.0.0.1:9".to_owned()],
+        )
+        .unwrap();
+        stopped.stop();
+        let started = Instant::now();
+        assert_eq!(stopped.put(&item), 0);
+        assert!(started.elapsed() < Duration::from_millis(500));
+
+        // Stopping during PUT_WAIT exits promptly instead of waiting the full PUT_WAIT.
+        let dht = UdpSocket::bind("127.0.0.1:0").unwrap();
+        dht.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let dht_addr = dht.local_addr().unwrap();
+        let node = Node::bind("127.0.0.1:0".parse().unwrap(), vec![dht_addr.to_string()]).unwrap();
+        let stopper = node.clone();
+        let server = thread::spawn(move || {
+            let mut buf = [0u8; 2048];
+            let mut got_put = false;
+            for _ in 0..8 {
+                let Ok((len, from)) = dht.recv_from(&mut buf) else {
+                    break;
+                };
+                let Some(msg) = crate::bencode::decode(&buf[..len]) else {
+                    continue;
+                };
+                let Some(tid) = msg.get(b"t").and_then(crate::bencode::Value::as_bytes) else {
+                    continue;
+                };
+                match msg.get(b"q").and_then(crate::bencode::Value::as_bytes) {
+                    Some(b"get") => {
+                        let reply = crate::bencode::Value::dict([
+                            ("t", crate::bencode::Value::bytes(tid)),
+                            ("y", crate::bencode::Value::bytes(*b"r")),
+                            (
+                                "r",
+                                crate::bencode::Value::dict([
+                                    ("id", crate::bencode::Value::bytes([7u8; 20])),
+                                    ("token", crate::bencode::Value::bytes(*b"tok")),
+                                ]),
+                            ),
+                        ])
+                        .encode();
+                        let _ = dht.send_to(&reply, from);
+                    }
+                    Some(b"put") => {
+                        got_put = true;
+                        thread::sleep(Duration::from_millis(50));
+                        stopper.stop();
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            got_put
+        });
+        let started = Instant::now();
+        let confirmed = node.put(&item);
+        let elapsed = started.elapsed();
+        assert_eq!(confirmed, 0);
+        assert!(server.join().unwrap(), "mock DHT node received put");
+        assert!(
+            elapsed < Duration::from_millis(1_500),
+            "put waited {elapsed:?} after stop"
+        );
     }
 }

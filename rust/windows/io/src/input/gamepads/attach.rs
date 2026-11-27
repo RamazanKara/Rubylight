@@ -96,6 +96,19 @@ impl Gamepads {
         }
     }
 
+    /// Queues a client motion-enable request when an async USB/IP pad attaches for a controller
+    /// that announced accelerometer or gyroscope capabilities.
+    pub(super) fn queue_motion_request(&mut self, id: u16) {
+        if let Some(&(_, capabilities)) = self.arrivals.get(&id)
+            && capabilities & 0x30 != 0
+        {
+            let request = (id as u8, capabilities);
+            if !self.pending_motion_requests.contains(&request) {
+                self.pending_motion_requests.push(request);
+            }
+        }
+    }
+
     /// Applies any USB/IP pads whose background attachment finished since the last tick.
     pub(super) fn finish_attaches(&mut self) -> Result<()> {
         use butterpollo_input_policy::input_policy::{
@@ -134,6 +147,7 @@ impl Gamepads {
                     self.retire_vhf_for_usbip(id);
                     self.forget_steam_fallback(id);
                     self.decks.insert(id, deck);
+                    self.queue_motion_request(id);
                 }
                 AttachOutcome::Deck(Err(error)) => {
                     self.warnings.set("input_steam_deck", format!("Steam Deck controller unavailable ({error:#}); the Deck's controls arrive as a virtual pad. Check that usbip-win2 is installed and working, then reconnect."));
@@ -149,6 +163,7 @@ impl Gamepads {
                     self.retire_vhf_for_usbip(id);
                     self.forget_steam_fallback(id);
                     self.switch2s.insert(id, pad);
+                    self.queue_motion_request(id);
                 }
                 AttachOutcome::Switch2(Err(error)) => {
                     let forced = self.profile == USBIP_SWITCH2;
@@ -175,6 +190,7 @@ impl Gamepads {
                         self.note_steam_controls(id, kind, caps, VHF_DUALSENSE);
                     }
                     self.dualsenses.insert(id, pad);
+                    self.queue_motion_request(id);
                     self.warnings.clear("input_dualsense");
                     tracing::info!(
                         controller = id,

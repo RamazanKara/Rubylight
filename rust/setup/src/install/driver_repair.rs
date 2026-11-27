@@ -233,6 +233,43 @@ pub fn repair_drivers(
     let install = system::win32_path(exe.parent().context("setup folder unavailable")?)?;
     repair_drivers_in(&install, progress, run, drivers)
 }
+/// Verify that `install` and its `drivers` subtree (including any driver
+/// scripts under `drivers\`) contain no reparse points before running driver
+/// scripts as SYSTEM.
+pub(crate) fn verify_drivers_tree(install: &Path) -> Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(install)
+        .with_context(|| format!("checking {}", install.display()))?;
+    if meta.file_attributes() & 0x400 != 0 {
+        bail!("{} is a reparse point", install.display());
+    }
+    anyhow::ensure!(meta.is_dir(), "{} is not a directory", install.display());
+    let drivers = install.join("drivers");
+    match std::fs::symlink_metadata(&drivers) {
+        Ok(_) => system::no_reparse_points(&drivers)
+            .with_context(|| format!("checking {}", drivers.display()))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).with_context(|| format!("checking {}", drivers.display())),
+    }
+    for relative in [
+        super::RUBYLIGHT_DISPLAY_SCRIPT,
+        super::RUBYLIGHT_GAMEPAD_SCRIPT,
+    ] {
+        let script = install.join(relative);
+        match std::fs::symlink_metadata(&script) {
+            Ok(meta) if meta.file_attributes() & 0x400 != 0 => {
+                bail!("{} is a reparse point", script.display());
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("checking {}", script.display()));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// [`repair_drivers`] with the driver scripts in `install`.
 pub(crate) fn repair_drivers_in(
     install: &Path,
@@ -241,10 +278,15 @@ pub(crate) fn repair_drivers_in(
     drivers: &[Driver],
 ) -> Result<DriverRepair> {
     let profile = profile();
-    // Verify and lock down ProgramData\Butterpollo before reading or writing
-    // driver-setup.lock / driver-repair.json as SYSTEM.
+    // Verify and lock down ProgramData\Butterpollo and the installation folder
+    // (including install\drivers) before reading or writing state or executing
+    // driver scripts as SYSTEM.
     super::prepare_profile(&profile, true)
         .context("checking the Rubylight settings folder before repairing drivers")?;
+    super::prepare_install(install)
+        .context("checking the Rubylight installation folder before repairing drivers")?;
+    verify_drivers_tree(install)
+        .context("checking the Rubylight driver scripts before repairing drivers")?;
     let path = profile.join(REPAIR_RECORD);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?

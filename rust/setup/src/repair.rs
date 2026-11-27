@@ -128,9 +128,14 @@ fn repair(progress: &Progress) -> Result<Outcome> {
         .context("Rubylight is not installed here; run the Rubylight installer")?;
     let install = system::win32_path(program.parent().context("the service has no folder")?)?;
     let profile = install::profile();
-    // Read as an administrator below: verified and locked down first.
+    // Read and run scripts as an administrator/SYSTEM below: verified and
+    // locked down first, rejecting any reparse points under install\drivers.
     install::prepare_profile(&profile, true)
         .context("checking the Rubylight settings folder before repairing")?;
+    install::prepare_install(&install)
+        .context("checking the Rubylight installation folder before repairing")?;
+    install::verify_drivers_tree(&install)
+        .context("checking the Rubylight driver scripts before repairing")?;
     progress.set("Checking the Rubylight service…");
     let found = if !system::service_running(service) {
         Service::Stopped
@@ -233,5 +238,19 @@ mod tests {
         let text = outcome.text();
         assert!(text.starts_with("The virtual display"), "{text}");
         assert!(text.contains("\n\nThe Windows Firewall rule"), "{text}");
+    }
+    #[test]
+    fn repair_checks_the_install_folder_and_driver_scripts_before_running_steps() {
+        let source = include_str!("repair.rs");
+        let repair_fn = source.split("fn repair(").nth(1).unwrap();
+        let prepare_install = repair_fn
+            .find("install::prepare_install(&install)")
+            .unwrap();
+        let verify_drivers = repair_fn
+            .find("install::verify_drivers_tree(&install)")
+            .unwrap();
+        let drivers_step = repair_fn.find("install::repair_drivers_in(").unwrap();
+        assert!(prepare_install < drivers_step);
+        assert!(verify_drivers < drivers_step);
     }
 }

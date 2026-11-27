@@ -552,7 +552,26 @@ fn an_update_the_host_started_but_setup_never_took_over_ends_as_failed() -> Resu
     let install = f.directory.join("Rubylight");
     std::fs::create_dir_all(&install)?;
     let path = f.directory.join("update-result.json");
-    butterpollo_session::state::write_json(&path, &installing_record("9.9.9", &install))?;
+    // While the spawned setup process is still alive (even before taking update.lock),
+    // recovery leaves the record alone instead of marking it failed.
+    let me = std::process::id();
+    let started = butterpollo_win_io::process::creation_time(me);
+    assert_ne!(started, 0);
+    let live = installing_record("9.9.9", &install, Some((me, started)));
+    assert_eq!(live["setup_pid"], me);
+    assert_eq!(live["setup_started"], started);
+    butterpollo_session::state::write_json(&path, &live)?;
+    assert_eq!(
+        butterpollo_session::update_recovery::recover(&f.directory, &install)?,
+        None
+    );
+    assert_eq!(
+        butterpollo_session::state::load_json(&path, Value::Null)?["phase"],
+        "installing"
+    );
+
+    // Once setup is gone (or a legacy record has no setup identity), recovery ends it as failed.
+    butterpollo_session::state::write_json(&path, &installing_record("9.9.9", &install, None))?;
     // Another installation's service leaves it alone.
     let other = f.directory.join("other");
     std::fs::create_dir_all(&other)?;

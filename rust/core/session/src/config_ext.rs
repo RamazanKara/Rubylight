@@ -11,9 +11,28 @@ pub trait ConfigExt {
     fn check_saved<'a>(&self, keys: impl IntoIterator<Item = &'a String>) -> Result<()>;
 }
 
+fn check_dvr_directory(value: &str) -> Result<()> {
+    let path = butterpollo_config::config::unquote(value.trim()).trim();
+    if let Some(refusal) = crate::network_path::refused(path) {
+        let message = match refusal {
+            crate::network_path::Refusal::Network => {
+                r"dvr_directory cannot be a network path (\\server\share): the host would sign in to that computer with this PC's account. Pick a folder on this PC or a mapped drive letter."
+            }
+            crate::network_path::Refusal::Device => {
+                r"dvr_directory cannot be a device path (\\.\ or \\?\, NUL, COM1 and the like). Pick a folder on this PC."
+            }
+        };
+        bail!("{message}");
+    }
+    Ok(())
+}
+
 impl ConfigExt for Config {
     fn update(&mut self, object: &serde_json::Map<String, serde_json::Value>) -> Result<()> {
         self.update_with(object, |next, changed| {
+            if changed("dvr_directory") {
+                check_dvr_directory(&next.values["dvr_directory"])?;
+            }
             if changed("frame_limiter_fps_limit") {
                 framegen::Rate::parse(next.get("frame_limiter_fps_limit", "0"))?;
             }
@@ -59,6 +78,9 @@ impl ConfigExt for Config {
 
     fn check_saved<'a>(&self, keys: impl IntoIterator<Item = &'a String>) -> Result<()> {
         self.check_saved_with(keys, |key, value| {
+            if key == "dvr_directory" {
+                check_dvr_directory(value)?;
+            }
             if key == crate::steamgriddb::KEY_SETTING {
                 crate::steamgriddb::check_key(value).map_err(|message| anyhow::anyhow!(message))?;
             }

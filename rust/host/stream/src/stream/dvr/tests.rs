@@ -67,6 +67,7 @@ fn a_replay_clip_is_written_whole_or_not_at_all() {
             hdr: None,
             audio: None,
         },
+        params: Default::default(),
         video: Vec::new(),
         audio: Vec::new(),
     };
@@ -95,6 +96,7 @@ fn the_first_replay_save_makes_the_clips_folder() {
             hdr: None,
             audio: None,
         },
+        params: Default::default(),
         video: Vec::new(),
         audio: Vec::new(),
     };

@@ -263,6 +263,10 @@ export class AppDraft {
   settingsFiles = $state<TextRow[]>([]);
   /** The app's own stream-menu commands. */
   menu = $state<MenuRow[]>([]);
+  /** Device blocks whose override cascade cards currently hold an out-of-range typed value. */
+  cascadeInvalid = $state<Record<string, boolean>>({});
+  /** Incremented on reset so child cascade cards discard unsaved invalid input text. */
+  resetCount = $state(0);
   #saved = $state.raw<App>(blankApp());
   #baseline = $state('');
 
@@ -289,6 +293,7 @@ export class AppDraft {
       this.settingsFilesError !== '' ||
       this.menuError !== '' ||
       this.devicesError !== '' ||
+      Object.values(this.cascadeInvalid).some(Boolean) ||
       Object.keys(NUMBERS).some((key) => this.numberError(key as NumberKey) !== ''),
   );
 
@@ -312,6 +317,8 @@ export class AppDraft {
     this.deviceFiles = deviceFileRows(copy);
     this.settingsFiles = storedSettingsFiles(copy[SETTINGS_FILES_KEY]).map((path) => textRow(path));
     this.menu = menuRows(copy[MENU_KEY]);
+    this.cascadeInvalid = {};
+    this.resetCount += 1;
     this.#baseline = stable(normalise(copy));
   }
 
@@ -319,6 +326,7 @@ export class AppDraft {
   markSaved(record: App) {
     this.#saved = $state.snapshot(record) as App;
     if (record.uuid) this.app.uuid = record.uuid;
+    this.cascadeInvalid = {};
     this.#baseline = stable(normalise(record));
   }
 
@@ -355,6 +363,11 @@ export class AppDraft {
     const blocks = this.app[DEVICES_KEY];
     if (isObject(blocks)) delete blocks[device];
     delete this.deviceFiles[device];
+    delete this.cascadeInvalid[device];
+  }
+  setCascadeInvalid(device: string, invalid: boolean) {
+    if (invalid) this.cascadeInvalid[device] = true;
+    else delete this.cascadeInvalid[device];
   }
   #block(device: string): Block | null {
     const block = blocksOf(this.app)[device];

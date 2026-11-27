@@ -608,3 +608,94 @@ fn settings_backup_verify_rejects_bad_archive_and_staged_claim_clears_staged_fil
     assert!(!backups.join("restore-applying.zip").exists());
     assert!(!apply_staged(target.path(), String::new).unwrap());
 }
+
+#[test]
+fn settings_backup_gates_wake_relay_secrets_on_export_read_and_restore() {
+    let relay_json = r#"{"epoch":3,"relays":[{"id":"r1","name":"NUC","secret":"wake-relay-secret-value","enrolled_unix":1,"last_seen_unix":2}]}"#;
+    let source = profile();
+    write(&source.path().join(WAKE_RELAY_FILE), relay_json);
+
+    // Export without secrets excludes credentials/wake-relay.json and never leaks its secret.
+    let plain = backup(source.path(), false);
+    let plain_archive = read(Cursor::new(&plain)).unwrap();
+    assert!(!plain_archive.files.contains_key(WAKE_RELAY_FILE));
+    assert!(!plain_archive.files.contains_key(LEGACY_WAKE_RELAY_FILE));
+    assert!(!String::from_utf8_lossy(&plain).contains("wake-relay-secret-value"));
+
+    // An archive marked secrets=false carrying wake-relay.json at either path is rejected.
+    for path in [WAKE_RELAY_FILE, LEGACY_WAKE_RELAY_FILE] {
+        let crafted = tampered(
+            &plain,
+            |files, _| {
+                files.insert(path.into(), relay_json.as_bytes().to_vec());
+            },
+            true,
+        );
+        let err = format!("{:#}", read(Cursor::new(crafted)).unwrap_err());
+        assert!(err.contains("holds secrets"), "{path}: {err}");
+    }
+
+    // Export with secrets carries credentials/wake-relay.json.
+    let with_secrets = backup(source.path(), true);
+    let secret_archive = read(Cursor::new(&with_secrets)).unwrap();
+    assert_eq!(
+        secret_archive.files.get(WAKE_RELAY_FILE).map(Vec::as_slice),
+        Some(relay_json.as_bytes())
+    );
+
+    // Unmigrated legacy root wake-relay.json is omitted without secrets and promoted with secrets.
+    let legacy_source = profile();
+    write(
+        &legacy_source.path().join(LEGACY_WAKE_RELAY_FILE),
+        relay_json,
+    );
+    let legacy_plain = backup(legacy_source.path(), false);
+    assert!(!String::from_utf8_lossy(&legacy_plain).contains("wake-relay-secret-value"));
+    let legacy_secret = read(Cursor::new(backup(legacy_source.path(), true))).unwrap();
+    assert_eq!(
+        legacy_secret.files.get(WAKE_RELAY_FILE).map(Vec::as_slice),
+        Some(relay_json.as_bytes())
+    );
+    assert!(!legacy_secret.files.contains_key(LEGACY_WAKE_RELAY_FILE));
+
+    // Restoring without secrets leaves the target PC's wake-relay.json untouched.
+    let target = profile();
+    let target_relay = r#"{"epoch":1,"relays":[{"id":"local","name":"Local","secret":"local-secret","enrolled_unix":1,"last_seen_unix":1}]}"#;
+    write(&target.path().join(WAKE_RELAY_FILE), target_relay);
+    apply(&plain_archive, target.path(), String::new).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(target.path().join(WAKE_RELAY_FILE)).unwrap(),
+        target_relay
+    );
+
+    // Restoring with secrets replaces credentials/wake-relay.json and cleans up any stale root file.
+    write(&target.path().join(LEGACY_WAKE_RELAY_FILE), target_relay);
+    apply(&secret_archive, target.path(), String::new).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(target.path().join(WAKE_RELAY_FILE)).unwrap(),
+        relay_json
+    );
+    assert!(!target.path().join(LEGACY_WAKE_RELAY_FILE).exists());
+
+    // Restoring a legacy secrets=true archive carrying root wake-relay.json migrates it into credentials/.
+    let legacy_archive_bytes = tampered(
+        &with_secrets,
+        |files, _| {
+            let bytes = files.remove(WAKE_RELAY_FILE).unwrap();
+            files.insert(LEGACY_WAKE_RELAY_FILE.into(), bytes);
+        },
+        true,
+    );
+    let legacy_archive = read(Cursor::new(legacy_archive_bytes)).unwrap();
+    let migrated_target = profile();
+    write(
+        &migrated_target.path().join(LEGACY_WAKE_RELAY_FILE),
+        target_relay,
+    );
+    apply(&legacy_archive, migrated_target.path(), String::new).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(migrated_target.path().join(WAKE_RELAY_FILE)).unwrap(),
+        relay_json
+    );
+    assert!(!migrated_target.path().join(LEGACY_WAKE_RELAY_FILE).exists());
+}

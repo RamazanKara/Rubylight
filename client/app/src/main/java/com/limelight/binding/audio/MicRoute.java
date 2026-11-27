@@ -20,6 +20,8 @@ public class MicRoute {
     static final int TYPE_BLE_HEADSET = 26, TYPE_HEARING_AID = 23;
     // TYPE_BLE_SPEAKER (API 31) and TYPE_BLE_BROADCAST (API 33): the other LE Audio device types.
     static final int TYPE_BLE_SPEAKER = 27, TYPE_BLE_BROADCAST = 30;
+    // AudioDeviceInfo.TYPE_ECHO_REFERENCE (28), by value for older SDKs: Qualcomm/AOSP permanent internal echo-reference port.
+    static final int TYPE_ECHO_REFERENCE = 28;
 
     /**
      * The input type the microphone should prefer, or 0 to leave the choice to Android. Classic
@@ -44,6 +46,7 @@ public class MicRoute {
                 case AudioDeviceInfo.TYPE_FM_TUNER:
                 case AudioDeviceInfo.TYPE_TV_TUNER:
                 case AudioDeviceInfo.TYPE_REMOTE_SUBMIX:
+                case TYPE_ECHO_REFERENCE:
                     break;
                 default:
                     // A wired, USB or other microphone the user plugged in.

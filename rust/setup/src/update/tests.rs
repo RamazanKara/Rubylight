@@ -705,3 +705,17 @@ fn rollback_continues_past_a_blocked_file_and_still_restarts_the_host() -> Resul
     assert_eq!(std::fs::read(installed.join("b.dll"))?, b"old b");
     Ok(())
 }
+
+#[test]
+fn open_lock_retries_brief_sharing_violations() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let held = open_lock_for(root.path(), Duration::ZERO)?;
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(60));
+        drop(held);
+    });
+    let acquired = open_lock_for(root.path(), Duration::from_secs(2))?;
+    drop(acquired);
+    releaser.join().unwrap();
+    Ok(())
+}

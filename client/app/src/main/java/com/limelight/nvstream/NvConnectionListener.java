@@ -71,6 +71,14 @@ public interface NvConnectionListener {
     default void dvrClip(int requestId, int outcome, int reason, int durationSecs, long fileBytes) {}
 
     /**
+     * The host's Quick Suspend state (0x554B), answering the initial state query or pushed when
+     * the PC console or another device pauses or resumes the game (id 0): state 0 unavailable,
+     * 1 ready, 2 suspended, 3 resuming, 4 refused, with the wire's reason. On the receive thread.
+     */
+    default void quickSuspend(int requestId, int state, int reason, int suspendedCount,
+                              long suspendedSinceUnixMs) {}
+
+    /**
      * The host's text field notice (0x553B): kind 0 lower, 1 raise, 2 update; inputType in wire
      * order (text, number, decimal, phone, email, url, password, search, multiline); flags 1
      * sensitive, 2 no autocorrect, 4 no autocapitalize, 8 enter action; element the focused

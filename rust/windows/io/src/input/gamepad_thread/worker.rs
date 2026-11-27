@@ -116,6 +116,15 @@ pub(super) fn run<P: Pads>(
     let mut setup = Vec::new();
     let mut losses = Losses::default();
     let stopping = || shared.stop.load(Ordering::Acquire);
+    let sync_audio_ready = |audio_ready: u16| -> bool {
+        let previous = shared.audio_ready.swap(audio_ready, Ordering::AcqRel);
+        let newly_ready = audio_ready & !previous;
+        if newly_ready != 0 {
+            shared.audio_input.lock().unwrap().arrived_mask(newly_ready);
+            return true;
+        }
+        false
+    };
     loop {
         let (release, pending_policy) = {
             let mut queue = shared.queue.lock().unwrap();
@@ -287,9 +296,9 @@ pub(super) fn run<P: Pads>(
                 _ => {}
             }
             let applied = pads_now.apply(&event);
-            shared
-                .audio_ready
-                .store(pads_now.audio_ready(), Ordering::Release);
+            if sync_audio_ready(pads_now.audio_ready()) {
+                poll_at = Instant::now();
+            }
             shared
                 .steam_pads
                 .store(pads_now.steam_pads(), Ordering::Release);
@@ -303,6 +312,10 @@ pub(super) fn run<P: Pads>(
                     send_steam(&mut steam);
                 }
                 continue;
+            }
+            for (id, capabilities) in pads_now.motion_requests() {
+                tracing::debug!(controller = id, "asking the client for controller motion");
+                report(PadReport::Motion { id, capabilities });
             }
             match applied {
                 Err(error) => shared.warnings.lock().unwrap().event("input_gamepad_injection", format!("Controller input failed ({error:#}); some controls may not work. Check the selected gamepad profile and virtual driver."), butterpollo_session::session::EVENT_PERIOD),
@@ -364,15 +377,10 @@ pub(super) fn run<P: Pads>(
                 tracing::debug!(%error, "controller refresh failed");
             }
             for (id, capabilities) in pads.motion_requests() {
-                tracing::debug!(
-                    controller = id,
-                    "controller motion went silent; asking the client again"
-                );
+                tracing::debug!(controller = id, "asking the client for controller motion");
                 report(PadReport::Motion { id, capabilities });
             }
-            shared
-                .audio_ready
-                .store(pads.audio_ready(), Ordering::Release);
+            sync_audio_ready(pads.audio_ready());
             shared
                 .steam_pads
                 .store(pads.steam_pads(), Ordering::Release);

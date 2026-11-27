@@ -75,7 +75,7 @@ pub(super) async fn bandwidth_probe(
 }
 /// Why a probe of `bytes` for `client` is refused now, if it is: a stream runs or starts (409, checked
 /// first), or the client is within its cooldown or past its budget in `limiter` (429).
-fn probe_refused(
+pub(super) fn probe_refused(
     h: &Shared,
     limiter: &std::sync::Mutex<butterpollo_media_policy::bandwidth_probe::Limiter>,
     client: &Client,
@@ -98,10 +98,11 @@ fn probe_refused(
                 .into_response(),
         );
     }
-    let admitted = limiter
-        .lock()
-        .unwrap()
-        .admit(&client.uuid, bytes, Instant::now());
+    let admitted = limiter.lock().unwrap().admit(
+        butterpollo_session::state::device_uuid(&client.uuid),
+        bytes,
+        Instant::now(),
+    );
     let wait = admitted.err()?;
     let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
     Some(

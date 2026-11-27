@@ -447,7 +447,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         boolean previous = dispatchingDesktopTouch;
         dispatchingDesktopTouch = lifecycle.isDesktopPointerTouch(event);
         try {
-            return super.dispatchTouchEvent(event);
+            return touchInput.dispatchTouchEvent(event, () -> super.dispatchTouchEvent(event));
         } finally {
             dispatchingDesktopTouch = previous;
         }
@@ -584,6 +584,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override public boolean onGenericMotion(View view, MotionEvent event) { return touchInput.handleMotionEvent(view, event); }
     @SuppressLint("ClickableViewAccessibility")
     @Override public boolean onTouch(View view, MotionEvent event) { return touchInput.onTouch(view, event); }
+    @Override public boolean onTouchEvent(MotionEvent event) { return touchInput.onActivityTouchEvent(event) || super.onTouchEvent(event); }
 
     @Override public void stageStarting(final String stage) { streamConnection.stageStarting(stage); }
 
@@ -672,6 +673,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
     @Override public void dvrClip(int requestId, int outcome, int reason, int durationSecs, long fileBytes) {
         runOnUiThread(() -> { if (streamDvr != null) streamDvr.onClip(requestId, outcome, reason, durationSecs, fileBytes); });
+    }
+    @Override public void quickSuspend(int requestId, int state, int reason, int suspendedCount, long suspendedSinceUnixMs) {
+        runOnUiThread(() -> menuActions.onQuickSuspendControl(requestId, state, reason, suspendedCount, suspendedSinceUnixMs));
     }
     @Override public void textInput(int kind, int inputType, int flags, int element) { runOnUiThread(() -> keyboardInput.onHostTextField(kind, inputType, flags, element)); }
     @Override public void clipboardSync(String text) { runOnUiThread(() -> { if (clipboardSync != null) clipboardSync.received(text); }); }

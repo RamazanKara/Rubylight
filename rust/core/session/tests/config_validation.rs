@@ -393,3 +393,25 @@ fn background_mode_saves_only_nucleus_and_earlier_modes_become_it() {
     );
     assert_eq!(config.get("background_mode", ""), "");
 }
+
+#[test]
+fn dvr_directory_refuses_network_and_device_paths_and_allows_local_and_relative_paths() {
+    let mut config = Config::default();
+    for bad in [
+        r"\\server\share",
+        "//server/share/clips",
+        r"\\?\UNC\server\share",
+        r"\\.\pipe\x",
+        "NUL",
+        r"C:\Clips\COM1",
+    ] {
+        assert!(change(&mut config, "dvr_directory", bad).is_err(), "{bad}");
+        let parsed = Config::parse(&format!("dvr_directory = {bad}\n")).unwrap();
+        let key = "dvr_directory".to_owned();
+        assert!(parsed.check_saved([&key]).is_err(), "check_saved: {bad}");
+    }
+    for ok in ["", "clips", r"sub\clips", r"D:\Clips", r"Z:\Clips"] {
+        change(&mut config, "dvr_directory", ok).unwrap();
+        assert_eq!(config.get("dvr_directory", ""), ok);
+    }
+}

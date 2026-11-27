@@ -65,9 +65,9 @@ pub async fn enroll(
     let action: RelayEnroll = serde_json::from_slice(&body).map_err(|error| {
         Failure::new(ErrorCode::InvalidRequest, format!("Invalid body: {error}."))
     })?;
-    let address = c.peer.ip();
+    let peer = c.peer;
     let enrolled =
-        tokio::task::spawn_blocking(move || wake_relay::enroll(&h, &client, address, action))
+        tokio::task::spawn_blocking(move || wake_relay::enroll(&h, &client, peer, action))
             .await
             .map_err(|error| Failure::internal("update its wake relays", error))?
             .map_err(failure)?;

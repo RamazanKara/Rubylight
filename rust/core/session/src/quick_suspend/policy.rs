@@ -121,7 +121,24 @@ fn launcher(name: &str) -> bool {
 pub fn plan(owned: &BTreeMap<u32, u64>, all: &[Process], host_pid: u32) -> Result<Plan, Refused> {
     // The tree, each process with its depth below its root.
     let mut tree: Vec<(usize, &Process)> = Vec::new();
+    let mut protected_root: Option<&Process> = None;
     for (&pid, &started) in owned {
+        if started == 0 {
+            // Never match `started == 0` into the suspend tree (which would match
+            // recycled PIDs or walk unrelated children). If `all` still lists the
+            // process with `started == 0`, its creation time could not be read
+            // (e.g. protected/PPL), so refuse whole instead of misreporting NoOwnedProcess.
+            if let Some(root) = all.iter().find(|p| p.pid == pid && p.started == 0) {
+                if let Some(name) = anti_cheat(&root.name) {
+                    return Err(Refused::new(Reason::AntiCheatDetected, Some(name)));
+                }
+                if root.pid <= 4 || root.pid == host_pid || listed(SYSTEM, &root.name) {
+                    return Err(Refused::new(Reason::DenylistedProcess, Some(&root.name)));
+                }
+                protected_root.get_or_insert(root);
+            }
+            continue;
+        }
         let Some(root) = all.iter().find(|p| p.pid == pid && p.started == started) else {
             continue;
         };
@@ -144,6 +161,20 @@ pub fn plan(owned: &BTreeMap<u32, u64>, all: &[Process], host_pid: u32) -> Resul
                 }
             }
         }
+    }
+    if let Some(root) = protected_root {
+        for (_, process) in &tree {
+            if let Some(name) = anti_cheat(&process.name) {
+                return Err(Refused::new(Reason::AntiCheatDetected, Some(name)));
+            }
+            if process.pid <= 4 || process.pid == host_pid || listed(SYSTEM, &process.name) {
+                return Err(Refused::new(Reason::DenylistedProcess, Some(&process.name)));
+            }
+        }
+        if let Some(name) = all.iter().find_map(|p| anti_cheat(&p.name)) {
+            return Err(Refused::new(Reason::AntiCheatDetected, Some(name)));
+        }
+        return Err(Refused::new(Reason::ProtectedProcess, Some(&root.name)));
     }
     if tree.is_empty() {
         return Err(Refused::new(Reason::NoOwnedProcess, None));

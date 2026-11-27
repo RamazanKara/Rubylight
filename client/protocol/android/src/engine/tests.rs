@@ -9,7 +9,10 @@ fn an_interrupted_start_leaves_no_host_messages_behind() {
     *lock(&ENGINE.interrupt) = Interrupt::default();
     set_host_messages(&[]);
     announce_host_messages(&[CLOCK_SYNC]);
-    assert!(host_supports(CLOCK_SYNC), "a live start records the announcement");
+    assert!(
+        host_supports(CLOCK_SYNC),
+        "a live start records the announcement"
+    );
     set_host_messages(&[]);
 
     // `LiInterruptConnection` and `LiStopConnection` run while the handshake is still going;
@@ -17,7 +20,10 @@ fn an_interrupted_start_leaves_no_host_messages_behind() {
     interrupt();
     stop();
     announce_host_messages(&[CLOCK_SYNC]);
-    assert!(!host_supports(CLOCK_SYNC), "an interrupted start must not record messages");
+    assert!(
+        !host_supports(CLOCK_SYNC),
+        "an interrupted start must not record messages"
+    );
 
     *lock(&ENGINE.interrupt) = Interrupt::default();
 }
@@ -96,9 +102,17 @@ fn the_announced_hdr_format_lasts_from_the_handshake_until_stop() {
     stop();
     assert_eq!(announced_hdr_format(), 0, "stock before a handshake");
     announce_hdr_format(rubylight_protocol::hdr::DV_81);
-    assert_eq!(announced_hdr_format(), 4, "known before the decoder's setup");
+    assert_eq!(
+        announced_hdr_format(),
+        4,
+        "known before the decoder's setup"
+    );
     stop();
-    assert_eq!(announced_hdr_format(), 0, "a stopped stream leaves none behind");
+    assert_eq!(
+        announced_hdr_format(),
+        0,
+        "a stopped stream leaves none behind"
+    );
 
     interrupt();
     announce_hdr_format(rubylight_protocol::hdr::HLG);
@@ -152,7 +166,10 @@ fn the_host_messages_are_known_before_a_session_is_stored() {
 fn the_phase_lock_report_follows_the_announced_messages_without_their_lock() {
     let _serial = lock(&ENGINE_TESTS);
     set_host_messages(&[]);
-    assert!(!report_frame_slack(1_000, 8_333_333), "not announced: refused");
+    assert!(
+        !report_frame_slack(1_000, 8_333_333),
+        "not announced: refused"
+    );
     set_host_messages(&[0x5530]);
     assert!(ENGINE.phase_lock_supported.load(Ordering::SeqCst));
     set_host_messages(&[0x5531]);
@@ -185,8 +202,18 @@ fn present_clock_offset_waits_for_a_clock_sync_exchange() {
 fn an_adaptive_display_bounds_the_wait_for_late_frames_and_a_grid_does_not() {
     let _serial = lock(&ENGINE_TESTS);
     present_clock_start(8_333, true);
-    let spread = |clock: &Option<PresentClock>| clock.as_ref().map(|c| (c.settings.max_spread_us, c.settings.min_interval_us));
-    assert_eq!(spread(&lock(&ENGINE.present_clock)), Some((Some(rubylight_protocol::present_clock::ADAPTIVE_SPREAD_US), 8_333)));
+    let spread = |clock: &Option<PresentClock>| {
+        clock
+            .as_ref()
+            .map(|c| (c.settings.max_spread_us, c.settings.min_interval_us))
+    };
+    assert_eq!(
+        spread(&lock(&ENGINE.present_clock)),
+        Some((
+            Some(rubylight_protocol::present_clock::ADAPTIVE_SPREAD_US),
+            8_333
+        ))
+    );
     present_clock_start(8_333, false);
     assert_eq!(spread(&lock(&ENGINE.present_clock)), Some((None, 8_333)));
     present_clock_stop();
@@ -195,8 +222,17 @@ fn an_adaptive_display_bounds_the_wait_for_late_frames_and_a_grid_does_not() {
 #[test]
 fn the_engine_clock_schedules_on_a_grid_and_follows_the_content_rate() {
     let _serial = lock(&ENGINE_TESTS);
-    let grid = Grid { anchor_us: 0, interval_us: 16_667, lead_us: 4_000, slack_us: 0 };
-    assert_eq!(present_clock_schedule_on_grid(0, 1_000, grid), None, "no clock running");
+    let grid = Grid {
+        anchor_us: 0,
+        interval_us: 16_667,
+        lead_us: 4_000,
+        slack_us: 0,
+    };
+    assert_eq!(
+        present_clock_schedule_on_grid(0, 1_000, grid),
+        None,
+        "no clock running"
+    );
     assert_eq!(present_clock_content_rate(), 0);
     present_clock_start(0, false);
     let s = present_clock_schedule_on_grid(0, 1_000_000, grid).expect("scheduled");
@@ -207,7 +243,22 @@ fn the_engine_clock_schedules_on_a_grid_and_follows_the_content_rate() {
     let rate = present_clock_content_rate();
     assert!(rate.abs_diff(60_000) <= 100, "{rate}");
     present_clock_reset();
-    assert_eq!(present_clock_content_rate(), 0, "a reset starts the rate over");
+    assert_eq!(
+        present_clock_content_rate(),
+        0,
+        "a reset starts the rate over"
+    );
     present_clock_stop();
     assert_eq!(present_clock_content_rate(), 0);
+}
+
+#[test]
+fn quick_suspend_query_is_sent_only_when_0x554b_is_offered() {
+    use rubylight_protocol::quick_suspend::QUICK_SUSPEND_MESSAGE_TYPE;
+    assert!(!should_query_quick_suspend(&[]));
+    assert!(!should_query_quick_suspend(&[0x554A, 0x5548]));
+    assert!(should_query_quick_suspend(&[
+        0x554A,
+        QUICK_SUSPEND_MESSAGE_TYPE
+    ]));
 }

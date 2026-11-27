@@ -42,6 +42,11 @@ test('with nothing typed: recent entries, top games and devices, everyday pages,
   assert.equal(withRecentAndRunning[0].title, 'Recent');
   assert.deepEqual(labels(withRecentAndRunning, 'recent'), ['Portal 2', 'Logs']);
   assert.ok(labels(withRecentAndRunning, 'actions').includes('Quit game'));
+  // Recent entries are deduplicated out of lower groups so every option id and row index is unique.
+  assert.deepEqual(labels(withRecentAndRunning, 'games'), ['The Witcher 3']);
+  assert.equal(labels(withRecentAndRunning, 'diagnostics').includes('Logs'), false);
+  const allIds = withRecentAndRunning.flatMap(group => group.entries.map(entry => entry.id));
+  assert.equal(new Set(allIds).size, allIds.length);
 });
 
 test('host actions follow the host: only other themes, and Disconnect every stream only while a device streams', () => {

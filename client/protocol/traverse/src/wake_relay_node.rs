@@ -12,28 +12,28 @@
 //! port of the PC's, one socket of its own.
 
 use crate::{
-    node::{unix_now, Node},
+    Millis,
+    node::{Node, unix_now},
     punch::{self, Puncher},
     record::{self, Keys, Nat, PathKeys, Record, Role},
     stun,
     wake_relay::{Burst, Decision, DeviceId, Enrollment, Interface, Relay, Status, WakeStatus},
-    wire::{self, Kind, Opener, Opened, Sealer},
-    Millis,
+    wire::{self, Kind, Opened, Opener, Sealer},
 };
 use std::{
     collections::HashMap,
     io,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream, UdpSocket},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
     time::Duration,
 };
 
 pub mod requester;
-pub use requester::{request_wake, Failure, Progress, RelayInfo, RequestConfig};
+pub use requester::{Failure, Progress, RelayInfo, RequestConfig, request_wake};
 
 /// STUN again this often, as the internet play host does.
 const STUN_EVERY: Millis = 5 * 60_000;
@@ -46,6 +46,10 @@ const POLL_EVERY: Millis = punch::HOST_POLL_IDLE;
 const MAX_POLLS: usize = 4;
 /// A path nobody speaks on for this long is dropped.
 const PATH_IDLE: Millis = (crate::wake_relay::BOOT_WAIT_SECONDS + 30) * 1000;
+/// Ended or superseded `(tag, session)` pairs stay rejected for twice a punch/record's freshness
+/// window so a delayed or replayed packet or DHT record can neither reopen them nor clobber a
+/// newer session.
+const ENDED_SESSION_HOLD: Millis = 2 * record::CLIENT_FRESH_SECONDS * 1000;
 /// How often the relay looks whether the PC came up after a burst.
 #[cfg(not(test))]
 const PROBE_EVERY: Duration = Duration::from_secs(2);
@@ -104,7 +108,8 @@ impl Lan for UdpLan {
             .div_ceil(crate::wake_relay::BURST_REPEATS)
             .max(1);
         let mut sent = 0;
-        for (index, ((destination, packet), source)) in burst.packets.iter().zip(&sources).enumerate()
+        for (index, ((destination, packet), source)) in
+            burst.packets.iter().zip(&sources).enumerate()
         {
             if index > 0 && index % per_repeat == 0 {
                 thread::sleep(Duration::from_millis(10));
@@ -201,6 +206,8 @@ struct Path {
     target: String,
     device: DeviceId,
     session: [u8; 16],
+    /// Unix timestamp of the punch or DHT record that opened this path.
+    time: u64,
     puncher: Puncher,
     opener: Opener,
     sealer: Sealer,
@@ -214,6 +221,7 @@ impl Path {
         state: &DeviceState,
         keys: PathKeys,
         session: [u8; 16],
+        time: u64,
         first: u64,
         now: Millis,
     ) -> Self {
@@ -221,11 +229,53 @@ impl Path {
             target: state.target.clone(),
             device: state.device,
             session,
+            time,
             heard: now,
             puncher: Puncher::new(Vec::new(), now),
             opener: Opener::new(&keys.client_to_host, keys.tag),
             sealer: Sealer::starting_at(&keys.host_to_client, keys.tag, session, first),
             peer: None,
+        }
+    }
+}
+
+/// Active paths alongside recently ended or superseded `(tag, session)` pairs.
+#[derive(Default)]
+struct Paths {
+    active: HashMap<[u8; 8], Path>,
+    ended: HashMap<([u8; 8], [u8; 16]), Millis>,
+}
+
+impl Paths {
+    fn prune_ended(&mut self, now: Millis) {
+        self.ended
+            .retain(|_, ended_at| now.saturating_sub(*ended_at) < ENDED_SESSION_HOLD);
+    }
+
+    fn is_ended(&mut self, tag: [u8; 8], session: [u8; 16], now: Millis) -> bool {
+        self.prune_ended(now);
+        self.ended.contains_key(&(tag, session))
+    }
+
+    fn mark_ended(&mut self, tag: [u8; 8], session: [u8; 16], now: Millis) {
+        self.prune_ended(now);
+        self.ended.insert((tag, session), now);
+    }
+
+    /// Installs `path` for `tag`, recording any replaced session as superseded.
+    fn replace(&mut self, tag: [u8; 8], path: Path, now: Millis) {
+        let session = path.session;
+        if let Some(old) = self.active.insert(tag, path)
+            && old.session != session
+        {
+            self.mark_ended(tag, old.session, now);
+        }
+    }
+
+    /// Ends `tag`'s active path and remembers its session for [`ENDED_SESSION_HOLD`].
+    fn end(&mut self, tag: [u8; 8], now: Millis) {
+        if let Some(old) = self.active.remove(&tag) {
+            self.mark_ended(tag, old.session, now);
         }
     }
 }
@@ -238,7 +288,7 @@ struct Shared {
     enrollments: Mutex<Vec<Enrollment>>,
     devices: Mutex<Vec<DeviceState>>,
     /// Locked before `devices` when a thread needs both.
-    paths: Mutex<HashMap<[u8; 8], Path>>,
+    paths: Mutex<Paths>,
     relay: Mutex<Relay>,
     status: Mutex<RelayStatus>,
     publishing: AtomicBool,
@@ -265,7 +315,7 @@ impl WakeRelayPeer {
             lan,
             enrollments: Mutex::new(Vec::new()),
             devices: Mutex::new(Vec::new()),
-            paths: Mutex::new(HashMap::new()),
+            paths: Mutex::new(Paths::default()),
             relay: Mutex::new(Relay::new()),
             status: Mutex::new(RelayStatus::default()),
             publishing: AtomicBool::new(false),
@@ -323,7 +373,20 @@ impl WakeRelayPeer {
                 }
             }
         }
-        paths.retain(|tag, _| next.iter().any(|state| state.tag == *tag));
+        let now = self.shared.node.now();
+        let dropped: Vec<([u8; 8], [u8; 16])> = paths
+            .active
+            .iter()
+            .filter(|(tag, _)| !next.iter().any(|state| state.tag == **tag))
+            .map(|(&tag, path)| (tag, path.session))
+            .collect();
+        for (tag, session) in dropped {
+            paths.active.remove(&tag);
+            paths.mark_ended(tag, session, now);
+        }
+        paths
+            .ended
+            .retain(|(tag, _), _| next.iter().any(|state| state.tag == *tag));
         let mut status = self.shared.status.lock().unwrap();
         status.targets = enrollments.len();
         status.devices = next.len();
@@ -364,8 +427,9 @@ impl WakeRelayPeer {
             return;
         };
         let punched = wire::punch_session(datagram);
+        let now = self.shared.node.now();
         let mut paths = self.shared.paths.lock().unwrap();
-        if let Some(path) = paths.get_mut(&tag)
+        if let Some(path) = paths.active.get_mut(&tag)
             && punched.is_none_or(|session| session == path.session)
         {
             if let Some(opened) = path.opener.open(datagram)
@@ -378,6 +442,9 @@ impl WakeRelayPeer {
         }
         // A punch for a session of its own: a device starting a new request.
         let Some(session) = punched else { return };
+        if paths.is_ended(tag, session, now) {
+            return;
+        }
         let devices = self.shared.devices.lock().unwrap();
         let Some(state) = devices.iter().find(|state| state.tag == tag) else {
             return;
@@ -388,17 +455,26 @@ impl WakeRelayPeer {
             return;
         };
         // Only a fresh punch opens a path: a captured one replayed later starts nothing.
-        let fresh = opened.kind == Kind::Punch
-            && wire::punch_time(&opened.payload)
-                .is_some_and(|time| unix_now().abs_diff(time) <= record::CLIENT_FRESH_SECONDS);
-        if !fresh {
+        let Some(punch_time) = (opened.kind == Kind::Punch)
+            .then(|| wire::punch_time(&opened.payload))
+            .flatten()
+        else {
+            return;
+        };
+        if unix_now().abs_diff(punch_time) > record::CLIENT_FRESH_SECONDS {
             return;
         }
-        let now = self.shared.node.now();
-        let mut path = Path::new(state, keys, session, self.first_seq(), now);
+        if paths
+            .active
+            .get(&tag)
+            .is_some_and(|existing| punch_time < existing.time)
+        {
+            return;
+        }
+        let mut path = Path::new(state, keys, session, punch_time, self.first_seq(), now);
         drop(devices);
         path.opener = opener;
-        paths.insert(tag, path);
+        paths.replace(tag, path, now);
         if let Some(request) = self.on_datagram(&mut paths, tag, opened, from) {
             drop(paths);
             self.on_request(request);
@@ -409,13 +485,14 @@ impl WakeRelayPeer {
     /// to handle once the paths are unlocked (a burst and a look at the interfaces take time).
     fn on_datagram(
         &self,
-        paths: &mut HashMap<[u8; 8], Path>,
+        paths: &mut Paths,
         tag: [u8; 8],
         opened: Opened,
         from: SocketAddr,
     ) -> Option<Pending> {
-        let path = paths.get_mut(&tag)?;
-        path.heard = self.shared.node.now();
+        let now = self.shared.node.now();
+        let path = paths.active.get_mut(&tag)?;
+        path.heard = now;
         path.peer = Some(from);
         match opened.kind {
             Kind::Punch => {
@@ -434,7 +511,7 @@ impl WakeRelayPeer {
                 });
             }
             Kind::Close => {
-                paths.remove(&tag);
+                paths.end(tag, now);
             }
             _ => {}
         }
@@ -476,6 +553,7 @@ impl WakeRelayPeer {
             Some((enrollment.target_name.clone(), now, reply.status));
         let paths = self.shared.paths.lock().unwrap();
         if let Some(path) = paths
+            .active
             .get(&request.tag)
             .filter(|path| path.session == request.session)
         {
@@ -487,9 +565,12 @@ impl WakeRelayPeer {
     /// does or when [`crate::wake_relay::BOOT_WAIT_SECONDS`] ran out ([`FINAL_COPIES`] times, as
     /// one lost datagram must not hide the outcome).
     fn watch(&self, enrollment: &Enrollment, tag: [u8; 8], session: [u8; 16], nonce: [u8; 16]) {
-        let target = enrollment
+        let Some(target) = enrollment
             .address
-            .map(|address| SocketAddrV4::new(address, enrollment.http_port));
+            .map(|address| SocketAddrV4::new(address, enrollment.http_port))
+        else {
+            return;
+        };
         let name = enrollment.target_name.clone();
         let watching = self.clone();
         let _ = thread::Builder::new()
@@ -502,7 +583,18 @@ impl WakeRelayPeer {
                     if watching.stopped() {
                         return;
                     }
-                    if target.is_some_and(|target| watching.shared.lan.is_up(target)) {
+                    let alive = watching
+                        .shared
+                        .paths
+                        .lock()
+                        .unwrap()
+                        .active
+                        .get(&tag)
+                        .is_some_and(|path| path.session == session);
+                    if !alive {
+                        return;
+                    }
+                    if watching.shared.lan.is_up(target) {
                         break Status::HostAwake;
                     }
                     if started.elapsed() >= wait {
@@ -510,15 +602,19 @@ impl WakeRelayPeer {
                     }
                 };
                 let mut answer = WakeStatus::new(status, nonce);
-                answer.elapsed_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
-                watching.shared.status.lock().unwrap().last_wake =
-                    Some((name, unix_now(), status));
+                answer.elapsed_ms =
+                    u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
+                watching.shared.status.lock().unwrap().last_wake = Some((name, unix_now(), status));
                 for copy in 0..FINAL_COPIES {
                     if copy > 0 {
                         thread::sleep(FINAL_GAP);
                     }
                     let paths = watching.shared.paths.lock().unwrap();
-                    let Some(path) = paths.get(&tag).filter(|path| path.session == session) else {
+                    let Some(path) = paths
+                        .active
+                        .get(&tag)
+                        .filter(|path| path.session == session)
+                    else {
                         return;
                     };
                     if let Some(peer) = path.peer {
@@ -533,7 +629,12 @@ impl WakeRelayPeer {
         while !self.stopped() {
             let now = self.shared.node.now();
             if now >= next_stun && !self.shared.config.stun_servers.is_empty() {
-                next_stun = now + if self.discover() { STUN_EVERY } else { STUN_RETRY };
+                next_stun = now
+                    + if self.discover() {
+                        STUN_EVERY
+                    } else {
+                        STUN_RETRY
+                    };
             }
             self.serve_devices();
             self.drive_paths();
@@ -567,11 +668,21 @@ impl WakeRelayPeer {
         let now = self.shared.node.now();
         let stamp = wire::punch_stamp(unix_now());
         let mut paths = self.shared.paths.lock().unwrap();
-        paths.retain(|_, path| {
-            path.puncher.state() != punch::State::Failed
-                && now.saturating_sub(path.heard) < PATH_IDLE
-        });
-        for path in paths.values_mut() {
+        paths.prune_ended(now);
+        let expired: Vec<([u8; 8], [u8; 16])> = paths
+            .active
+            .iter()
+            .filter(|(_, path)| {
+                path.puncher.state() == punch::State::Failed
+                    || now.saturating_sub(path.heard) >= PATH_IDLE
+            })
+            .map(|(&tag, path)| (tag, path.session))
+            .collect();
+        for (tag, session) in expired {
+            paths.active.remove(&tag);
+            paths.mark_ended(tag, session, now);
+        }
+        for path in paths.active.values_mut() {
             for to in path.puncher.poll(now) {
                 self.send(path, to, Kind::Punch, &stamp);
             }

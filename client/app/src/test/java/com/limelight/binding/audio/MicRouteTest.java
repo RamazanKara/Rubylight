@@ -46,4 +46,12 @@ public class MicRouteTest {
     @Test public void noBuiltInMicrophoneLeavesTheChoiceToAndroid() {
         assertEquals(0, MicRoute.preferredInput(A2DP, new int[] {AudioDeviceInfo.TYPE_BLUETOOTH_SCO}, false));
     }
+
+    @Test public void anInternalEchoReferencePortStillPicksTheBuiltInMicrophone() {
+        assertEquals(28, MicRoute.TYPE_ECHO_REFERENCE);
+        assertEquals(AudioDeviceInfo.TYPE_BUILTIN_MIC, MicRoute.preferredInput(A2DP,
+                new int[] {AudioDeviceInfo.TYPE_BUILTIN_MIC, AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                        MicRoute.TYPE_ECHO_REFERENCE}, false));
+        assertEquals(0, MicRoute.preferredInput(A2DP, new int[] {MicRoute.TYPE_ECHO_REFERENCE}, false));
+    }
 }

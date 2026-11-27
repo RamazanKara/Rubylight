@@ -193,7 +193,11 @@ pub(super) fn byte_range(value: Option<&str>, len: u64) -> Option<Result<(u64, u
 }
 
 async fn video(h: &Shared, id: &str, headers: &HeaderMap, download: bool) -> Response {
-    let path = dvr_store::video_path(&clips_dir(h), id);
+    let dir = clips_dir(h);
+    if dvr_store::refused(&dir) {
+        return error(StatusCode::NOT_FOUND, "There is no such clip.");
+    }
+    let path = dvr_store::video_path(&dir, id);
     let mut file = match tokio::fs::File::open(&path).await {
         Ok(file) => file,
         Err(_) => return error(StatusCode::NOT_FOUND, "There is no such clip."),

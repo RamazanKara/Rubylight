@@ -189,6 +189,9 @@ impl RunningApp {
     }
     /// The verified game processes (pid → creation time) among `processes`
     /// that Quick Suspend starts from; none for Desktop or a detached command.
+    /// Exited job PIDs are skipped; live job processes whose creation time
+    /// could not be read (protected/PPL) are kept with `started == 0` so
+    /// `quick_suspend::policy::plan` reports `ProtectedProcess`.
     pub(crate) fn suspend_roots(
         &self,
         processes: &[butterpollo_session::steam::Process],
@@ -196,7 +199,22 @@ impl RunningApp {
         if !self.has_game_process() {
             return Ok(BTreeMap::new());
         }
-        self.owned_processes(processes)
+        if self.steam.is_some() || self.playnite.is_some() {
+            return self.owned_processes(processes);
+        }
+        let mut owned = if let Some(child) = &self.child {
+            let ids = child.process_ids()?;
+            job_suspend_roots(&ids, processes, inspect_job_pid)
+        } else {
+            BTreeMap::new()
+        };
+        owned.extend(
+            self.foreign
+                .iter()
+                .filter(|&(_, &started)| started != 0)
+                .map(|(&pid, &started)| (pid, started)),
+        );
+        Ok(owned)
     }
     pub(crate) fn has_game_process(&self) -> bool {
         self.steam.is_some()
@@ -235,7 +253,7 @@ impl RunningApp {
                 let ids = child.process_ids()?;
                 processes
                     .iter()
-                    .filter(|p| ids.contains(&p.pid))
+                    .filter(|p| ids.contains(&p.pid) && p.started != 0)
                     .map(|p| (p.pid, p.started))
                     .collect()
             } else if self.foreign.is_empty() {
@@ -544,6 +562,65 @@ impl RunningApp {
     pub fn mark_game_seen(&mut self) {
         self.game_seen = true;
     }
+}
+
+/// Classification of a job PID whose creation time was unavailable (`started == 0`)
+/// in the process snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum JobPidState {
+    Running(u64),
+    Exited,
+    Protected,
+}
+
+fn inspect_job_pid(pid: u32) -> JobPidState {
+    let started = butterpollo_win_io::process::creation_time(pid);
+    if started != 0 {
+        return JobPidState::Running(started);
+    }
+    // If `usage` succeeds, `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` succeeded
+    // while `creation_time` returned 0, which only happens for an exited zombie process.
+    // If `process_session` fails, the PID is already gone. Otherwise it is live and protected.
+    if butterpollo_win_io::process::usage(pid).is_some()
+        || butterpollo_win_io::process::process_session(pid).is_err()
+    {
+        JobPidState::Exited
+    } else {
+        JobPidState::Protected
+    }
+}
+
+/// Resolves Quick Suspend root PIDs for an owned Windows Job Object: verified
+/// running processes keep their start time, exited job PIDs (e.g. bootstrappers)
+/// are skipped, and live unreadable/protected PIDs are recorded with `started == 0`
+/// so `policy::plan` reports `ProtectedProcess` instead of `NoOwnedProcess`.
+fn job_suspend_roots(
+    ids: &[u32],
+    processes: &[butterpollo_session::steam::Process],
+    mut inspect: impl FnMut(u32) -> JobPidState,
+) -> BTreeMap<u32, u64> {
+    let mut owned = BTreeMap::new();
+    for &pid in ids {
+        if pid == 0 {
+            continue;
+        }
+        if let Some(p) = processes.iter().find(|p| p.pid == pid)
+            && p.started != 0
+        {
+            owned.insert(pid, p.started);
+            continue;
+        }
+        match inspect(pid) {
+            JobPidState::Running(started) if started != 0 => {
+                owned.insert(pid, started);
+            }
+            JobPidState::Running(_) | JobPidState::Exited => {}
+            JobPidState::Protected => {
+                owned.insert(pid, 0);
+            }
+        }
+    }
+    owned
 }
 
 /// Wraps `cmd` with output redirection after applying `shell_command` so URI

@@ -4,18 +4,94 @@ use butterpollo_session::session::Role;
 use butterpollo_win_graphics::telemetry::Collector;
 use serde_json::{Value, json};
 use std::{
-    sync::{
-        Arc, Weak,
-        atomic::{AtomicU64, Ordering},
-        mpsc,
-    },
+    sync::{Arc, Mutex, PoisonError, Weak, atomic::Ordering, mpsc},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 type Error = (StatusCode, &'static str);
-/// Packed `(unix_ms << 8) | (gpu_busy_percent + 1)` from the latest telemetry worker sample for
-/// the active queue-clamped stream's GPU adapter; `0` when no fresh sample is cached.
-static LAST_GPU_BUSY: AtomicU64 = AtomicU64::new(0);
+/// Latest telemetry worker GPU utilization reading for the active queue-clamped stream's adapter.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CachedGpuBusy {
+    adapter: String,
+    packed: u64,
+}
+
+#[derive(Default)]
+struct GpuBusyCache {
+    entry: Option<CachedGpuBusy>,
+}
+
+impl GpuBusyCache {
+    fn clear(&mut self) {
+        self.entry = None;
+    }
+
+    fn store(&mut self, adapter: &str, unix_ms: u64, pct: u8) {
+        self.entry = Some(CachedGpuBusy {
+            adapter: adapter.to_owned(),
+            packed: pack_gpu_busy(unix_ms, pct),
+        });
+    }
+
+    /// Returns `(reading_within_max_age, is_fresh_for_throttle)` only when the cached entry
+    /// belongs to `adapter`.
+    fn read(&self, adapter: &str, now_unix_ms: u64) -> (Option<u8>, bool) {
+        let Some(entry) = self.entry.as_ref() else {
+            return (None, false);
+        };
+        if !entry.adapter.trim().eq_ignore_ascii_case(adapter.trim()) {
+            return (None, false);
+        }
+        let fresh =
+            (entry.packed & 0xFF) != 0 && now_unix_ms.saturating_sub(entry.packed >> 8) < 900;
+        (unpack_gpu_busy_at(entry.packed, now_unix_ms), fresh)
+    }
+}
+
+/// Active stream whose GPU adapter owns `LAST_GPU_BUSY` during dynamic queue clamping.
+#[derive(Default)]
+struct TargetAdapter {
+    stream: Option<(String, String)>,
+}
+
+impl TargetAdapter {
+    fn clear(&mut self) {
+        self.stream = None;
+    }
+
+    /// Updates the tracked `(client, adapter)` from an internal clamping poll. Returns `true`
+    /// when the tracked adapter changed.
+    fn set_internal(&mut self, client: &str, adapter: &str) -> bool {
+        let changed = self
+            .stream
+            .as_ref()
+            .is_none_or(|(_, cur)| !cur.trim().eq_ignore_ascii_case(adapter.trim()));
+        if changed {
+            self.stream = Some((client.to_owned(), adapter.to_owned()));
+        } else if let Some((cur_client, _)) = self.stream.as_mut()
+            && cur_client != client
+        {
+            *cur_client = client.to_owned();
+        }
+        changed
+    }
+
+    /// Drops the tracked target if its stream is no longer active; returns the active adapter
+    /// name when one is still live.
+    fn active(&mut self, is_active: impl FnOnce(&str) -> bool) -> Option<&str> {
+        let still_live = self
+            .stream
+            .as_ref()
+            .is_some_and(|(client, _)| is_active(client));
+        if !still_live {
+            self.stream = None;
+            return None;
+        }
+        self.stream.as_ref().map(|(_, adapter)| adapter.as_str())
+    }
+}
+
+static LAST_GPU_BUSY: Mutex<GpuBusyCache> = Mutex::new(GpuBusyCache { entry: None });
 const GPU_BUSY_MAX_AGE_MS: u64 = 3_000;
 const INTERNAL_GPU_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -94,9 +170,24 @@ fn unpack_gpu_busy_at(packed: u64, now_unix_ms: u64) -> Option<u8> {
 
 /// Clears any cached internal GPU utilization reading once dynamic queue clamping turns off.
 pub fn clear_gpu_busy() {
-    if LAST_GPU_BUSY.load(Ordering::Relaxed) != 0 {
-        LAST_GPU_BUSY.store(0, Ordering::Release);
-    }
+    LAST_GPU_BUSY
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clear();
+}
+
+fn store_gpu_busy(adapter: &str, unix_ms: u64, pct: u8) {
+    LAST_GPU_BUSY
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .store(adapter, unix_ms, pct);
+}
+
+fn read_gpu_busy_for(adapter: &str, now_ms: u64) -> (Option<u8>, bool) {
+    let Ok(cache) = LAST_GPU_BUSY.try_lock() else {
+        return (None, false);
+    };
+    cache.read(adapter, now_ms)
 }
 
 /// Non-blocking: triggers an off-thread `gpu_usage_percent` sample on the telemetry worker for
@@ -108,9 +199,9 @@ pub fn poll_and_read_gpu_busy(h: &Shared, client: &str, gpu_adapter: &str) -> Op
         return None;
     }
     let now_ms = unix_ms_now();
-    let packed = LAST_GPU_BUSY.load(Ordering::Acquire);
-    if (packed & 0xFF) != 0 && now_ms.saturating_sub(packed >> 8) < 900 {
-        return unpack_gpu_busy_at(packed, now_ms);
+    let (reading, fresh) = read_gpu_busy_for(gpu_adapter, now_ms);
+    if fresh {
+        return reading;
     }
     if let Ok(mut worker) = h.hardware_metrics.try_lock() {
         let req = || Request {
@@ -134,7 +225,7 @@ pub fn poll_and_read_gpu_busy(h: &Shared, client: &str, gpu_adapter: &str) -> Op
             }
         }
     }
-    unpack_gpu_busy_at(LAST_GPU_BUSY.load(Ordering::Acquire), now_ms)
+    read_gpu_busy_for(gpu_adapter, now_ms).0
 }
 
 fn options(h: &Host, client: &str) -> Result<(Duration, Vec<String>), Error> {
@@ -245,7 +336,7 @@ fn run(host: Weak<Host>, requests: mpsc::Receiver<Request>) {
     let mut selected = Vec::new();
     let mut cached: Option<(Instant, Value)> = None;
     let mut requester = String::new();
-    let mut target_adapter = String::new();
+    let mut target_adapter = TargetAdapter::default();
     loop {
         let received = if collector.is_some() {
             requests.recv_timeout(Duration::from_millis(250))
@@ -269,12 +360,21 @@ fn run(host: Weak<Host>, requests: mpsc::Receiver<Request>) {
         }
         let Some(request) = request else {
             // Retain the collector while either the opted-in client API or dynamic queue clamp
-            // still needs samples for this active video stream.
+            // still needs samples for an active video stream.
+            let target_live = clamping
+                && target_adapter
+                    .active(|client| active_video_stream(&h, client))
+                    .is_some();
             let still_valid = options(&h, &requester).is_ok()
-                || (active_video_stream(&h, &requester) && clamping);
+                || (active_video_stream(&h, &requester) && clamping)
+                || target_live;
             if !still_valid {
                 collector = None;
                 cached = None;
+                requester.clear();
+                target_adapter.clear();
+                clear_gpu_busy();
+            } else if !target_live {
                 clear_gpu_busy();
             }
             continue;
@@ -282,12 +382,14 @@ fn run(host: Weak<Host>, requests: mpsc::Receiver<Request>) {
         if request.reply.as_ref().is_some_and(|r| r.is_closed()) {
             continue;
         }
-        if !request.gpu_adapter.is_empty() {
-            target_adapter = request.gpu_adapter;
-        }
+        let mut adapter_changed = false;
         let (client_interval, client_selected) = if request.internal_gpu_only {
             if !active_video_stream(&h, &request.client) {
                 continue;
+            }
+            adapter_changed = target_adapter.set_internal(&request.client, &request.gpu_adapter);
+            if adapter_changed {
+                clear_gpu_busy();
             }
             match options(&h, &request.client) {
                 Ok((interval, metrics)) => (interval, metrics),
@@ -333,10 +435,28 @@ fn run(host: Weak<Host>, requests: mpsc::Receiver<Request>) {
             let mut value = serde_json::to_value(sample).unwrap();
             value["version"] = json!(1);
             value["sampled_at_unix_ms"] = json!(now_ms);
-            if clamping && let Some(busy) = gpu_usage_for_adapter(&value, &target_adapter) {
-                LAST_GPU_BUSY.store(pack_gpu_busy(now_ms, busy), Ordering::Release);
+            if clamping {
+                if let Some(adapter) =
+                    target_adapter.active(|client| active_video_stream(&h, client))
+                {
+                    if let Some(busy) = gpu_usage_for_adapter(&value, adapter) {
+                        store_gpu_busy(adapter, now_ms, busy);
+                    }
+                } else {
+                    clear_gpu_busy();
+                }
             }
             cached = Some((Instant::now(), value));
+        } else if clamping
+            && adapter_changed
+            && let Some((_, value)) = cached.as_ref()
+            && let Some(adapter) = target_adapter.active(|client| active_video_stream(&h, client))
+            && let Some(busy) = gpu_usage_for_adapter(value, adapter)
+        {
+            let at_ms = value["sampled_at_unix_ms"]
+                .as_u64()
+                .unwrap_or_else(unix_ms_now);
+            store_gpu_busy(adapter, at_ms, busy);
         }
         if let Some(reply) = request.reply {
             let mut value =
@@ -436,5 +556,41 @@ mod tests {
         input.stop();
         assert!(options(&f.host, &client.uuid).is_err());
         assert!(f.host.hardware_metrics.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn target_adapter_clears_and_cache_does_not_starve_or_cross_adapters() {
+        let mut target = TargetAdapter::default();
+        // Before any internal poll sets a stream adapter, external samples have no target.
+        assert_eq!(target.active(|_| true), None);
+
+        // Stream 1 registers GPU A.
+        assert!(target.set_internal("client-a", "NVIDIA GeForce RTX 4070 Laptop GPU"));
+        assert!(!target.set_internal("client-a", "nvidia geforce rtx 4070 laptop gpu"));
+        assert_eq!(
+            target.active(|c| c == "client-a"),
+            Some("NVIDIA GeForce RTX 4070 Laptop GPU")
+        );
+
+        // Cache stores GPU A's utilization; GPU B must NOT see GPU A's reading or be throttled.
+        let mut cache = GpuBusyCache::default();
+        cache.store("NVIDIA GeForce RTX 4070 Laptop GPU", 100_000, 61);
+        assert_eq!(
+            cache.read("NVIDIA GeForce RTX 4070 Laptop GPU", 100_500),
+            (Some(61), true)
+        );
+        assert_eq!(
+            cache.read("AMD Radeon 780M Graphics", 100_500),
+            (None, false)
+        );
+
+        // When Stream 1 ends, `active` drops the stale target instead of keeping GPU A.
+        assert_eq!(target.active(|c| c == "client-b"), None);
+        assert_eq!(target.active(|_| true), None);
+
+        // Clearing resets target as on `!still_valid`.
+        assert!(target.set_internal("client-b", "AMD Radeon 780M Graphics"));
+        target.clear();
+        assert_eq!(target.active(|_| true), None);
     }
 }

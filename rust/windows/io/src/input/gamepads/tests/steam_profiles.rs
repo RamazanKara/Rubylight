@@ -601,3 +601,23 @@ fn usbip_attach_offloads_off_calling_thread_and_strands_unpluggable_temporary_pa
     STRANDED.lock().unwrap().remove(&global);
     SLOTS.lock().unwrap()[global as usize] = false;
 }
+
+#[test]
+fn async_attach_motion_requests_drain_once_and_clear_on_disconnect() {
+    let mut pads = scripted_pads();
+    // Motion-capable arrival queues a request when async attach completes.
+    pads.arrivals.insert(0, (3, 0x30));
+    pads.queue_motion_request(0);
+    pads.queue_motion_request(0);
+    // Arrival without motion flags (0x30) queues nothing.
+    pads.arrivals.insert(1, (1, 0x0f));
+    pads.queue_motion_request(1);
+
+    assert_eq!(pads.motion_requests(), vec![(0, 0x30)]);
+    assert!(pads.motion_requests().is_empty(), "drained once");
+
+    // Disconnecting the controller before the worker drains drops its queued request.
+    pads.queue_motion_request(0);
+    pads.apply(&state(0, 0)).unwrap();
+    assert!(pads.motion_requests().is_empty());
+}

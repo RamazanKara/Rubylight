@@ -624,3 +624,31 @@ fn game_pids_includes_foreign_tracked_processes_for_audio_restore() {
     // Clear before drop so `RunningApp::drop` does not terminate this test process.
     running.foreign.clear();
 }
+#[test]
+fn job_suspend_roots_skips_exited_job_pids_and_preserves_protected_processes() {
+    use butterpollo_session::steam::Process;
+    let proc = |pid, parent, started, name: &str| Process {
+        pid,
+        parent,
+        started,
+        name: name.into(),
+    };
+    let snapshot = vec![
+        // Exited bootstrapper still present with started == 0 (zombie handle held).
+        proc(100, 1, 0, "bootstrapper.exe"),
+        // Normal running game process.
+        proc(200, 100, 5000, "game.exe"),
+        // Live protected/PPL game process whose creation time could not be read.
+        proc(300, 100, 0, "protected_game.exe"),
+    ];
+    let roots = job_suspend_roots(&[100, 200, 300, 400], &snapshot, |pid| match pid {
+        100 | 400 => JobPidState::Exited,
+        300 => JobPidState::Protected,
+        other => panic!("unexpected inspect for pid {other}"),
+    });
+    assert_eq!(roots, BTreeMap::from([(200, 5000), (300, 0)]));
+
+    // Without the protected process, the exited bootstrapper is skipped and the game freezes.
+    let clean = job_suspend_roots(&[100, 200, 400], &snapshot, |_| JobPidState::Exited);
+    assert_eq!(clean, BTreeMap::from([(200, 5000)]));
+}

@@ -241,14 +241,39 @@ fn prepare(
         paths,
     })
 }
+const LOCK_WAIT: Duration = if cfg!(test) {
+    Duration::from_millis(150)
+} else {
+    Duration::from_secs(5)
+};
+const LOCK_POLL: Duration = Duration::from_millis(25);
+
 fn open_lock(profile: &Path) -> std::io::Result<std::fs::File> {
+    open_lock_for(profile, LOCK_WAIT)
+}
+fn open_lock_for(profile: &Path, wait: Duration) -> std::io::Result<std::fs::File> {
     use std::os::windows::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .share_mode(0)
-        .open(profile.join("update.lock"))
+    let path = profile.join("update.lock");
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .share_mode(0)
+            .open(&path)
+        {
+            Ok(file) => return Ok(file),
+            // ERROR_SHARING_VIOLATION: the host writing update-result.json or
+            // the service checking recovery may hold update.lock momentarily.
+            Err(error)
+                if error.raw_os_error() == Some(32) && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(LOCK_POLL);
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 /// The update stopped before it changed anything. The console shows the
 /// update record, so it says why there; the host itself only learns that

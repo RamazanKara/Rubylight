@@ -42,11 +42,12 @@ fn application_finished_with(
     image_path: impl Fn(u32) -> Option<String>,
 ) -> bool {
     // Between a press of Continue here and its stream a device is on its way to the game, and
-    // after a failed press the device it was taken from may still come back.
+    // after a failed press the device it was taken from may still come back. A Quick-Suspended
+    // game also stays alive across disconnects until resumed, closed, or its grace runs out.
     let streaming = streaming(h);
     // Asked even with a stream: that one closes the window of the device that came back.
     let awaited = h.game_awaited(streaming);
-    let connected = streaming || awaited;
+    let connected = streaming || awaited || h.quick_suspend.suspended();
     let scan_for = {
         let mut current = h.current_app.lock().unwrap();
         let Some(app) = current.as_mut() else {

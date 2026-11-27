@@ -65,6 +65,91 @@ fn h264_sps_gives_profile_level_and_cropped_size() {
     assert_eq!(nal::h264_sps(&H264_SPS[..6]), None);
 }
 
+fn synthetic_h264_sps(profile_idc: u8, chroma_format_idc: u32, bit_depth: u8) -> Vec<u8> {
+    let mut w = BitWriter::default();
+    w.put(u64::from(profile_idc), 8).put(0, 8).put(40, 8);
+    w.ue(0);
+    if !matches!(profile_idc, 66 | 77 | 88) {
+        w.ue(chroma_format_idc);
+        if chroma_format_idc == 3 {
+            w.put(0, 1);
+        }
+        w.ue(u32::from(bit_depth - 8));
+        w.ue(u32::from(bit_depth - 8));
+        w.put(0, 1).put(0, 1);
+    }
+    w.ue(0).ue(2).ue(1).put(0, 1);
+    w.ue(12).ue(7).put(1, 1).put(1, 1).put(1, 1);
+    let crop = if chroma_format_idc == 3 { 8 } else { 4 };
+    w.ue(0).ue(crop).ue(0).ue(crop).put(0, 1).put(1, 1);
+    let mut nal = vec![0x67];
+    let mut zeros = 0u8;
+    for byte in w.bytes {
+        if zeros >= 2 && byte <= 3 {
+            nal.push(3);
+            zeros = 0;
+        }
+        nal.push(byte);
+        zeros = if byte == 0 { zeros + 1 } else { 0 };
+    }
+    nal
+}
+
+#[test]
+fn h264_extended_profiles_244_and_144_parse_and_write_avcc_extension() {
+    use super::bmff::parse;
+    use crate::dvr::fmp4::codec::{self, Config};
+
+    let pps = [H264_PPS.to_vec()];
+    for (profile_idc, depth, expected_tail) in [
+        (244u8, 10u8, [0xffu8, 0xfa, 0xfa, 0]),
+        (144u8, 8u8, [0xffu8, 0xf8, 0xf8, 0]),
+    ] {
+        let sps_bytes = synthetic_h264_sps(profile_idc, 3, depth);
+        let parsed = nal::h264_sps(&sps_bytes).expect("extended SPS parses");
+        assert_eq!(parsed.profile_idc, profile_idc);
+        assert_eq!(parsed.chroma_format_idc, 3);
+        assert_eq!(
+            (parsed.bit_depth_luma, parsed.bit_depth_chroma),
+            (depth, depth)
+        );
+        assert_eq!((parsed.width, parsed.height), (200, 120));
+        assert!(parsed.high_profile());
+        let sps = [sps_bytes.clone()];
+        let entry = codec::visual_entry(
+            &Config::Avc {
+                sps: &sps,
+                pps: &pps,
+                parsed,
+            },
+            parsed.width,
+            parsed.height,
+            None,
+        );
+        let avcc = parse(&entry)[0].child("avcC").payload(&entry);
+        assert_eq!(avcc.len(), 15 + sps_bytes.len() + H264_PPS.len());
+        assert_eq!(&avcc[avcc.len() - 4..], &expected_tail);
+    }
+
+    let main_sps = synthetic_h264_sps(77, 1, 8);
+    let parsed = nal::h264_sps(&main_sps).unwrap();
+    assert!(!parsed.high_profile());
+    assert_eq!((parsed.width, parsed.height), (200, 120));
+    let sps = [main_sps.clone()];
+    let entry = codec::visual_entry(
+        &Config::Avc {
+            sps: &sps,
+            pps: &pps,
+            parsed,
+        },
+        parsed.width,
+        parsed.height,
+        None,
+    );
+    let avcc = parse(&entry)[0].child("avcC").payload(&entry);
+    assert_eq!(avcc.len(), 11 + main_sps.len() + H264_PPS.len());
+}
+
 #[test]
 fn hevc_sps_gives_profile_tier_level_and_conformance_window() {
     let sps = nal::hevc_sps(HEVC_SPS).unwrap();

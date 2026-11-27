@@ -139,7 +139,14 @@ test('each page writes only its own layer, through its own save', () => {
   assert.match(device, /\{ id: 'device', name: draft\.name\.trim\(\) \|\| 'This device', values: draft\.other_overrides \},\s*\{ id: 'host', name: 'Host', values: hostConfig \}/);
   assert.match(device, /if \(value === undefined\) delete draft\.other_overrides\[key\];\s*else draft\.other_overrides\[key\] = value;/);
   // No write of their own: the cards call back and nothing else.
-  assert.doesNotMatch(source('library/OverrideCascadeCards.svelte'), /api\.|fetch\(/);
+  const cards = source('library/OverrideCascadeCards.svelte');
+  assert.doesNotMatch(cards, /api\.|fetch\(/);
+  // Out-of-range typed text survives blur and disables Save in both DeviceEditor and AppEditor.
+  assert.match(cards, /invalid = \$bindable\(false\)/);
+  assert.match(cards, /if \(text !== undefined && !rangeError\(setting, text\)\) delete typing\[setting\.key\];/);
+  assert.match(device, /bind:invalid=\{cascadeInvalid\}/);
+  assert.match(device, /couchInvalid \|\| cascadeInvalid/);
+  assert.match(game, /draft\.setCascadeInvalid\(device, bad\)/);
 });
 
 test('the game page opens with a cover-lit header: launcher, name, state, stream profile and quick actions', () => {

@@ -29,6 +29,19 @@ pub(in crate::stream) fn server_command(
     crate::process::pc_command(h, payload[0] as usize, None)
 }
 
+fn session_server_command(
+    h: &Shared,
+    s: &Session,
+    payload: &[u8],
+    authenticated: bool,
+    command_at: &mut Option<Instant>,
+) -> Option<crate::process::MenuRun> {
+    if s.launch.guest().is_some() {
+        return None;
+    }
+    server_command(h, &s.launch.client, payload, authenticated, command_at)
+}
+
 /// Dispatches extension control packets (server commands, Frame Warp, USB, display caps,
 /// reconfigure, rate change). Returns `true` if `kind` was handled.
 #[allow(clippy::too_many_arguments)]
@@ -44,8 +57,7 @@ pub(super) fn handle_extension_packet(
 ) -> bool {
     match kind {
         0x3000 => {
-            if let Some(run) =
-                server_command(h, &s.launch.client, payload, encrypted, &mut p.command_at)
+            if let Some(run) = session_server_command(h, s, payload, encrypted, &mut p.command_at)
                 && let Err(e) = commands.try_send((s.clone(), run))
             {
                 tracing::warn!(error=%e, "configured server command failed");
@@ -346,5 +358,43 @@ pub(super) fn send_extension_updates(
                 tracing::warn!(error = %format!("{e:#}"), ?usb, "USB message not sent");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_commands_are_refused_for_guest_sessions() {
+        use crate::state::test_support::Fixture;
+        use butterpollo_media_policy::rtsp::Negotiated;
+        use butterpollo_session::{multiclient::LAUNCH_OPTION, session::Role};
+        use serde_json::json;
+
+        let f = Fixture::new();
+        let client = f.client(u32::MAX);
+        f.host.config.write().unwrap().values.insert(
+            "server_cmd".into(),
+            json!([{"name": "First", "cmd": "echo first"}]).to_string(),
+        );
+
+        let owner = f.session(client.clone(), Role::Stream);
+        let mut at = None;
+        let run = session_server_command(&f.host, &owner, &[0], true, &mut at);
+        assert_eq!(run.map(|r| r.cmd), Some("echo first".into()));
+        assert!(at.is_some());
+
+        let mut guest_launch = f.launch(client, Role::Stream);
+        guest_launch
+            .options
+            .insert(LAUNCH_OPTION.into(), "1".into());
+        let guest = Session::new(guest_launch, Negotiated::default());
+        let mut guest_at = None;
+        assert_eq!(
+            session_server_command(&f.host, &guest, &[0], true, &mut guest_at),
+            None
+        );
+        assert!(guest_at.is_none());
     }
 }

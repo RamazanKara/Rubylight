@@ -328,10 +328,12 @@ impl Guard {
             |percent| set_dpi_scale(monitor, percent),
         )?;
         if scaled {
-            // Windows took the scale: recovery after a crash from now on puts
-            // the original back only while the display still has it.
-            crate::display_recovery::scale(&self.identity, &self.output, current, requested)?;
-            tracing::info!(output = %self.output, scale = requested, "display scaled for the stream");
+            // Windows may clamp or round the requested scale to a supported
+            // percentage; record the landed scale so teardown and crash
+            // recovery restore the original only while the display still has it.
+            let applied = record_landed_scale(&mut settings.scale, dpi_scale(monitor), requested);
+            crate::display_recovery::scale(&self.identity, &self.output, current, applied)?;
+            tracing::info!(output = %self.output, scale = applied, "display scaled for the stream");
         } else if current != requested {
             tracing::warn!(output = %self.output, scale = current, "another stream uses this display; keeping its scale");
         }
@@ -500,6 +502,20 @@ impl Guard {
         self.feed()
     }
 }
+/// Replaces the leased applied scale with what Windows actually landed on
+/// (`read_back.unwrap_or(requested)`), keeping the original scale intact.
+fn record_landed_scale(
+    slot: &mut Option<(u32, u32)>,
+    read_back: Result<u32>,
+    requested: u32,
+) -> u32 {
+    let applied = read_back.unwrap_or(requested);
+    if let Some((original, _)) = *slot {
+        *slot = Some((original, applied));
+    }
+    applied
+}
+
 /// Bring a recovered virtual display's HDR state and mode back to the
 /// stream's: Windows recalls what it saved for the display when it returns.
 fn restore_recovered(
@@ -606,5 +622,24 @@ impl Drop for Guard {
         {
             tracing::warn!(output = %self.output, error = %format!("{e:#}"), "a display's Windows scale did not stay after the stream");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guard_scale_records_the_landed_dpi_scale_and_falls_back_to_requested() {
+        let mut lease = Some((100, 225));
+        assert_eq!(record_landed_scale(&mut lease, Ok(200), 225), 200);
+        assert_eq!(lease, Some((100, 200)));
+
+        let mut fallback = Some((125, 175));
+        assert_eq!(
+            record_landed_scale(&mut fallback, Err(anyhow::anyhow!("unavailable")), 175),
+            175
+        );
+        assert_eq!(fallback, Some((125, 175)));
     }
 }

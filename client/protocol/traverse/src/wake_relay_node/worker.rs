@@ -17,6 +17,7 @@ impl WakeRelayPeer {
             .paths
             .lock()
             .unwrap()
+            .active
             .iter()
             .filter(|(_, path)| matches!(path.puncher.state(), punch::State::Connected(_)))
             .map(|(tag, _)| *tag)
@@ -27,11 +28,14 @@ impl WakeRelayPeer {
             .filter(|state| {
                 !public.is_empty()
                     && state.publish_retry_at.is_none_or(|at| now >= at)
-                    && state.published.as_ref().is_none_or(|(at_window, at, endpoints)| {
-                        *at_window != window
-                            || now.saturating_sub(*at) > PUBLISH_EVERY
-                            || *endpoints != public
-                    })
+                    && state
+                        .published
+                        .as_ref()
+                        .is_none_or(|(at_window, at, endpoints)| {
+                            *at_window != window
+                                || now.saturating_sub(*at) > PUBLISH_EVERY
+                                || *endpoints != public
+                        })
             })
             .map(|state| (state.tag, state.keys.clone()))
             .collect();
@@ -113,11 +117,10 @@ impl WakeRelayPeer {
                 endpoints: public.clone(),
                 ports: None,
             };
-            let confirmed = self.shared.node.put(&record.item(
-                &keys,
-                window,
-                crate::crypto::random(),
-            ));
+            let confirmed =
+                self.shared
+                    .node
+                    .put(&record.item(&keys, window, crate::crypto::random()));
             let now = self.shared.node.now();
             let mut devices = self.shared.devices.lock().unwrap();
             if let Some(state) = devices.iter_mut().find(|state| state.tag == tag) {
@@ -158,9 +161,16 @@ impl WakeRelayPeer {
         {
             return;
         }
+        self.apply_polled_record(tag, &record);
+    }
+
+    pub(super) fn apply_polled_record(&self, tag: [u8; 8], record: &Record) {
         let now = self.shared.node.now();
         let candidates = punch::candidates(&record.endpoints, record.nat);
         let mut paths = self.shared.paths.lock().unwrap();
+        if paths.is_ended(tag, record.session, now) {
+            return;
+        }
         let mut devices = self.shared.devices.lock().unwrap();
         let Some(state) = devices.iter_mut().find(|state| state.tag == tag) else {
             return;
@@ -168,15 +178,21 @@ impl WakeRelayPeer {
         if state.answered == Some(record.session) {
             return;
         }
-        state.answered = Some(record.session);
-        match paths.get_mut(&tag) {
-            Some(path) if path.session == record.session => path.puncher.add(&candidates),
+        match paths.active.get_mut(&tag) {
+            Some(path) if path.session == record.session => {
+                state.answered = Some(record.session);
+                path.puncher.add(&candidates);
+            }
+            Some(path)
+                if matches!(path.puncher.state(), punch::State::Connected(_))
+                    || record.time < path.time => {}
             _ => {
+                state.answered = Some(record.session);
                 let keys = state.keys.path(&self.shared.session, &record.session);
                 let first = self.first_seq();
-                let mut path = Path::new(state, keys, record.session, first, now);
+                let mut path = Path::new(state, keys, record.session, record.time, first, now);
                 path.puncher = Puncher::new(candidates, now);
-                paths.insert(tag, path);
+                paths.replace(tag, path, now);
             }
         }
     }

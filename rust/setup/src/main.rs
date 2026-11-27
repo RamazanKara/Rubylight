@@ -356,10 +356,32 @@ fn main() {
     std::process::exit(code);
 }
 
+/// Initial `(display_driver, gamepad_driver)` choices for [`run_install`].
+/// Upgrading an existing installation preserves drivers previously left out
+/// unless changed interactively; explicit `--no-*-driver` flags always opt out.
+fn initial_driver_choices(
+    existing_install: bool,
+    no_display_driver: bool,
+    no_gamepad_driver: bool,
+    display_declined: bool,
+    gamepad_declined: bool,
+) -> (bool, bool) {
+    let display = !no_display_driver && (!existing_install || !display_declined);
+    let gamepad = !no_gamepad_driver && (!existing_install || !gamepad_declined);
+    (display, gamepad)
+}
+
 fn run_install(args: &Arguments) -> i32 {
     let found = detect::scan();
     let mut folder = detect::install_dir(&found, args.install_dir.clone());
-    let mut gamepad_driver = !args.no_gamepad_driver;
+    let existing = found.current().is_some();
+    let (display_driver, mut gamepad_driver) = initial_driver_choices(
+        existing,
+        args.no_display_driver,
+        args.no_gamepad_driver,
+        existing && install::display_driver_declined(),
+        existing && install::gamepad_driver_declined(),
+    );
     let mut usbip_driver = usbip::selected(&install::profile(), args.usbip_driver);
     let mut wake_on_lan = wake::selected(&install::profile(), args.wake_on_lan);
     let mut end_streams = args.end_streams;
@@ -511,7 +533,7 @@ fn run_install(args: &Arguments) -> i32 {
     let options = install::Options {
         install_dir: Some(folder),
         gamepad_driver,
-        display_driver: !args.no_display_driver,
+        display_driver,
         usbip_driver,
         start: !args.no_start,
         end_streams,
@@ -744,5 +766,22 @@ mod tests {
                 .trim_start()
                 .starts_with("repair::run_repair(args.quiet)")
         );
+    }
+    #[test]
+    fn upgrades_preserve_declined_driver_choices_and_respect_cli_flags() {
+        for (existing, no_disp, no_pad, disp_dec, pad_dec, expected) in [
+            (false, false, false, true, true, (true, true)),
+            (false, true, false, false, false, (false, true)),
+            (true, false, false, true, false, (false, true)),
+            (true, false, false, false, true, (true, false)),
+            (true, false, false, true, true, (false, false)),
+            (true, true, false, false, false, (false, true)),
+            (true, false, true, false, false, (true, false)),
+        ] {
+            assert_eq!(
+                initial_driver_choices(existing, no_disp, no_pad, disp_dec, pad_dec),
+                expected
+            );
+        }
     }
 }

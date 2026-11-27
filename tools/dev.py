@@ -603,7 +603,11 @@ def _ensure_sccache_server(wrapper, env):
     exiting this dev check never kills a shared sccache server used by concurrent builds."""
     if os.name != 'nt':
         return
-    flags = getattr(subprocess, 'CREATE_BREAKAWAY_FROM_JOB', 0) | getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    flags = (
+        getattr(subprocess, 'CREATE_BREAKAWAY_FROM_JOB', 0)
+        | getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        | getattr(subprocess, 'NORMAL_PRIORITY_CLASS', build_lock.NORMAL_PRIORITY_CLASS)
+    )
     try:
         subprocess.run([wrapper, '--start-server'], env=env, stdin=subprocess.DEVNULL,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -913,7 +917,11 @@ def _ensure_gradle_daemon(root, env, temp_dir=None):
     cmd = ['cmd', '/c', str(root / 'client' / 'gradlew.bat'), '--daemon', '-q', 'help']
     if temp_dir:
         cmd.insert(-1, f'-Djava.io.tmpdir={temp_dir}')
-    flags = getattr(subprocess, 'CREATE_BREAKAWAY_FROM_JOB', 0) | getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    flags = (
+        getattr(subprocess, 'CREATE_BREAKAWAY_FROM_JOB', 0)
+        | getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        | getattr(subprocess, 'NORMAL_PRIORITY_CLASS', build_lock.NORMAL_PRIORITY_CLASS)
+    )
     try:
         res = subprocess.run(cmd, cwd=root / 'client', env=env, stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

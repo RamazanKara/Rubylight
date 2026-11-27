@@ -479,3 +479,10 @@ test('the reach panel shows each port, the public address and the carrier-grade 
   ({ body } = render(InternetReach, { props: { reach: null, ports: 'TCP 47991' } }));
   assert.match(body, /Asking the router to forward the guest ports/);
 });
+
+test('Guest.svelte closes any prior stream and ignores duplicate joins while joining', () => {
+  const guest = readFileSync(new URL('./src/guest/Guest.svelte', import.meta.url), 'utf8');
+  const joinBody = guest.slice(guest.indexOf('function join()'), guest.indexOf('function streaming('));
+  assert.match(joinBody, /if \(!token \|\| !video \|\| phase === 'joining'\) return;/);
+  assert.match(joinBody, /prior\?\.leave\(\)/);
+});

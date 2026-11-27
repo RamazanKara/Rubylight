@@ -12,6 +12,7 @@ use rubylight_protocol::control::DisplayCaps;
 use rubylight_protocol::keyboard_layout::{KeyboardLayout, LayoutSource};
 use rubylight_protocol::phase_lock::{self, SlackWindow};
 use rubylight_protocol::present_clock::{Grid, GridSchedule};
+use rubylight_protocol::quick_suspend;
 use rubylight_protocol::rate_change::RateChangeRequest;
 use rubylight_protocol::stream_dvr::{ClipResult, HostState, Op, Request};
 use rubylight_protocol::text_input::TextInputRequest;
@@ -251,7 +252,10 @@ pub fn dvr_state_args(state: &HostState) -> ([i32; 6], [i64; 2]) {
             i32::from(state.ring_capacity_secs),
             i32::try_from(state.recording_elapsed_secs).unwrap_or(i32::MAX),
         ],
-        [bytes(state.quota_used_bytes), bytes(state.quota_limit_bytes)],
+        [
+            bytes(state.quota_used_bytes),
+            bytes(state.quota_limit_bytes),
+        ],
     )
 }
 
@@ -265,6 +269,30 @@ pub fn dvr_clip_args(clip: &ClipResult) -> ([i32; 4], i64) {
             i32::from(clip.duration_secs),
         ],
         i64::try_from(clip.file_bytes).unwrap_or(i64::MAX),
+    )
+}
+
+/// Initial Quick Suspend state query (`0x554B`), sent once a host announces it so the host
+/// reports the current state and pushes changes made from the PC console or another device.
+pub fn quick_suspend_query() -> ClientMessage {
+    ClientMessage::QuickSuspend(quick_suspend::ClientRequest {
+        flags: 0,
+        request_id: 1,
+        op: quick_suspend::Op::QueryState,
+    })
+}
+
+/// The arguments of `bridgeClQuickSuspend(requestId, state, reason, suspendedCount,
+/// suspendedSinceUnixMs)`, as the wire has them.
+pub fn quick_suspend_args(state: &quick_suspend::HostState) -> ([i32; 4], i64) {
+    (
+        [
+            state.request_id as i32,
+            state.state as i32,
+            state.reason as i32,
+            i32::from(state.suspended_count),
+        ],
+        i64::try_from(state.suspended_since_unix_ms).unwrap_or(i64::MAX),
     )
 }
 

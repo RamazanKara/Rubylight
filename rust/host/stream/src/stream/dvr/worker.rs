@@ -6,11 +6,11 @@
 //!
 //! It ends with its stream, when `dvr_enabled` is turned off, or when the session is gone, and
 //! then finishes a recording and waits for a clip being written.
-use super::save::{Recording, RecordingStep, ReplayJob, io_reason};
+use super::save::{Recording, RecordingStep, ReplayJob};
 use super::{Answer, Command, Reply, Shared};
 use crate::state::{Session, Shared as HostShared};
 use butterpollo_media_policy::dvr::{
-    AudioPacket, HdrInfo, OpusConfig, StreamInfo, VideoCodec, VideoFrame,
+    AudioPacket, HdrInfo, OpusConfig, ParamSets, StreamInfo, VideoCodec, VideoFrame,
     cadence::{self, KeyframeCadence},
     quota,
     ring::{Limits, Pushed, Ring},
@@ -234,30 +234,42 @@ impl Worker {
                 }),
             });
         }
-        // A recording that opens here starts with this keyframe.
+        // A recording that opens here starts with this keyframe (reusing the ring's parameter
+        // sets when the keyframe omits them, or waiting for one that carries headers).
         let mut opened = false;
         if frame.idr {
             self.cadence.observe_idr(now);
-            if let Some((id, asked)) = self.pending_recording.take() {
-                match Recording::start(
-                    &self.shared.clips_dir,
-                    &id,
-                    1,
-                    &self.shared.app_title,
-                    &self.info,
-                    frame.clone(),
-                    asked,
-                ) {
-                    Ok(recording) => {
-                        *self
-                            .shared
-                            .recording_id
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner) = Some(recording.id.clone());
-                        self.recording = Some(recording);
-                        opened = true;
+            if self.pending_recording.is_some() {
+                let fallback = self.ring.params_for(self.info.codec);
+                let has_params = ParamSets::from_frame(self.info.codec, &frame.data)
+                    .is_complete(self.info.codec)
+                    || fallback.is_some();
+                if has_params {
+                    let (id, asked) = self.pending_recording.take().unwrap();
+                    match Recording::start(
+                        &self.shared.clips_dir,
+                        &id,
+                        1,
+                        &self.shared.app_title,
+                        &self.info,
+                        frame.clone(),
+                        fallback,
+                        asked,
+                    ) {
+                        Ok(recording) => {
+                            *self
+                                .shared
+                                .recording_id
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner) =
+                                Some(recording.id.clone());
+                            self.recording = Some(recording);
+                            opened = true;
+                        }
+                        Err(reason) => self.fail(reason),
                     }
-                    Err(reason) => self.fail(reason),
+                } else {
+                    self.ask_keyframe(now);
                 }
             }
         }
@@ -285,6 +297,9 @@ impl Worker {
         };
         let (base, part) = recording.next_part();
         let since = recording.since;
+        let fallback = (recording.codec() == self.info.codec)
+            .then(|| recording.params().clone())
+            .or_else(|| self.ring.params_for(self.info.codec).cloned());
         if let Err(reason) = recording.finish() {
             self.fail(reason);
         }
@@ -295,6 +310,7 @@ impl Worker {
             &self.shared.app_title,
             &self.info,
             first,
+            fallback.as_ref(),
             since,
         ) {
             Ok(recording) => {
@@ -403,6 +419,9 @@ impl Worker {
                 .map_err(|_| Reason::NoKeyframeYet)?;
             let bytes: u64 = clip.video.iter().map(|f| f.data.len() as u64).sum::<u64>()
                 + clip.audio.iter().map(|p| p.data.len() as u64).sum::<u64>();
+            if !crate::dvr_store::writable(&self.shared.clips_dir) {
+                return Err(Reason::IoError);
+            }
             let open: Vec<String> = self.recording.iter().map(|r| r.id.clone()).collect();
             self.h
                 .dvr
@@ -422,7 +441,10 @@ impl Worker {
         let clip = match result {
             Ok(clip) => clip,
             Err(reason) => {
-                if matches!(reason, Reason::DiskFull | Reason::QuotaExceeded) {
+                if matches!(
+                    reason,
+                    Reason::DiskFull | Reason::QuotaExceeded | Reason::IoError
+                ) {
                     self.fail(reason);
                 }
                 return self.answer(reply, Err((Outcome::Refused, reason)));
@@ -437,11 +459,14 @@ impl Worker {
             reply,
         ) {
             Ok(job) => self.job = Some(job),
-            Err(error) => {
-                tracing::warn!(%error, "stream dvr: the clip writer did not start");
-                self.fail(io_reason(&error));
-            }
+            Err((reply, error)) => self.spawn_failed(reply, &error),
         }
+    }
+
+    fn spawn_failed(&mut self, reply: Reply, error: &std::io::Error) {
+        tracing::warn!(%error, "stream dvr: the clip writer did not start");
+        self.fail(Reason::IoError);
+        self.answer(reply, Err((Outcome::Failed, Reason::IoError)));
     }
 
     fn poll_job(&mut self, wait: bool) {
@@ -468,6 +493,9 @@ impl Worker {
         if self.recording.is_some() || self.pending_recording.is_some() {
             return Ok(());
         }
+        if !crate::dvr_store::writable(&self.shared.clips_dir) {
+            return Err(Reason::IoError);
+        }
         let open: Vec<String> = Vec::new();
         self.h
             .dvr
@@ -476,9 +504,6 @@ impl Worker {
                 quota::Refusal::DiskFull => Reason::DiskFull,
                 _ => Reason::QuotaExceeded,
             })?;
-        if !crate::dvr_store::writable(&self.shared.clips_dir) {
-            return Err(Reason::IoError);
-        }
         let id = crate::dvr_store::new_id(ClipKind::Manual, SystemTime::now());
         self.pending_recording = Some((id, Instant::now()));
         self.ask_keyframe(Instant::now());
@@ -694,67 +719,4 @@ impl Worker {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_running_recording_outranks_a_clip_being_saved_and_a_held_error() {
-        let f = crate::state::test_support::Fixture::new();
-        let shared = Shared::new(
-            "dvr-state",
-            "Game".into(),
-            60,
-            std::env::temp_dir(),
-            1 << 30,
-        );
-        let limits = Limits {
-            max_us: 60_000_000,
-            max_bytes: 1 << 20,
-        };
-        let mut worker = Worker::new(f.host.clone(), Weak::new(), shared, limits);
-        assert_eq!(worker.state(), (State::Armed, Reason::None));
-        worker.error = Some((Reason::QuotaExceeded, Instant::now()));
-        worker.pending_recording = Some(("20260101-100000-manual-0001".into(), Instant::now()));
-        // The device keeps its Stop: the refused save was answered to its own request.
-        assert_eq!(worker.state(), (State::Recording, Reason::None));
-        worker.pending_recording = None;
-        assert_eq!(worker.state(), (State::Error, Reason::QuotaExceeded));
-    }
-
-    #[test]
-    fn copies_lost_every_second_ask_no_more_keyframes_than_the_gop_cadence() {
-        use butterpollo_session::session::Role;
-        let f = crate::state::test_support::Fixture::new();
-        let s = f.session(f.client(u32::MAX), Role::Stream);
-        let shared = Shared::new(
-            "dvr-drops",
-            "Game".into(),
-            60,
-            std::env::temp_dir(),
-            1 << 30,
-        );
-        let limits = Limits {
-            max_us: 60_000_000,
-            max_bytes: 1 << 20,
-        };
-        let mut worker = Worker::new(f.host.clone(), Arc::downgrade(&s), shared, limits);
-        let start = Instant::now();
-        worker.cadence.observe_idr(start);
-        // A worker that falls behind every second waits for the cadence's next keyframe.
-        for second in 1..cadence::GOP_SECS {
-            let now = start + Duration::from_secs(second);
-            worker.discontinuity(now);
-            assert!(!s.dvr.take_keyframe(), "asked after {second} s");
-        }
-        // Once the last keyframe is a GOP old, one is asked for, and not again a second later.
-        let due = start + Duration::from_secs(cadence::GOP_SECS);
-        worker.discontinuity(due);
-        assert!(s.dvr.take_keyframe());
-        worker.discontinuity(due + Duration::from_millis(500));
-        assert!(!s.dvr.take_keyframe());
-        // A save the player asks for still asks at once.
-        worker.cadence.observe_idr(due + Duration::from_secs(2));
-        worker.ask_keyframe(due + Duration::from_secs(3));
-        assert!(s.dvr.take_keyframe());
-    }
-}
+mod tests;

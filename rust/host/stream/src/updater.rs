@@ -539,10 +539,7 @@ fn poll_with(h: &Shared, hashed: Option<Hashed>, hash: &dyn Fn(&std::path::Path)
                 .to_path_buf();
             // A persistent attempt record also prevents automatic retry loops.
             check_recovery(&h.directory)?;
-            butterpollo_session::state::write_json(
-                &h.directory.join("update-result.json"),
-                &installing_record(&candidate.version, &install),
-            )?;
+            let update_lock = open_update_lock(&h.directory)?;
             let download = path.parent().map(Path::to_path_buf);
             let mut command = std::process::Command::new(path);
             use std::os::windows::process::CommandExt;
@@ -552,11 +549,19 @@ fn poll_with(h: &Shared, hashed: Option<Hashed>, hash: &dyn Fn(&std::path::Path)
                 .args(["--quiet", "--update"])
                 .args(install_now.then_some("--end-streams"))
                 .arg("--install-dir")
-                .arg(install)
+                .arg(&install)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null());
             let mut child = command.spawn().context("starting the update installer")?;
+            let setup_pid = child.id();
+            let setup_started = butterpollo_win_io::process::creation_time(setup_pid);
+            let setup = (setup_started != 0).then_some((setup_pid, setup_started));
+            butterpollo_session::state::write_json(
+                &h.directory.join("update-result.json"),
+                &installing_record(&candidate.version, &install, setup),
+            )?;
+            drop(update_lock);
             let h = h.clone();
             std::thread::spawn(move || {
                 let result = child.wait();
@@ -587,9 +592,35 @@ fn poll_with(h: &Shared, hashed: Option<Hashed>, hash: &dyn Fn(&std::path::Path)
 #[cfg(test)]
 mod tests;
 
-/// The update record a host writes before it starts setup. It names the
-/// installation, so the service can end it as failed when setup never took
-/// over (`update_recovery`).
-fn installing_record(version: &str, install: &Path) -> Value {
-    json!({"version":version,"phase":"installing","started_at":now(),"install":install})
+/// Hold `update.lock` across spawning setup and recording its identity in
+/// `update-result.json` so setup cannot race ahead of the write and service
+/// recovery cannot mark the update failed while setup is still starting. Setup's
+/// `open_lock` retries `ERROR_SHARING_VIOLATION` briefly until this handle drops.
+fn open_update_lock(profile: &Path) -> Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .share_mode(0)
+        .open(profile.join("update.lock"))
+        .context("Another update is already running")
+}
+
+/// The update record a host writes when it starts setup. It names the
+/// installation and the spawned setup process (`setup_pid`, `setup_started`),
+/// so the service leaves a starting setup alone and ends the update as failed
+/// only when setup stopped without taking over (`update_recovery`).
+fn installing_record(version: &str, install: &Path, setup: Option<(u32, u64)>) -> Value {
+    let mut record = json!({
+        "version": version,
+        "phase": "installing",
+        "started_at": now(),
+        "install": install,
+    });
+    if let Some((pid, started)) = setup {
+        record["setup_pid"] = json!(pid);
+        record["setup_started"] = json!(started);
+    }
+    record
 }

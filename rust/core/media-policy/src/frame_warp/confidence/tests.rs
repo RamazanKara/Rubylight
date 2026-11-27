@@ -93,6 +93,29 @@ fn two_missed_chunks_in_a_row_are_a_spike() {
 }
 
 #[test]
+fn locking_while_gated_enters_decaying_at_zero_confidence() {
+    // ColdAcquiring + cursor visible: never emits a 1.0 frame when locking.
+    let mut cold = Confidence::new(false);
+    cold.on_cursor(true);
+    assert_eq!(cold.update(true, false, 0.9, 10_000), 0.0);
+    assert_eq!(cold.state(), State::ConfidenceDecaying);
+    // Staying gated past UNLOCK_AFTER_US unlocks as usual.
+    assert_eq!(
+        cold.update(true, false, 0.9, 10_000 + UNLOCK_AFTER_US + 1),
+        0.0
+    );
+    assert_eq!(cold.state(), State::Unlocked);
+
+    // WarmPrior + scene cut: enters ConfidenceDecaying at 0.0, then locks once the hold ends.
+    let mut warm = Confidence::new(true);
+    warm.on_cut(20_000);
+    assert_eq!(warm.update(true, true, 0.9, 20_000), 0.0);
+    assert_eq!(warm.state(), State::ConfidenceDecaying);
+    assert_eq!(warm.update(true, true, 0.9, 20_000 + CUT_HOLD_US), 1.0);
+    assert_eq!(warm.state(), State::Locked);
+}
+
+#[test]
 fn the_huds_steadiness_follows_how_its_masks_agree() {
     let mut hud = HudStability::default();
     let mut mask = Mask::new(0, 64, 32);

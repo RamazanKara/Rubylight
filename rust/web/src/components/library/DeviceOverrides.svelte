@@ -189,14 +189,17 @@
       <div class="more">
         <h4>More stream settings</h4>
         <p class="note">Each card shows who decides: this game on this device, the game, the device, then the host.</p>
-        <OverrideCascadeCards
-          id="{uid}-{device}-cascade"
-          layers={layersOf(device)}
-          skip={[FRAME_LIMIT]}
-          {hostError}
-          onretry={loadHost}
-          onset={(key, value) => draft.setDeviceSetting(device, key, value)}
-        />
+        {#key draft.resetCount}
+          <OverrideCascadeCards
+            id="{uid}-{device}-cascade"
+            layers={layersOf(device)}
+            skip={[FRAME_LIMIT]}
+            {hostError}
+            onretry={loadHost}
+            bind:invalid={() => Boolean(draft.cascadeInvalid[device]), (bad) => draft.setCascadeInvalid(device, bad)}
+            onset={(key, value) => draft.setDeviceSetting(device, key, value)}
+          />
+        {/key}
       </div>
       {#if kept.length}
         <p class="note">Also kept for this device: {kept.join(', ')}.</p>

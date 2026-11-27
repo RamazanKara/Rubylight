@@ -235,7 +235,10 @@ pub fn release() {
 /// is suspended, and in the first case resume what its journal names.
 pub fn wait_and_recover(host_pid: u32, profile: &Path) -> Result<Option<Recovery>> {
     let done = done_event(host_pid)?;
-    let Some(owner) = journal::load(profile)? else {
+    let Some(owner) = ({
+        let _lock = lock(profile)?;
+        journal::load(profile)?
+    }) else {
         return Ok(None);
     };
     if owner.host_pid != host_pid {
@@ -431,5 +434,39 @@ mod tests {
         journal::save(profile.path(), &journal_for((7, 1), u32::MAX - 7, 1)).unwrap();
         assert_eq!(wait_and_recover(8, profile.path()).unwrap(), None);
         assert!(journal::load(profile.path()).unwrap().is_some());
+    }
+
+    #[test]
+    fn wait_and_recover_locks_the_initial_journal_load_and_releases_before_waiting() {
+        let profile = tempfile::tempdir().unwrap();
+        let other_host = sleeper();
+        let host = (
+            other_host.0.id(),
+            crate::process::creation_time(other_host.0.id()),
+        );
+        let done = done_event(host.0).unwrap();
+        // SAFETY: `done` is an owned event handle.
+        unsafe { ResetEvent(raw(&done)).unwrap() };
+        journal::save(profile.path(), &journal_for(host, u32::MAX - 7, 1)).unwrap();
+
+        // Hold the journal lock while spawning `wait_and_recover` so it must wait to load.
+        let held = lock(profile.path()).unwrap();
+        let dir = profile.path().to_path_buf();
+        let watch = std::thread::spawn(move || wait_and_recover(host.0, &dir));
+        // Give the thread a moment to block on `lock(profile)`, then release it.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(!watch.is_finished());
+        drop(held);
+
+        // Once the thread reaches WaitForMultipleObjects, the lock is free again.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        drop(lock(profile.path()).unwrap());
+        assert!(!watch.is_finished());
+
+        // Signal done so wait_and_recover exits cleanly without touching the sleeper.
+        // SAFETY: `done` is an owned event handle.
+        unsafe { SetEvent(raw(&done)).unwrap() };
+        assert_eq!(watch.join().unwrap().unwrap(), None);
+        drop(other_host);
     }
 }

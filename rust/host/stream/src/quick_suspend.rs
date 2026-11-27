@@ -63,6 +63,31 @@ impl Tracker {
     pub fn suspended(&self) -> bool {
         self.lock().is_some()
     }
+    #[cfg(test)]
+    pub(crate) fn set_suspended_for_test(&self, title: &str) {
+        *self.lock() = Some(Suspended {
+            journal: Journal::new((1, 1), title, 1),
+            count: 1,
+            by: "test".into(),
+        });
+        self.changed();
+    }
+    #[cfg(test)]
+    pub(crate) fn clear_suspended_for_test(&self) {
+        *self.lock() = None;
+        self.changed();
+    }
+}
+
+/// How long a Quick-Suspended game keeps its retained virtual display while
+/// disconnected (`dd_paused_virtual_display_timeout_secs`; 0 = indefinitely).
+pub(crate) fn paused_display_timeout(
+    config: &butterpollo_config::config::Config,
+) -> Option<std::time::Duration> {
+    let seconds = config
+        .integer("dd_paused_virtual_display_timeout_secs", 7200)
+        .max(0);
+    (seconds != 0).then(|| std::time::Duration::from_secs(seconds as u64))
 }
 
 /// Who asks.
@@ -297,7 +322,7 @@ fn freeze(h: &Host, by: String, thaw: &mut impl Thaw) -> Result<Suspended, Refus
             .map_err(|_| refusal(Reason::NoOwnedProcess))?;
         (roots, app.name.clone())
     };
-    let plan = policy::plan(&roots, &all, std::process::id())?;
+    let plan = plan_for_roots(&roots, &all, std::process::id())?;
     let mut journal = Journal::new(suspend_watch::me(), &title, now_ms());
     journal.processes = plan
         .targets
@@ -352,6 +377,35 @@ fn freeze(h: &Host, by: String, thaw: &mut impl Thaw) -> Result<Suspended, Refus
         "Quick Suspend: the game is suspended"
     );
     Ok(Suspended { journal, count, by })
+}
+
+/// Run [`policy::plan`] for `roots`, ensuring a live protected root (`started == 0`)
+/// that had not yet appeared in `all` still reports [`Reason::ProtectedProcess`]
+/// rather than [`Reason::NoOwnedProcess`].
+fn plan_for_roots(
+    roots: &std::collections::BTreeMap<u32, u64>,
+    all: &[butterpollo_session::steam::Process],
+    host_pid: u32,
+) -> Result<policy::Plan, Refused> {
+    match policy::plan(roots, all, host_pid) {
+        Ok(plan) => Ok(plan),
+        Err(refused)
+            if refused.reason == Reason::NoOwnedProcess
+                && roots.iter().any(|(&pid, &started)| {
+                    started == 0 && !all.iter().any(|p| p.pid == pid && p.started != 0)
+                }) =>
+        {
+            let program = roots
+                .iter()
+                .filter(|&(_, &started)| started == 0)
+                .find_map(|(&pid, _)| all.iter().find(|p| p.pid == pid).map(|p| p.name.clone()));
+            Err(Refused {
+                reason: Reason::ProtectedProcess,
+                program,
+            })
+        }
+        Err(refused) => Err(refused),
+    }
 }
 
 /// A journal an earlier resume left behind (what it could not resume) is

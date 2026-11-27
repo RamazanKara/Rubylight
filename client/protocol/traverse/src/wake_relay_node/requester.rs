@@ -4,7 +4,10 @@
 
 use super::*;
 use crate::{crypto::Key, wake_relay::WakeRequest};
-use std::{sync::mpsc, time::Instant};
+use std::{
+    sync::{Condvar, mpsc},
+    time::Instant,
+};
 
 /// Where the relay is, when the caller already knows (a test, or a relay on the same network).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,8 +74,7 @@ const SENDS: u32 = 3;
 /// After the last send, how long the first answer may take.
 const ANSWER_WAIT: Duration = Duration::from_secs(3);
 /// After a burst, how long the final status may take.
-const FINAL_WAIT: Duration =
-    Duration::from_secs(crate::wake_relay::BOOT_WAIT_SECONDS + 10);
+const FINAL_WAIT: Duration = Duration::from_secs(crate::wake_relay::BOOT_WAIT_SECONDS + 10);
 
 /// Asks the relay to wake the PC, reporting `progress`, until its final status (`Ok`): the PC
 /// came up ([`Status::HostAwake`]) or did not ([`Status::TimedOut`]), or the relay refused. A
@@ -82,18 +84,47 @@ pub fn request_wake(
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<WakeStatus, Failure> {
+    if cancel.load(Ordering::Acquire) {
+        return Err(Failure::Cancelled);
+    }
     let node = Node::bind(config.bind, config.bootstrap.clone())
         .map_err(|error| Failure::Network(error.to_string()))?;
-    let result = run(&node, &config, cancel, progress);
-    node.stop();
-    result
+    let done = (Mutex::new(false), Condvar::new());
+    thread::scope(|scope| {
+        let watcher = scope.spawn(|| {
+            let (lock, cvar) = &done;
+            let mut finished = lock.lock().unwrap();
+            while !*finished {
+                if cancel.load(Ordering::Acquire) {
+                    node.stop();
+                    return;
+                }
+                let (guard, _) = cvar
+                    .wait_timeout(finished, Duration::from_millis(20))
+                    .unwrap();
+                finished = guard;
+            }
+        });
+        let result = run(&node, &config, cancel, progress);
+        node.stop();
+        {
+            let (lock, cvar) = &done;
+            *lock.lock().unwrap() = true;
+            cvar.notify_all();
+        }
+        let _ = watcher.join();
+        result
+    })
 }
 
-fn look_up(node: &Node, keys: &Keys) -> Option<Record> {
+fn look_up(node: &Node, keys: &Keys, cancel: &AtomicBool) -> Option<Record> {
     let window = record::window(unix_now());
     [window, window.saturating_sub(1)]
         .into_iter()
         .find_map(|window| {
+            if cancel.load(Ordering::Acquire) {
+                return None;
+            }
             let (item, _) = node.get(
                 &keys.public(Role::WakeRelay),
                 &keys.salt(Role::WakeRelay, window),
@@ -109,6 +140,9 @@ fn run(
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<WakeStatus, Failure> {
+    if cancel.load(Ordering::Acquire) {
+        return Err(Failure::Cancelled);
+    }
     let keys = Keys::new(config.secret);
     progress(Progress::LookingUp);
     let stun = {
@@ -128,22 +162,25 @@ fn run(
             (public, nat)
         })
     };
-    let found = (!config.bootstrap.is_empty())
-        .then(|| look_up(node, &keys))
+    let found = (!config.bootstrap.is_empty() && !cancel.load(Ordering::Acquire))
+        .then(|| look_up(node, &keys, cancel))
         .flatten()
         .map(|record| RelayInfo {
             session: record.session,
             endpoints: record.endpoints,
             nat: record.nat,
         });
-    let relay = found
-        .or_else(|| config.known.clone())
-        .ok_or(Failure::RelayOffline)?;
     if cancel.load(Ordering::Acquire) {
         return Err(Failure::Cancelled);
     }
+    let relay = found
+        .or_else(|| config.known.clone())
+        .ok_or(Failure::RelayOffline)?;
     let session: [u8; 16] = crate::crypto::random();
     let (public, nat) = stun.join().unwrap_or_default();
+    if cancel.load(Ordering::Acquire) {
+        return Err(Failure::Cancelled);
+    }
     if !public.is_empty() && !config.bootstrap.is_empty() {
         let item = Record {
             role: Role::WakeRequester,
@@ -191,7 +228,10 @@ fn run(
         }
         let now = node.now();
         for to in puncher.poll(now) {
-            node.send(to, &sealer.seal(Kind::Punch, 0, &wire::punch_stamp(unix_now())));
+            node.send(
+                to,
+                &sealer.seal(Kind::Punch, 0, &wire::punch_stamp(unix_now())),
+            );
         }
         if puncher.state() == punch::State::Failed {
             return Err(Failure::RelayUnreachable);

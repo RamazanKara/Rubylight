@@ -156,3 +156,119 @@ fn a_held_binding_is_replayed_before_its_arrival() {
         .collect();
     assert_eq!(order, [true, false], "binding, then arrival");
 }
+
+const CTYPE_XBOX: u8 = 1;
+
+fn bindings_in(packets: &[InputPacket]) -> Vec<Binding> {
+    packets
+        .iter()
+        .filter_map(|p| Binding::decode(&p.data))
+        .collect()
+}
+
+#[test]
+fn disconnect_clears_owner_and_drops_held_speaker_binding() {
+    let owners = Arc::new(Owners::default());
+    let mut q = queue(&sunshine());
+    q.set_ps_speaker(Some(owners.clone()));
+
+    // Live disconnect clears the slot's owner immediately.
+    q.send_controller_arrival(0, 1, CTYPE_PS, 0, PS_SPEAKER_CAPABILITY)
+        .unwrap();
+    assert_ne!(owners.get(0), 0);
+    sent(&mut q);
+    q.send_controller(0, 0, 0, 0, 0, (0, 0), (0, 0)).unwrap();
+    assert_eq!(owners.get(0), 0);
+    sent(&mut q);
+
+    // Arrival followed by disconnect while queued together before hold drops held speaker_bindings.
+    let (now, mut out) = (Instant::now(), Vec::new());
+    q.send_controller_arrival(0, 1, CTYPE_PS, 0, PS_SPEAKER_CAPABILITY)
+        .unwrap();
+    q.send_controller(0, 0, 0, 0, 0, (0, 0), (0, 0)).unwrap();
+    assert_eq!(owners.get(0), 0);
+    q.poll(now, true, &mut out);
+    assert!(out.is_empty() && q.is_holding());
+    q.poll(now, false, &mut out);
+    assert!(
+        bindings_in(&out).is_empty(),
+        "stale binding must not replay after disconnect"
+    );
+
+    // Arrival already held, then disconnect arrives while still holding before release.
+    out.clear();
+    q.send_controller_arrival(0, 1, CTYPE_PS, 0, PS_SPEAKER_CAPABILITY)
+        .unwrap();
+    q.poll(now, true, &mut out);
+    assert_ne!(owners.get(0), 0);
+    q.send_controller(0, 0, 0, 0, 0, (0, 0), (0, 0)).unwrap();
+    assert_eq!(owners.get(0), 0);
+    q.poll(now, false, &mut out);
+    assert!(
+        bindings_in(&out).is_empty(),
+        "held binding cleared before release on disconnect"
+    );
+}
+
+#[test]
+fn replacing_dualsense_with_xbox_in_slot_0_clears_owner_and_held_binding() {
+    let owners = Arc::new(Owners::default());
+    let mut q = queue(&sunshine());
+    q.set_ps_speaker(Some(owners.clone()));
+
+    // Live DualSense -> Xbox replacement in slot 0 clears owner even while active_mask stays 1.
+    q.send_controller_arrival(0, 1, CTYPE_PS, 0, PS_SPEAKER_CAPABILITY)
+        .unwrap();
+    assert_ne!(owners.get(0), 0);
+    sent(&mut q);
+    q.send_controller_arrival(0, 1, CTYPE_XBOX, 0, 0).unwrap();
+    assert_eq!(owners.get(0), 0);
+    sent(&mut q);
+    // Clear slot 0 before testing held scenarios.
+    q.send_controller(0, 0, 0, 0, 0, (0, 0), (0, 0)).unwrap();
+    sent(&mut q);
+
+    // DualSense -> Xbox queued together before entering hold drops held speaker_bindings[0].
+    let (now, mut out) = (Instant::now(), Vec::new());
+    q.send_controller_arrival(0, 1, CTYPE_PS, 0, PS_SPEAKER_CAPABILITY)
+        .unwrap();
+    q.send_controller_arrival(0, 1, CTYPE_XBOX, 0, 0).unwrap();
+    assert_eq!(owners.get(0), 0);
+    q.poll(now, true, &mut out);
+    q.poll(now, false, &mut out);
+    assert!(
+        bindings_in(&out).is_empty(),
+        "Xbox replacement in slot 0 must not replay PS binding"
+    );
+
+    // DualSense already held, then Xbox arrives in slot 0 before contact returns.
+    q.send_controller(0, 0, 0, 0, 0, (0, 0), (0, 0)).unwrap();
+    sent(&mut q);
+    out.clear();
+    q.send_controller_arrival(0, 1, CTYPE_PS, 0, PS_SPEAKER_CAPABILITY)
+        .unwrap();
+    q.poll(now, true, &mut out);
+    assert_ne!(owners.get(0), 0);
+    q.send_controller_arrival(0, 1, CTYPE_XBOX, 0, 0).unwrap();
+    assert_eq!(owners.get(0), 0);
+    q.poll(now, false, &mut out);
+    assert!(
+        bindings_in(&out).is_empty(),
+        "held PS binding cleared when replaced by Xbox"
+    );
+
+    // DualSense held, then PlayStation arrival without speaker capability drops held binding too.
+    q.send_controller(0, 0, 0, 0, 0, (0, 0), (0, 0)).unwrap();
+    sent(&mut q);
+    out.clear();
+    q.send_controller_arrival(0, 1, CTYPE_PS, 0, PS_SPEAKER_CAPABILITY)
+        .unwrap();
+    q.send_controller_arrival(0, 1, CTYPE_PS, 0, 0).unwrap();
+    assert_eq!(owners.get(0), 0);
+    q.poll(now, true, &mut out);
+    q.poll(now, false, &mut out);
+    assert!(
+        bindings_in(&out).is_empty(),
+        "PS arrival without speaker cap must not replay binding"
+    );
+}

@@ -123,7 +123,8 @@ pub(super) fn bundle_with_dump(h: &Shared, dump: impl FnOnce() -> Option<Dump>) 
         .values
         .iter()
         .map(|(k, v)| {
-            let value = if SECRET_SETTINGS.iter().any(|s| k.contains(s)) {
+            let lower = k.to_ascii_lowercase();
+            let value = if SECRET_SETTINGS.iter().any(|s| lower.contains(s)) {
                 "[redacted]".to_owned()
             } else {
                 redactor.line(v)
@@ -295,5 +296,40 @@ mod tests {
             &log[..80]
         );
         assert!(!log.contains("10.0.0.5"));
+    }
+
+    #[test]
+    fn mixed_case_secret_settings_are_redacted() {
+        let (f, _) = fixture();
+        {
+            let mut config = f.host.config.write().unwrap();
+            config
+                .values
+                .insert("API_Token".into(), "mixed-case-token-value".into());
+            config
+                .values
+                .insert("Custom_Password".into(), "mixed-case-password-value".into());
+            config
+                .values
+                .insert("My_SECRET_Field".into(), "mixed-case-secret-value".into());
+        }
+        let path = bundle(&f.host, false).unwrap();
+        let entries = entries(&path);
+        let diagnostics_text = &entries
+            .iter()
+            .find(|(n, _)| n == "diagnostics.json")
+            .unwrap()
+            .1;
+        for leaked in [
+            "mixed-case-token-value",
+            "mixed-case-password-value",
+            "mixed-case-secret-value",
+        ] {
+            assert!(!diagnostics_text.contains(leaked), "{leaked} leaked");
+        }
+        let diagnostics: Value = serde_json::from_str(diagnostics_text).unwrap();
+        for key in ["API_Token", "Custom_Password", "My_SECRET_Field"] {
+            assert_eq!(diagnostics["config"][key], "[redacted]", "{key}");
+        }
     }
 }

@@ -208,7 +208,10 @@ impl Movie {
                     for (kind, payload, inner) in children(payload) {
                         match &kind {
                             b"mehd" => {
-                                if let Some(&version) = payload.first() {
+                                if let Some(&version) = payload.first()
+                                    && ((version == 0 && payload.len() >= 8)
+                                        || (version == 1 && payload.len() >= 12))
+                                {
                                     let offset = (at + inner + 4) as u64;
                                     movie.mehd = Some((body_offset + offset, version));
                                 }

@@ -1,7 +1,7 @@
 use super::*;
 use rubylight_protocol::pyrowave::early::{EarlyPush, Finish};
 use rubylight_protocol::pyrowave::{
-    Records, PACKET_CONTIGUOUS, PACKET_FRAME_START, PACKET_RECORD_START,
+    PACKET_CONTIGUOUS, PACKET_FRAME_START, PACKET_RECORD_START, Records,
 };
 
 /// A records frame of `count` records as (flags, payload) packets: the 16-byte prefix with the
@@ -95,9 +95,21 @@ fn the_codec_direct_setting_holds_unless_the_property_is_set() {
 
 #[test]
 fn the_frame_array_grows_by_half_so_creeping_frames_rarely_make_a_new_one() {
-    assert_eq!(grown_capacity(1000, 0), 1000, "the first array is the frame's size");
-    assert_eq!(grown_capacity(1001, 1000), 1500, "a slightly larger frame gets room to grow");
-    assert_eq!(grown_capacity(4000, 1000), 4000, "a much larger one its own size");
+    assert_eq!(
+        grown_capacity(1000, 0),
+        1000,
+        "the first array is the frame's size"
+    );
+    assert_eq!(
+        grown_capacity(1001, 1000),
+        1500,
+        "a slightly larger frame gets room to grow"
+    );
+    assert_eq!(
+        grown_capacity(4000, 1000),
+        4000,
+        "a much larger one its own size"
+    );
     assert_eq!(
         grown_capacity(usize::MAX, 1000),
         i32::MAX as usize,
@@ -287,4 +299,16 @@ fn jni_submit_errors_and_exceptions_request_idr() {
     assert_eq!(decode_status(Some(DR_OK)), DecodeStatus::Ok);
     assert_eq!(decode_status(Some(-1)), DecodeStatus::NeedIdr);
     assert_eq!(decode_status(None), DecodeStatus::NeedIdr);
+}
+
+#[test]
+fn launch_curtain_picture_fires_only_once_after_dr_ok() {
+    let mut pictured = false;
+    assert!(!mark_first_picture(&mut pictured, Some(-1)));
+    assert!(!pictured, "DR_NEED_IDR must not mark the first picture");
+    assert!(!mark_first_picture(&mut pictured, None));
+    assert!(!pictured, "a JNI exception must not mark the first picture");
+    assert!(mark_first_picture(&mut pictured, Some(DR_OK)));
+    assert!(pictured);
+    assert!(!mark_first_picture(&mut pictured, Some(DR_OK)));
 }

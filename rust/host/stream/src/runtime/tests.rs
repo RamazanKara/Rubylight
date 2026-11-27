@@ -384,6 +384,41 @@ fn global_close_on_disconnect_waits_for_the_last_streaming_device() {
 }
 
 #[test]
+fn terminate_on_pause_does_not_close_a_quick_suspended_game_on_disconnect() {
+    let fixture = Fixture::new();
+    fixture
+        .host
+        .config
+        .write()
+        .unwrap()
+        .values
+        .insert("terminate_on_pause".into(), "true".into());
+    let app = serde_json::from_value(serde_json::json!({"name":"Desktop"})).unwrap();
+    *fixture.host.current_app.lock().unwrap() =
+        Some(crate::process::launch(&fixture.host, &app, &Default::default()).unwrap());
+    let client = fixture.client(u32::MAX);
+    let stream = fixture.session(client, Role::Stream);
+    assert!(!application_finished(&fixture.host));
+
+    fixture.host.quick_suspend.set_suspended_for_test("Desktop");
+    fixture
+        .host
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&stream.launch.id);
+    assert!(
+        !application_finished(&fixture.host),
+        "a Quick-Suspended game must not be terminated immediately on disconnect"
+    );
+
+    // Once resumed (e.g. grace timeout or manual resume without a stream), disconnect applies.
+    fixture.host.quick_suspend.clear_suspended_for_test();
+    assert!(application_finished(&fixture.host));
+}
+
+#[test]
 fn display_recovery_retry_waits_for_session_ready_and_backs_off_on_failure() {
     let mut retry = DisplayRecoveryRetry::default();
     let t0 = Instant::now();

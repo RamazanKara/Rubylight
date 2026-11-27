@@ -44,6 +44,9 @@ public final class StreamMenuSuspendSection {
 
         /** The game entered the suspended state: stop any active controller vibration. */
         default void onSuspended() {}
+
+        /** The game entered or left the paused state, for a persistent stream status line. */
+        default void onPausedChanged(boolean paused) {}
     }
 
     private final Context context;
@@ -51,6 +54,10 @@ public final class StreamMenuSuspendSection {
     // The host's last state other than a refusal, for the menu; null until it answers. UI thread.
     private NativeQuickSuspend state;
     private boolean busy;
+    // True once the host has pushed or answered Quick Suspend over control message 0x554B. UI thread.
+    private boolean controlSynced;
+    // Bumped on every 0x554B state update so an older in-flight HTTP refresh cannot overwrite newer live state.
+    private long controlSeq;
 
     public StreamMenuSuspendSection(Context context, Host host) {
         this.context = context;
@@ -75,9 +82,34 @@ public final class StreamMenuSuspendSection {
         return state != null && state.paused();
     }
 
-    /** The menu opens: it shows the tile once the host says what it is now, as the audio switches do. */
+    /** The menu opens: without live control-stream updates it waits for the host's answer, as the audio switches do. */
     public void forget() {
+        if (!controlSynced) state = null;
+    }
+
+    /** The stream ended: drop cached state and clear any paused status line. */
+    public void reset() {
+        boolean wasPaused = paused();
         state = null;
+        controlSynced = false;
+        controlSeq++;
+        busy = false;
+        if (wasPaused) host.onPausedChanged(false);
+    }
+
+    /**
+     * The host's Quick Suspend state on control message 0x554B: the answer to the initial state query or a change
+     * pushed when the PC console or another device pauses or resumes the game ({@code requestId} 0). Refusals on the
+     * control stream are ignored here because Android sends suspend/resume requests through the native API. UI thread.
+     */
+    public void onControlState(int requestId, int wireState, int wireReason, int suspendedCount,
+                               long suspendedSinceUnixMs) {
+        NativeQuickSuspend next = NativeQuickSuspend.fromControlState(
+                wireState, wireReason, suspendedCount, suspendedSinceUnixMs);
+        if (next == null || next.refused()) return;
+        controlSynced = true;
+        controlSeq++;
+        applyState(next, true);
     }
 
     /** Reads the host's state; the open menu shows the tile once it answers. */
@@ -85,6 +117,7 @@ public final class StreamMenuSuspendSection {
         if (!host.offered()) return;
         NativeApiClient client = host.client();
         if (client == null) return;
+        final long seq = controlSeq;
         host.background(() -> {
             NativeQuickSuspend answer = null;
             try {
@@ -94,10 +127,9 @@ public final class StreamMenuSuspendSection {
             }
             NativeQuickSuspend read = answer;
             host.ui(() -> {
-                boolean wasPaused = paused();
-                if (read != null && !read.refused()) state = read;
-                if (paused() && !wasPaused) host.onSuspended();
-                host.refreshMenu();
+                if (seq != controlSeq) return;
+                if (read != null && !read.refused()) applyState(read, false);
+                else host.refreshMenu();
             });
         });
     }
@@ -137,13 +169,19 @@ public final class StreamMenuSuspendSection {
             host.say(context.getString(refusal(answer.reason)));
             return;
         }
+        applyState(answer, true);
+    }
+
+    private void applyState(NativeQuickSuspend next, boolean announce) {
         boolean wasPaused = paused();
-        state = answer;
-        if (paused() && !wasPaused) {
+        state = next;
+        boolean nowPaused = paused();
+        if (nowPaused != wasPaused) host.onPausedChanged(nowPaused);
+        if (nowPaused && !wasPaused) {
             host.onSuspended();
-            host.say(context.getString(R.string.quick_suspend_paused));
-        } else if (wasPaused && NativeQuickSuspend.READY.equals(answer.state)) {
-            host.say(context.getString(R.string.quick_suspend_resumed));
+            if (announce) host.say(context.getString(R.string.quick_suspend_paused));
+        } else if (wasPaused && NativeQuickSuspend.READY.equals(next.state)) {
+            if (announce) host.say(context.getString(R.string.quick_suspend_resumed));
         }
         host.refreshMenu();
     }

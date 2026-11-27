@@ -110,8 +110,7 @@ impl DvrStore {
             .collect();
         // `plan` checks the floor against `incoming`; shift the free space so it is checked
         // against `disk_incoming`.
-        let free = butterpollo_win_io::background_write::free_bytes(dir)
-            .ok()
+        let free = free_bytes_for(dir)
             .map(|free| free.saturating_add(incoming.saturating_sub(disk_incoming)));
         let evict = quota::plan(&stored, incoming, limit, free, quota::DISK_FLOOR_BYTES)?;
         for id in &evict {
@@ -134,6 +133,26 @@ impl DvrStore {
     }
 }
 
+/// Whether `dir` is a network or device path that Stream DVR must never open
+/// ([`butterpollo_session::network_path::refused`]).
+pub fn refused(dir: &Path) -> bool {
+    butterpollo_session::network_path::refused(&dir.to_string_lossy()).is_some()
+}
+
+fn free_bytes_for(dir: &Path) -> Option<u64> {
+    if refused(dir) {
+        return None;
+    }
+    butterpollo_win_io::background_write::free_bytes(dir)
+        .ok()
+        .or_else(|| {
+            dir.ancestors()
+                .skip(1)
+                .find(|parent| parent.exists())
+                .and_then(|parent| butterpollo_win_io::background_write::free_bytes(parent).ok())
+        })
+}
+
 /// Resolves what a crash left in the clips folder ([`recover`]) on a thread of its own, so the
 /// host starts at once. A folder that does not exist yet is left alone.
 pub fn recover_at_start(h: &crate::state::Shared) {
@@ -141,7 +160,7 @@ pub fn recover_at_start(h: &crate::state::Shared) {
         let config = h.config.read().unwrap_or_else(PoisonError::into_inner);
         clips_dir(&h.config_path, &config)
     };
-    if !dir.is_dir() {
+    if refused(&dir) || !dir.is_dir() {
         return;
     }
     let started = SystemTime::now();
@@ -156,13 +175,22 @@ pub fn recover_at_start(h: &crate::state::Shared) {
     }
 }
 
-/// The clips folder: `dvr_directory`, or `clips` beside the configuration file.
+/// The clips folder: `dvr_directory` (relative paths resolved beside the configuration file),
+/// or `clips` beside the configuration file.
 pub fn clips_dir(config_path: &Path, config: &Config) -> PathBuf {
-    config.dvr_directory().unwrap_or_else(|| {
+    let base = || {
         config_path
             .parent()
-            .map_or_else(|| PathBuf::from("clips"), |dir| dir.join("clips"))
-    })
+            .filter(|dir| !dir.as_os_str().is_empty())
+    };
+    match config.dvr_directory() {
+        Some(path) if refused(&path) || path.is_absolute() => path,
+        Some(path) => match base() {
+            Some(dir) => dir.join(path),
+            None => path,
+        },
+        None => base().map_or_else(|| PathBuf::from("clips"), |dir| dir.join("clips")),
+    }
 }
 
 /// The clips quota in bytes (`dvr_quota_gb`).
@@ -172,7 +200,7 @@ pub fn quota_bytes(config: &Config) -> u64 {
 
 /// `dir` exists (it is made if missing) and takes files.
 pub fn writable(dir: &Path) -> bool {
-    if std::fs::create_dir_all(dir).is_err() {
+    if refused(dir) || std::fs::create_dir_all(dir).is_err() {
         return false;
     }
     let probe = dir.join(format!(".write-check-{}", std::process::id()));
@@ -184,6 +212,9 @@ pub fn writable(dir: &Path) -> bool {
 /// Whether clips can go to `dir`, found without writing: a folder that is not read-only, or
 /// one not made yet under a folder that exists.
 pub fn available(dir: &Path) -> bool {
+    if refused(dir) {
+        return false;
+    }
     match std::fs::metadata(dir) {
         Ok(meta) => meta.is_dir() && !meta.permissions().readonly(),
         Err(_) => dir
@@ -261,6 +292,9 @@ fn write_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 /// Every saved clip with its sidecar, newest first. Sizes are the files' own.
 pub fn list(dir: &Path) -> Vec<ClipSummary> {
+    if refused(dir) {
+        return Vec::new();
+    }
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -319,7 +353,7 @@ pub fn page(
 /// Deletes clip `id`'s video and sidecar; `Ok(false)` when it has neither. Refuses an id that
 /// is not a clip id, so no path outside the folder can be named.
 pub fn delete(dir: &Path, id: &str) -> io::Result<bool> {
-    if !quota::valid_clip_id(id) {
+    if refused(dir) || !quota::valid_clip_id(id) {
         return Ok(false);
     }
     let mut found = false;

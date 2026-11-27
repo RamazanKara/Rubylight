@@ -30,19 +30,36 @@ pub const STOPPED_BEFORE_BACKUP: &str = "Setup stopped before it changed any fil
 /// holds or, when it stopped before making one, record the update as failed.
 /// Returns what it recorded, if it did anything.
 pub fn recover(profile: &Path, install: &Path) -> Result<Option<String>> {
+    recover_with(profile, install, process_alive)
+}
+
+fn recover_with(
+    profile: &Path,
+    install: &Path,
+    alive: impl Fn(u32, u64) -> bool,
+) -> Result<Option<String>> {
     let path = profile.join("update-result.json");
-    if interrupted(&state::load_json(&path, Value::Null)?, install).is_none() {
-        return Ok(None);
+    let initial = state::load_json(&path, Value::Null)?;
+    match interrupted(&initial, install) {
+        None => return Ok(None),
+        Some(Interrupted::BeforeBackup) if setup_running_with(&initial, &alive) => {
+            return Ok(None);
+        }
+        _ => {}
     }
     let Some(_lock) = lock(&profile.join("update.lock"))? else {
         return Ok(None);
     };
-    // Setup may have finished before the lock was free.
+    // Setup may have finished before the lock was free, or may still be starting
+    // before acquiring update.lock.
     let mut record = state::load_json(&path, Value::Null)?;
     let Some(interrupted) = interrupted(&record, install) else {
         return Ok(None);
     };
     if interrupted == Interrupted::BeforeBackup {
+        if setup_running_with(&record, &alive) {
+            return Ok(None);
+        }
         record["phase"] = json!("failed");
         record["error"] = json!(STOPPED_BEFORE_BACKUP);
         state::write_json(&path, &record)?;
@@ -86,6 +103,103 @@ fn interrupted(record: &Value, install: &Path) -> Option<Interrupted> {
         _ => None,
     }
 }
+/// Whether the setup process recorded in `record` (`setup_pid`, `setup_started`)
+/// is still running. Records without both fields (older hosts or setup's own
+/// pre-backup record) default to false for backward compatibility.
+fn setup_running_with(record: &Value, alive: impl FnOnce(u32, u64) -> bool) -> bool {
+    let Some(pid) = record
+        .get("setup_pid")
+        .and_then(Value::as_u64)
+        .and_then(|pid| u32::try_from(pid).ok())
+        .filter(|&pid| pid > 4)
+    else {
+        return false;
+    };
+    let Some(started) = record
+        .get("setup_started")
+        .and_then(Value::as_u64)
+        .filter(|&started| started != 0)
+    else {
+        return false;
+    };
+    alive(pid, started)
+}
+
+#[cfg(windows)]
+fn process_alive(pid: u32, started: u64) -> bool {
+    use std::ffi::c_void;
+    const PROCESS_SYNCHRONIZE: u32 = 0x0010_0000;
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const WAIT_OBJECT_0: u32 = 0;
+    const STILL_ACTIVE: u32 = 259;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
+        fn WaitForSingleObject(handle: *mut c_void, millis: u32) -> u32;
+        fn GetProcessTimes(
+            handle: *mut c_void,
+            created: *mut FileTime,
+            exited: *mut FileTime,
+            kernel: *mut FileTime,
+            user: *mut FileTime,
+        ) -> i32;
+        fn GetExitCodeProcess(handle: *mut c_void, code: *mut u32) -> i32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+
+    if pid <= 4 || started == 0 {
+        return false;
+    }
+    // SAFETY: `OpenProcess` returns null on failure or an owned process handle closed
+    // before returning; the query calls read only that live handle and write into local
+    // stack variables.
+    unsafe {
+        let mut handle = OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+            0,
+            pid,
+        );
+        if handle.is_null() {
+            handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        }
+        if handle.is_null() {
+            return false;
+        }
+        let alive = 'check: {
+            if WaitForSingleObject(handle, 0) == WAIT_OBJECT_0 {
+                break 'check false;
+            }
+            let mut created = FileTime::default();
+            let mut exited = FileTime::default();
+            let mut kernel = FileTime::default();
+            let mut user = FileTime::default();
+            if GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) == 0 {
+                break 'check false;
+            }
+            let mut code = 0u32;
+            if GetExitCodeProcess(handle, &mut code) != 0 && code != STILL_ACTIVE {
+                break 'check false;
+            }
+            let actual = (u64::from(created.high) << 32) | u64::from(created.low);
+            actual == started
+        };
+        CloseHandle(handle);
+        alive
+    }
+}
+
+#[cfg(not(windows))]
+fn process_alive(_pid: u32, _started: u64) -> bool {
+    false
+}
+
 /// update.lock, which keeps a setup from starting meanwhile; None while
 /// one holds it.
 fn lock(path: &Path) -> Result<Option<std::fs::File>> {
@@ -306,6 +420,46 @@ mod tests {
         )?;
         assert!(restore(&backup, &install).is_err());
         assert_eq!(std::fs::read(install.join("host.exe"))?, b"current");
+        Ok(())
+    }
+    #[cfg(windows)]
+    #[test]
+    fn before_backup_leaves_a_live_setup_process_alone_and_fails_when_gone() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let profile = root.path().join("config");
+        let install = root.path().join("Butterpollo");
+        std::fs::create_dir_all(&profile)?;
+        std::fs::create_dir(&install)?;
+        let path = profile.join("update-result.json");
+        let record = json!({
+            "version": "6.5.0",
+            "phase": "installing",
+            "install": install,
+            "setup_pid": 4242,
+            "setup_started": 987_654_321u64,
+        });
+        state::write_json(&path, &record)?;
+        // Setup process is still alive before taking update.lock: leave it alone.
+        assert_eq!(
+            recover_with(&profile, &install, |pid, started| {
+                pid == 4242 && started == 987_654_321
+            })?,
+            None
+        );
+        assert_eq!(state::load_json(&path, Value::Null)?, record);
+        // Setup exited (or PID was recycled with a different creation time): mark failed.
+        assert_eq!(
+            recover_with(&profile, &install, |_, _| false)?.as_deref(),
+            Some(STOPPED_BEFORE_BACKUP)
+        );
+        let failed = state::load_json(&path, Value::Null)?;
+        assert_eq!(failed["phase"], "failed");
+        assert_eq!(failed["error"], STOPPED_BEFORE_BACKUP);
+
+        // Real OS liveness probe matches this process's creation time and rejects mismatches.
+        let me = std::process::id();
+        assert!(!process_alive(me, 1));
+        assert!(!process_alive(u32::MAX - 3, 1));
         Ok(())
     }
 }

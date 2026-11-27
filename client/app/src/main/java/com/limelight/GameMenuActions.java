@@ -185,6 +185,15 @@ final class GameMenuActions {
         if (streamMenuSheet != null) streamMenuSheet.refresh();
     }
 
+    void onQuickSuspendControl(int requestId, int state, int reason, int suspendedCount, long suspendedSinceUnixMs) {
+        if (game.isFinishing() || game.isDestroyed()) return;
+        hostActions.quickSuspend.onControlState(requestId, state, reason, suspendedCount, suspendedSinceUnixMs);
+    }
+
+    void resetQuickSuspend() {
+        hostActions.quickSuspend.reset();
+    }
+
     // What the stream menu offers right now. Host features and permissions decide the rest.
     private com.limelight.ui.StreamMenu.Options streamMenuOptions() {
         com.limelight.ui.StreamMenu.Options options = new com.limelight.ui.StreamMenu.Options(game.app.getRole(), game.conn.getHostDetails());

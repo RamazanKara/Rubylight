@@ -93,12 +93,28 @@ fn a_pc_is_asked_only_at_its_addresses_on_this_network() {
         "127.78.1.2",
         "127.0.0.1",
         "[fe80::1]",
+        "fe80::1%eth0",
+        "[fe80::1%eth0]",
+        "[fe80::1%25eth0]",
+        "fe80::1%12",
         "2001:db8::1",
         "",
+        "   ",
     ];
     for away in away {
         assert!(!on_this_network(away), "{away}");
     }
+}
+
+#[test]
+fn scoped_ipv6_literals_are_rejected_while_names_and_lan_ipv4_pass() {
+    assert!(!on_this_network("fe80::1%eth0"));
+    assert!(!on_this_network("[fe80::1%eth0]"));
+    assert!(!on_this_network("[fe80::1%25eth0]"));
+    assert!(!on_this_network("fe80::1%12"));
+    assert!(on_this_network("desktop.local"));
+    assert!(on_this_network("gaming-pc"));
+    assert!(on_this_network("192.168.4.20"));
 }
 
 #[test]

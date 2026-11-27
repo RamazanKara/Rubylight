@@ -2,12 +2,10 @@
 //! while the host is silent, then replays it once contact returns.
 
 use super::poll::note_sent;
-use super::{InputPacket, InputQueue, Pending, MAX_MOTION_TYPES};
+use super::{InputPacket, InputQueue, MAX_MOTION_TYPES, Pending};
 use crate::control::negotiation::feature;
 use crate::control::wire::Delivery;
-use crate::input::packets::{
-    touch_event, touchpad, InputEvent, TouchpadContact, MAX_CONTROLLERS,
-};
+use crate::input::packets::{InputEvent, MAX_CONTROLLERS, TouchpadContact, touch_event, touchpad};
 
 const HELD_KEYS: usize = 256;
 const HELD_MOUSE_BUTTONS: usize = 8;
@@ -47,6 +45,14 @@ impl Default for Held {
     }
 }
 
+impl Held {
+    pub(super) fn clear_speaker_binding(&mut self, slot: u8) {
+        if let Some(entry) = self.speaker_bindings.get_mut(usize::from(slot)) {
+            *entry = None;
+        }
+    }
+}
+
 impl InputQueue {
     /// The number of packets held back since the host went silent.
     pub fn held_count(&self) -> u32 {
@@ -71,12 +77,30 @@ impl InputQueue {
                     *slot = Some(pending);
                 }
             }
-            InputEvent::Controller { number, .. } => {
+            InputEvent::Controller {
+                number,
+                active_mask,
+                ..
+            } => {
+                for slot in 0..usize::from(MAX_CONTROLLERS) {
+                    if active_mask & (1 << slot) == 0 {
+                        held.speaker_bindings[slot] = None;
+                    }
+                }
                 if let Some(slot) = held.controllers.get_mut(usize::from(number)) {
                     *slot = Some(pending);
                 }
             }
-            InputEvent::ControllerArrival { number, .. } => {
+            InputEvent::ControllerArrival {
+                number,
+                kind,
+                capabilities,
+                ..
+            } => {
+                use rubylight_protocol::ps_speaker_pcm::{CTYPE_PS, PS_SPEAKER_CAPABILITY};
+                if kind != CTYPE_PS || capabilities & PS_SPEAKER_CAPABILITY == 0 {
+                    held.clear_speaker_binding(number);
+                }
                 if let Some(slot) = held.arrivals.get_mut(usize::from(number)) {
                     *slot = Some(pending);
                 }

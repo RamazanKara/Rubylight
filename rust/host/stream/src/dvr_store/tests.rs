@@ -258,4 +258,58 @@ fn the_folder_and_quota_come_from_the_settings() {
         Path::new(r"D:\Clips")
     );
     assert_eq!(quota_bytes(&custom), 5 * GIB);
+    // Relative dvr_directory resolves beside sunshine.conf, same as the default clips folder.
+    let relative = Config::parse("dvr_directory = clips\n").unwrap();
+    assert_eq!(
+        clips_dir(
+            Path::new(r"C:\ProgramData\Butterpollo\config\sunshine.conf"),
+            &relative,
+        ),
+        Path::new(r"C:\ProgramData\Butterpollo\config\clips")
+    );
+    let nested = Config::parse("dvr_directory = sub\\clips\n").unwrap();
+    assert_eq!(
+        clips_dir(
+            Path::new(r"C:\ProgramData\Butterpollo\config\sunshine.conf"),
+            &nested,
+        ),
+        Path::new(r"C:\ProgramData\Butterpollo\config\sub\clips")
+    );
+}
+
+#[test]
+fn network_and_device_clips_folders_are_refused_without_touching_disk() {
+    for raw in [r"\\server\share", r"\\.\pipe\x", "NUL"] {
+        let config = Config::parse(&format!("dvr_directory = {raw}\n")).unwrap();
+        let dir = clips_dir(
+            Path::new(r"C:\ProgramData\Butterpollo\config\sunshine.conf"),
+            &config,
+        );
+        assert!(refused(&dir), "{raw}");
+        assert!(!available(&dir), "{raw}");
+        assert!(!writable(&dir), "{raw}");
+        assert!(list(&dir).is_empty(), "{raw}");
+        assert!(
+            !delete(&dir, "20260101-100000-replay-0001").unwrap(),
+            "{raw}"
+        );
+        assert_eq!(
+            recover_before(&dir, SystemTime::now()),
+            Recovered::default()
+        );
+    }
+}
+
+#[test]
+fn make_room_enforces_disk_floor_for_uncreated_clips_folder() {
+    let scratch = Scratch::new("uncreated-room");
+    let uncreated = scratch.0.join("nested").join("clips");
+    assert!(!uncreated.exists());
+    let store = DvrStore::default();
+    // Requesting more than any real volume has free must hit DiskFull even when `clips` does not
+    // exist yet, proving free space is not treated as unknown (`None`).
+    assert_eq!(
+        store.make_room(&uncreated, 1 << 60, 1 << 60, u64::MAX, &[]),
+        Err(quota::Refusal::DiskFull)
+    );
 }

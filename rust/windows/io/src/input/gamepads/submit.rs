@@ -183,22 +183,26 @@ impl Gamepads {
             Ok(()) => attached,
         }
     }
-    /// Controllers whose client is asked for motion again, with their
-    /// arrival capabilities: a ViGEmBus DualShock 4 whose gyro went silent,
-    /// when the client announced motion sensors.
+    /// Controllers whose client should be asked for motion, with their arrival
+    /// capabilities: USB/IP pads whose async attachment just completed and any
+    /// ViGEmBus DualShock 4 whose gyro went silent, when the client announced motion sensors.
     pub(in crate::input) fn motion_requests(&mut self) -> Vec<(u8, u16)> {
+        let mut requests = std::mem::take(&mut self.pending_motion_requests);
         let slots = self.backend.motion_requests();
         if slots.is_empty() {
-            return Vec::new();
+            return requests;
         }
-        self.active
-            .iter()
-            .filter(|(_, global)| slots.contains(&u32::from(**global)))
-            .filter_map(|(&id, _)| {
+        for (&id, global) in &self.active {
+            if slots.contains(&u32::from(*global)) {
                 let (_, capabilities) = self.arrivals.get(&id).copied().unwrap_or_default();
-                (capabilities & 0x30 != 0).then_some((id as u8, capabilities))
-            })
-            .collect()
+                if capabilities & 0x30 != 0
+                    && !requests.iter().any(|(req_id, _)| *req_id == id as u8)
+                {
+                    requests.push((id as u8, capabilities));
+                }
+            }
+        }
+        requests
     }
     pub fn motion_supported(&self, id: u16) -> bool {
         self.decks.contains_key(&id)

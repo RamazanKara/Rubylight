@@ -371,7 +371,7 @@ Rubylight is licensed under **GPL-3.0**. Everyone who helped, with their GitHub 
 - The DualShock 4 on ViGEmBus follows **Nonary's** Vibepollo, built on **LizardByte and the Sunshine contributors'** DualShock 4 emulation.
 - The virtual Switch 2 Pro Controller follows **Alia5's** libVIIPER, **Luiz Filipe Bandeira's and the contributors'** Solstice and **SDL's** Switch 2 driver by **Sam Lantinga and the SDL contributors** (zlib).
 - The DSU motion server speaks the protocol of **Jays2Kings', Ryochan7's and schmaldeo's** DS4Windows, with the settings and port of **the Foundation Sunshine authors'** server.
-- Clipboard sync uses the control message frame of **qiin2333's** Moonlight V+ (GPL-3.0).
+- Clipboard sync uses the control message frame of **qiin2333's** Moonlight V+ (GPL-3.0), and Nightjar's controller button hints follow **qiin2333's** and the contributors' Moonlight V+ PC (GPL-3.0).
 - Nightjar's MediaTek decoder keys follow **ClassicOldSong's** [Artemis](https://github.com/ClassicOldSong/moonlight-android) and **derflacco's** [fork of it](https://github.com/derflacco/moonlight-android), branch `Artemide_Experimental_Async` (GPL-3.0).
 - Nightjar desktop predicts the display mode of Windows' Fullscreen by the rule of **SDL's** `SDL_GetClosestFullscreenDisplayMode`, by **Sam Lantinga and the SDL contributors** (zlib).
 - Nightjar's SGSR 1 upscaler is **Qualcomm's** [Snapdragon Game Super Resolution 1](https://github.com/SnapdragonGameStudios/snapdragon-gsr) (BSD-3-Clause).

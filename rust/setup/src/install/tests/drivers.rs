@@ -443,3 +443,77 @@ fn a_person_is_told_which_drivers_were_set_up_again() {
     );
     assert!(told(Vec::new(), false).contains("left out at install stays out"));
 }
+#[test]
+fn driver_repair_rejects_reparse_points_under_install_and_drivers() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let install = root.path().join("Rubylight");
+    let display_dir = install.join("drivers").join("rubylight-display");
+    std::fs::create_dir_all(&display_dir)?;
+    std::fs::write(display_dir.join("install-local.ps1"), b"# ok\n")?;
+    verify_drivers_tree(&install)?;
+
+    let outside = root.path().join("outside");
+    std::fs::create_dir_all(&outside)?;
+    std::fs::write(outside.join("install-local.ps1"), b"# evil\n")?;
+
+    let make_junction = |link: &Path, target: &Path| -> Result<()> {
+        let (code, output) = system::run(
+            &system::system32("cmd.exe"),
+            &[
+                "/c",
+                "mklink",
+                "/J",
+                &link.display().to_string(),
+                &target.display().to_string(),
+            ],
+            Duration::from_secs(10),
+        )?;
+        anyhow::ensure!(code == 0, "mklink failed ({code}): {output}");
+        Ok(())
+    };
+
+    // A junction inside install\drivers (e.g. drivers\rubylight-gamepad) is refused.
+    let gamepad_link = install.join("drivers").join("rubylight-gamepad");
+    make_junction(&gamepad_link, &outside)?;
+    let error = verify_drivers_tree(&install).unwrap_err();
+    assert!(format!("{error:#}").contains("reparse point"), "{error:#}");
+    std::fs::remove_dir(&gamepad_link)?;
+    verify_drivers_tree(&install)?;
+
+    // A junction replacing install\drivers itself is refused.
+    std::fs::remove_dir_all(install.join("drivers"))?;
+    let drivers_link = install.join("drivers");
+    make_junction(&drivers_link, &outside)?;
+    let error = verify_drivers_tree(&install).unwrap_err();
+    assert!(format!("{error:#}").contains("reparse point"), "{error:#}");
+    std::fs::remove_dir(&drivers_link)?;
+
+    // A junction as install itself is refused.
+    let install_link = root.path().join("InstallLink");
+    make_junction(&install_link, &outside)?;
+    let error = verify_drivers_tree(&install_link).unwrap_err();
+    assert!(format!("{error:#}").contains("reparse point"), "{error:#}");
+    std::fs::remove_dir(&install_link)?;
+
+    // Verify repair_drivers_in runs prepare_install and verify_drivers_tree before scripts.
+    let source = include_str!("../driver_repair.rs");
+    let repair_fn = source.split("fn repair_drivers_in(").nth(1).unwrap();
+    let prepare_install = repair_fn.find("super::prepare_install(install)").unwrap();
+    let verify_tree = repair_fn.find("verify_drivers_tree(install)").unwrap();
+    let display_call = repair_fn.find("display_step(install").unwrap();
+    assert!(prepare_install < display_call);
+    assert!(verify_tree < display_call);
+    Ok(())
+}
+#[test]
+fn in_place_upgrade_commits_driver_choices_only_after_update_succeeds() {
+    let source = include_str!("../../install.rs");
+    let updating = source.rsplit("if updating {").next().unwrap();
+    let updating = updating.split("return Ok(Outcome").next().unwrap();
+    let run_pos = updating.find("crate::update::run(").unwrap();
+    let remember_pos = updating.find("remember_driver_choice(").unwrap();
+    assert!(
+        run_pos < remember_pos,
+        "remember_driver_choice must run only after update::run succeeds"
+    );
+}

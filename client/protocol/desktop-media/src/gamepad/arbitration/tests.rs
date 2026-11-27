@@ -58,14 +58,14 @@ fn a_forwarded_controller_pauses_and_comes_back_whenever_forwarding_stops() {
         // Detach: the claim is released.
         let claim = registry.claim(registry.owner(), forwarded(DUALSENSE));
         assert!(pads.arbitration_due());
-        assert!(pads.arbitrate(Some(&mut queue)).is_empty());
+        assert!(pads.arbitrate(Some(&mut queue), true).is_empty());
         assert!(!pads.arbitration_due());
         assert_eq!(open_ids(&pads), vec![xbox.0], "only the forwarded controller pauses");
         assert_eq!(pads.paused_count(), 1);
         pads.added(dualsense).unwrap();
         assert_eq!(open_ids(&pads), vec![xbox.0], "SDL adding it again keeps it closed while forwarded");
         claim.release();
-        assert!(pads.arbitrate(Some(&mut queue)).is_empty());
+        assert!(pads.arbitrate(Some(&mut queue), true).is_empty());
         assert_eq!(pads.paused_count(), 0);
         let back = pads.pads.iter().find(|p| p.id == dualsense).expect("reopened once forwarding stopped");
         assert!(back.announced, "the PC is told it arrived again");
@@ -73,41 +73,41 @@ fn a_forwarded_controller_pauses_and_comes_back_whenever_forwarding_stops() {
         // The stream ends: its panel releases everything it claimed, whatever holds the devices.
         let owner = registry.owner();
         let held = registry.claim(owner, forwarded(DUALSENSE));
-        pads.arbitrate(None);
+        pads.arbitrate(None, false);
         assert_eq!(open_ids(&pads), vec![xbox.0]);
         registry.release_owner(owner);
-        pads.arbitrate(None);
+        pads.arbitrate(None, false);
         assert!(open_ids(&pads).contains(&dualsense.0), "back after the stream's end");
         drop(held);
 
         // Unplugged while paused: nothing stays paused, and nothing fails to reopen.
         let claim = registry.claim(registry.owner(), forwarded(DUALSENSE));
-        pads.arbitrate(None);
+        pads.arbitrate(None, false);
         assert_eq!(pads.paused_count(), 1);
         SDL_DetachVirtualJoystick(dualsense);
         assert_eq!(pads.removed(dualsense), None, "a paused controller has no slot to free");
         assert_eq!(pads.paused_count(), 0);
         drop(claim);
-        assert!(pads.arbitrate(None).is_empty());
+        assert!(pads.arbitrate(None, false).is_empty());
         assert_eq!(open_ids(&pads), vec![xbox.0]);
 
         // The forwarded controller leaves SDL (its driver went to the forwarding), and another
         // of the model arrives meanwhile: it is opened, and later claims don't guess it either.
         let other_dualsense = virtual_pad(DUALSENSE);
         let claim = registry.claim(registry.owner(), forwarded(DUALSENSE));
-        pads.arbitrate(None);
+        pads.arbitrate(None, false);
         pads.added(other_dualsense).unwrap();
         assert!(open_ids(&pads).contains(&other_dualsense.0), "a newcomer is never paused on a guess");
         let _webcam = registry.claim(registry.owner(), forwarded((0x046d, 0x085e)));
-        pads.arbitrate(None);
+        pads.arbitrate(None, false);
         assert!(open_ids(&pads).contains(&other_dualsense.0), "nor by the next claim's arbitration");
         drop(claim);
-        pads.arbitrate(None);
+        pads.arbitrate(None, false);
         pads.removed(other_dualsense);
         SDL_DetachVirtualJoystick(other_dualsense);
 
         // A forwarded device of another model leaves every controller alone.
-        pads.arbitrate(None);
+        pads.arbitrate(None, false);
         assert_eq!(open_ids(&pads), vec![xbox.0]);
 
         pads.close_all();

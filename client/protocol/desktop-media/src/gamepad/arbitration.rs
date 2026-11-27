@@ -69,9 +69,10 @@ impl Gamepads {
 
     /// Pauses the open controllers that are now forwarded over USB and reopens the paused ones
     /// that no longer are. `queue`, during a stream that sends controllers, gets each paused
-    /// one's release and removal and the reopened ones' arrival. What could not be reopened,
-    /// for the user.
-    pub fn arbitrate(&mut self, mut queue: Option<&mut InputQueue>) -> Vec<NotOpened> {
+    /// one's release and removal and the reopened ones' arrival; with `audio` (a stream that
+    /// plays controller audio) a reopened controller gets its audio back first, as one plugged
+    /// in does. What could not be reopened, for the user.
+    pub fn arbitrate(&mut self, mut queue: Option<&mut InputQueue>, audio: bool) -> Vec<NotOpened> {
         let generation = self.arbitration.generation();
         if generation == self.arbitrated { return Vec::new(); }
         self.arbitrated = generation;
@@ -87,6 +88,7 @@ impl Gamepads {
             self.paused.push((id, identity));
         }
         let mut failed = Vec::new();
+        let resumed = !plan.resume.is_empty();
         for id in plan.resume {
             self.paused.retain(|(p, _)| *p != id);
             // SAFETY: an SDL query by instance id. One unplugged meanwhile has nothing to reopen.
@@ -94,6 +96,8 @@ impl Gamepads {
             eprintln!("nightjar: controller {}: no longer forwarded over USB; reading it here again", id.0);
             if let Err(why) = self.added(id) { failed.push(why); }
         }
+        // Pausing dropped its USB audio (`removed`): it comes back before the arrival goes.
+        if resumed && audio { self.auto_audio(); }
         if let Some(queue) = queue { self.announce_new(queue); }
         self.arbitration.applied(generation);
         failed

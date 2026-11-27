@@ -189,7 +189,8 @@ impl Streaming {
         self.poll_guests();
         // A controller forwarded over USB pauses here and comes back once that stops.
         if pads.arbitration_due() {
-            let failed = if self.sends_controllers() { self.session.input(|q| pads.arbitrate(Some(q))) } else { pads.arbitrate(None) };
+            let audio = self.controller_audio_available();
+            let failed = if self.sends_controllers() { self.session.input(|q| pads.arbitrate(Some(q), audio)) } else { pads.arbitrate(None, audio) };
             for why in failed { self.show_toast(why.message()); }
         }
         self.route_microphones(pads);

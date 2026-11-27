@@ -161,7 +161,7 @@ impl App {
         }
         // A controller paused while it was forwarded over USB comes back after the stream.
         if self.pads.arbitration_due() {
-            for why in self.pads.arbitrate(None) {
+            for why in self.pads.arbitrate(None, false) {
                 self.launcher.notify(tr("Controller not connected"), why.message());
             }
         }

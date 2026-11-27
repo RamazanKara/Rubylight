@@ -36,8 +36,9 @@ pub(crate) fn note_password_failed() {
     PASSWORD_FAILED.with(|failed| failed.set(failed.get() + 1));
 }
 
-/// How many opens on this thread needed the password and did not get through, for tests.
-#[cfg(test)]
+/// How many opens on this thread needed the password and did not get through, for the tests of
+/// Linux's USB/IP server.
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) fn password_failures() -> u64 {
     PASSWORD_FAILED.with(Cell::get)
 }

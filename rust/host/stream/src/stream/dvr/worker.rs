@@ -167,7 +167,7 @@ impl Worker {
                 let pts_us = self.pts(at);
                 let frame = self.slices.push(kind, idr, pts_us, &bytes);
                 if self.slices.take_discontinuity() {
-                    self.discontinuity();
+                    self.discontinuity(Instant::now());
                 }
                 if let Some(frame) = frame {
                     self.video(frame, hdr);
@@ -264,7 +264,7 @@ impl Worker {
         if let Some(recording) = self.recording.as_mut().filter(|_| !opened) {
             match recording.video(&self.h.dvr, self.shared.quota_limit, &self.info, &frame) {
                 Ok(RecordingStep::Continue) => {}
-                Ok(RecordingStep::AwaitKeyframe) => self.ask_keyframe(now),
+                Ok(RecordingStep::AwaitKeyframe) => self.keyframe_due(now),
                 Ok(RecordingStep::Restart(first)) => self.next_part(first),
                 Err(reason) => {
                     tracing::warn!(reason = reason.as_str(), "stream dvr: recording stopped");
@@ -274,7 +274,7 @@ impl Worker {
             }
         }
         if let Pushed::AwaitingKeyframe = self.ring.push_video(&self.info, frame) {
-            self.ask_keyframe(now);
+            self.keyframe_due(now);
         }
     }
 
@@ -309,12 +309,24 @@ impl Worker {
         }
     }
 
-    fn discontinuity(&mut self) {
+    /// Copies were lost: the buffer and a recording wait for the next keyframe, which comes on
+    /// the GOP cadence. A worker that keeps falling behind (a game that takes every core) so never
+    /// puts more keyframes on the player's stream than the cadence promises.
+    fn discontinuity(&mut self, now: Instant) {
         self.ring.discontinuity();
         if let Some(recording) = &mut self.recording {
             recording.discontinuity();
         }
-        self.ask_keyframe(Instant::now());
+        self.keyframe_due(now);
+    }
+
+    /// A keyframe the buffer waits for, asked for only once the last one is a GOP old; `tick`
+    /// asks for it then if no frame comes meanwhile. A save or a recording asked for by the
+    /// player asks at once ([`Self::ask_keyframe`]).
+    fn keyframe_due(&mut self, now: Instant) {
+        if self.cadence.due(now) {
+            self.ask_keyframe(now);
+        }
     }
 
     fn check_drops(&mut self) {
@@ -330,7 +342,7 @@ impl Worker {
             }
             self.drops_seen = drops;
             self.shared.tap_drops.store(drops, Ordering::Relaxed);
-            self.discontinuity();
+            self.discontinuity(Instant::now());
         }
     }
 
@@ -707,5 +719,42 @@ mod tests {
         assert_eq!(worker.state(), (State::Recording, Reason::None));
         worker.pending_recording = None;
         assert_eq!(worker.state(), (State::Error, Reason::QuotaExceeded));
+    }
+
+    #[test]
+    fn copies_lost_every_second_ask_no_more_keyframes_than_the_gop_cadence() {
+        use butterpollo_session::session::Role;
+        let f = crate::state::test_support::Fixture::new();
+        let s = f.session(f.client(u32::MAX), Role::Stream);
+        let shared = Shared::new(
+            "dvr-drops",
+            "Game".into(),
+            60,
+            std::env::temp_dir(),
+            1 << 30,
+        );
+        let limits = Limits {
+            max_us: 60_000_000,
+            max_bytes: 1 << 20,
+        };
+        let mut worker = Worker::new(f.host.clone(), Arc::downgrade(&s), shared, limits);
+        let start = Instant::now();
+        worker.cadence.observe_idr(start);
+        // A worker that falls behind every second waits for the cadence's next keyframe.
+        for second in 1..cadence::GOP_SECS {
+            let now = start + Duration::from_secs(second);
+            worker.discontinuity(now);
+            assert!(!s.dvr.take_keyframe(), "asked after {second} s");
+        }
+        // Once the last keyframe is a GOP old, one is asked for, and not again a second later.
+        let due = start + Duration::from_secs(cadence::GOP_SECS);
+        worker.discontinuity(due);
+        assert!(s.dvr.take_keyframe());
+        worker.discontinuity(due + Duration::from_millis(500));
+        assert!(!s.dvr.take_keyframe());
+        // A save the player asks for still asks at once.
+        worker.cadence.observe_idr(due + Duration::from_secs(2));
+        worker.ask_keyframe(due + Duration::from_secs(3));
+        assert!(s.dvr.take_keyframe());
     }
 }

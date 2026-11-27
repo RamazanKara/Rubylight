@@ -29,11 +29,9 @@ pub(super) use input::{
     INPUT_OVERFLOW, INPUT_QUEUE, drop_uninjectable_input, first_steam_attributes_refusal,
     hold_pad_input, queue_input,
 };
-#[cfg(any(test, feature = "test-support"))]
 pub(super) use peer::ControlPeer;
 #[cfg(test)]
 pub(super) use peer::{PeerConfig, ScaleLookup};
-#[cfg(any(test, feature = "test-support"))]
 pub(super) use socket::ControlSocket;
 #[cfg(test)]
 pub(super) use socket::{

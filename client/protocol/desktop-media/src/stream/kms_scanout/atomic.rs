@@ -10,6 +10,8 @@ use super::{
     picture_rect,
 };
 
+type AtomicSets = Vec<(u32, u32, u64)>;
+
 impl Scanout {
     /// The first picture (its framebuffer `fb`): the card's state now, the layout a test commit
     /// takes, the display mode for the stream's rate and the stream's properties, in one commit
@@ -455,7 +457,7 @@ impl Scanout {
         wishes: &Wishes,
         mode_blob: Option<u32>,
         overlay_up: bool,
-    ) -> Result<(Vec<(u32, u32, u64)>, Option<u32>), String> {
+    ) -> Result<(AtomicSets, Option<u32>), String> {
         let mut sets = Vec::new();
         if let Some(blob) = mode_blob {
             Self::put(

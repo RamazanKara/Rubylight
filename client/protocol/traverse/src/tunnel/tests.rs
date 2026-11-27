@@ -358,3 +358,53 @@ fn a_stalled_connection_bounds_queued_bytes_and_closes_receive_window() {
     host_node.stop();
     device_node.stop();
 }
+
+/// A path's key depends only on the two sessions, so a tunnel the host starts again for a device
+/// session must not count from where the last one did.
+#[test]
+fn a_tunnel_started_again_for_a_device_session_never_repeats_a_sequence_number() {
+    let keys = Keys::new([8; 32]).path(&[1; 16], &[2; 16]);
+    let node = Node::bind("127.0.0.1:0".parse().unwrap(), Vec::new()).unwrap();
+    let device = UdpSocket::bind("127.0.0.1:0").unwrap();
+    device
+        .set_read_timeout(Some(Duration::from_millis(300)))
+        .unwrap();
+    let mut seen = Vec::new();
+    for _ in 0..3 {
+        let host = Tunnel::start(
+            node.clone(),
+            Role::Host,
+            keys,
+            [2; 16],
+            vec![device.local_addr().unwrap()],
+            Bridge::Host {
+                service: "127.0.0.1".parse().unwrap(),
+                source: "127.0.0.1".parse().unwrap(),
+                ports: Ports::default(),
+                device: "restart test".into(),
+            },
+        )
+        .unwrap();
+        // Its punches, each under the same key: a fresh opener per datagram, as a listener that
+        // kept none would.
+        let mut buffer = [0u8; 2048];
+        let mut punches = 0;
+        while let Ok((length, _)) = device.recv_from(&mut buffer) {
+            let mut opener = wire::Opener::new(&keys.host_to_client, keys.tag);
+            if opener.open(&buffer[..length]).is_some() {
+                seen.push(u64::from_be_bytes(buffer[16..24].try_into().unwrap()));
+                punches += 1;
+            }
+            if punches >= 2 {
+                break;
+            }
+        }
+        assert!(punches > 0, "the tunnel sent nothing");
+        host.close("started again");
+    }
+    node.stop();
+    let mut distinct = seen.clone();
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert_eq!(distinct.len(), seen.len(), "sequence numbers {seen:?}");
+}

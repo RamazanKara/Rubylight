@@ -50,6 +50,13 @@ const UNUSED: Millis = 120_000;
 /// The path thread sleeps until its next deadline (a punch, a retransmission, a keepalive, a
 /// timeout), or until something earlier is due, but never longer than this.
 const LONGEST_SLEEP: Millis = KEEPALIVE;
+/// The sequence numbers each tunnel may send: weeks of a stream at a million datagrams a second.
+const TUNNEL_SEQUENCES: u64 = 1 << 40;
+/// Where the next tunnel's sequence numbers start, for every tunnel of this process. A path's
+/// key depends only on the two sessions, and the host can start a tunnel for a device session
+/// again (once it has forgotten that the session ended, while the device still punches for it):
+/// each tunnel takes its own [`TUNNEL_SEQUENCES`], so no nonce repeats under a key.
+static NEXT_SEQ: AtomicU64 = AtomicU64::new(1);
 
 fn tcp_port(ports: &Ports, target: u8) -> Option<u16> {
     match target {
@@ -233,7 +240,12 @@ impl Tunnel {
         let shared = Arc::new(Shared {
             role,
             bridge: bridge.clone(),
-            sealer: Sealer::new(&send_key, keys.tag, session),
+            sealer: Sealer::starting_at(
+                &send_key,
+                keys.tag,
+                session,
+                NEXT_SEQ.fetch_add(TUNNEL_SEQUENCES, Ordering::Relaxed),
+            ),
             opener: Mutex::new(Opener::new(&receive_key, keys.tag)),
             inner: Mutex::new(Inner {
                 puncher: Puncher::new(candidates, now),

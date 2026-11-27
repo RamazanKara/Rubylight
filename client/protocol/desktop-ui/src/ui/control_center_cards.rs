@@ -19,8 +19,6 @@ pub const GAP: f32 = 8.0;
 pub const COLUMNS: usize = 2;
 /// A status row's height.
 pub const ROW: f32 = 40.0;
-/// What a slider's label and value field take of a wide card, beside its track.
-const SLIDER_ROOM: f32 = 176.0;
 const RADIUS: u8 = 16;
 const PAD: f32 = 11.0;
 const ICON: f32 = 18.0;
@@ -186,8 +184,7 @@ pub fn wide<R>(ui: &mut Ui, icon: Icon, label: &str, value: Option<&str>, add: i
                 });
             }
         });
-        // A slider's track takes what its label and value leave of the card.
-        ui.spacing_mut().slider_width = (ui.available_width() - SLIDER_ROOM).max(48.0);
+        // A slider's track takes what its label and value leave of the card (theme::slider).
         add(ui)
     });
     inner

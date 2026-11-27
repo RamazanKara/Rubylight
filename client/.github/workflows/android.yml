@@ -56,7 +56,10 @@ jobs:
             glslang-tools libvulkan1 mesa-vulkan-drivers
           cd protocol
           cargo clippy --workspace --all-targets --locked -- -D warnings
-          cargo test -p nightjar-desktop -p nightjar-desktop-config -p nightjar-desktop-ui -p nightjar-desktop-media --locked
+          cargo test -p nightjar-desktop -p nightjar-desktop-config -p nightjar-desktop-ui --locked
+          # SDL3 asserts SDL_IsMainThread() in SDL_PumpEventsInternal once any thread calls SDL_Init;
+          # run desktop-media tests on the main thread (--test-threads=1) when not using nextest.
+          cargo test -p nightjar-desktop-media --locked -- --test-threads=1
       # The PQ pass: its SPIR-V against glslang 15 (a missing or other glslang fails here), and the
       # ignored GPU test on Mesa's software Vulkan (lavapipe, the runner has no GPU).
       - name: Test the PQ present pass

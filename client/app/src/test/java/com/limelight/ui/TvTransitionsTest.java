@@ -243,12 +243,12 @@ public class TvTransitionsTest {
         assertEquals("false", ((Element) list.getParentNode()).getAttribute("android:clipChildren"));
     }
 
-    /** TV UI #1-#3 (#7): TV Home preserves 168dp top margin and vertical fading edge, and Retry containers don't clip. */
+    /** TV UI #1-#3 (#7): TV Home preserves 176dp top margin and vertical fading edge, and Retry containers don't clip. */
     @Test
     public void tvHomeHeadroomNoFadingEdgeAndRetryContainersDoNotClip() throws Exception {
         Element tvHome = parse("src/main/res/layout-television/activity_console_home.xml");
         Element tvList = (Element) tvHome.getElementsByTagName("com.limelight.console.HomeList").item(0);
-        assertEquals("168dp", tvList.getAttribute("android:layout_marginTop"));
+        assertEquals("176dp", tvList.getAttribute("android:layout_marginTop"));
         assertEquals("", tvList.getAttribute("android:paddingTop"));
         assertEquals("vertical", tvList.getAttribute("android:requiresFadingEdge"));
         Element tvSearch = (Element) tvHome.getElementsByTagName("com.limelight.console.SearchResultsView").item(0);

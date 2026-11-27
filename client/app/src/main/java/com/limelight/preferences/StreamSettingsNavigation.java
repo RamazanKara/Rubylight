@@ -239,9 +239,18 @@ final class StreamSettingsNavigation {
         int position = PaneFocus.target(remembered == null ? -1 : remembered, adapter.getCount(), adapter::isEnabled);
         // setSelection puts the row at the list's top, and so does the list as it takes focus. For the first row that scrolled
         // its group's gap out of sight, and the list, now scrolled, laid its top fade over the row and took the top edge of its
-        // ring (nightjar#7, Shield TV). The row stands the fade's length down instead, as the D-pad leaves a row, so the first
-        // row stays under its gap with the list at its top. This comes after requestFocus, which places the row too.
-        if (position >= 0) list.setSelectionFromTop(position, list.getVerticalFadingEdgeLength());
+        // ring (nightjar#7, Shield TV). The row stands at least the fade's length down instead, and stays in place below any
+        // header card (e.g. Controller Studio) when the list is already at its top and the row fits in view.
+        if (position >= 0) {
+            int fade = list.getVerticalFadingEdgeLength();
+            int offset = fade;
+            View row = list.getChildAt(position - list.getFirstVisiblePosition());
+            if (list.getFirstVisiblePosition() == 0 && row != null
+                    && row.getBottom() <= list.getHeight() - list.getListPaddingBottom()) {
+                offset = Math.max(fade, row.getTop() - list.getListPaddingTop());
+            }
+            list.setSelectionFromTop(position, offset);
+        }
     }
 
     /** Called when a section row is selected: the right pane follows after a short pause, so a fast scroll does not rebuild it per row. */

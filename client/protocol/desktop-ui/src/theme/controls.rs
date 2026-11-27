@@ -165,6 +165,9 @@ pub fn mbps_text(mbps: f64) -> String {
 /// `StepSlider.KEY_VALUE_MS`.
 pub const VALUE_AFTER_KEY: f64 = 1.5;
 
+/// What a slider leaves beside its rail for the typed field and the gap before it (`150.0 Mbps`).
+const FIELD_ROOM: f32 = 104.0;
+
 /// Whether a slider's value floats over its thumb: while it is dragged, and while it has the focus
 /// within [`VALUE_AFTER_KEY`] of a key step `since_step` seconds ago.
 pub(super) fn value_floats(dragged: bool, focused: bool, since_step: Option<f64>) -> bool {
@@ -212,10 +215,13 @@ fn slider_along<N: egui::emath::Numeric>(
 ) -> egui::Response {
     ui.horizontal(|ui| {
         let (low, high) = (range.start().to_f64(), range.end().to_f64());
+        // A rail of 150, or what a narrow row leaves beside the field (the Control Center's slider
+        // card), so the field never runs past the row's end.
+        let rail_width = (ui.available_width() - FIELD_ROOM).clamp(48.0, 150.0);
         // egui's slider keeps the input; the rail and thumb are ours, a moon fill and a paper
         // thumb, which egui's one colour for rail and thumb cannot draw.
         let slid = ui.scope(|ui| {
-            ui.spacing_mut().slider_width = 150.0;
+            ui.spacing_mut().slider_width = rail_width;
             let v = ui.visuals_mut();
             v.selection.bg_fill = Color32::TRANSPARENT;
             for look in [&mut v.widgets.noninteractive, &mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {

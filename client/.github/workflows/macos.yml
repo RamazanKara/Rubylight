@@ -71,7 +71,10 @@ jobs:
           cargo clippy --workspace --all-targets --features nightjar-desktop/demo-library --locked -- -D warnings
           # The mouse-pace loopback test measures wall-clock gaps for an idle machine; the shared
           # macOS runners' scheduling misses its 3 ms (p90 5.9 ms, 2026-11-10); run it on a Mac by hand.
-          cargo test --locked --no-fail-fast -p nightjar-desktop -p nightjar-desktop-config -p nightjar-desktop-ui -p nightjar-desktop-media -p nightjar-core -p nightjar-policy -- --skip unbatched_mouse_motion_reaches_the_host_at_the_mouse_pace
+          cargo test --locked --no-fail-fast -p nightjar-desktop -p nightjar-desktop-config -p nightjar-desktop-ui -p nightjar-core -p nightjar-policy -- --skip unbatched_mouse_motion_reaches_the_host_at_the_mouse_pace
+          # SDL3 asserts SDL_IsMainThread() in SDL_PumpEventsInternal once any thread calls SDL_Init;
+          # run desktop-media tests on the main thread (--test-threads=1) when not using nextest.
+          cargo test --locked --no-fail-fast -p nightjar-desktop-media -- --test-threads=1 --skip unbatched_mouse_motion_reaches_the_host_at_the_mouse_pace
           cargo test --locked --manifest-path core/Cargo.toml
       - name: Cross-package and inspect the Intel archive on Apple Silicon
         if: runner.arch == 'ARM64'

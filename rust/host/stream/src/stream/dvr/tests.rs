@@ -79,6 +79,31 @@ fn a_replay_clip_is_written_whole_or_not_at_all() {
     assert_eq!(left, 0);
 }
 
+#[test]
+fn the_first_replay_save_makes_the_clips_folder() {
+    // A new profile's `clips` folder does not exist yet (found on hardware: every Instant
+    // Replay save failed with io_error until a manual recording had made it).
+    let parent = std::env::temp_dir().join(format!(
+        "rubylight-dvr-folder-{}-{:08x}",
+        std::process::id(),
+        rand::random::<u32>()
+    ));
+    let dir = parent.join("clips");
+    let clip = butterpollo_media_policy::dvr::ring::Clip {
+        info: butterpollo_media_policy::dvr::StreamInfo {
+            codec: butterpollo_media_policy::dvr::VideoCodec::H264,
+            hdr: None,
+            audio: None,
+        },
+        video: Vec::new(),
+        audio: Vec::new(),
+    };
+    let _ = save::write_replay(&dir, "20260101-100000-replay-0002", "Game", &clip);
+    let made = dir.is_dir();
+    let _ = std::fs::remove_dir_all(&parent);
+    assert!(made, "the clips folder was not made");
+}
+
 fn shared(session: &str) -> Arc<Shared> {
     Shared::new(session, "Game".into(), 60, std::env::temp_dir(), 1 << 30)
 }

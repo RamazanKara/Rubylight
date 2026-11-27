@@ -54,6 +54,21 @@ fn slider_frame(ctx: &egui::Context, value: &mut f64, time: f64, events: Vec<egu
 }
 
 #[test]
+fn a_slider_in_a_narrow_row_keeps_its_field_inside_the_row() {
+    // The Control Center's slider card leaves a rail far less than 150: the field still ends in the row.
+    let ctx = egui::Context::default();
+    let mut value = 20.0;
+    let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(180.0, 120.0))), ..Default::default() };
+    let (mut drawn, mut row) = (egui::Rect::NOTHING, egui::Rect::NOTHING);
+    let mut output = ctx.run_ui(input, |ui| {
+        row = ui.max_rect();
+        drawn = slider(ui, &mut value, 0.0..=100.0, 1.0, |v| format!("{v:.0} units"), |rail| rail, |field| field).rect;
+    });
+    output.textures_delta.clear();
+    assert!(drawn.right() <= row.right(), "the slider and its field reach {} in a row ending at {}", drawn.right(), row.right());
+}
+
+#[test]
 fn dragging_a_slider_floats_its_value_and_letting_go_hides_it() {
     let ctx = egui::Context::default();
     let mut value = 20.0;

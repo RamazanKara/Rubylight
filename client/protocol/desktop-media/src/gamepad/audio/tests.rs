@@ -66,5 +66,6 @@ fn bluetooth_audio_whose_reports_stopped_is_dropped_and_the_controller_announced
         pads.prepare_audio(false);
         assert!(!pads.bt_audio_failed(id), "forgotten at the next stream");
         SDL_DetachVirtualJoystick(id);
+        SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
     }
 }

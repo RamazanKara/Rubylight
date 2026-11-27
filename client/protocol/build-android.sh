@@ -21,7 +21,9 @@ for pair in arm64-v8a:aarch64-linux-android armeabi-v7a:armv7-linux-androideabi 
         x86_64:x86_64-linux-android; do
     abi="${pair%%:*}"
     target="${pair#*:}"
-    cargo build --manifest-path "$here/Cargo.toml" -p rubylight-protocol-ffi --release --target "$target" --quiet
+    # Fat LTO keeps rubylight-protocol-ffi + rubylight-protocol in one self-contained .o archive
+    # member even while the workspace [profile.release] uses thin LTO for faster full-app builds.
+    cargo build --manifest-path "$here/Cargo.toml" -p rubylight-protocol-ffi --release --config 'profile.release.lto="fat"' --target "$target" --quiet
     archive="$here/target/$target/release/librubylight_protocol.a"
     work="$(mktemp -d)"
     (cd "$work" && "$ar" x "$archive")

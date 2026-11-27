@@ -92,6 +92,22 @@ final class AwayWake {
         return false;
     }
 
+    /** What chooses an offline PC's wake path: its away wake keys (null without), and whether this device is home. */
+    static final class Seen {
+        final WakeRelayKeys.Kept kept;
+        final boolean onPcNetwork;
+
+        Seen(WakeRelayKeys.Kept kept, boolean onPcNetwork) {
+            this.kept = kept;
+            this.onPcNetwork = onPcNetwork;
+        }
+    }
+
+    /** Reads {@link Seen} for a PC: from a file, preferences and the network stack, so off the main thread. */
+    interface Look {
+        Seen at(ComputerDetails computer);
+    }
+
     /** {@link #onPcNetwork(List, List, List)} with this device's interfaces and what it knows of the PC. */
     static boolean onPcNetwork(Context context, ComputerDetails computer) {
         List<String> addresses = new ArrayList<>();

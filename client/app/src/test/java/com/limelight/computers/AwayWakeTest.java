@@ -139,6 +139,53 @@ public class AwayWakeTest {
         Shadows.shadowOf(Looper.getMainLooper()).idle();
     }
 
+    // Off the main thread
+
+    @Test
+    public void anOfflinePcsKeysAndThisDevicesNetworkAreReadOnTheWorkerBeforeAnythingStarts() {
+        List<String> looked = new ArrayList<>();
+        List<Runnable> posted = new ArrayList<>();
+        actions.wake(pc, computer -> {
+            looked.add(computer.uuid);
+            return new AwayWake.Seen(WakeRelayKeys.Kept.parse(BUNDLE), false);
+        }, host -> sent.add(host.uuid), Runnable::run, relay, queued::add, posted::add, () -> now);
+        assertTrue("nothing read on the caller's thread", looked.isEmpty());
+        assertFalse(actions.isWaking());
+        assertEquals(1, queued.size());
+        // The worker reads, then hands the decision back to the main thread.
+        queued.remove(0).run();
+        assertEquals(Collections.singletonList("pc"), looked);
+        assertFalse("chosen only back on the main thread", actions.isWaking());
+        assertEquals(1, posted.size());
+        posted.remove(0).run();
+        // Away with a relay: the packets go and the relay is asked.
+        assertTrue(actions.isWaking());
+        assertEquals(Collections.singletonList("pc"), sent);
+    }
+
+    @Test
+    public void aPcThatIsNotOfflineReadsNothingAndALookThatFailsLeavesTodaysWake() {
+        List<Runnable> posted = new ArrayList<>();
+        pc.state = ComputerDetails.State.ONLINE;
+        actions.wake(pc, computer -> {
+            throw new AssertionError("read for a PC that is online");
+        }, host -> sent.add(host.uuid), Runnable::run, relay, queued::add, posted::add, () -> now);
+        assertTrue(queued.isEmpty());
+        assertTrue(posted.isEmpty());
+        assertEquals(string(R.string.wol_pc_online), ShadowToast.getTextOfLatestToast());
+
+        pc.state = ComputerDetails.State.OFFLINE;
+        actions.wake(pc, computer -> {
+            throw new IllegalStateException("unreadable keys");
+        }, host -> sent.add(host.uuid), Runnable::run, relay, queued::add, posted::add, () -> now);
+        queued.remove(0).run();
+        posted.remove(0).run();
+        assertTrue("today's wake", actions.isWaking());
+        assertEquals(Collections.singletonList("pc"), sent);
+        assertEquals(Collections.singletonList("sent pc"), events);
+        assertNull("no relay asked", relay.bundle);
+    }
+
     // The decision
 
     @Test

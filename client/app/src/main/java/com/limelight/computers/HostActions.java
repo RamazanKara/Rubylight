@@ -242,11 +242,39 @@ public final class HostActions {
 
     public void wake(final ComputerDetails computer) {
         final Context app = activity.getApplicationContext();
-        WakeRelayKeys.Kept kept = computer.state == ComputerDetails.State.OFFLINE
-                ? new WakeRelayKeys(app).load(computer.uuid) : null;
-        wake(computer, kept, kept != null && AwayWake.onPcNetwork(app, computer),
-                host -> WakeOnLanSender.sendWolPacket(app, host), task -> new Thread(task, "Wake on LAN").start(),
-                AwayWakeFlow.JNI, task -> new Thread(task, "Wake relay").start(), SystemClock::elapsedRealtime);
+        wake(computer, pc -> {
+                    WakeRelayKeys.Kept kept = new WakeRelayKeys(app).load(pc.uuid);
+                    return new AwayWake.Seen(kept, kept != null && AwayWake.onPcNetwork(app, pc));
+                }, host -> WakeOnLanSender.sendWolPacket(app, host), task -> new Thread(task, "Wake on LAN").start(),
+                AwayWakeFlow.JNI, task -> new Thread(task, "Wake relay").start(), main::post,
+                SystemClock::elapsedRealtime);
+    }
+
+    /**
+     * Today's wake for a PC that is not offline. For an offline one, its away wake keys, its saved addresses and this
+     * device's interfaces are read on {@code worker} (a file, preferences and the network stack: never on the main
+     * thread), and the path is chosen back on {@code main}. A look that fails leaves today's wake.
+     */
+    @VisibleForTesting
+    void wake(ComputerDetails computer, AwayWake.Look look, HostWaker.Sender sender, Executor io,
+              AwayWakeFlow.Relay relay, Executor worker, Executor main, LongSupplier clock) {
+        if (computer.state != ComputerDetails.State.OFFLINE) {
+            wake(computer, null, false, sender, io, relay, worker, clock);
+            return;
+        }
+        worker.execute(() -> {
+            AwayWake.Seen seen;
+            try {
+                seen = look.at(computer);
+            } catch (RuntimeException e) {
+                LimeLog.warning("Wake from away cannot read what it needs for " + computer.uuid + ": " + e);
+                seen = new AwayWake.Seen(null, false);
+            }
+            final AwayWake.Seen decided = seen;
+            main.execute(() -> {
+                if (!gone()) wake(computer, decided.kept, decided.onPcNetwork, sender, io, relay, worker, clock);
+            });
+        });
     }
 
     /**

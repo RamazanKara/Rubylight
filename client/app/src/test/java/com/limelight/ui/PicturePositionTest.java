@@ -1,6 +1,7 @@
 package com.limelight.ui;
 
 import android.app.Application;
+import android.content.pm.ActivityInfo;
 import android.view.View;
 import android.widget.FrameLayout;
 
@@ -76,30 +77,48 @@ public class PicturePositionTest {
     @Test
     public void settingsEditsTheOffsetInTheStreamsOrientation() {
         // A phone held upright in Settings (rotation 0) streams in landscape (rotation 90).
-        int rotation = PicturePosition.streamRotation(0, true, StreamOrientation.LANDSCAPE, false);
+        int rotation = PicturePosition.streamRotation(0, true, StreamOrientation.requested(StreamOrientation.LANDSCAPE,
+                false, false, false, false, false, 1920, 1080));
         assertEquals(1, rotation);
         // "Right" set in Settings is right in the stream, not a move down.
         int naturalX = SafeAreaPolicy.naturalOffsetX(50, 0, rotation), naturalY = SafeAreaPolicy.naturalOffsetY(50, 0, rotation);
         assertEquals(50, SafeAreaPolicy.screenOffsetX(naturalX, naturalY, 1));
         assertEquals(0, SafeAreaPolicy.screenOffsetY(naturalX, naturalY, 1));
-        // Turned over by Flip 180° or the other landscape it stays on the same physical side.
+        // Turned over by Flip 180 degrees or the other landscape it stays on the same physical side.
         assertEquals(-50, SafeAreaPolicy.screenOffsetX(naturalX, naturalY, 3));
-        // Automatic on a phone streams in landscape; already in a landscape, that one.
-        assertEquals(1, PicturePosition.streamRotation(0, true, StreamOrientation.AUTO, false));
-        assertEquals(3, PicturePosition.streamRotation(3, true, StreamOrientation.AUTO, false));
-        assertEquals(1, PicturePosition.streamRotation(0, true, StreamOrientation.LANDSCAPE_FLIP, false));
-        assertEquals(3, PicturePosition.streamRotation(3, true, StreamOrientation.LANDSCAPE_FLIP, false));
-        assertEquals(3, PicturePosition.streamRotation(0, true, StreamOrientation.REVERSE_LANDSCAPE, false));
-        assertEquals(3, PicturePosition.streamRotation(1, true, StreamOrientation.REVERSE_LANDSCAPE, false));
-        // Portrait, Rotate and a screen that turns freely keep what Settings shows.
-        assertEquals(0, PicturePosition.streamRotation(0, true, StreamOrientation.PORTRAIT, false));
-        assertEquals(0, PicturePosition.streamRotation(1, true, StreamOrientation.PORTRAIT, false));
-        assertEquals(2, PicturePosition.streamRotation(2, true, StreamOrientation.ROTATE, false));
-        assertEquals(0, PicturePosition.streamRotation(0, true, StreamOrientation.AUTO, true));
+        // Landscape requests keep a landscape already shown, else take the system's.
+        assertEquals(1, PicturePosition.streamRotation(0, true, ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE));
+        assertEquals(3, PicturePosition.streamRotation(3, true, ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE));
+        assertEquals(1, PicturePosition.streamRotation(0, true, ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE));
+        assertEquals(3, PicturePosition.streamRotation(3, true, ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE));
+        assertEquals(3, PicturePosition.streamRotation(0, true, ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE));
+        assertEquals(3, PicturePosition.streamRotation(1, true, ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE));
+        // Portrait requests and a window that turns freely.
+        assertEquals(0, PicturePosition.streamRotation(0, true, ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT));
+        assertEquals(0, PicturePosition.streamRotation(1, true, ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT));
+        assertEquals(2, PicturePosition.streamRotation(2, true, ActivityInfo.SCREEN_ORIENTATION_FULL_USER));
         // A tablet or handheld whose panel is landscape at rotation 0.
-        assertEquals(0, PicturePosition.streamRotation(0, false, StreamOrientation.LANDSCAPE, false));
-        assertEquals(2, PicturePosition.streamRotation(0, false, StreamOrientation.REVERSE_LANDSCAPE, false));
-        assertEquals(0, PicturePosition.streamRotation(1, false, StreamOrientation.AUTO, false));
-        assertEquals(3, PicturePosition.streamRotation(0, false, StreamOrientation.PORTRAIT, false));
+        assertEquals(0, PicturePosition.streamRotation(0, false, ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE));
+        assertEquals(2, PicturePosition.streamRotation(0, false, ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE));
+        assertEquals(3, PicturePosition.streamRotation(0, false, ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT));
+    }
+
+    @Test
+    public void aSquarishPhoneFollowsTheStreamsOwnRule() {
+        // Automatic on a squarish phone held upright: on-screen controls ask for landscape, so Left / right
+        // set in Settings must be saved for rotation 90, not as a vertical move.
+        int withControls = StreamOrientation.requested(StreamOrientation.AUTO, false, false, true, true, false, 1920, 1080);
+        assertEquals(1, PicturePosition.streamRotation(0, true, withControls));
+        // A native stream keeps its shape: a landscape one turns the window, a portrait one does not.
+        int nativeLandscape = StreamOrientation.requested(StreamOrientation.AUTO, false, false, true, false, true, 2208, 1840);
+        assertEquals(1, PicturePosition.streamRotation(0, true, nativeLandscape));
+        int nativePortrait = StreamOrientation.requested(StreamOrientation.AUTO, false, false, true, false, true, 1840, 2208);
+        assertEquals(0, PicturePosition.streamRotation(0, true, nativePortrait));
+        // Without either, the window turns freely and Settings' own rotation is the stream's.
+        int free = StreamOrientation.requested(StreamOrientation.AUTO, false, false, true, false, false, 1920, 1080);
+        assertEquals(0, PicturePosition.streamRotation(0, true, free));
+        // A large screen turns freely too.
+        assertEquals(0, PicturePosition.streamRotation(0, true,
+                StreamOrientation.requested(StreamOrientation.AUTO, false, true, false, true, false, 1920, 1080)));
     }
 }

@@ -1,6 +1,7 @@
 package com.limelight.ui;
 
 import android.content.SharedPreferences;
+import android.content.pm.ActivityInfo;
 import android.graphics.Point;
 import android.view.Display;
 import android.view.Surface;
@@ -36,29 +37,31 @@ public final class PicturePosition {
     /**
      * The rotation a stream started now shows in, which Settings edits the offset in: Settings is
      * usually held upright while a phone streams in landscape, so Left / right there must mean
-     * left and right in the stream. Landscape modes (and Automatic on a phone) take the system's
-     * landscape, or the one already shown; Reverse landscape its opposite; Portrait the portrait
-     * shown or the system's; Rotate, and Automatic where the stream turns freely, the rotation now.
+     * left and right in the stream. Takes the orientation the stream window will ask for
+     * ({@link StreamOrientation#requested}, so the rule is not repeated here): a landscape request
+     * keeps the landscape shown or takes the system's, reverse landscape its opposite, a portrait
+     * request the portrait shown or the system's, and a window that turns freely the rotation now.
      * Flip 180 degrees is per stream: the stored offset is natural, so it mirrors with the cutout.
      *
-     * @param turnsFreely Automatic lets the window turn: a large, desktop-class or squarish screen
+     * @param requested an {@code ActivityInfo.SCREEN_ORIENTATION_*} constant
      */
-    public static int streamRotation(int rotation, boolean naturalPortrait, int orientationMode, boolean turnsFreely) {
+    public static int streamRotation(int rotation, boolean naturalPortrait, int requested) {
         int landscape = naturalPortrait ? Surface.ROTATION_90 : Surface.ROTATION_0;
         int portrait = naturalPortrait ? Surface.ROTATION_0 : Surface.ROTATION_270;
         boolean nowLandscape = rotation == landscape || rotation == landscape + 2;
-        switch (orientationMode) {
-            case StreamOrientation.ROTATE:
-                return rotation;
-            case StreamOrientation.PORTRAIT:
-                return nowLandscape ? portrait : rotation;
-            case StreamOrientation.REVERSE_LANDSCAPE:
+        switch (requested) {
+            case ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE:
                 return landscape + 2;
-            case StreamOrientation.LANDSCAPE:
-            case StreamOrientation.LANDSCAPE_FLIP:
+            case ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE:
+            case ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE:
+            case ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE:
                 return nowLandscape ? rotation : landscape;
+            case ActivityInfo.SCREEN_ORIENTATION_PORTRAIT:
+            case ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT:
+            case ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT:
+                return nowLandscape ? portrait : rotation;
             default:
-                return turnsFreely || nowLandscape ? rotation : landscape;
+                return rotation;
         }
     }
 

@@ -516,12 +516,15 @@ final class StreamSettingsRowBindings {
             // Edited in the stream's orientation, not the upright one Settings is usually held in.
             Activity activity = fragment.getActivity();
             android.view.Display display = activity.getWindowManager().getDefaultDisplay();
-            boolean turnsFreely = activity.getResources().getConfiguration().smallestScreenWidthDp >= 600
-                    || activity.getPackageManager().hasSystemFeature("android.hardware.type.pc")
-                    || PreferenceConfiguration.isSquarishScreen(display);
-            int rotation = PicturePosition.streamRotation(display.getRotation(), PicturePosition.naturalPortrait(display),
-                    StreamOrientation.fromValue(fragment.getPreferenceManager().getSharedPreferences()
-                            .getString(StreamOrientation.PREF, null)), turnsFreely);
+            // The same inputs as the stream's window (GameVideoOutput.setPreferredOrientationForCurrentDisplay).
+            boolean largeScreen = activity.getResources().getConfiguration().smallestScreenWidthDp >= 600
+                    || activity.getPackageManager().hasSystemFeature("android.hardware.type.pc");
+            boolean squarish = !largeScreen && PreferenceConfiguration.isSquarishScreen(display);
+            PreferenceConfiguration config = PreferenceConfiguration.readPreferences(activity);
+            boolean keepsShape = config.resolutionFollowsScreen || PreferenceConfiguration.isNativeResolution(config.width, config.height);
+            int requested = StreamOrientation.requested(config.streamOrientation, false, largeScreen, squarish,
+                    config.onscreenController, keepsShape, config.width, config.height);
+            int rotation = PicturePosition.streamRotation(display.getRotation(), PicturePosition.naturalPortrait(display), requested);
             UiHelper.showDialog(activity, StreamSafeAreaController.createPositionDialog(activity, () -> rotation, () -> {}));
             return true;
         });

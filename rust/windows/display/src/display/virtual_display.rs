@@ -65,7 +65,7 @@ pub struct VirtualDisplay {
     pub switched_on: bool,
     /// Dropped after [`Drop`] removed the display: the last virtual display
     /// gone puts the physical displays' scales back (issue #129).
-    _dpi_baseline: crate::display_recovery::DpiBaseline,
+    dpi_baseline: crate::display_recovery::DpiBaseline,
 }
 impl VirtualDisplay {
     pub fn create(stable_id: &str, width: u32, height: u32, fps: u32) -> Result<Self> {
@@ -94,7 +94,7 @@ impl VirtualDisplay {
         }
         let driver = Control::open_recovering()?;
         // Before the display joins the desktop and Windows rescales the others.
-        let dpi_baseline = crate::display_recovery::DpiBaseline::acquire();
+        let mut dpi_baseline = crate::display_recovery::DpiBaseline::acquire();
         let id = butterpollo_media_policy::display_policy::virtual_display_id(stable_id);
         apply_render_adapter(&driver, &options);
         // A previous host's display can survive a session handover until its
@@ -120,6 +120,7 @@ impl VirtualDisplay {
             },
             CREATE_RETRY,
         )?;
+        dpi_baseline.added();
         let mut display = Self {
             driver,
             name: String::new(),
@@ -137,7 +138,7 @@ impl VirtualDisplay {
             resolved_target: None,
             driver_route: None,
             switched_on: false,
-            _dpi_baseline: dpi_baseline,
+            dpi_baseline,
         };
         display.resolve(&result)?;
         display.check_hotplug("created")?;
@@ -146,6 +147,7 @@ impl VirtualDisplay {
         {
             tracing::warn!(error = %format!("{error:#}"), "settling the saved layout for a second stream's display failed");
         }
+        display.dpi_baseline.created();
         Ok(display)
     }
     /// The display path the driver's create reply names.

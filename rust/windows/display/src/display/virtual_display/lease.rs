@@ -18,13 +18,17 @@ pub(in crate::display) fn display_lease(
     fps: u32,
     options: &VirtualOptions,
 ) -> Result<(DisplayLease, Option<u32>)> {
-    lease_or_join(
-        &mut crate::lock_unpoisoned(&DISPLAYS),
-        id,
-        options.joins,
-        (width, height, fps),
-        || VirtualDisplay::create_options(id, width, height, fps, options.clone()),
-    )
+    // A display dropped under the lock, by a failed creation or a refused join
+    // that held the last stream's lease, puts the scales back elsewhere.
+    crate::display_recovery::while_leasing(|| {
+        lease_or_join(
+            &mut crate::lock_unpoisoned(&DISPLAYS),
+            id,
+            options.joins,
+            (width, height, fps),
+            || VirtualDisplay::create_options(id, width, height, fps, options.clone()),
+        )
+    })
 }
 /// A stream's lease: one that `joins` takes the live display as it is, any other
 /// asks for its mode. A join with no live display left makes its own.
@@ -43,7 +47,9 @@ pub(super) fn lease_or_join<D: SharedDisplay>(
 /// The mode the live display `id` runs at, for a stream that joins it; None
 /// when no stream holds it any more and the stream has to make its own.
 pub fn joinable_mode(id: &str) -> Option<Timing> {
-    joined_lease(&crate::lock_unpoisoned(&DISPLAYS), id).map(|(_, mode)| mode)
+    crate::display_recovery::while_leasing(|| {
+        joined_lease(&crate::lock_unpoisoned(&DISPLAYS), id).map(|(_, mode)| mode)
+    })
 }
 /// A stream beside a running game takes that game's display as it is: at the
 /// mode it runs at now, whatever size the stream has (the encoder scales) and

@@ -21,7 +21,7 @@ mod hooks;
 mod restore;
 mod watcher;
 
-pub use dpi::{DpiBaseline, settle_scale};
+pub use dpi::{DpiBaseline, settle_scale, while_leasing};
 pub use hooks::{RecoveryHooks, initialize_with, set_hooks, wait_and_recover_with};
 use restore::recover;
 #[cfg(test)]

@@ -1,0 +1,9 @@
+- The Control Center replaces the stream menu.
+- Suspend game pauses the game on the PC; resume it later.
+- Instant Replay saves the last moments as a clip.
+- Frame Warp 2 locks on sooner and follows gyro aiming.
+- Launch curtain keeps the game's cover up while it starts.
+- Stream Doctor names what made a stream stutter, with one-tap fixes.
+- Wake your PC from away via a wake relay.
+- Smooth TV and Wi-Fi / Away presets, Safe fit, Picture position.
+- A new look and a new on-screen controller.

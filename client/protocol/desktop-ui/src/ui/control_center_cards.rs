@@ -56,6 +56,13 @@ pub fn line(ui: &Ui, text: &str, font: FontId, color: Color32, width: f32) -> Ar
     ui.painter().layout_job(job)
 }
 
+/// `text` in at most `rows` lines no wider than `width`, the last cut with an ellipsis.
+pub fn lines(ui: &Ui, text: &str, font: FontId, color: Color32, width: f32, rows: usize) -> Arc<Galley> {
+    let mut job = egui::text::LayoutJob::simple(text.to_owned(), font, color, width.max(1.0));
+    job.wrap.max_rows = rows;
+    ui.painter().layout_job(job)
+}
+
 /// The card surface under a control: fill, the lift of a pointer, rim and the focus ring.
 pub fn surface(ui: &Ui, rect: Rect, on: bool, response: &Response) {
     let (fill, rim, width) = card_colors(on);
@@ -106,7 +113,14 @@ pub fn card(ui: &mut Ui, id: Id, width: f32, card: &Card<'_>) -> Response {
             ui.painter().galley(pos2(left, state_top), state, quiet);
         }
         None => {
-            ui.painter().galley(pos2(left, rect.bottom() - PAD - label.size().y), label, ink);
+            // Without a state line a long label takes a second line, as low as a state's, so
+            // "Session and graphics" stays whole beside the icon instead of losing its end.
+            if label.elided {
+                let label = lines(ui, card.label, semibold(text::LABEL), ink, inner, 2);
+                ui.painter().galley(pos2(left, rect.bottom() - PAD + 2.0 - label.size().y), label, ink);
+            } else {
+                ui.painter().galley(pos2(left, rect.bottom() - PAD - label.size().y), label, ink);
+            }
         }
     }
     let (enabled, name, switch) = (ui.is_enabled(), card.label.to_owned(), card.on);

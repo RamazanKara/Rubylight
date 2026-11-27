@@ -284,7 +284,7 @@ fn a_closed_menu_adds_nothing_to_the_stream() {
         assert!(!source.contains("LIVE_BACKDROP"), "nothing reads the stream");
     }
     assert!(center.contains("blur_available: false"), "no blur pass samples the video");
-    let drawn: Vec<usize> = ["menu_style::show(", "control_center::show("].iter().flat_map(|needle| overlay.match_indices(needle).map(|(at, _)| at)).collect();
+    let drawn: Vec<usize> = ["control_center::show_page(", "control_center::show("].iter().flat_map(|needle| overlay.match_indices(needle).map(|(at, _)| at)).collect();
     assert_eq!(drawn.len(), 3, "the Session page, the sheet and the Control Center");
     for at in drawn {
         let opened = overlay[..at].rfind("if s.menu_visible").expect("under the open menu's check");

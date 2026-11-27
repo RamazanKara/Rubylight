@@ -7,7 +7,8 @@
 //! folded into one next request: queries join it, the latest Suspend or Resume
 //! decides what it does, and every request it folded in is answered with the
 //! state it leaves. A device that repeats its query while a suspend holds the
-//! tracker so waits on one thread, not one each.
+//! tracker so waits on one thread, not one each. However many queries wait, a
+//! Suspend or Resume is always answered.
 
 use super::super::*;
 use super::peer::ControlPeer;
@@ -20,9 +21,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Answers a worker left for the peer, each with the state's revision after it.
 type Answers = Arc<Mutex<Vec<(HostState, u64)>>>;
 
-/// The most requests one waiting request answers; a device that asks more
-/// often learns the state from the next change it is sent.
+/// The most requests one waiting request answers. A query beyond it learns
+/// the state from the next change it is sent; an action takes a query's place.
 const MAX_WAITING: usize = 16;
+
+/// Requests that arrived while the peer's worker ran: the operation to run
+/// next and the request ids it answers (0: a state change to send), each with
+/// the operation it asked for.
+type Waiting = Option<(Op, Vec<(u32, Op)>)>;
 
 /// One peer's Quick Suspend: whether its device speaks 0x554B, the state
 /// revision it last learnt, its worker and what waits for it, and the answers
@@ -34,21 +40,43 @@ pub(in crate::stream) struct PeerSuspend {
     answers: Answers,
     /// A worker runs one of this peer's requests now.
     busy: Arc<AtomicBool>,
-    /// What arrived meanwhile: the operation to run next and the request ids
-    /// (0: a state change to send) it answers.
-    waiting: Option<(Op, Vec<u32>)>,
+    /// What arrived meanwhile.
+    waiting: Waiting,
 }
 
 /// Fold request `id` for `op` into what waits: an action replaces a waiting
 /// query or the earlier action, a query only adds its id.
-fn coalesce(waiting: &mut Option<(Op, Vec<u32>)>, op: Op, id: u32) {
+///
+/// Full, the request takes the place of a state change to send, which any
+/// answer carries. An action, which the next request runs, is never left
+/// unanswered: failing that it takes the oldest query's place, or else the
+/// oldest action's, which it overrides. A query finds no place.
+fn coalesce(waiting: &mut Waiting, op: Op, id: u32) {
     let (next, ids) = waiting.get_or_insert_with(|| (Op::QueryState, Vec::new()));
-    if op != Op::QueryState {
+    let action = op != Op::QueryState;
+    if action {
         *next = op;
     }
-    if ids.len() < MAX_WAITING && !ids.contains(&id) {
-        ids.push(id);
+    if let Some((_, asked)) = ids.iter_mut().find(|(known, _)| *known == id) {
+        if action {
+            *asked = op;
+        }
+        return;
     }
+    if ids.len() >= MAX_WAITING {
+        let place = ids.iter().position(|&(known, _)| known == 0).or_else(|| {
+            action.then(|| {
+                ids.iter()
+                    .position(|&(_, asked)| asked == Op::QueryState)
+                    .unwrap_or(0)
+            })
+        });
+        let Some(place) = place else {
+            return;
+        };
+        ids.remove(place);
+    }
+    ids.push((id, op));
 }
 
 /// Run `op` for the peer off the control loop, or fold it into what waits
@@ -192,8 +220,9 @@ pub(super) fn send(
     }
     let peer = &mut p.quick_suspend;
     if !peer.busy.load(Ordering::Acquire)
-        && let Some((op, ids)) = peer.waiting.take()
+        && let Some((op, waited)) = peer.waiting.take()
     {
+        let ids = waited.into_iter().map(|(id, _)| id).collect();
         run(h, control_wake, peer, s, op, ids);
     }
     let revision = h.quick_suspend.revision();
@@ -207,6 +236,12 @@ pub(super) fn send(
 mod tests {
     use super::*;
 
+    /// The operation waiting and the ids it answers.
+    fn waits(waiting: &Waiting) -> (Op, Vec<u32>) {
+        let (op, ids) = waiting.as_ref().unwrap();
+        (*op, ids.iter().map(|&(id, _)| id).collect())
+    }
+
     #[test]
     fn requests_that_arrive_while_a_worker_runs_wait_as_one() {
         let mut waiting = None;
@@ -214,23 +249,60 @@ mod tests {
         for id in [1, 2, 2, 3] {
             coalesce(&mut waiting, Op::QueryState, id);
         }
-        assert_eq!(waiting, Some((Op::QueryState, vec![1, 2, 3])));
+        assert_eq!(waits(&waiting), (Op::QueryState, vec![1, 2, 3]));
         // An action decides what the next request does; the latest one wins,
         // and a query after it does not undo it.
         coalesce(&mut waiting, Op::Suspend, 4);
         coalesce(&mut waiting, Op::Resume, 5);
         coalesce(&mut waiting, Op::QueryState, 6);
-        assert_eq!(waiting, Some((Op::Resume, vec![1, 2, 3, 4, 5, 6])));
+        assert_eq!(waits(&waiting), (Op::Resume, vec![1, 2, 3, 4, 5, 6]));
         // However often a device asks, one request answers a bounded number.
         for id in 100..200 {
             coalesce(&mut waiting, Op::QueryState, id);
         }
-        assert_eq!(waiting.as_ref().unwrap().1.len(), MAX_WAITING);
+        assert_eq!(waits(&waiting).1.len(), MAX_WAITING);
         // A state change to send (id 0) folds in once.
         let mut pushes = None;
         coalesce(&mut pushes, Op::QueryState, 0);
         coalesce(&mut pushes, Op::QueryState, 0);
-        assert_eq!(pushes, Some((Op::QueryState, vec![0])));
+        assert_eq!(waits(&pushes), (Op::QueryState, vec![0]));
+        // Sixteen queries while a suspend runs, then Resume: it runs next and
+        // its id is answered, in the oldest query's place.
+        let mut waiting = None;
+        for id in 1..=MAX_WAITING as u32 {
+            coalesce(&mut waiting, Op::QueryState, id);
+        }
+        coalesce(&mut waiting, Op::Resume, 99);
+        let (op, ids) = waits(&waiting);
+        assert_eq!(op, Op::Resume);
+        assert_eq!(ids.len(), MAX_WAITING);
+        assert!(!ids.contains(&1));
+        assert_eq!(ids.last(), Some(&99));
+    }
+
+    #[test]
+    fn a_full_wait_gives_up_a_state_push_first_and_an_action_last() {
+        // A state change to send gives its place first, to a query too.
+        let mut waiting = None;
+        coalesce(&mut waiting, Op::QueryState, 0);
+        for id in 1..MAX_WAITING as u32 {
+            coalesce(&mut waiting, Op::QueryState, id);
+        }
+        coalesce(&mut waiting, Op::QueryState, 50);
+        let (_, ids) = waits(&waiting);
+        assert!(!ids.contains(&0) && ids.contains(&1) && ids.contains(&50));
+        // Only actions waiting: a query finds no place, and the newest action
+        // takes the oldest's, which it overrides.
+        let mut waiting = None;
+        for id in 1..=MAX_WAITING as u32 {
+            coalesce(&mut waiting, Op::Suspend, id);
+        }
+        coalesce(&mut waiting, Op::QueryState, 70);
+        coalesce(&mut waiting, Op::Resume, 71);
+        let (op, ids) = waits(&waiting);
+        assert_eq!(op, Op::Resume);
+        assert!(!ids.contains(&1) && !ids.contains(&70) && ids.contains(&71));
+        assert_eq!(ids.len(), MAX_WAITING);
     }
 
     #[test]

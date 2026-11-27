@@ -513,7 +513,16 @@ final class StreamSettingsRowBindings {
         });
         Preference picturePosition = fragment.findPreference(PicturePosition.PREF);
         if (picturePosition != null) picturePosition.setOnPreferenceClickListener(preference -> {
-            UiHelper.showDialog(fragment.getActivity(), StreamSafeAreaController.createPositionDialog(fragment.getActivity(), () -> {}));
+            // Edited in the stream's orientation, not the upright one Settings is usually held in.
+            Activity activity = fragment.getActivity();
+            android.view.Display display = activity.getWindowManager().getDefaultDisplay();
+            boolean turnsFreely = activity.getResources().getConfiguration().smallestScreenWidthDp >= 600
+                    || activity.getPackageManager().hasSystemFeature("android.hardware.type.pc")
+                    || PreferenceConfiguration.isSquarishScreen(display);
+            int rotation = PicturePosition.streamRotation(display.getRotation(), PicturePosition.naturalPortrait(display),
+                    StreamOrientation.fromValue(fragment.getPreferenceManager().getSharedPreferences()
+                            .getString(StreamOrientation.PREF, null)), turnsFreely);
+            UiHelper.showDialog(activity, StreamSafeAreaController.createPositionDialog(activity, () -> rotation, () -> {}));
             return true;
         });
         fragment.findPreference(VideoScaling.PREF).setOnPreferenceClickListener(preference -> {

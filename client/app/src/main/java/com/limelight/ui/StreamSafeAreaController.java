@@ -10,11 +10,12 @@ import android.os.Handler;
 import android.os.Looper;
 import android.preference.PreferenceManager;
 import android.view.Display;
-import android.view.Surface;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import java.util.function.IntSupplier;
 
 import androidx.appcompat.app.AlertDialog;
 
@@ -95,14 +96,19 @@ public final class StreamSafeAreaController implements DisplayManager.DisplayLis
 
     /** The Picture position dialog: two sliders that move the picture live, and Center. */
     public AlertDialog createPositionDialog() {
-        return createPositionDialog(activity, this::apply);
+        Display display = activity.getWindowManager().getDefaultDisplay();
+        return createPositionDialog(activity, display::getRotation, this::apply);
     }
 
-    /** Also used by Settings, where there is no picture to move. */
-    public static AlertDialog createPositionDialog(Context context, Runnable changed) {
+    /**
+     * Also used by Settings, where there is no picture to move: there the rotation is the one the
+     * stream will show in ({@link PicturePosition#streamRotation}), so the sliders mean left, right,
+     * up and down in the stream however Settings is held. In a stream it is the rotation now.
+     */
+    public static AlertDialog createPositionDialog(Context context, IntSupplier rotation, Runnable changed) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         Display display = ((android.view.WindowManager) context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay();
-        int[] offset = PicturePosition.screenOffset(prefs, display);
+        int[] offset = PicturePosition.screenOffset(prefs, display, rotation.getAsInt());
         int max = SafeAreaPolicy.MAX_OFFSET_PERMILLE;
         LinearLayout content = new LinearLayout(context);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -113,7 +119,7 @@ public final class StreamSafeAreaController implements DisplayManager.DisplayLis
         SeekBar.OnSeekBarChangeListener listener = new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
                 if (!fromUser) return;
-                PicturePosition.saveScreenOffset(prefs, display, horizontal.getProgress() - max, vertical.getProgress() - max);
+                PicturePosition.saveScreenOffset(prefs, display, rotation.getAsInt(), horizontal.getProgress() - max, vertical.getProgress() - max);
                 changed.run();
             }
             @Override public void onStartTrackingTouch(SeekBar bar) {}
@@ -124,7 +130,7 @@ public final class StreamSafeAreaController implements DisplayManager.DisplayLis
         return new NavigationDialogBuilder(context).setTitle(R.string.picture_position_title)
                 .setMessage(R.string.summary_picture_position).setView(content)
                 .setNeutralButton(R.string.picture_position_center, (dialog, which) -> {
-                    PicturePosition.saveScreenOffset(prefs, display, 0, 0);
+                    PicturePosition.saveScreenOffset(prefs, display, rotation.getAsInt(), 0, 0);
                     changed.run();
                 })
                 .setPositiveButton(android.R.string.ok, null).create();
@@ -144,12 +150,7 @@ public final class StreamSafeAreaController implements DisplayManager.DisplayLis
 
     private int flipTarget() {
         Display display = activity.getWindowManager().getDefaultDisplay();
-        android.graphics.Point size = new android.graphics.Point();
-        display.getRealSize(size);
-        int rotation = display.getRotation();
-        boolean turned = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270;
-        boolean naturalPortrait = turned ? size.x > size.y : size.y > size.x;
-        return StreamOrientation.flipped(rotation, naturalPortrait);
+        return StreamOrientation.flipped(display.getRotation(), PicturePosition.naturalPortrait(display));
     }
 
     private SharedPreferences prefs() {

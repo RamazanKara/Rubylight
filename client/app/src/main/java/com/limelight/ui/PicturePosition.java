@@ -25,16 +25,57 @@ public final class PicturePosition {
         return turned ? size.y + "x" + size.x : size.x + "x" + size.y;
     }
 
+    /** The panel is taller than wide at rotation 0 (a phone; a tablet or handheld is not). */
+    public static boolean naturalPortrait(Display display) {
+        Point size = new Point();
+        display.getRealSize(size);
+        boolean turned = display.getRotation() == Surface.ROTATION_90 || display.getRotation() == Surface.ROTATION_270;
+        return turned ? size.x > size.y : size.y > size.x;
+    }
+
+    /**
+     * The rotation a stream started now shows in, which Settings edits the offset in: Settings is
+     * usually held upright while a phone streams in landscape, so Left / right there must mean
+     * left and right in the stream. Landscape modes (and Automatic on a phone) take the system's
+     * landscape, or the one already shown; Reverse landscape its opposite; Portrait the portrait
+     * shown or the system's; Rotate, and Automatic where the stream turns freely, the rotation now.
+     * Flip 180 degrees is per stream: the stored offset is natural, so it mirrors with the cutout.
+     *
+     * @param turnsFreely Automatic lets the window turn: a large, desktop-class or squarish screen
+     */
+    public static int streamRotation(int rotation, boolean naturalPortrait, int orientationMode, boolean turnsFreely) {
+        int landscape = naturalPortrait ? Surface.ROTATION_90 : Surface.ROTATION_0;
+        int portrait = naturalPortrait ? Surface.ROTATION_0 : Surface.ROTATION_270;
+        boolean nowLandscape = rotation == landscape || rotation == landscape + 2;
+        switch (orientationMode) {
+            case StreamOrientation.ROTATE:
+                return rotation;
+            case StreamOrientation.PORTRAIT:
+                return nowLandscape ? portrait : rotation;
+            case StreamOrientation.REVERSE_LANDSCAPE:
+                return landscape + 2;
+            case StreamOrientation.LANDSCAPE:
+            case StreamOrientation.LANDSCAPE_FLIP:
+                return nowLandscape ? rotation : landscape;
+            default:
+                return turnsFreely || nowLandscape ? rotation : landscape;
+        }
+    }
+
     /** The offset on the screen as it is turned now, in thousandths of each side: {x, y}. */
     public static int[] screenOffset(SharedPreferences prefs, Display display) {
+        return screenOffset(prefs, display, display.getRotation());
+    }
+
+    /** The offset on the screen turned to this rotation: {x, y}. */
+    public static int[] screenOffset(SharedPreferences prefs, Display display, int rotation) {
         int[] natural = parse(prefs.getString(PREF, null), screenKey(display));
-        int rotation = display.getRotation();
         return new int[] {SafeAreaPolicy.screenOffsetX(natural[0], natural[1], rotation),
                 SafeAreaPolicy.screenOffsetY(natural[0], natural[1], rotation)};
     }
 
-    public static void saveScreenOffset(SharedPreferences prefs, Display display, int x, int y) {
-        int rotation = display.getRotation();
+    /** Saves an offset seen on the screen turned to this rotation. */
+    public static void saveScreenOffset(SharedPreferences prefs, Display display, int rotation, int x, int y) {
         String stored = put(prefs.getString(PREF, null), screenKey(display),
                 SafeAreaPolicy.naturalOffsetX(x, y, rotation), SafeAreaPolicy.naturalOffsetY(x, y, rotation));
         SharedPreferences.Editor editor = prefs.edit();

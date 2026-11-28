@@ -16,6 +16,57 @@ import argparse, pathlib, shutil, subprocess, sys
 import build_lock, dev
 
 
+# Cargo subcommands (and cargo-nextest subcommands) that accept `--target-dir <DIR>`
+# before any `--` separator. Passing `--target-dir` on the CLI instead of setting
+# CARGO_TARGET_DIR keeps sccache's Rust cache keys identical across target-pool slots.
+TARGET_DIR_SUBCOMMANDS = frozenset({
+    'build', 'b', 'check', 'c', 'test', 't', 'bench', 'run', 'r',
+    'clippy', 'doc', 'd', 'rustc', 'clean',
+})
+NEXTEST_TARGET_DIR_SUBCOMMANDS = frozenset({'run', 'list', 'archive'})
+GLOBAL_VALUED_FLAGS = frozenset({'--color', '--config', '-Z', '-C'})
+NEXTEST_GLOBAL_VALUED_FLAGS = frozenset({'--color', '--config-file', '--profile', '--tool-config-file'})
+
+
+def inject_target_dir(cargo_args, target):
+    """Inject `--target-dir <target>` before `--` for supported Cargo subcommands.
+
+    Returns `(args, uses_flag)` where `uses_flag` is True when Cargo receives the target
+    directory via CLI flag (injected here or already supplied), so `CARGO_TARGET_DIR` can
+    stay unset in the child environment for cross-slot sccache sharing.
+    """
+    args = list(cargo_args)
+    sep = args.index('--') if '--' in args else len(args)
+    before, after = args[:sep], args[sep:]
+    if any(a == '--target-dir' or a.startswith('--target-dir=') for a in before):
+        return args, True
+    if any(a in ('-h', '--help', '-V', '--version') for a in before):
+        return args, False
+    index = 0
+    if index < len(before) and before[index].startswith('+'):
+        index += 1
+    while index < len(before) and before[index].startswith('-'):
+        flag = before[index]
+        index += 1
+        if flag in GLOBAL_VALUED_FLAGS and index < len(before):
+            index += 1
+    if index >= len(before):
+        return args, False
+    sub = before[index]
+    if sub == 'nextest':
+        index += 1
+        while index < len(before) and before[index].startswith('-'):
+            flag = before[index]
+            index += 1
+            if flag in NEXTEST_GLOBAL_VALUED_FLAGS and index < len(before):
+                index += 1
+        if index >= len(before) or before[index] not in NEXTEST_TARGET_DIR_SUBCOMMANDS:
+            return args, False
+    elif sub not in TARGET_DIR_SUBCOMMANDS:
+        return args, False
+    return [*before, '--target-dir', str(target), *after], True
+
+
 def manifest_paths(cargo_args, root):
     """(index, prefix, resolved path) of each --manifest-path among Cargo's own arguments."""
     found = []
@@ -69,13 +120,19 @@ def main(argv, root=None):
         with build_lock.StageLease(dev.stage_groups(check, root, args), args.lock_directory, label,
                                    args.lock_timeout, say=say) as lease:
             target = dev.stage_target(check, lease.taken, root, args.target_dir)
+            effective_target = pathlib.Path(target) / 'service' if service else pathlib.Path(target)
+            cargo_args, uses_target_dir_flag = inject_target_dir(cargo_args, effective_target)
+            set_target_dir_env = not uses_target_dir_flag
             if service:
-                env = dev.service_env(target, fast=args.fast, lock_directory=args.lock_directory)
+                env = dev.service_env(target, fast=args.fast, lock_directory=args.lock_directory,
+                                      set_target_dir_env=set_target_dir_env)
             elif client:
-                env = dev.client_env(target, fast=args.fast, lock_directory=args.lock_directory)
+                env = dev.client_env(target, fast=args.fast, lock_directory=args.lock_directory,
+                                     set_target_dir_env=set_target_dir_env)
             else:
-                env = dev.host_env(target, lock_directory=args.lock_directory, fast=args.fast)
-            say(f"dev cargo: target {env['CARGO_TARGET_DIR']}", flush=True)
+                env = dev.host_env(target, lock_directory=args.lock_directory, fast=args.fast,
+                                   set_target_dir_env=set_target_dir_env)
+            say(f'dev cargo: target {effective_target}', flush=True)
             # Windows looks the program up on this process's PATH, not env's.
             program = shutil.which('cargo', path=env.get('PATH'))
             if not program:

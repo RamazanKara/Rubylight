@@ -370,6 +370,8 @@ class EnvironmentAndNextest(unittest.TestCase):
                 'PATH': f'{msys_root / "ucrt64/bin"};{os.environ.get("PATH", "")}',
                 'NIGHTJAR_ALLOW_UNTRANSLATED': '1',
                 'RUSTUP_TOOLCHAIN': 'stable',
+                'CARGO_TARGET_DIR': str(base / 'ambient-target'),
+                'CARGO_BUILD_TARGET_DIR': str(base / 'ambient-build-target'),
             }, clear=False):
                 os.environ.pop('RUSTFLAGS', None)
                 os.environ.pop('CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS', None)
@@ -377,7 +379,12 @@ class EnvironmentAndNextest(unittest.TestCase):
                 self.assertEqual(env['LIBCLANG_PATH'], str(msys_root / 'ucrt64/bin'))
                 self.assertEqual(env['BUTTERPOLLO_VULKAN_INCLUDE'], str(msys_root / 'ucrt64/include'))
                 self.assertEqual(env['BUTTERPOLLO_PYROWAVE_ROOT'], str(pyrowave))
-                self.assertEqual(env['CARGO_TARGET_DIR'], str(target))
+                # Default omits CARGO_TARGET_DIR / CARGO_BUILD_TARGET_DIR so sccache shares across pool slots.
+                self.assertNotIn('CARGO_TARGET_DIR', env)
+                self.assertNotIn('CARGO_BUILD_TARGET_DIR', env)
+                env_with_td = dev.host_env(target, lock_directory=base / 'locks', fast=False, set_target_dir_env=True)
+                self.assertEqual(env_with_td['CARGO_TARGET_DIR'], str(target))
+                self.assertNotIn('CARGO_BUILD_TARGET_DIR', env_with_td)
                 self.assertEqual(env['RUBYLIGHT_LOCK_DIRECTORY'], str((base / 'locks').resolve()))
                 self.assertNotIn('NIGHTJAR_ALLOW_UNTRANSLATED', env)
                 self.assertNotIn('RUSTFLAGS', env)
@@ -676,11 +683,16 @@ class EnvironmentAndNextest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             base = pathlib.Path(directory)
             log = base / 'client.log'
-            cmds_nextest = dev.client_commands(ROOT, ['nightjar-core', 'nightjar-desktop'], use_nextest=True)
+            target = base / 'client-slot'
+            cmds_nextest = dev.client_commands(ROOT, ['nightjar-core', 'nightjar-desktop'], use_nextest=True,
+                                               target=target)
             self.assertEqual(cmds_nextest[0][:3], ['cargo', 'nextest', 'run'])
             self.assertIn('--config-file', cmds_nextest[0])
             self.assertEqual(cmds_nextest[1][:3], ['cargo', 'test', '--doc'])
             self.assertEqual(cmds_nextest[2][:2], ['cargo', 'clippy'])
+            for cmd in cmds_nextest:
+                self.assertIn('--target-dir', cmd)
+                self.assertEqual(cmd[cmd.index('--target-dir') + 1], str(target))
             # When cargo-nextest is absent, host and client fall back to cargo test cleanly.
             with mock.patch.object(dev, 'host_env', return_value={'PATH': ''}), \
                     mock.patch.object(dev, 'has_nextest', return_value=False), \
@@ -1002,7 +1014,14 @@ class HandRunCargo(unittest.TestCase):
         seen = {}
 
         def popen(command, cwd=None, env=None):
-            seen.update(command=command, cwd=pathlib.Path(cwd), target=pathlib.Path(env['CARGO_TARGET_DIR']))
+            td = None
+            sep = command.index('--') if '--' in command else len(command)
+            before = command[:sep]
+            if '--target-dir' in before:
+                td = pathlib.Path(before[before.index('--target-dir') + 1])
+            elif 'CARGO_TARGET_DIR' in env:
+                td = pathlib.Path(env['CARGO_TARGET_DIR'])
+            seen.update(command=command, cwd=pathlib.Path(cwd), target=td, env=dict(env))
             if error:
                 raise error
             return mock.Mock(wait=mock.Mock(return_value=code))
@@ -1011,11 +1030,11 @@ class HandRunCargo(unittest.TestCase):
             seen['claimed'] = pathlib.Path(lock)
             return pathlib.Path(lock).with_suffix('')
 
-        def env(target, **_):
-            return {'CARGO_TARGET_DIR': str(target)}
+        def env(target, set_target_dir_env=False, **_):
+            return {'CARGO_TARGET_DIR': str(target)} if set_target_dir_env else {}
 
-        def service_env(target, **_):
-            return env(pathlib.Path(target) / 'service')
+        def service_env(target, set_target_dir_env=False, **_):
+            return env(pathlib.Path(target) / 'service', set_target_dir_env=set_target_dir_env)
 
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(dev, 'service_env', side_effect=service_env) as service, \
@@ -1051,8 +1070,12 @@ class HandRunCargo(unittest.TestCase):
         self.assertEqual(seen['code'], 101)
         self.assertEqual(seen['claimed'], seen['pool'] / '1.lock')
         self.assertEqual(seen['target'], seen['pool'] / '1')
+        self.assertNotIn('CARGO_TARGET_DIR', seen['env'])
         self.assertEqual(seen['cwd'], ROOT.resolve())
-        self.assertEqual(seen['command'][1:3], ['test', '-p'])
+        self.assertEqual(seen['command'][1:], [
+            'test', '-p', 'x', '--target-dir', str(seen['pool'] / '1'),
+            '--', '--manifest-path', 'client/protocol/Cargo.toml',
+        ])
 
     def test_a_client_flag_or_manifest_takes_a_client_slot(self):
         manifest = ROOT.resolve() / 'client' / 'protocol' / 'Cargo.toml'
@@ -1066,14 +1089,16 @@ class HandRunCargo(unittest.TestCase):
             self.assertEqual(seen['code'], 0)
             self.assertEqual(seen['claimed'], seen['pool'] / 'client-1.lock', argv)
             self.assertEqual(seen['target'], seen['pool'] / 'client-1', argv)
+            self.assertNotIn('CARGO_TARGET_DIR', seen['env'])
             self.assertEqual(seen['cwd'], ROOT.resolve() / 'client' / 'protocol')
-            self.assertEqual(seen['command'][1:], expected)
+            self.assertEqual(seen['command'][1:], [*expected, '--target-dir', str(seen['pool'] / 'client-1')])
 
     def test_target_dir_is_claimed_instead_of_a_slot(self):
         for flags, suffix in (([], ''), (['--client'], '-client')):
             seen = self.cargo(*flags, '--target-dir', 'TARGET', '--', 'build')
             target = pathlib.Path(f"{seen['base'] / 'own'}{suffix}")
             self.assertEqual(seen['target'], target)
+            self.assertNotIn('CARGO_TARGET_DIR', seen['env'])
             self.assertEqual(seen['claim_target'].args[0], target)
             self.assertNotIn('claimed', seen)
 
@@ -1083,10 +1108,30 @@ class HandRunCargo(unittest.TestCase):
             self.assertTrue(seen['service'])
             self.assertEqual(seen['claimed'], seen['pool'] / '1.lock')
             self.assertEqual(seen['target'], seen['pool'] / '1' / 'service')
+            self.assertNotIn('CARGO_TARGET_DIR', seen['env'])
             self.assertEqual(seen['cwd'], ROOT.resolve())
-            self.assertEqual(seen['command'][1:], ['build', *manifest])
+            self.assertEqual(seen['command'][1:], ['build', *manifest, '--target-dir', str(seen['target'])])
             self.assertIn(f"dev cargo: target {seen['target']}", seen['stderr'])
         self.assertFalse(self.cargo('--', 'build')['service'])
+
+    def test_target_dir_injection_handles_nextest_clippy_non_build_and_explicit_target_dir(self):
+        seen_nextest = self.cargo('--', 'nextest', 'run', '-p', 'x', '--', '--nocapture')
+        self.assertNotIn('CARGO_TARGET_DIR', seen_nextest['env'])
+        self.assertEqual(seen_nextest['command'][1:], [
+            'nextest', 'run', '-p', 'x', '--target-dir', str(seen_nextest['pool'] / '1'), '--', '--nocapture',
+        ])
+        seen_clippy = self.cargo('--', '+1.98.1', '--locked', 'clippy', '--all-targets', '--', '-D', 'warnings')
+        self.assertNotIn('CARGO_TARGET_DIR', seen_clippy['env'])
+        self.assertEqual(seen_clippy['command'][1:], [
+            '+1.98.1', '--locked', 'clippy', '--all-targets', '--target-dir', str(seen_clippy['pool'] / '1'),
+            '--', '-D', 'warnings',
+        ])
+        seen_fmt = self.cargo('--', 'fmt', '--', '--check')
+        self.assertEqual(seen_fmt['command'][1:], ['fmt', '--', '--check'])
+        self.assertEqual(seen_fmt['env']['CARGO_TARGET_DIR'], str(seen_fmt['pool'] / '1'))
+        seen_explicit = self.cargo('--', 'check', '--target-dir', 'custom-td')
+        self.assertNotIn('CARGO_TARGET_DIR', seen_explicit['env'])
+        self.assertEqual(seen_explicit['command'][1:], ['check', '--target-dir', 'custom-td'])
 
     def test_relative_wrapper_paths_are_the_checkout_roots(self):
         with mock.patch.object(dev, 'stage_groups', side_effect=RuntimeError('stop')) as groups, \

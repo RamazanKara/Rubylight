@@ -598,6 +598,14 @@ def apply_gnu_lld(env):
     return env
 
 
+def _strip_target_dir_env(env):
+    """Remove CARGO_TARGET_DIR and CARGO_BUILD_TARGET_DIR from env so sccache's Rust cache keys
+    stay identical across target-pool slots. Callers pass `--target-dir` on Cargo's CLI instead."""
+    for key in [k for k in env if k.upper() in ('CARGO_TARGET_DIR', 'CARGO_BUILD_TARGET_DIR')]:
+        env.pop(key, None)
+    return env
+
+
 def _ensure_sccache_server(wrapper, env):
     """Best-effort start of the sccache server detached from our Windows job object so
     exiting this dev check never kills a shared sccache server used by concurrent builds."""
@@ -608,8 +616,10 @@ def _ensure_sccache_server(wrapper, env):
         | getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         | getattr(subprocess, 'NORMAL_PRIORITY_CLASS', build_lock.NORMAL_PRIORITY_CLASS)
     )
+    server_env = dict(env)
+    server_env.setdefault('SCCACHE_IDLE_TIMEOUT', '3600')
     try:
-        subprocess.run([wrapper, '--start-server'], env=env, stdin=subprocess.DEVNULL,
+        subprocess.run([wrapper, '--start-server'], env=server_env, stdin=subprocess.DEVNULL,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                        creationflags=flags, timeout=10)
     except (OSError, subprocess.SubprocessError):
@@ -657,8 +667,8 @@ def _pyrowave_dir(env):
     return base / 'ButterpolloRust' / 'sdk' / 'pyrowave-a32b05e0'
 
 
-def host_env(target, lock_directory=None, fast=False):
-    env = tool_env(fast=fast, lock_directory=lock_directory)
+def host_env(target, lock_directory=None, fast=False, set_target_dir_env=False):
+    env = _strip_target_dir_env(tool_env(fast=fast, lock_directory=lock_directory))
     sys_exe_dir = _python_dir(env)
     cargo_bin = _cargo_bin_dir(env)
     msys = _msys_ucrt_dir(env)
@@ -678,7 +688,8 @@ def host_env(target, lock_directory=None, fast=False):
     env['LIBCLANG_PATH'] = str(msys / 'bin')
     env['BUTTERPOLLO_VULKAN_INCLUDE'] = str(msys / 'include')
     env['BUTTERPOLLO_PYROWAVE_ROOT'] = str(pyrowave)
-    env['CARGO_TARGET_DIR'] = str(target)
+    if set_target_dir_env and target is not None:
+        env['CARGO_TARGET_DIR'] = str(target)
     env['CARGO_BUILD_JOBS'] = str(build_lock.cargo_jobs(lock_directory))
     threads = str(build_lock.nextest_threads())
     env.setdefault('NEXTEST_TEST_THREADS', threads)
@@ -689,14 +700,15 @@ def host_env(target, lock_directory=None, fast=False):
     return apply_sccache(apply_gnu_lld(env), start_server=True)
 
 
-def client_env(target, fast=False, lock_directory=None):
-    env = tool_env(fast=fast, lock_directory=lock_directory)
+def client_env(target, fast=False, lock_directory=None, set_target_dir_env=False):
+    env = _strip_target_dir_env(tool_env(fast=fast, lock_directory=lock_directory))
     sys_exe_dir = _python_dir(env)
     cargo_bin = _cargo_bin_dir(env)
     msys_bin = _msys_ucrt_dir(env) / 'bin'
     env['PATH'] = prepend_path(env.get('PATH', ''), [sys_exe_dir, str(cargo_bin), str(msys_bin)])
     env['LIBCLANG_PATH'] = str(msys_bin)
-    env['CARGO_TARGET_DIR'] = str(target)
+    if set_target_dir_env and target is not None:
+        env['CARGO_TARGET_DIR'] = str(target)
     env['CARGO_BUILD_JOBS'] = str(build_lock.cargo_jobs(lock_directory))
     threads = str(build_lock.nextest_threads())
     env.setdefault('NEXTEST_TEST_THREADS', threads)
@@ -705,8 +717,8 @@ def client_env(target, fast=False, lock_directory=None):
     return apply_sccache(apply_gnu_lld(env), start_server=True)
 
 
-def interop_env(target, fast=False, lock_directory=None):
-    env = client_env(target, fast=fast, lock_directory=lock_directory)
+def interop_env(target, fast=False, lock_directory=None, set_target_dir_env=False):
+    env = client_env(target, fast=fast, lock_directory=lock_directory, set_target_dir_env=set_target_dir_env)
     if os.name == 'nt':
         msys = _msys_ucrt_dir(env)
         pyrowave = _pyrowave_dir(env)
@@ -718,8 +730,9 @@ def interop_env(target, fast=False, lock_directory=None):
     return env
 
 
-def service_env(target, fast=False, lock_directory=None):
-    env = client_env(pathlib.Path(target) / 'service', fast=fast, lock_directory=lock_directory)
+def service_env(target, fast=False, lock_directory=None, set_target_dir_env=False):
+    env = client_env(pathlib.Path(target) / 'service', fast=fast, lock_directory=lock_directory,
+                     set_target_dir_env=set_target_dir_env)
     for name in ('RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CARGO_BUILD_RUSTFLAGS',
                  'CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS',
                  'RUSTC_WRAPPER', 'CARGO_BUILD_RUSTC_WRAPPER', 'CARGO_INCREMENTAL',
@@ -1040,19 +1053,20 @@ def end_user_idle(root, env, mark):
         pass
 
 
-def client_commands(root, crates, use_nextest=False, jobs=None):
+def client_commands(root, crates, use_nextest=False, jobs=None, target=None):
     """cargo nextest/test and clippy for the changed client crates."""
     j = str(jobs if jobs is not None else build_lock.cargo_jobs())
     args = [a for crate in crates for a in ('-p', crate)]
+    td = ['--target-dir', str(target)] if target is not None else []
     if use_nextest:
-        commands = [['cargo', 'nextest', 'run', *nextest_args(root), '--build-jobs', j, '--locked', *args]]
+        commands = [['cargo', 'nextest', 'run', *nextest_args(root), '--build-jobs', j, '--locked', *td, *args]]
         doc_crates = doctest_crates(root, CLIENT_WORKSPACE, crates)
         if doc_crates:
             doc_args = [a for crate in doc_crates for a in ('-p', crate)]
-            commands.append(['cargo', 'test', '--doc', '-j', j, '--locked', *doc_args])
+            commands.append(['cargo', 'test', '--doc', '-j', j, '--locked', *td, *doc_args])
     else:
-        commands = [['cargo', 'test', '-j', j, '--locked', *args]]
-    commands.append(['cargo', 'clippy', '-j', j, '--all-targets', '--locked',
+        commands = [['cargo', 'test', '-j', j, '--locked', *td, *args]]
+    commands.append(['cargo', 'clippy', '-j', j, '--all-targets', '--locked', *td,
                      '--message-format=json', *args, '--', '-D', 'warnings'])
     return commands
 
@@ -1212,9 +1226,10 @@ def execute(check, root, log, target, fresh_dependencies=False, fast=False, lock
         jobs = str(build_lock.cargo_jobs(lock_directory))
         if fast:
             args = [a for crate in check.items for a in ('-p', crate)]
-            cmd = ['cargo', 'check', '-j', jobs, '--tests', '--locked', '--message-format=json', *args]
+            cmd = ['cargo', 'check', '-j', jobs, '--tests', '--locked', '--target-dir', str(target),
+                   '--message-format=json', *args]
             return run(cmd, log, root / CLIENT_WORKSPACE, env, json_messages=True) == 0
-        for command in client_commands(root, check.items, use_nextest=has_nextest(env), jobs=int(jobs)):
+        for command in client_commands(root, check.items, use_nextest=has_nextest(env), jobs=int(jobs), target=target):
             if run(command, log, root / CLIENT_WORKSPACE, env,
                    json_messages='--message-format=json' in command) != 0:
                 return False
@@ -1223,33 +1238,36 @@ def execute(check, root, log, target, fresh_dependencies=False, fast=False, lock
         # Its own workspace, in a folder of this worktree's target dir; without a
         # developer's linker flags, as its release build (rust/service/build.ps1).
         env = service_env(target, fast=fast, lock_directory=lock_directory)
+        service_target = pathlib.Path(target) / 'service'
+        td = ['--target-dir', str(service_target)]
         jobs = str(build_lock.cargo_jobs(lock_directory))
         manifest = ['--manifest-path', str(root / SERVICE_WORKSPACE / 'Cargo.toml')]
         if fast:
-            cmd = ['cargo', 'check', '-j', jobs, '--tests', '--locked', '--message-format=json', *manifest]
+            cmd = ['cargo', 'check', '-j', jobs, '--tests', '--locked', *td, '--message-format=json', *manifest]
             return run(cmd, log, root, env, json_messages=True) == 0
         use_nextest = has_nextest(env)
-        test_cmd = (['cargo', 'nextest', 'run', *nextest_args(root), '--build-jobs', jobs, '--locked', *manifest]
-                    if use_nextest else ['cargo', 'test', '-j', jobs, '--locked', *manifest])
+        test_cmd = (['cargo', 'nextest', 'run', *nextest_args(root), '--build-jobs', jobs, '--locked', *td, *manifest]
+                    if use_nextest else ['cargo', 'test', '-j', jobs, '--locked', *td, *manifest])
         commands = [
             ['cargo', 'fmt', *manifest, '--', '--check'],
-            ['cargo', 'clippy', '-j', jobs, '--all-targets', '--locked', '--message-format=json',
+            ['cargo', 'clippy', '-j', jobs, '--all-targets', '--locked', *td, '--message-format=json',
              *manifest, '--', '-D', 'warnings'],
             test_cmd,
         ]
         if use_nextest and doctest_crates(root, SERVICE_WORKSPACE, ['butterpollo-service']):
-            commands.append(['cargo', 'test', '--doc', '-j', jobs, '--locked', *manifest])
+            commands.append(['cargo', 'test', '--doc', '-j', jobs, '--locked', *td, *manifest])
         return all(run(command, log, root, env, json_messages='--message-format=json' in command) == 0
                    for command in commands)
     if check.kind == 'interop':
         env = interop_env(target, fast=fast, lock_directory=lock_directory)
+        td = ['--target-dir', str(target)]
         jobs = str(build_lock.cargo_jobs(lock_directory))
         manifest = ['--manifest-path', str(root / 'tests/interop/Cargo.toml')]
         if fast:
-            cmd = ['cargo', 'check', '-j', jobs, '--tests', '--locked', '--message-format=json', *manifest]
+            cmd = ['cargo', 'check', '-j', jobs, '--tests', '--locked', *td, '--message-format=json', *manifest]
             return run(cmd, log, root, env, json_messages=True) == 0
-        test_cmd = (['cargo', 'nextest', 'run', *nextest_args(root), '--build-jobs', jobs, '--locked', *manifest]
-                    if has_nextest(env) else ['cargo', 'test', '-j', jobs, '--locked', *manifest])
+        test_cmd = (['cargo', 'nextest', 'run', *nextest_args(root), '--build-jobs', jobs, '--locked', *td, *manifest]
+                    if has_nextest(env) else ['cargo', 'test', '-j', jobs, '--locked', *td, *manifest])
         return run(test_cmd, log, root, env) == 0
     if check.kind == 'gradle':
         before = os.environ.get('TEMP'), os.environ.get('TMP')

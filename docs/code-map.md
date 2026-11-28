@@ -84,6 +84,7 @@ Deadlines, by name: [`ENCODER_RECOVERY`](../rust/host/stream/src/stream/video.rs
 | Invites to play over the internet | `session/src/invites.rs` (links, invited devices) | | `invites.rs`, `nvhttp/pairing.rs`, `multiclient.rs`, `internet_play.rs`, `native_api/guests.rs`, `web/session_guests.rs` |
 | Console, API | `crypto/src/auth.rs`, `session/src/log_analysis.rs` | | `web.rs`, `web/`, `console/`, `web_sessions.rs`, `webhooks.rs`; the console itself is `rust/web/src/` (its pages in `rust/web/src/lib/navigation.ts`, the 7.0 design tokens in `rust/web/src/styles/tokens.css`) |
 | Stream Doctor 2.0 | `session/src/native/doctor.rs` (the verdict and the session-only remedies, over the stutter report) | | `native_api/doctor.rs` |
+| Host Hub Sync | `session/src/hub_sync.rs` (profiles, CAS revisions, quotas, override summary) | | `hub_store.rs`, `native_api/hub.rs` |
 | Browser play | `session/src/webrtc/` | | `webrtc/` |
 | Update, service | `src/update_files.rs`, `src/update_recovery.rs` | `io/src/service.rs` | `updater.rs`, `updater/`, `maintenance.rs`, `maintenance/`, `service_tasks.rs` |
 | Tray | `session/src/tray.rs` (app status, notice queue) | `io/src/tray.rs`, `tray/status.rs` (status, 7.0 badge colours and compositing, menu), `tray/icon.rs`, `tray/notices.rs` | `runtime.rs` (`user_action`, `show_app`) |

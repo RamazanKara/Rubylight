@@ -24,6 +24,7 @@ mod help;
 mod hero_stage;
 mod home;
 mod host_details_limiter;
+pub mod hub_conflict;
 mod icons;
 pub mod launch_curtain;
 mod launch_scene;
@@ -67,7 +68,7 @@ pub use launch_scene::settings_line;
 pub use settings::{pick_display_choice, DISPLAY_CHOICES};
 pub(crate) use icons::Icon;
 use navigation::{destination_icon, page_area};
-pub use types::{Command, ConnectingView, Dialog, Screen, View, DESTINATIONS, GUIDES};
+pub use types::{Command, ConnectingView, Dialog, HubConflictChoice, Screen, View, DESTINATIONS, GUIDES};
 
 /// A PC in `Dialog::KeptSettings`: its name, whether it has settings of its own, and for how
 /// many games. Put into words as it is drawn, in the language chosen by then.

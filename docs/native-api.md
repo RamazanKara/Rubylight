@@ -823,6 +823,7 @@ Every non-2xx answer has the same body:
 | 409 | `host_in_use` / `token_expired` / `update_unavailable` | Power and update: the PC is in use, and `message` names the device or what runs / the power token expired or was used, so confirm again / no update to install, `message` says why. Continue here also answers `host_in_use` |
 | 409 | `coop_refused` | Co-op: the session is full or ended, or the device was removed from it; `message` says which |
 | 409 | `dvr_refused` | Stream DVR: the feature is off, a PyroWave stream or passthrough audio, no keyframe yet, another clip is being written, or the disk or quota is full; `message` says which, `GET /dvr` names the reason |
+| 409 | `revision_conflict` | Host Hub Sync: `If-Match` did not match the server's profile revision; `X-Hub-Current-Revision` names the current revision |
 | 403 | `usb_disabled` / 409 `usb_limit` | USB forwarding: the setting is off or the device has no `usb` permission / the host forwards as many devices as it allows |
 | 403 | `folders_disabled` / `folder_unreadable` | Shared folders: the host shares none / Windows denies the signed-in user reading it |
 | 503 | `temporarily_unavailable` | ADLX is busy or reinitialising, with `retry_after_ms`; Nucleus Co-op cannot run (`/coop`); the stream can't show the couch menu |
@@ -879,8 +880,16 @@ Modules (serde shapes as in the examples above, all `snake_case`; the source is 
 | `doctor` | `DoctorSnapshot`, `EncoderFacts`, `HostStages`, `HostStage`, `StageTimes`, `PipelineRates`, `ActiveTrial`, `EligibleRemedy`, `RemedyId`, `DoctorApplyRequest`, `DoctorAction` |
 | `quick_suspend` | `QuickSuspendStatus`, `SuspendState`, `QuickSuspendRequest` |
 | `curtain` | `LaunchCurtainSnapshot`, `CurtainPhase`, `CurtainPrompt`, `CurtainDismissRequest` |
+| `hub` | `HubSnapshot`, `HubCapabilitiesSnapshot`, `CoverEntry`, `SyncProfile`, `ProfileScope`, `NetworkMatcher`, `StreamProfileSpec`, `DisplayMatcher`, `InputDeckSummary`, `HostOverrideSummary`, `ProfileWrite`, `ProfileDeleteResult` |
 | `usb` | `TUNNEL_PATH`, `UPGRADE`, `TOKEN_HEADER`, `TOKEN_BYTES`, `TOKEN_TTL_SECS` |
 | `error` | `ErrorBody`, `ApiError`, `ErrorCode` with `ErrorCode::status()`, the table in [Errors](#errors) |
+
+## Host Hub Sync (`hub.sync`)
+
+- `GET /api/native/v1/hub/snapshot` (`list`, optional `?all_devices=1` needing `host_control`): returns `HubSnapshot` with `ETag: "rev:<N>"` (or `304 Not Modified` on `If-None-Match`). Caller identities normalize `#screen2` via `device_uuid`.
+- `PUT /api/native/v1/hub/profiles/{id}` (`launch` own device, `host_control` for shared or other devices; required `If-Match: "<rev>"`, `"0"` to create; up to 64 KiB JSON body, above returning `413 too_large`; mismatch returning `409 revision_conflict` with `X-Hub-Current-Revision`). Enforces ID `^[a-z0-9][a-z0-9_-]{0,63}$`, 64 profiles per device, 256 host-wide.
+- `DELETE /api/native/v1/hub/profiles/{id}` (same ownership + `If-Match` CAS): deletes the profile and returns `ProfileDeleteResult`.
+- `GET /api/native/v1/hub/covers/{app_id}` (`list`): streams custom app cover PNG/JPEG/WebP bytes with `ETag: "sha256:<hex>"`, `Cache-Control: private, max-age=0, must-revalidate`, and `304 Not Modified` when `If-None-Match` matches.
 
 `Option` fields skip serialisation when `None`, except where the examples show `null` on purpose (`game_id`, `store`, `installed`, `app`, `setting` and `retry_after_ms` in an error, and `primary` and `idle_sleep.reason` in Wake). Response structs don't deny unknown fields, so old clients read newer hosts. In a Radeon response, a setting's `value`, `range` or `restore` of a shape the client doesn't know (a float, an array) reads as absent instead of failing the whole response. Request structs deny unknown fields, so typos fail loudly. The crate carries JSON fixtures (`client/protocol/native-api/tests/fixtures/*.json`, one per example above) with round-trip tests, and Nightjar's tests reuse them.
 

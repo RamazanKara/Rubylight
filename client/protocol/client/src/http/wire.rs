@@ -71,6 +71,7 @@ impl Head {
             content_type: self.header("Content-Type").map(str::to_owned),
             status: self.status,
             reason: self.reason,
+            headers: self.headers,
             body,
         }
     }
@@ -110,6 +111,9 @@ pub(crate) fn read_head<R: Read + ?Sized>(reader: &mut Reader<'_, R>) -> Result<
 }
 
 pub(super) fn read_body<R: Read + ?Sized>(reader: &mut Reader<'_, R>, head: &Head, body_limit: usize) -> Result<Vec<u8>, Error> {
+    if head.status == 304 || head.status == 204 {
+        return Ok(Vec::new());
+    }
     let header = |name: &str| head.header(name);
     let too_large =
         || Error::Malformed(format!("host response exceeds the {body_limit} byte limit"));

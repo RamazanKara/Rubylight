@@ -100,6 +100,7 @@ public class HostCapabilitiesContractTest {
             case AWAY_WAKE_RELAY: return "away_wake_relay";
             case STREAM_DOCTOR_V2: return "stream_doctor_v2";
             case LAUNCH_CURTAIN: return "launch_curtain";
+            case HUB_SYNC: return "hub_sync";
             default: return null;
         }
     }

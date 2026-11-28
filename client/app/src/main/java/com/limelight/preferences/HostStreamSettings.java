@@ -80,7 +80,7 @@ public class HostStreamSettings extends NightjarActivity {
 
     Mode mode = Mode.PC;
     private String profileId, appUuid, appName;
-    private int appId;
+    int appId;
     StreamLayers.Result below;
     PreferenceConfiguration global;
     HostStreamProfile overrides;

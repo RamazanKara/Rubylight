@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">Touchpad</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Grilletto %2$d%%</string>
     <string name="controller_studio_a11y_summary">Studio controller: tasti %1$s, zona morta stick %2$d%%, zona morta grilletti %3$d%%</string>
+    <string name="hub_sync_sheet_title">Profili sincronizzati e sovrascritture PC</string>
+    <string name="hub_sync_sheet_summary">Profili, layout controller e sovrascritture sincronizzati con questo PC</string>
+    <string name="hub_sync_revision">Sincronizzato con il PC (revisione %1$d)</string>
+    <string name="hub_sync_not_loaded">Offline — in attesa del PC</string>
+    <string name="hub_sync_conflict_title">Profilo modificato su un altro dispositivo</string>
+    <string name="hub_sync_conflict_body">Questo profilo è stato modificato su un altro dispositivo. Scegli quale versione tenere.</string>
+    <string name="hub_sync_keep_mine">Tieni la mia</string>
+    <string name="hub_sync_use_pc">Usa quella del PC</string>
+    <string name="hub_sync_save_copy">Salva come nuovo</string>
+    <string name="hub_sync_permission_denied">Questo dispositivo può vedere i profili di questo PC, ma richiede il permesso Avvia nella console host per salvare le modifiche.</string>
+    <string name="hub_sync_offline_saved">Il PC è offline. Le modifiche sono salvate su questo dispositivo e verranno sincronizzate automaticamente alla riconnessione del PC.</string>
+    <string name="hub_override_badge">Sovrascritto sul PC per questo gioco</string>
+    <string name="hub_override_explain">Le sovrascritture dell’host hanno priorità in ordine: gioco su questo dispositivo, gioco, dispositivo, poi predefinite del PC (%1$s).</string>
+    <string name="hub_sync_profiles_section">Profili di streaming sincronizzati</string>
+    <string name="hub_sync_no_profiles">Nessun profilo sincronizzato salvato su questo PC.</string>
 </resources>

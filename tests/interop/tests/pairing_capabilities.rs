@@ -433,6 +433,8 @@ fn expected(feature: Feature) -> Availability {
         Feature::StreamDoctorV2 => Supported,
         // The launch curtain is off by default (`launch_curtain`).
         Feature::LaunchCurtain => Unsupported(None),
+        // Host Hub Sync is always listed when the host supports it.
+        Feature::HubSync => Supported,
     }
 }
 

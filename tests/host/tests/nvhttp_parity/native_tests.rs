@@ -49,6 +49,8 @@ mod files;
 mod folders;
 #[path = "native_tests/guests.rs"]
 mod guests;
+#[path = "native_tests/hub.rs"]
+mod hub;
 #[path = "native_tests/invites.rs"]
 mod invites;
 #[path = "native_tests/launcher.rs"]

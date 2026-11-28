@@ -423,6 +423,7 @@ impl Evidence {
             // Read before a launch, from serverinfo; the native feature says the same.
             Feature::LaunchCurtain if self.launch_curtain_offered => Availability::Supported,
             Feature::LaunchCurtain => self.serverinfo_version(self.launch_curtain_version),
+            Feature::HubSync => self.native_feature(self.hub_sync_offered, None),
         }
     }
 

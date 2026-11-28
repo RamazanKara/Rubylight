@@ -15,7 +15,9 @@ use nightjar_policy::http::{
     App, AppControl, Availability, Feature, HostUpdate, NativeCapabilities,
     PairingRequest, PcPower, Reason, ServerInfo,
 };
+use nightjar_policy::hub_sync::{ProfileConflict, SyncStatus};
 use nightjar_policy::internet_path::InternetPath;
+use rubylight_native_api::hub::{HostOverrideSummary, InputDeckSummary, SyncProfile};
 use rubylight_protocol::invite_uri::InviteUri;
 use rubylight_protocol::pairing_uri::PairingUri;
 
@@ -131,10 +133,25 @@ pub struct Native {
     pub update: Option<HostUpdate>,
     /// Devices waiting to pair, as last read, where this device may approve them.
     pub pairing_requests: Vec<PairingRequest>,
+    /// Synced profiles, input decks, cover ETag state, and host override visibility.
+    pub hub: HubStateView,
     /// A session action (Close game) is running.
     pub acting: bool,
     pub loading: bool,
     pub full_at: Option<Instant>,
+}
+
+/// UI summary of Host Hub Sync state for one paired PC.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HubStateView {
+    pub status: SyncStatus,
+    pub snapshot_revision: u64,
+    pub profiles: Vec<SyncProfile>,
+    pub input_decks: Vec<InputDeckSummary>,
+    pub host_overrides: Vec<HostOverrideSummary>,
+    pub pending_outbox_count: usize,
+    pub conflict: Option<Box<ProfileConflict>>,
+    pub error: Option<String>,
 }
 
 impl Native {

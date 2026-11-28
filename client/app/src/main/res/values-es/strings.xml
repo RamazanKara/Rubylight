@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">Panel táctil</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Gatillo %2$d%%</string>
     <string name="controller_studio_a11y_summary">Estudio de mando: botones %1$s, zona muerta del stick %2$d%%, zona muerta del gatillo %3$d%%</string>
+    <string name="hub_sync_sheet_title">Perfiles sincronizados y anulaciones del PC</string>
+    <string name="hub_sync_sheet_summary">Perfiles, diseños de mando y anulaciones sincronizados con este PC</string>
+    <string name="hub_sync_revision">Sincronizado con el PC (revisión %1$d)</string>
+    <string name="hub_sync_not_loaded">Sin conexión — esperando al PC</string>
+    <string name="hub_sync_conflict_title">Perfil modificado en otro dispositivo</string>
+    <string name="hub_sync_conflict_body">Este perfil cambió en otro dispositivo. Elige qué versión conservar.</string>
+    <string name="hub_sync_keep_mine">Conservar la mía</string>
+    <string name="hub_sync_use_pc">Usar la del PC</string>
+    <string name="hub_sync_save_copy">Guardar como nuevo</string>
+    <string name="hub_sync_permission_denied">Este dispositivo puede ver perfiles de este PC, pero necesita permiso de Inicio en la consola del host para guardar cambios.</string>
+    <string name="hub_sync_offline_saved">El PC está desconectado. Los cambios se guardan en este dispositivo y se sincronizarán automáticamente cuando el PC vuelva a conectarse.</string>
+    <string name="hub_override_badge">Anulado en el PC para este juego</string>
+    <string name="hub_override_explain">Las anulaciones del host se aplican en orden: juego en este dispositivo, juego, dispositivo y valores predeterminados del PC (%1$s).</string>
+    <string name="hub_sync_profiles_section">Perfiles de transmisión sincronizados</string>
+    <string name="hub_sync_no_profiles">Aún no hay perfiles sincronizados guardados en este PC.</string>
 </resources>

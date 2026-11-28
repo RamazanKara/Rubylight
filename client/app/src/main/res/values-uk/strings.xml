@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">Тачпад</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Курок %2$d%%</string>
     <string name="controller_studio_a11y_summary">Студія геймпада: розкладка %1$s, мертва зона стіка %2$d%%, мертва зона курків %3$d%%</string>
+    <string name="hub_sync_sheet_title">Синхронізовані профілі та перевизначення ПК</string>
+    <string name="hub_sync_sheet_summary">Профілі, розкладки контролера та перевизначення, синхронізовані з цим ПК</string>
+    <string name="hub_sync_revision">Синхронізовано з ПК (версія %1$d)</string>
+    <string name="hub_sync_not_loaded">Офлайн — очікування підключення ПК</string>
+    <string name="hub_sync_conflict_title">Профіль змінено на іншому пристрої</string>
+    <string name="hub_sync_conflict_body">Цей профіль змінено на іншому пристрої. Виберіть версію, яку потрібно зберегти.</string>
+    <string name="hub_sync_keep_mine">Залишити мою</string>
+    <string name="hub_sync_use_pc">Взяти з ПК</string>
+    <string name="hub_sync_save_copy">Зберегти як новий</string>
+    <string name="hub_sync_permission_denied">Цей пристрій може переглядати профілі з цього ПК, але для збереження змін потрібен дозвіл «Запуск» у консолі хоста.</string>
+    <string name="hub_sync_offline_saved">ПК офлайн. Зміни збережено на цьому пристрої й буде автоматично синхронізовано після відновлення підключення.</string>
+    <string name="hub_override_badge">Перевизначено на ПК для цієї гри</string>
+    <string name="hub_override_explain">Перевизначення хоста застосовуються в порядку: гра на цьому пристрої, гра, пристрій, далі типові налаштування ПК (%1$s).</string>
+    <string name="hub_sync_profiles_section">Синхронізовані профілі трансляції</string>
+    <string name="hub_sync_no_profiles">На цьому ПК ще немає збережених синхронізованих профілів.</string>
 </resources>

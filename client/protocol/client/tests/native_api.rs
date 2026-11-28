@@ -22,7 +22,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex, OnceLock};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../native-api/tests/fixtures");
-const NAMES: [&str; 26] = [
+const NAMES: [&str; 27] = [
     "capabilities",
     "library",
     "session",
@@ -49,6 +49,7 @@ const NAMES: [&str; 26] = [
     "dvr_record",
     "dvr_clips",
     "stream_doctor",
+    "hub_snapshot",
 ];
 
 fn fixture(name: &str) -> String {

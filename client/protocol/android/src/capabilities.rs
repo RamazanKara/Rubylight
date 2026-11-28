@@ -89,6 +89,7 @@ fn feature_key(feature: Feature) -> &'static str {
         Feature::StreamDvr => "stream_dvr",
         Feature::StreamDoctorV2 => "stream_doctor_v2",
         Feature::LaunchCurtain => "launch_curtain",
+        Feature::HubSync => "hub_sync",
     }
 }
 

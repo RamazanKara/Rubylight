@@ -184,6 +184,14 @@ pub enum Event {
     },
     /// A game's artwork and facts record, looked up or read from disk ([`crate::game_info`]).
     GameInfo(Box<nightjar_policy::game_info::cache::Record>),
+    /// Host Hub Sync pass completed (`hub/snapshot`, outbox replay, and ETag covers).
+    HubSync {
+        id: u64,
+        epoch: u64,
+        engine: Box<nightjar_policy::hub_sync::SyncEngine>,
+        cover_etags: std::collections::BTreeMap<u32, String>,
+        updated_covers: Vec<u32>,
+    },
 }
 
 impl Hosts {

@@ -68,6 +68,12 @@ final class HostStreamProfileSummary {
         fragment.row(host, "details", R.string.pcview_menu_details, () -> HostDetailsDialog.show(screen, screen.computer))
                 .setSummary(R.string.pc_settings_details_summary);
         if (!unpaired) {
+            if (pc.caps.has(HostCapabilities.Feature.HUB_SYNC)) {
+                fragment.row(host, "hub_profiles", R.string.hub_sync_sheet_title, () ->
+                        com.limelight.ui.HubProfileSheet.show(screen, pc, screen.appId,
+                                com.limelight.nativeapi.HubSyncController.backendFor(screen, pc)))
+                        .setSummary(R.string.hub_sync_sheet_summary);
+            }
             fragment.row(host, "frontend_export", R.string.frontend_export_menu, screen::startFrontendExport)
                     .setSummary(HostFrontendExporter.exportSummary(screen, pc));
             if (screen.canPinShortcuts()) {

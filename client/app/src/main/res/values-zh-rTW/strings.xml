@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">觸控板</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · 扳機 %2$d%%</string>
     <string name="controller_studio_a11y_summary">控制器工作室：%1$s 按鍵配置，搖桿死區 %2$d%%，扳機死區 %3$d%%</string>
+    <string name="hub_sync_sheet_title">已同步設定檔與 PC 覆寫</string>
+    <string name="hub_sync_sheet_summary">與此 PC 同步的設定檔、控制器配置與主機覆寫設定</string>
+    <string name="hub_sync_revision">已與 PC 同步（修訂版 %1$d）</string>
+    <string name="hub_sync_not_loaded">離線 — 等待連線至 PC</string>
+    <string name="hub_sync_conflict_title">設定檔已在另一台裝置上變更</string>
+    <string name="hub_sync_conflict_body">此設定檔已在另一台裝置上變更。請選擇要保留的版本。</string>
+    <string name="hub_sync_keep_mine">保留本機變更</string>
+    <string name="hub_sync_use_pc">使用 PC 版本</string>
+    <string name="hub_sync_save_copy">另存為新設定</string>
+    <string name="hub_sync_permission_denied">此裝置可檢視這台 PC 的設定檔，但需要在主機主控台中授予「啟動」權限才能儲存變更。</string>
+    <string name="hub_sync_offline_saved">PC 目前離線。變更已儲存在此裝置上，PC 重新連線後會自動同步。</string>
+    <string name="hub_override_badge">已在 PC 上為此遊戲覆寫</string>
+    <string name="hub_override_explain">主機覆寫依序優先套用：此裝置上的遊戲、遊戲、裝置、PC 預設值（%1$s）。</string>
+    <string name="hub_sync_profiles_section">已同步的串流設定檔</string>
+    <string name="hub_sync_no_profiles">此 PC 上尚未儲存任何同步設定檔。</string>
 </resources>

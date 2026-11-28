@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">タッチパッド</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · トリガー %2$d%%</string>
     <string name="controller_studio_a11y_summary">コントローラースタジオ: ボタン配置 %1$s、スティックのデッドゾーン %2$d%%、トリガーのデッドゾーン %3$d%%</string>
+    <string name="hub_sync_sheet_title">同期済みプロファイルと PC 上書き設定</string>
+    <string name="hub_sync_sheet_summary">この PC と同期されたプロファイル、コントローラー設定、上書き設定</string>
+    <string name="hub_sync_revision">PC と同期済み（リビジョン %1$d）</string>
+    <string name="hub_sync_not_loaded">オフライン — PC への接続を待機中</string>
+    <string name="hub_sync_conflict_title">別のデバイスでプロファイルが変更されました</string>
+    <string name="hub_sync_conflict_body">このプロファイルは別のデバイスで変更されました。残すバージョンを選んでください。</string>
+    <string name="hub_sync_keep_mine">このデバイスを残す</string>
+    <string name="hub_sync_use_pc">PC 側を使う</string>
+    <string name="hub_sync_save_copy">新規として保存</string>
+    <string name="hub_sync_permission_denied">このデバイスはこの PC のプロファイルを閲覧できますが、変更を保存するにはホストコンソールで起動権限が必要です。</string>
+    <string name="hub_sync_offline_saved">PC がオフラインです。変更はこのデバイスに保存され、PC が再接続すると自動的に同期されます。</string>
+    <string name="hub_override_badge">このゲーム用に PC 側で上書きされています</string>
+    <string name="hub_override_explain">ホストの上書きは、このデバイス上のゲーム → ゲーム → デバイス → PC の既定値の順で優先されます（%1$s）。</string>
+    <string name="hub_sync_profiles_section">同期されたストリームプロファイル</string>
+    <string name="hub_sync_no_profiles">この PC にはまだ同期プロファイルが保存されていません。</string>
 </resources>

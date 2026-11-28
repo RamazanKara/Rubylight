@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">Touchpad</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Gatilho %2$d%%</string>
     <string name="controller_studio_a11y_summary">Estúdio do controle: botões %1$s, zona morta do analógico %2$d%%, zona morta do gatilho %3$d%%</string>
+    <string name="hub_sync_sheet_title">Perfis sincronizados e substituições do PC</string>
+    <string name="hub_sync_sheet_summary">Perfis, layouts de controle e substituições sincronizados com este PC</string>
+    <string name="hub_sync_revision">Sincronizado com o PC (revisão %1$d)</string>
+    <string name="hub_sync_not_loaded">Offline — aguardando conexão com o PC</string>
+    <string name="hub_sync_conflict_title">Perfil alterado em outro dispositivo</string>
+    <string name="hub_sync_conflict_body">Este perfil foi alterado em outro dispositivo. Escolha qual versão manter.</string>
+    <string name="hub_sync_keep_mine">Manter a minha</string>
+    <string name="hub_sync_use_pc">Usar a do PC</string>
+    <string name="hub_sync_save_copy">Salvar como novo</string>
+    <string name="hub_sync_permission_denied">Este dispositivo pode visualizar perfis deste PC, mas precisa da permissão Iniciar no console do host para salvar alterações.</string>
+    <string name="hub_sync_offline_saved">O PC está offline. As alterações foram salvas neste dispositivo e serão sincronizadas automaticamente quando o PC reconectar.</string>
+    <string name="hub_override_badge">Substituído no PC para este jogo</string>
+    <string name="hub_override_explain">As substituições do host seguem a ordem: jogo neste dispositivo, jogo, dispositivo e padrões do PC (%1$s).</string>
+    <string name="hub_sync_profiles_section">Perfis de transmissão sincronizados</string>
+    <string name="hub_sync_no_profiles">Nenhum perfil sincronizado salvo neste PC ainda.</string>
 </resources>

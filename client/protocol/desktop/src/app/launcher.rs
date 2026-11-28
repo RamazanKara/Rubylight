@@ -442,6 +442,13 @@ impl App {
                     self.show_moved(id, app, device);
                 }
                 HostEvent::MoveWatched { id, app, token, read } => self.handle_move_watched(id, app, token, read),
+                HostEvent::HubSync { id, engine, .. } => {
+                    if let Some(conflict) = engine.conflict
+                        && matches!(self.launcher.dialog, Dialog::None)
+                    {
+                        self.launcher.dialog = Dialog::HubConflict { host: id, conflict: Box::new(conflict) };
+                    }
+                }
                 HostEvent::Action { result: Err(e), .. } => self.launcher.notify(tr("The PC action failed"), e),
                 _ => {}
             }

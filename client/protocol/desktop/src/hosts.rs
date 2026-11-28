@@ -36,6 +36,8 @@ mod covers;
 mod events;
 mod game_info;
 mod host;
+pub(crate) mod hub_cache;
+mod hub_sync;
 mod native;
 mod pairing;
 mod poll;
@@ -109,6 +111,8 @@ pub struct Hosts {
     library_saves: Vec<u64>,
     /// Hosts whose app list as Home keeps it changed since the last `take_classic_saves`.
     classic_saves: Vec<u64>,
+    /// Client persistent config/cache folder for offline Hub Sync caches.
+    store_dir: Option<std::path::PathBuf>,
     /// The threads covers load on.
     art_pool: ArtPool,
     /// The cover files on disk, for the workers that save one.
@@ -270,6 +274,7 @@ impl Hosts {
             link_claims: HashMap::new(),
             library_saves: Vec::new(),
             classic_saves: Vec::new(),
+            store_dir: None,
             art_pool: ArtPool::default(),
             art_files: Arc::default(),
             art_scale: 1.0,
@@ -321,6 +326,9 @@ impl Hosts {
             art_sized: Arc::new(HashMap::new()),
             art_retry: Arc::new(HashMap::new()),
             native: Native::default(),
+            hub_engine: nightjar_policy::hub_sync::SyncEngine::default(),
+            hub_cover_etags: std::collections::BTreeMap::new(),
+            hub_inflight: false,
             classic_apps: None,
             classic: None,
             native_epoch: 0,

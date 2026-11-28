@@ -16,6 +16,7 @@ mod files;
 mod folders;
 pub mod foundation;
 mod hardware_metrics;
+pub mod hub;
 pub(crate) mod identity;
 mod internet_play;
 mod launch;
@@ -62,6 +63,7 @@ pub use folders::{
 pub use hardware_metrics::{
     CPU_METRICS, GPU_METRICS, GpuMetrics, HardwareMetrics, MAX_HARDWARE_METRICS_BYTES, Readings,
 };
+pub use hub::{HubCoverResult, HubDeleteResult, HubPutResult, HubSnapshotResult};
 pub use identity::ClientIdentity;
 pub use internet_play::{InternetPlay, MAX_INTERNET_PLAY_BYTES};
 pub use launch_warning::LaunchWarning;

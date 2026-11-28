@@ -17,6 +17,7 @@ pub mod error;
 pub mod files;
 pub mod folders;
 pub mod guests;
+pub mod hub;
 pub mod library;
 pub mod neural;
 pub mod pairing;
@@ -121,4 +122,7 @@ pub mod feature {
     /// [`crate::curtain`]: `GET /session/curtain` and `POST /session/curtain/dismiss` answer,
     /// while the host follows a game's start for a launch curtain (`launch_curtain`).
     pub const LAUNCH_CURTAIN: &str = "session.launch_curtain";
+    /// [`crate::hub`]: `GET /hub/snapshot`, `PUT`/`DELETE /hub/profiles/{id}`, and
+    /// `GET /hub/covers/{app_id}` sync covers, stream profiles, and override visibility.
+    pub const HUB_SYNC: &str = "hub.sync";
 }

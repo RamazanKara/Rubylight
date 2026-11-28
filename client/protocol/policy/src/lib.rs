@@ -25,6 +25,7 @@ pub mod glass_probe;
 pub mod health;
 pub mod hosts;
 pub mod http;
+pub mod hub_sync;
 pub mod input_glyphs;
 pub mod internet_path;
 pub mod launch;

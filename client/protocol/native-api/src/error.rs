@@ -75,6 +75,9 @@ pub enum ErrorCode {
     /// keyframe yet, another clip is being written, the disk or quota is full); the
     /// message says why in plain English and `GET /dvr` names the reason.
     DvrRefused,
+    /// Conditional write (`If-Match`) did not match the resource's current revision; the host
+    /// returns HTTP 409 and `X-Hub-Current-Revision`.
+    RevisionConflict,
     /// A code from a newer host. Clients treat it by its HTTP status.
     #[serde(other)]
     Unknown,
@@ -114,7 +117,8 @@ impl ErrorCode {
             | Self::PairingUnconfirmed
             | Self::PairingEnded
             | Self::PairingCooldown
-            | Self::DvrRefused => 409,
+            | Self::DvrRefused
+            | Self::RevisionConflict => 409,
             Self::InsufficientStorage => 507,
             Self::TemporarilyUnavailable => 503,
             Self::Internal | Self::Unknown => 500,

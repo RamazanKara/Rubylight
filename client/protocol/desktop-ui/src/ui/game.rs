@@ -444,6 +444,7 @@ impl Launcher {
             host,
             commands,
         );
+        y = crate::ui::hub_conflict::draw_override_notice(ui, &host.native.hub, game.app_id, left, right, y);
 
         let bottom = y.max(cover.bottom());
         ui.advance_cursor_after_rect(Rect::from_min_max(origin, pos2(origin.x + width, bottom)));

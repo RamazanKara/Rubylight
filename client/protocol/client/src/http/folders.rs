@@ -291,6 +291,7 @@ mod tests {
             status,
             reason: "Reason".into(),
             content_type: Some("application/json".into()),
+            headers: Vec::new(),
             body: body.as_bytes().to_vec(),
         }
     }

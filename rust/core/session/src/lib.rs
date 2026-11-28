@@ -25,6 +25,7 @@ mod fuzz;
 pub mod game_files;
 pub mod game_settings;
 pub mod host_service;
+pub mod hub_sync;
 pub mod invites;
 pub mod launch_curtain;
 pub mod launch_warning;

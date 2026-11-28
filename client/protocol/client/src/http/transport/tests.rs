@@ -26,6 +26,11 @@ fn bodies_by_length_chunks_and_close() {
     assert!(parse(b"HTTP/1.1 200 OK\r\nContent-Length: 5000\r\n\r\n").is_err());
     assert!(parse(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhel").is_err());
     assert!(parse(b"garbage\r\n\r\n").is_err());
+    // 304 Not Modified returns an empty body immediately even with non-zero Content-Length.
+    let not_mod = parse(b"HTTP/1.1 304 Not Modified\r\nETag: \"rev:42\"\r\nContent-Length: 999\r\n\r\n").unwrap();
+    assert_eq!(not_mod.status, 304);
+    assert!(not_mod.body.is_empty());
+    assert_eq!(not_mod.header("etag"), Some("\"rev:42\""));
 }
 
 #[test]

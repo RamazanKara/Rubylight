@@ -194,6 +194,10 @@ impl Evidence {
             "launchCurtainOffered".into(),
             Value::from(self.launch_curtain_offered),
         );
+        map.insert(
+            "hubSyncOffered".into(),
+            Value::from(self.hub_sync_offered),
+        );
         if let Some(version) = &self.rust_host_version {
             map.insert("rustHostVersion".into(), Value::from(version.as_str()));
         }
@@ -342,6 +346,7 @@ impl Evidence {
             stream_doctor_offered: opt_bool("streamDoctorOffered")?,
             launch_curtain_version: opt_i32("launchCurtainVersion", -1)?,
             launch_curtain_offered: opt_bool("launchCurtainOffered")?,
+            hub_sync_offered: opt_bool("hubSyncOffered")?,
             max_video_packet,
         })
     }

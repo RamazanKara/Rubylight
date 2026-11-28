@@ -153,6 +153,7 @@ impl HostCapabilities {
         evidence.stream_doctor_offered = listed(rubylight_native_api::feature::STREAM_DOCTOR_V2)
             && (permissions.view || permissions.launch);
         evidence.launch_curtain_offered = listed(rubylight_native_api::feature::LAUNCH_CURTAIN);
+        evidence.hub_sync_offered = listed(rubylight_native_api::feature::HUB_SYNC);
         Self::from_evidence(evidence)
     }
 

@@ -374,6 +374,7 @@ public class ComputerManagerService extends Service {
         if (computer == null || computer.uuid == null) return;
         if (hostManagerHandle != 0) NightjarHostsJni.hostManagerRemoveComputer(hostManagerHandle, computer.uuid);
         wakeTargets.forget(computer.uuid);
+        com.limelight.nativeapi.HubSyncController.forget(this, computer.uuid);
         HostStreamProfile.reset(this, computer.uuid);
         HostDisplayChoice.forget(this, computer.uuid);
         HostCapabilityCache.forget(this, computer.uuid);
@@ -492,7 +493,7 @@ public class ComputerManagerService extends Service {
                 if (snap.optBoolean("needs_vpn_stun", false) && details.uuid != null) {
                     scheduleVpnStun(details.uuid, details.externalPort);
                 }
-                if (details.state == ComputerDetails.State.ONLINE) wakeTargets.polled(details);
+                if (details.state == ComputerDetails.State.ONLINE) { wakeTargets.polled(details); com.limelight.nativeapi.HubSyncController.onHostOnline(this, details, this::nativeClient); }
                 ComputerManagerListener currentListener = listener;
                 if (currentListener != null && !destroyed) currentListener.notifyComputerUpdated(details);
             } catch (Json.SyntaxException ignored) {

@@ -426,6 +426,7 @@ impl Host {
         );
         let session = crate::session_control::Control::new(&directory);
         let session_history = crate::session_history::History::load(&directory);
+        let hub = crate::hub_store::HubStore::load(&directory, &warnings);
         let maintain_wake = Arc::new(tokio::sync::Notify::new());
         // A launch or a stream that starts ends the maintenance loop's idle wait.
         let sessions = Sessions::default().with_waker({
@@ -510,6 +511,7 @@ impl Host {
             dvr: Default::default(),
             session: Mutex::new(session),
             session_history,
+            hub,
             confirmations: Mutex::new(Default::default()),
             app_audio: Mutex::new(None),
             app_display: Mutex::new(BTreeMap::new()),

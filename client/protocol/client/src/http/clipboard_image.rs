@@ -386,6 +386,7 @@ mod tests {
             status,
             reason: "Reason".into(),
             content_type: content_type.map(str::to_owned),
+            headers: Vec::new(),
             body,
         }
     }

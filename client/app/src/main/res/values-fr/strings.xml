@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">Pavé tactile</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Gâchette %2$d%%</string>
     <string name="controller_studio_a11y_summary">Studio manette : boutons %1$s, zone morte du stick %2$d%%, zone morte des gâchettes %3$d%%</string>
+    <string name="hub_sync_sheet_title">Profils synchronisés et remplacements PC</string>
+    <string name="hub_sync_sheet_summary">Profils, dispositions de manette et remplacements synchronisés avec ce PC</string>
+    <string name="hub_sync_revision">Synchronisé avec le PC (révision %1$d)</string>
+    <string name="hub_sync_not_loaded">Hors ligne — en attente du PC</string>
+    <string name="hub_sync_conflict_title">Profil modifié sur un autre appareil</string>
+    <string name="hub_sync_conflict_body">Ce profil a été modifié sur un autre appareil. Choisissez quelle version conserver.</string>
+    <string name="hub_sync_keep_mine">Garder ma version</string>
+    <string name="hub_sync_use_pc">Utiliser celle du PC</string>
+    <string name="hub_sync_save_copy">Enregistrer comme nouveau</string>
+    <string name="hub_sync_permission_denied">Cet appareil peut voir les profils de ce PC, mais nécessite l’autorisation Lancer dans la console hôte pour enregistrer les modifications.</string>
+    <string name="hub_sync_offline_saved">Le PC est hors ligne. Les modifications sont enregistrées sur cet appareil et seront synchronisées automatiquement dès la reconnexion du PC.</string>
+    <string name="hub_override_badge">Remplacé sur le PC pour ce jeu</string>
+    <string name="hub_override_explain">Les remplacements de l’hôte s’appliquent dans cet ordre : jeu sur cet appareil, jeu, appareil, puis valeurs par défaut du PC (%1$s).</string>
+    <string name="hub_sync_profiles_section">Profils de streaming synchronisés</string>
+    <string name="hub_sync_no_profiles">Aucun profil synchronisé n’est encore enregistré sur ce PC.</string>
 </resources>

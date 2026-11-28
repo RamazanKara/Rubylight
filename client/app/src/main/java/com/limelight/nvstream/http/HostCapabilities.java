@@ -86,7 +86,8 @@ public final class HostCapabilities {
         STREAM_DVR(0),
         AWAY_WAKE_RELAY(0),
         STREAM_DOCTOR_V2(0),
-        LAUNCH_CURTAIN(0);
+        LAUNCH_CURTAIN(0),
+        HUB_SYNC(0);
 
         @StringRes public final int label;
 

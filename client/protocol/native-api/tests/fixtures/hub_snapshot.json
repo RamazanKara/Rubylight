@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "snapshot_revision": 42,
+  "host_unique_id": "a1b2c3d4-e5f6-4700-9abc-0123456789ef",
+  "generated_unix_ms": 1795221800000,
+  "caller_device_uuid": "dev-handheld-01",
+  "capabilities_snapshot": {
+    "api_version": 1,
+    "features": ["library", "session", "hub.sync", "stream.doctor_v2"],
+    "permissions": {
+      "list": true,
+      "view": true,
+      "launch": true,
+      "host_control": false,
+      "file_upload": false,
+      "file_download": false,
+      "usb": false,
+      "shared_folders": false,
+      "coop_join": false,
+      "restart_shutdown": false,
+      "pairing_approve": false
+    },
+    "codecs": ["h264", "hevc", "hevc10", "av1", "av1_10"],
+    "virtual_display": true,
+    "hdr": true
+  },
+  "covers": [
+    {
+      "app_id": 1042,
+      "app_uuid": "app-uuid-1042",
+      "etag": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "bytes": 184320,
+      "width": 600,
+      "height": 900,
+      "mime": "image/png",
+      "updated_unix_ms": 1795200000000
+    }
+  ],
+  "profiles": [
+    {
+      "id": "handheld-lan-90",
+      "revision": 7,
+      "scope": "device",
+      "owner_device_uuid": "dev-handheld-01",
+      "name": "Home Wi-Fi 90 Hz",
+      "network_matcher": { "kind": "lan" },
+      "stream": {
+        "width": 1280,
+        "height": 800,
+        "fps": 90,
+        "bitrate_kbps": 35000,
+        "codec": "hevc",
+        "hdr": true,
+        "audio_layout": "stereo",
+        "upscaling": "sgsr1",
+        "video_scaling": "safe_fit",
+        "orientation": "landscape_flip",
+        "resolution_scale_pct": 85,
+        "display_matcher": { "id": "edid:BOE08A1", "name": "Built-in OLED" }
+      },
+      "input_deck_id": "deck-fps-default",
+      "updated_unix_ms": 1795221100000,
+      "updated_by_device": "dev-handheld-01"
+    }
+  ],
+  "input_decks": [
+    {
+      "id": "deck-fps-default",
+      "layer_scope": "per_game",
+      "controller_model": "dualsense",
+      "app_id": 1042,
+      "revision": 3,
+      "scope": "device",
+      "owner_device_uuid": "dev-handheld-01",
+      "name": "FPS DualSense + Gyro",
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "updated_unix_ms": 1795220500000
+    }
+  ],
+  "host_overrides_summary": [
+    {
+      "app_id": 1042,
+      "source": "app_device",
+      "locked_keys": ["fps_limit", "hdr"]
+    }
+  ]
+}

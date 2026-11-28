@@ -308,6 +308,7 @@ pub(crate) fn remove_host(
     id: u64,
 ) -> std::io::Result<()> {
     if let Some(unique_id) = hosts.get(id).map(|h| h.record.unique_id.clone()).filter(|id| !id.is_empty()) {
+        crate::hosts::hub_cache::clear_host_cache(store.dir(), &unique_id);
         (*recents, *favourites) = store.forget_host(&unique_id, recents, favourites);
         *open_game = store.open_play().game;
     }

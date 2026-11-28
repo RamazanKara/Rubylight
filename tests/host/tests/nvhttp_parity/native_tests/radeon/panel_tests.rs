@@ -197,6 +197,7 @@ async fn capabilities_list_the_radeon_features_only_with_a_worker() {
             "session.continue_here",
             "power.restart",
             "power.shutdown",
+            "hub.sync",
             "neural.frame_generation",
             "radeon.read",
             "radeon.write",

@@ -36,6 +36,7 @@ impl App {
                     self.power_request = Some((offer, power::request(offer, self.waker.clone())));
                 }
             }
+            Command::ResolveHubConflict { host, choice } => self.hosts.resolve_hub_conflict(host, choice),
             Command::Launch { host, app, resume } => self.read_then_start(host, app, resume, false),
             Command::LaunchUnasked { host, app, resume } => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
             Command::StreamTooAfterFailedMove { host, app } => self.read_then_start(host, app, true, true),

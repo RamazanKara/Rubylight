@@ -61,6 +61,7 @@
     "stream_dvr": "unsupported",
     "away_wake_relay": "unsupported",
     "stream_doctor_v2": "unknown",
-    "launch_curtain": "unsupported"
+    "launch_curtain": "unsupported",
+    "hub_sync": "unknown"
   }
 }

@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">Touchpad</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Spust %2$d%%</string>
     <string name="controller_studio_a11y_summary">Studio kontrolera: układ przycisków %1$s, martwa strefa drążka %2$d%%, martwa strefa spustów %3$d%%</string>
+    <string name="hub_sync_sheet_title">Zsynchronizowane profile i nadpisania PC</string>
+    <string name="hub_sync_sheet_summary">Profile, układy kontrolera i nadpisania zsynchronizowane z tym PC</string>
+    <string name="hub_sync_revision">Zsynchronizowano z PC (wersja %1$d)</string>
+    <string name="hub_sync_not_loaded">Offline — oczekiwanie na połączenie z PC</string>
+    <string name="hub_sync_conflict_title">Profil zmieniono na innym urządzeniu</string>
+    <string name="hub_sync_conflict_body">Ten profil został zmieniony na innym urządzeniu. Wybierz wersję do zachowania.</string>
+    <string name="hub_sync_keep_mine">Zachowaj moje</string>
+    <string name="hub_sync_use_pc">Użyj z PC</string>
+    <string name="hub_sync_save_copy">Zapisz jako nowy</string>
+    <string name="hub_sync_permission_denied">To urządzenie może przeglądać profile tego PC, ale do zapisania zmian potrzebuje uprawnienia Uruchamianie w konsoli hosta.</string>
+    <string name="hub_sync_offline_saved">PC jest offline. Zmiany są zapisane na tym urządzeniu i zostaną automatycznie zsynchronizowane po ponownym połączeniu.</string>
+    <string name="hub_override_badge">Nadpisano na PC dla tej gry</string>
+    <string name="hub_override_explain">Nadpisania hosta działają w kolejności: gra na tym urządzeniu, gra, urządzenie, domyślne ustawienia PC (%1$s).</string>
+    <string name="hub_sync_profiles_section">Zsynchronizowane profile strumienia</string>
+    <string name="hub_sync_no_profiles">Na tym PC nie zapisano jeszcze zsynchronizowanych profili.</string>
 </resources>

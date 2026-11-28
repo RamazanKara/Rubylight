@@ -26,6 +26,7 @@ pub mod http;
 pub mod http_folders;
 pub mod http_launch;
 pub mod http_probes;
+pub mod hub_sync;
 pub mod identity;
 pub mod internet;
 pub mod jni_input;

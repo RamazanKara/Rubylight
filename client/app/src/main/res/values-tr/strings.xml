@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">Dokunmatik yüzey</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Tetik %2$d%%</string>
     <string name="controller_studio_a11y_summary">Kumanda Stüdyosu: %1$s tuş düzeni, çubuk ölü bölgesi %2$d%%, tetik ölü bölgesi %3$d%%</string>
+    <string name="hub_sync_sheet_title">Eşitlenen profiller ve PC geçersiz kılmaları</string>
+    <string name="hub_sync_sheet_summary">Bu PC ile eşitlenen profiller, kumanda düzenleri ve geçersiz kılmalar</string>
+    <string name="hub_sync_revision">PC ile eşitlendi (revizyon %1$d)</string>
+    <string name="hub_sync_not_loaded">Çevrimdışı — PC bağlantısı bekleniyor</string>
+    <string name="hub_sync_conflict_title">Profil başka bir cihazda değiştirildi</string>
+    <string name="hub_sync_conflict_body">Bu profil başka bir cihazda değiştirildi. Hangi sürümün tutulacağını seçin.</string>
+    <string name="hub_sync_keep_mine">Benimkini koru</string>
+    <string name="hub_sync_use_pc">PC’dekini kullan</string>
+    <string name="hub_sync_save_copy">Yeni olarak kaydet</string>
+    <string name="hub_sync_permission_denied">Bu cihaz bu PC’deki profilleri görebilir, ancak değişiklikleri kaydetmek için ana bilgisayar konsolunda Başlatma izni gerekir.</string>
+    <string name="hub_sync_offline_saved">PC çevrimdışı. Değişiklikler bu cihaza kaydedildi ve PC yeniden bağlandığında otomatik olarak eşitlenecek.</string>
+    <string name="hub_override_badge">Bu oyun için PC’de geçersiz kılındı</string>
+    <string name="hub_override_explain">Ana bilgisayar geçersiz kılmaları şu sırayla uygulanır: bu cihazda oyun, oyun, cihaz, sonra PC varsayılanları (%1$s).</string>
+    <string name="hub_sync_profiles_section">Eşitlenen yayın profilleri</string>
+    <string name="hub_sync_no_profiles">Bu PC’de henüz eşitlenmiş profil kaydedilmedi.</string>
 </resources>

@@ -669,4 +669,19 @@
     <string name="controller_studio_touchpad">Touchpad</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Trig %2$d%%</string>
     <string name="controller_studio_a11y_summary">Controller Studio: %1$s button layout, stick dead zone %2$d%%, trigger dead zone %3$d%%</string>
+    <string name="hub_sync_sheet_title">Synced profiles &amp; PC overrides</string>
+    <string name="hub_sync_sheet_summary">Profiles, controller layouts, and PC overrides synced with this PC</string>
+    <string name="hub_sync_revision">Synced with PC (revision %1$d)</string>
+    <string name="hub_sync_not_loaded">Offline — waiting for PC connection</string>
+    <string name="hub_sync_conflict_title">Profile changed on another device</string>
+    <string name="hub_sync_conflict_body">This profile changed on another device. Choose which version to keep.</string>
+    <string name="hub_sync_keep_mine">Keep mine</string>
+    <string name="hub_sync_use_pc">Use PC’s</string>
+    <string name="hub_sync_save_copy">Save as new</string>
+    <string name="hub_sync_permission_denied">This device can view profiles from this PC, but needs Launch permission in the host console to save changes.</string>
+    <string name="hub_sync_offline_saved">PC is offline. Changes are saved on this device and will sync automatically when the PC reconnects.</string>
+    <string name="hub_override_badge">Overridden on PC for this game</string>
+    <string name="hub_override_explain">Host overrides take precedence in order: game on this device, game, device, then PC defaults (%1$s).</string>
+    <string name="hub_sync_profiles_section">Synced stream profiles</string>
+    <string name="hub_sync_no_profiles">No synced profiles saved on this PC yet.</string>
 </resources>

@@ -230,6 +230,7 @@ impl Hosts {
                 Event::Native { id, epoch, seq, result } => {
                     let mut reload_apps = false;
                     let mut save = false;
+                    let mut sync_hub = false;
                     // A read that started before an unpair says nothing about the PC now.
                     if let Some(host) = self.get_mut(id).filter(|h| h.native_epoch == epoch && h.record.server_certificate.is_some()) {
                         host.native.loading = false;
@@ -243,8 +244,10 @@ impl Hosts {
                                     host.native.update = read.update;
                                     if let Some(info) = host.info.as_mut() {
                                         merge_native(info, Some(&capabilities));
+                                        sync_hub = info.capabilities.has(Feature::HubSync);
                                     }
                                     host.native.capabilities = Some(capabilities);
+                                    host.refresh_native_hub_view();
                                 }
                                 if let Some((macs, broadcasts)) = read.wake
                                     && (host.record.wake_macs != macs || host.record.wake_broadcasts != broadcasts) {
@@ -287,6 +290,9 @@ impl Hosts {
                     }
                     if reload_apps {
                         self.load_apps(id);
+                    }
+                    if sync_hub {
+                        self.sync_hub(id);
                     }
                 }
                 Event::Session { id, action, result } => {
@@ -339,6 +345,41 @@ impl Hosts {
                     self.refresh_after_exit(id);
                     self.load_apps(id);
                     out.push(Event::Action { id, result });
+                }
+                Event::HubSync { id, epoch, engine, cover_etags, updated_covers } => {
+                    if let Some(host) = self.get_mut(id).filter(|h| h.native_epoch == epoch && h.record.server_certificate.is_some()) {
+                        host.hub_inflight = false;
+                        let conflict_appeared = host.hub_engine.conflict.is_none() && engine.conflict.is_some();
+                        host.hub_engine = *engine;
+                        host.hub_cover_etags = cover_etags;
+                        host.refresh_native_hub_view();
+                        if !updated_covers.is_empty() {
+                            let art = Arc::make_mut(&mut host.art);
+                            let versions = Arc::make_mut(&mut host.art_versions);
+                            let ambient = Arc::make_mut(&mut host.ambient);
+                            let glow = Arc::make_mut(&mut host.ambient_glow);
+                            let sized = Arc::make_mut(&mut host.art_sized);
+                            let retry = Arc::make_mut(&mut host.art_retry);
+                            for app in &updated_covers {
+                                let app = *app as i32;
+                                art.remove(&app);
+                                versions.remove(&app);
+                                ambient.remove(&app);
+                                glow.remove(&app);
+                                sized.remove(&app);
+                                retry.remove(&app);
+                            }
+                        }
+                        if conflict_appeared {
+                            out.push(Event::HubSync {
+                                id,
+                                epoch,
+                                engine: Box::new(host.hub_engine.clone()),
+                                cover_etags: Default::default(),
+                                updated_covers,
+                            });
+                        }
+                    }
                 }
                 Event::Unpaired { id, result } => {
                     // The PC may be gone by now (removed right after): nothing to tell then.
@@ -583,6 +624,7 @@ impl Hosts {
                         host.record.full_chroma = Default::default();
                     }
                     host.native = Native::default();
+                    host.hub_inflight = false;
                     host.set_classic_apps(None);
                     host.native_epoch += 1;
                     host.foundation_probe = None;
@@ -619,6 +661,7 @@ impl Hosts {
                     host.apps = Apps::NotLoaded;
                     // Its grants (folders, files, USB, co-op) went with the pairing; a read in flight is dropped.
                     host.native = Native::default();
+                    host.hub_inflight = false;
                     host.set_classic_apps(None);
                     host.native_epoch += 1;
                     changed = true;

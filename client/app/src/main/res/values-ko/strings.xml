@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">터치패드</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · 트리거 %2$d%%</string>
     <string name="controller_studio_a11y_summary">컨트롤러 스튜디오: 버튼 배열 %1$s, 스틱 데드존 %2$d%%, 트리거 데드존 %3$d%%</string>
+    <string name="hub_sync_sheet_title">동기화된 프로필 및 PC 재정의</string>
+    <string name="hub_sync_sheet_summary">이 PC와 동기화된 프로필, 컨트롤러 레이아웃 및 재정의</string>
+    <string name="hub_sync_revision">PC와 동기화됨 (수정 번호 %1$d)</string>
+    <string name="hub_sync_not_loaded">오프라인 — PC 연결 대기 중</string>
+    <string name="hub_sync_conflict_title">다른 기기에서 프로필이 변경되었습니다</string>
+    <string name="hub_sync_conflict_body">이 프로필이 다른 기기에서 변경되었습니다. 유지할 버전을 선택하세요.</string>
+    <string name="hub_sync_keep_mine">내 변경 유지</string>
+    <string name="hub_sync_use_pc">PC 버전 사용</string>
+    <string name="hub_sync_save_copy">새로 저장</string>
+    <string name="hub_sync_permission_denied">이 기기에서 PC의 프로필을 볼 수 있지만, 변경 사항을 저장하려면 호스트 콘솔에서 실행 권한이 필요합니다.</string>
+    <string name="hub_sync_offline_saved">PC가 오프라인입니다. 변경 사항이 이 기기에 저장되었으며 PC가 다시 연결되면 자동으로 동기화됩니다.</string>
+    <string name="hub_override_badge">이 게임에 대해 PC에서 재정의됨</string>
+    <string name="hub_override_explain">호스트 재정의는 이 기기의 게임, 게임, 기기, PC 기본값 순서로 우선 적용됩니다(%1$s).</string>
+    <string name="hub_sync_profiles_section">동기화된 스트림 프로필</string>
+    <string name="hub_sync_no_profiles">이 PC에 아직 저장된 동기화 프로필이 없습니다.</string>
 </resources>

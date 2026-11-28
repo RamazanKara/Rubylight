@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">Bàn di</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Cò %2$d%%</string>
     <string name="controller_studio_a11y_summary">Studio tay cầm: bố cục nút %1$s, vùng chết cần gạt %2$d%%, vùng chết cò %3$d%%</string>
+    <string name="hub_sync_sheet_title">Hồ sơ đồng bộ &amp; ghi đè từ PC</string>
+    <string name="hub_sync_sheet_summary">Hồ sơ, bố cục tay cầm và ghi đè đã đồng bộ với PC này</string>
+    <string name="hub_sync_revision">Đã đồng bộ với PC (bản %1$d)</string>
+    <string name="hub_sync_not_loaded">Ngoại tuyến — đang chờ kết nối PC</string>
+    <string name="hub_sync_conflict_title">Hồ sơ đã được thay đổi trên thiết bị khác</string>
+    <string name="hub_sync_conflict_body">Hồ sơ này đã thay đổi trên thiết bị khác. Chọn phiên bản bạn muốn giữ.</string>
+    <string name="hub_sync_keep_mine">Giữ bản của tôi</string>
+    <string name="hub_sync_use_pc">Dùng bản trên PC</string>
+    <string name="hub_sync_save_copy">Lưu thành bản mới</string>
+    <string name="hub_sync_permission_denied">Thiết bị này có thể xem hồ sơ từ PC nhưng cần quyền Khởi chạy trong bảng điều khiển máy chủ để lưu thay đổi.</string>
+    <string name="hub_sync_offline_saved">PC đang ngoại tuyến. Thay đổi được lưu trên thiết bị này và sẽ tự động đồng bộ khi PC kết nối lại.</string>
+    <string name="hub_override_badge">Đã được ghi đè trên PC cho trò chơi này</string>
+    <string name="hub_override_explain">Ghi đè của máy chủ ưu tiên theo thứ tự: trò chơi trên thiết bị này, trò chơi, thiết bị, rồi mặc định PC (%1$s).</string>
+    <string name="hub_sync_profiles_section">Hồ sơ phát trực tuyến đã đồng bộ</string>
+    <string name="hub_sync_no_profiles">Chưa có hồ sơ đồng bộ nào được lưu trên PC này.</string>
 </resources>

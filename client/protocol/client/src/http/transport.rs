@@ -134,7 +134,14 @@ pub(crate) struct Response {
     pub status: u16,
     pub reason: String,
     pub content_type: Option<String>,
+    pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+}
+
+impl Response {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().rev().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -302,13 +309,17 @@ impl<'a> Body<'a> {
 }
 
 pub(crate) fn send(request: &Request<'_>, cancel: &Cancel, body: Option<Body<'_>>) -> Result<Response, Error> {
-    send_inner(request, cancel, body, None, &mut |_, _, _| Ok(()))
+    send_inner(None, request, cancel, &[], body, None, &mut |_, _, _| Ok(()))
+}
+
+pub(crate) fn send_request(method: &str, request: &Request<'_>, cancel: &Cancel, extra_headers: &[(&str, &str)], body: Option<Body<'_>>) -> Result<Response, Error> {
+    send_inner(Some(method), request, cancel, extra_headers, body, None, &mut |_, _, _| Ok(()))
 }
 
 type HeaderHook<'a> = dyn FnMut(u16, &[(String, String)], SocketAddr) -> Result<(), Error> + 'a;
 
 pub(crate) fn probe(request: &Request<'_>, cancel: &Cancel, timeout: Duration, headers: &mut HeaderHook<'_>) -> Result<Response, Error> {
-    send_inner(request, cancel, None, Some(timeout), headers)
+    send_inner(None, request, cancel, &[], None, Some(timeout), headers)
 }
 
 pub(crate) fn probe_stream(
@@ -375,18 +386,11 @@ pub(crate) fn probe_stream(
     })
 }
 
-fn send_inner(request: &Request<'_>, cancel: &Cancel, body: Option<Body<'_>>, timeout: Option<Duration>, headers: &mut HeaderHook<'_>) -> Result<Response, Error> {
+fn send_inner(method: Option<&str>, request: &Request<'_>, cancel: &Cancel, extra_headers: &[(&str, &str)], body: Option<Body<'_>>, timeout: Option<Duration>, headers: &mut HeaderHook<'_>) -> Result<Response, Error> {
     let deadline = timeout
-        .or_else(|| {
-            request
-                .timeouts
-                .read
-                .map(|read| request.timeouts.connect.saturating_add(read))
-        })
-        .map_or(Deadline::None, |limit| {
-            Deadline::At(std::time::Instant::now() + limit)
-        });
-    let head = request_head(request, body);
+        .or_else(|| request.timeouts.read.map(|read| request.timeouts.connect.saturating_add(read)))
+        .map_or(Deadline::None, |limit| Deadline::At(std::time::Instant::now() + limit));
+    let head = head_with_headers(method.unwrap_or(if body.is_some() { "POST" } else { "GET" }), request, extra_headers, body.map(|b| (b.content_type, b.bytes.len() as u64)))?;
     connection(request, &[cancel], deadline, Some(write_timeout(request)), &head, None, |stream, peer| {
         if let Some(body) = body { stream.write_all(body.bytes).map_err(io_tls_error)?; }
         stream.flush().map_err(io_tls_error)?;
@@ -538,6 +542,10 @@ fn head(request: &Request<'_>, body: Option<(&str, u64)>) -> String {
 }
 
 fn head_with(method: &str, request: &Request<'_>, body: Option<(&str, u64)>) -> String {
+    head_with_headers(method, request, &[], body).expect("standard request headers contain no CRLF")
+}
+
+fn head_with_headers(method: &str, request: &Request<'_>, extra_headers: &[(&str, &str)], body: Option<(&str, u64)>) -> Result<String, Error> {
     let mut head = format!(
         "{method} /{} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\nUser-Agent: {}\r\n",
         request.target,
@@ -545,6 +553,12 @@ fn head_with(method: &str, request: &Request<'_>, body: Option<(&str, u64)>) -> 
         request.port,
         user_agent()
     );
+    for (name, value) in extra_headers {
+        if name.contains(['\r', '\n', ':']) || value.contains(['\r', '\n']) {
+            return Err(Error::InvalidArgument(format!("invalid header {name}")));
+        }
+        head.push_str(&format!("{name}: {value}\r\n"));
+    }
     if let Some((content_type, length)) = body {
         if !content_type.is_empty() {
             head.push_str(&format!("Content-Type: {content_type}\r\n"));
@@ -552,7 +566,7 @@ fn head_with(method: &str, request: &Request<'_>, body: Option<(&str, u64)>) -> 
         head.push_str(&format!("Content-Length: {length}\r\n"));
     }
     head.push_str("\r\n");
-    head
+    Ok(head)
 }
 
 struct DeadlineSocket {

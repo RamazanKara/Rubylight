@@ -5,6 +5,10 @@ use super::*;
 /// Where Nightjar's guides live, the pages Android's help opens.
 pub const GUIDES: &str = "https://github.com/RamazanKara/nightjar/blob/main/docs/";
 
+/// Choice offered when a synced profile was edited on two devices at once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HubConflictChoice { KeepMine, UseHost, SaveAsCopy }
+
 pub enum Command {
     /// The game a cold start goes on to, chosen in its menu; None takes it back.
     OpenOnStart(Option<crate::config::OpenGame>),
@@ -176,6 +180,8 @@ pub enum Command {
     Quit,
     /// Shut down, restart or sleep this PC, once confirmed (`Dialog::ConfirmPower`).
     Power(crate::power_types::Offer),
+    /// Resolve a Host Hub Sync profile edit conflict (`Dialog::HubConflict`).
+    ResolveHubConflict { host: u64, choice: HubConflictChoice },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -351,6 +357,8 @@ pub enum Dialog {
     /// A start that failed before its first frame: the launch scene's card, with the start's
     /// stream settings in a line and the network test it offers (`launch_scene`).
     ConnectFailed { launch: ConnectingView, body: String, settings: Option<String>, test: launch_scene::CardTest },
+    /// A synced Hub profile changed on two devices and needs user choice.
+    HubConflict { host: u64, conflict: Box<nightjar_policy::hub_sync::ProfileConflict> },
 }
 
 /// The header's top-level destinations, left to right.

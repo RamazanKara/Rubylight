@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">Тачпад</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Курок %2$d%%</string>
     <string name="controller_studio_a11y_summary">Студия геймпада: раскладка %1$s, мёртвая зона стика %2$d%%, мёртвая зона курков %3$d%%</string>
+    <string name="hub_sync_sheet_title">Синхронизированные профили и переопределения ПК</string>
+    <string name="hub_sync_sheet_summary">Профили, раскладки контроллера и переопределения, синхронизированные с этим ПК</string>
+    <string name="hub_sync_revision">Синхронизировано с ПК (версия %1$d)</string>
+    <string name="hub_sync_not_loaded">Офлайн — ожидание подключения ПК</string>
+    <string name="hub_sync_conflict_title">Профиль изменён на другом устройстве</string>
+    <string name="hub_sync_conflict_body">Этот профиль изменён на другом устройстве. Выберите версию для сохранения.</string>
+    <string name="hub_sync_keep_mine">Оставить мою</string>
+    <string name="hub_sync_use_pc">Использовать с ПК</string>
+    <string name="hub_sync_save_copy">Сохранить как новый</string>
+    <string name="hub_sync_permission_denied">Это устройство может просматривать профили этого ПК, но для сохранения изменений требуется разрешение «Запуск» в консоли хоста.</string>
+    <string name="hub_sync_offline_saved">ПК не в сети. Изменения сохранены на этом устройстве и будут автоматически синхронизированы при подключении ПК.</string>
+    <string name="hub_override_badge">Переопределено на ПК для этой игры</string>
+    <string name="hub_override_explain">Приоритет переопределений хоста: игра на этом устройстве, игра, устройство, затем настройки ПК (%1$s).</string>
+    <string name="hub_sync_profiles_section">Синхронизированные профили трансляции</string>
+    <string name="hub_sync_no_profiles">На этом ПК ещё нет сохранённых синхронизированных профилей.</string>
 </resources>

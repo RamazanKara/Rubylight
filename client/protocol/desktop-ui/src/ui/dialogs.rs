@@ -360,6 +360,7 @@ impl Launcher {
                 | Dialog::HomeView
                 | Dialog::ConfirmExit
                 | Dialog::ConfirmPower(_)
+                | Dialog::HubConflict { .. }
         );
         self.dialog = Dialog::None;
         match self.focused_key.clone().filter(|_| from_card) {

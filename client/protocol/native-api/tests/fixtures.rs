@@ -611,3 +611,56 @@ fn stream_doctor_round_trips() {
     );
     assert_eq!(feature::STREAM_DOCTOR_V2, "stream.doctor_v2");
 }
+
+#[test]
+fn hub_snapshot_round_trips_and_profile_write_stays_strict() {
+    use rubylight_native_api::hub::{
+        HubSnapshot, ProfileDeleteResult, ProfileScope, ProfileWrite, StreamProfileSpec,
+        SNAPSHOT_SCHEMA_VERSION,
+    };
+    let snapshot: HubSnapshot = round_trip("hub_snapshot");
+    assert_eq!(snapshot.schema_version, SNAPSHOT_SCHEMA_VERSION);
+    assert_eq!(snapshot.snapshot_revision, 42);
+    assert_eq!(snapshot.profiles[0].stream.resolution_scale_pct, Some(85));
+    assert_eq!(
+        snapshot.profiles[0]
+            .stream
+            .display_matcher
+            .as_ref()
+            .map(|m| m.id.as_str()),
+        Some("edid:BOE08A1")
+    );
+    assert_eq!(feature::HUB_SYNC, "hub.sync");
+    assert_eq!(ErrorCode::RevisionConflict.status(), 409);
+
+    // Unknown fields and newer scopes on responses stay forward-compatible.
+    let newer: HubSnapshot = serde_json::from_value(json!({
+        "schema_version": 2,
+        "snapshot_revision": 99,
+        "future_field": true,
+        "profiles": [{ "id": "p", "scope": "team", "name": "Test" }]
+    }))
+    .unwrap();
+    assert_eq!(newer.profiles[0].scope, ProfileScope::Unknown);
+
+    // Legacy "sgsr2" reads back as "sgsr1".
+    let legacy: StreamProfileSpec = serde_json::from_str(r#"{"upscaling":"sgsr2"}"#).unwrap();
+    assert_eq!(legacy.upscaling.as_deref(), Some("sgsr1"));
+
+    // Write request rejects unknown fields loudly.
+    assert!(serde_json::from_value::<ProfileWrite>(json!({
+        "scope": "device",
+        "name": "OK"
+    }))
+    .is_ok());
+    assert!(serde_json::from_value::<ProfileWrite>(json!({
+        "scope": "device",
+        "name": "Bad",
+        "extra_typo": true
+    }))
+    .is_err());
+
+    let deleted: ProfileDeleteResult =
+        serde_json::from_str(r#"{"deleted":true,"snapshot_revision":43}"#).unwrap();
+    assert!(deleted.deleted && deleted.snapshot_revision == 43);
+}

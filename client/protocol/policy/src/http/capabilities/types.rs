@@ -138,10 +138,12 @@ pub enum Feature {
     /// screen over the stream until the game's window is in front. Only while the host's
     /// `launch_curtain` setting is on.
     LaunchCurtain,
+    /// Host Hub Sync (native `hub.sync`): profiles, input decks, cover ETags, and host override summaries.
+    HubSync,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 59] = [
+    pub const ALL: [Feature; 60] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -201,6 +203,7 @@ impl Feature {
         Feature::AwayWakeRelay,
         Feature::StreamDoctorV2,
         Feature::LaunchCurtain,
+        Feature::HubSync,
     ];
 }
 
@@ -383,6 +386,8 @@ pub struct Evidence {
     pub launch_curtain_version: i32,
     /// `session.launch_curtain` in native features.
     pub launch_curtain_offered: bool,
+    /// `hub.sync` in native features.
+    pub hub_sync_offered: bool,
     /// `MaxVideoPacket`: the largest video packet this host accepts, including a client's
     /// 32-byte encryption header. 0 when the host offers no more than stock Moonlight's 1400.
     pub max_video_packet: u16,

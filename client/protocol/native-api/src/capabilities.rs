@@ -19,7 +19,7 @@ pub struct HostInfo {
     pub unique_id: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Permissions {
     pub list: bool,
     pub view: bool,

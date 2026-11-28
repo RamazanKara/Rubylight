@@ -321,6 +321,8 @@ public final class NightjarJni {
             byte[] clientCertificateDer, byte[] clientPrivateKeyPkcs8,
             String argument);
 
+    public static native String hubSyncPolicy(String op, String argument);
+
     // --- File transfer (files.rs) ---
 
     public static native long fileTransferCreate();

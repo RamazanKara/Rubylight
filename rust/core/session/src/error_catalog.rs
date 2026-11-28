@@ -94,6 +94,10 @@ pub fn for_code(code: ErrorCode) -> Option<Explanation> {
         PairingCooldown => says("A wrong PIN just came from this device", None),
         // The message names the reason (the feature is off, the disk is full, ...).
         DvrRefused => says("Instant Replay can't do that right now", None),
+        RevisionConflict => says(
+            "A profile changed on another device",
+            Some("Refresh from the PC and choose which version to keep."),
+        ),
         NotFound | InvalidRequest | InvalidValue | NotWritable | LengthRequired | NotStreaming
         | Unknown => None,
     }

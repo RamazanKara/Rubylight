@@ -513,6 +513,11 @@ public final class NativeApiClient {
         return envelope;
     }
 
+    /** Invokes an additive Native API op returning its unwrapped {@code ok} JSON object. */
+    public Json.Obj callJson(String op, String argument) throws NativeApiException {
+        return call(op, argument);
+    }
+
     private Json.Obj call(String op, String argument) throws NativeApiException {
         return decode(transport.request(host, op, argument));
     }

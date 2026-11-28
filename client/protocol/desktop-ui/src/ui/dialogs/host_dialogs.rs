@@ -560,6 +560,11 @@ impl Launcher {
                     });
                 });
             }
+            Dialog::HubConflict { host, conflict } => {
+                let (c, f) = crate::ui::hub_conflict::draw(ctx, *host, conflict, focus_first, commands);
+                close |= c;
+                focused |= f;
+            }
             _ => return false,
         }
         flow.close |= close;

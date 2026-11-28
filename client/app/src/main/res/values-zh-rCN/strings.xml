@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">触控板</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · 扳机 %2$d%%</string>
     <string name="controller_studio_a11y_summary">手柄工作室：%1$s 按键布局，摇杆死区 %2$d%%，扳机死区 %3$d%%</string>
+    <string name="hub_sync_sheet_title">已同步的配置文件与 PC 覆盖</string>
+    <string name="hub_sync_sheet_summary">与此 PC 同步的配置文件、手柄布局和主机覆盖设置</string>
+    <string name="hub_sync_revision">已与 PC 同步（修订版 %1$d）</string>
+    <string name="hub_sync_not_loaded">离线 — 正在等待连接 PC</string>
+    <string name="hub_sync_conflict_title">配置文件已在另一台设备上更改</string>
+    <string name="hub_sync_conflict_body">此配置文件已在另一台设备上更改。请选择要保留的版本。</string>
+    <string name="hub_sync_keep_mine">保留本地更改</string>
+    <string name="hub_sync_use_pc">使用 PC 版本</string>
+    <string name="hub_sync_save_copy">另存为新配置</string>
+    <string name="hub_sync_permission_denied">此设备可以查看此 PC 上的配置文件，但需要在主机控制台中授予“启动”权限才能保存更改。</string>
+    <string name="hub_sync_offline_saved">PC 处于离线状态。更改已保存在此设备上，PC 重新连接后将自动同步。</string>
+    <string name="hub_override_badge">已在 PC 上为此游戏覆盖</string>
+    <string name="hub_override_explain">主机覆盖按以下顺序生效：此设备上的游戏、游戏、设备、PC 默认设置（%1$s）。</string>
+    <string name="hub_sync_profiles_section">已同步的串流配置文件</string>
+    <string name="hub_sync_no_profiles">此 PC 上尚未保存任何同步配置文件。</string>
 </resources>

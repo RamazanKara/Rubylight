@@ -13,6 +13,7 @@ pub mod file_transfers;
 pub mod game_files;
 pub mod game_settings;
 pub mod host_warnings;
+pub mod hub_store;
 pub mod internet_play;
 pub mod invites;
 pub mod launch_curtain;

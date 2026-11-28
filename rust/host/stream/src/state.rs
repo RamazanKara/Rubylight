@@ -240,6 +240,8 @@ pub struct Host {
     /// The NVIDIA component's download, removal and last failure.
     pub nvidia_component: crate::nvidia_component::NvidiaComponent,
     pub assets: PathBuf,
+    /// Persistent Host Hub Sync store (`hub-sync.json`) and lazy SHA-256 cover cache.
+    pub hub: Arc<crate::hub_store::HubStore>,
 }
 
 /// A device's latest stream failure, and since when it counts.

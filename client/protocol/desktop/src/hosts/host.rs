@@ -1,6 +1,6 @@
 //! Per-PC state (`Host`), native-read payloads (`NativeRead`), address selection and UI snapshot conversion.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -54,6 +54,9 @@ pub struct Host {
     /// When each cover whose download failed may be asked for again; its `art` is `Missing` till then.
     pub(super) art_retry: Arc<HashMap<i32, Instant>>,
     pub native: Native,
+    pub(super) hub_engine: nightjar_policy::hub_sync::SyncEngine,
+    pub(super) hub_cover_etags: BTreeMap<u32, String>,
+    pub(super) hub_inflight: bool,
     /// The last app list of a PC without the native library, as saved for Home (live or from an
     /// earlier run), and the same as a library with the running app marked ([`Host::library`]).
     pub classic_apps: Option<Arc<crate::config::ClassicApps>>,

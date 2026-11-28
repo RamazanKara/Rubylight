@@ -624,4 +624,19 @@
     <string name="controller_studio_touchpad">Touchpad</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Trigger %2$d%%</string>
     <string name="controller_studio_a11y_summary">Controller-Studio: Tastenlayout %1$s, Stick-Totzone %2$d%%, Trigger-Totzone %3$d%%</string>
+    <string name="hub_sync_sheet_title">Synchronisierte Profile &amp; PC-Überschreibungen</string>
+    <string name="hub_sync_sheet_summary">Mit diesem PC synchronisierte Profile, Controller-Layouts und PC-Überschreibungen</string>
+    <string name="hub_sync_revision">Mit PC synchronisiert (Revision %1$d)</string>
+    <string name="hub_sync_not_loaded">Offline – warte auf PC-Verbindung</string>
+    <string name="hub_sync_conflict_title">Profil auf einem anderen Gerät geändert</string>
+    <string name="hub_sync_conflict_body">Dieses Profil wurde auf einem anderen Gerät geändert. Wähle, welche Version behalten werden soll.</string>
+    <string name="hub_sync_keep_mine">Meine behalten</string>
+    <string name="hub_sync_use_pc">PC-Version nutzen</string>
+    <string name="hub_sync_save_copy">Als neu speichern</string>
+    <string name="hub_sync_permission_denied">Dieses Gerät kann Profile von diesem PC ansehen, benötigt zum Speichern von Änderungen aber die Berechtigung „Starten“ in der Host-Konsole.</string>
+    <string name="hub_sync_offline_saved">Der PC ist offline. Änderungen sind auf diesem Gerät gespeichert und werden automatisch synchronisiert, sobald der PC wieder verbunden ist.</string>
+    <string name="hub_override_badge">Auf dem PC für dieses Spiel überschrieben</string>
+    <string name="hub_override_explain">Host-Überschreibungen greifen in dieser Reihenfolge: Spiel auf diesem Gerät, Spiel, Gerät, dann PC-Standards (%1$s).</string>
+    <string name="hub_sync_profiles_section">Synchronisierte Stream-Profile</string>
+    <string name="hub_sync_no_profiles">Auf diesem PC sind noch keine synchronisierten Profile gespeichert.</string>
 </resources>

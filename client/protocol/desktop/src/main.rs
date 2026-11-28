@@ -504,6 +504,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         None => None,
     };
     hosts.load_cached_libraries(&store);
+    hosts.load_cached_hubs(&store);
     // SteamGridDB and IGDB with the player's keys; the demo and the second screen stay offline.
     if !cfg!(feature = "demo-library") && !second_screen::this_process() {
         let agent = format!("Nightjar/{} ({})", VERSION, std::env::consts::OS);

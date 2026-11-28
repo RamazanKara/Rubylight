@@ -468,6 +468,7 @@ pub fn request(endpoint: &Endpoint, op: &str, argument: &str) -> String {
         Ok(client) if op == "session.curtain.dismiss" => ok(client.dismiss_launch_curtain()),
         Ok(client) => quick_suspend::execute(&client, op)
             .or_else(|| stream_doctor::execute(&client, op, argument))
+            .or_else(|| crate::hub_sync::execute(&client, op, argument))
             .unwrap_or_else(|| execute(&client, op, argument)),
         Err(error) => error_envelope(&error),
     }

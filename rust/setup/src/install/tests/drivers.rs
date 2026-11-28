@@ -517,3 +517,94 @@ fn in_place_upgrade_commits_driver_choices_only_after_update_succeeds() {
         "remember_driver_choice must run only after update::run succeeds"
     );
 }
+#[test]
+fn virtual_display_driver_is_gated_on_windows_11_23h2_build_22631() {
+    for old in [Some(19045), Some(22000), Some(22621), Some(22630)] {
+        assert!(!system::virtual_display_supported(old), "{old:?}");
+        assert_eq!(
+            crate::repair::repairable_drivers(old),
+            vec![Driver::Gamepad]
+        );
+    }
+    for supported in [Some(22631), Some(26100), None] {
+        assert!(
+            system::virtual_display_supported(supported),
+            "{supported:?}"
+        );
+        assert_eq!(
+            crate::repair::repairable_drivers(supported),
+            vec![Driver::Display, Driver::Gamepad]
+        );
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let mut notes = Vec::new();
+    crate::ui::progress("test", "test", true, move |progress| {
+        assert_eq!(
+            display_step_for_build(temp.path(), &progress, &mut notes, Some(19045)),
+            (false, 0)
+        );
+        assert!(notes.is_empty());
+        assert!(!rubylight_display_driver_for_build(
+            temp.path(),
+            &progress,
+            &mut notes,
+            Some(22621)
+        ));
+        assert!(notes.is_empty());
+    });
+}
+#[test]
+fn vdisplay_and_vgamepad_driver_contracts_stay_enforced() {
+    let vdisplay_script = include_str!("../../../../drivers/rubylight-vdisplay/install-local.ps1");
+    assert!(vdisplay_script.contains("$minBuild = 22631"));
+    let install_fn = vdisplay_script
+        .split("function Install-Package")
+        .nth(1)
+        .unwrap();
+    let uninstall_check = install_fn.find("if ($Uninstall)").unwrap();
+    let build_check = install_fn
+        .find("if ($null -ne $build -and $build -lt $minBuild)")
+        .unwrap();
+    let sig_check = install_fn
+        .find("Get-AuthenticodeSignature -LiteralPath $catalog")
+        .unwrap();
+    assert!(uninstall_check < build_check && build_check < sig_check);
+    assert!(vdisplay_script.contains("if (-not $addRestart -and (Get-CurrentPackage) -ne $ours)"));
+    assert!(
+        vdisplay_script
+            .contains("if (-not $addRestart -and (-not $device -or $device.Status -ne 'OK'))")
+    );
+    assert!(
+        vdisplay_script
+            .contains("Remove-ItemProperty $state Problem -ErrorAction SilentlyContinue")
+    );
+
+    let callbacks = include_str!("../../../../drivers/rubylight-vdisplay/driver/src/callbacks.rs");
+    let target_modes = callbacks
+        .split("unsafe fn fill_target_modes")
+        .nth(1)
+        .unwrap();
+    let target_modes = target_modes
+        .split("pub unsafe extern \"C\" fn monitor_query_modes")
+        .next()
+        .unwrap();
+    assert!(target_modes.contains("STATUS_BUFFER_TOO_SMALL"));
+    assert!(target_modes.contains("if in_count < count"));
+
+    let entry = include_str!("../../../../drivers/rubylight-vgamepad/driver/src/entry.rs");
+    assert!(entry.contains("WdfIoQueueDispatchParallel"));
+    assert!(!entry.contains("WdfIoQueueDispatchSequential"));
+    let device = include_str!("../../../../drivers/rubylight-vgamepad/driver/src/device.rs");
+    assert!(device.contains("control_lock: Mutex<()>"));
+    for fn_name in [
+        "fn on_file_cleanup(",
+        "fn ioctl_create_controller(",
+        "fn ioctl_destroy_controller(",
+    ] {
+        let body = device.split(fn_name).nth(1).unwrap();
+        let body = body.split("\n    }").next().unwrap();
+        assert!(body.contains("lifetime_gate.read()"), "{fn_name}");
+        assert!(body.contains("control_lock.lock()"), "{fn_name}");
+        assert!(!body.contains("lifetime_gate.write()"), "{fn_name}");
+    }
+}

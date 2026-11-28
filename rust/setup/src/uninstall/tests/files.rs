@@ -397,3 +397,106 @@ fn the_saved_child_session_passwords_go_without_a_record() {
     );
     assert_eq!(expand_environment(r"C:\100%\%NOPE_X%"), r"C:\100%\%NOPE_X%");
 }
+#[test]
+fn remove_package_with_skips_running_uninstaller_executable() {
+    let install = tempfile::tempdir().unwrap();
+    let root = install.path();
+    package(root);
+    let self_exe = root.join("uninstall.exe");
+    let mut removed = Vec::new();
+    remove_package_with(root, Some(&self_exe), &mut |path| {
+        removed.push(path.to_path_buf());
+        let _ = std::fs::remove_file(path);
+    });
+    assert!(
+        !removed.iter().any(|p| same_file_path(p, &self_exe)),
+        "running uninstall.exe must not be scheduled for reboot deletion: {removed:?}"
+    );
+    assert!(self_exe.is_file());
+    assert!(!root.join("butterpollo.exe").exists());
+    assert!(!root.join("manifest.json").exists());
+}
+#[test]
+fn pending_rename_pruning_drops_stale_install_deletions_and_keeps_unrelated_and_old_entries() {
+    let encode = |pairs: &[(&str, &str)]| -> Vec<u16> {
+        let mut words = Vec::new();
+        for (src, dst) in pairs {
+            words.extend(src.encode_utf16());
+            words.push(0);
+            words.extend(dst.encode_utf16());
+            words.push(0);
+        }
+        words.push(0);
+        words
+    };
+    let install = Path::new(r"C:\Program Files\Rubylight");
+    let initial = encode(&[
+        (r"\??\C:\Program Files\Rubylight\uninstall.exe", ""),
+        (r"\??\C:\Other\a.dll", r"\??\C:\Other\b.dll"),
+        (r"\??\C:\Program Files\Rubylight2\uninstall.exe", ""),
+        (r"\??\C:\Program Files\Rubylight\.butterpollo-old-123", ""),
+        (
+            r"\??\C:\Program Files\Rubylight\butterpollo.exe",
+            r"\??\C:\Program Files\Rubylight\next.exe",
+        ),
+        (r"\??\C:\Other\c.dll", ""),
+        (r"\\?\C:\program files\rubylight\butterpollo.dll", ""),
+    ]);
+    let pruned = system::prune_pending_rename_words(&initial, install).unwrap();
+    let expected = encode(&[
+        (r"\??\C:\Other\a.dll", r"\??\C:\Other\b.dll"),
+        (r"\??\C:\Program Files\Rubylight2\uninstall.exe", ""),
+        (r"\??\C:\Program Files\Rubylight\.butterpollo-old-123", ""),
+        (
+            r"\??\C:\Program Files\Rubylight\butterpollo.exe",
+            r"\??\C:\Program Files\Rubylight\next.exe",
+        ),
+        (r"\??\C:\Other\c.dll", ""),
+    ]);
+    assert_eq!(pruned, expected);
+
+    // Pruning the only entry returns an empty Vec so the caller deletes the value.
+    let only_ours = encode(&[(r"\??\C:\Program Files\Rubylight\uninstall.exe", "")]);
+    assert_eq!(
+        system::prune_pending_rename_words(&only_ours, install),
+        Some(Vec::new())
+    );
+    // Unchanged list returns None so the registry is not rewritten.
+    assert_eq!(system::prune_pending_rename_words(&expected, install), None);
+    // Truncated odd-string buffer fails closed.
+    let mut truncated: Vec<u16> = r"\??\C:\Program Files\Rubylight\uninstall.exe"
+        .encode_utf16()
+        .collect();
+    truncated.push(0);
+    assert_eq!(
+        system::prune_pending_rename_words(&truncated, install),
+        None
+    );
+    // UNC paths are normalized consistently.
+    let unc = encode(&[(r"\??\UNC\server\share\Rubylight\uninstall.exe", "")]);
+    assert_eq!(
+        system::prune_pending_rename_words(&unc, Path::new(r"\\server\share\Rubylight")),
+        Some(Vec::new())
+    );
+}
+#[test]
+fn rename_aside_for_delete_moves_regular_files_and_skips_dirs_or_already_renamed() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("butterpollo.exe");
+    write(&file, "binary");
+    let aside = system::rename_aside_for_delete(&file).unwrap();
+    assert!(!file.exists());
+    assert!(aside.is_file());
+    assert!(
+        aside
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(".butterpollo-old-")
+    );
+    // Already-renamed files and directories are not renamed again.
+    assert!(system::rename_aside_for_delete(&aside).is_none());
+    let dir = temp.path().join("subdir");
+    std::fs::create_dir(&dir).unwrap();
+    assert!(system::rename_aside_for_delete(&dir).is_none());
+}

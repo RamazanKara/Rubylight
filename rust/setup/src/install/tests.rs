@@ -641,3 +641,50 @@ fn hkcu_uninstall_commands_are_never_run_elevated() {
     let error = remove_legacy(&hkcu).unwrap_err();
     assert!(error.to_string().contains("elevated"), "{error:#}");
 }
+#[test]
+fn side_by_side_profile_prep_runs_after_idle_check_and_restores_earlier_profile_on_error()
+-> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let profile = temp.path().join("config");
+    std::fs::create_dir_all(&profile)?;
+    std::fs::write(profile.join("sunshine.conf"), b"port = 47989\n")?;
+    let mut earlier = None;
+    let err = undo_profile_on_error(&profile, false, &mut earlier, |created, earlier| {
+        *created |= prepare_side_by_side_profile(&profile, false, Some("HOST"), |_| true, earlier)?;
+        assert!(earlier.is_some());
+        assert!(profile.join(SIDE_BY_SIDE_MARK).is_file());
+        anyhow::bail!("simulated copy_package failure")
+    })
+    .unwrap_err();
+    assert!(err.to_string().contains("simulated copy_package failure"));
+    assert!(
+        earlier.is_none(),
+        "restored earlier profile must clear earlier note"
+    );
+    assert_eq!(
+        std::fs::read(profile.join("sunshine.conf"))?,
+        b"port = 47989\n"
+    );
+    assert!(!profile.join(SIDE_BY_SIDE_MARK).exists());
+
+    // Source order check: side-by-side profile mutation happens only after idle/stop/recover
+    // inside undo_profile_on_error, and stale PendingFileRenameOperations are pruned before writes.
+    let source = include_str!("../install.rs").replace("\r\n", "\n");
+    let code = source
+        .split("fn install_with(")
+        .nth(1)
+        .and_then(|rest| rest.split("/// Uninstall the hosts `found` lists.").next())
+        .unwrap();
+    let fresh = code
+        .split("if let Target::Move(old) = &target")
+        .nth(1)
+        .unwrap();
+    let at = |needle: &str| fresh.find(needle).unwrap_or_else(|| panic!("{needle}"));
+    assert!(at("ensure_idle(") < at("prepare_side_by_side_profile("));
+    assert!(at("stop_running(") < at("prepare_side_by_side_profile("));
+    assert!(at("system::kill(plan.end);") < at("prepare_side_by_side_profile("));
+    assert!(at("crate::update::recover(&profile)?;") < at("prepare_side_by_side_profile("));
+    assert!(at("undo_profile_on_error(") < at("prepare_side_by_side_profile("));
+    assert!(at("system::prune_pending_renames(&install);") < at("copy_package("));
+    Ok(())
+}

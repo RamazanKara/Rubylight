@@ -207,8 +207,9 @@ pub unsafe extern "C" fn monitor_get_default_modes(
     STATUS_NOT_IMPLEMENTED
 }
 
-/// Both `EvtIddCxMonitorQueryTargetModes` variants: the count is always reported and the
-/// buffer filled only when it is large enough.
+/// Both `EvtIddCxMonitorQueryTargetModes` variants: a zero `in_count` is a count-only probe,
+/// a non-zero buffer smaller than `count` returns `STATUS_BUFFER_TOO_SMALL`, and a large enough
+/// buffer receives every mode.
 ///
 /// # Safety
 /// `p_modes` must point at `in_count` writable `M` entries.
@@ -225,7 +226,14 @@ unsafe fn fill_target_modes<M>(
     };
     let count = flatten(&modes).count() as u32;
     out_args.TargetModeBufferOutputCount = count;
-    if in_count >= count {
+    if in_count < count {
+        return if in_count > 0 {
+            STATUS_BUFFER_TOO_SMALL
+        } else {
+            STATUS_SUCCESS
+        };
+    }
+    if count > 0 {
         // SAFETY: the caller's buffer holds `in_count >= count` entries.
         let out = unsafe { core::slice::from_raw_parts_mut(p_modes, count as usize) };
         for (item, slot) in flatten(&modes).zip(out.iter_mut()) {

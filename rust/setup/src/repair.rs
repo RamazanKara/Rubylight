@@ -41,6 +41,15 @@ pub enum Step {
     /// ([`install::refresh_entries`]).
     Entries,
 }
+/// Drivers eligible for `--repair` on `build` (omitting the IddCx 1.10
+/// virtual display driver below Windows 11 23H2 build 22631).
+pub(crate) fn repairable_drivers(build: Option<u32>) -> Vec<Driver> {
+    Driver::ALL
+        .into_iter()
+        .filter(|driver| *driver != Driver::Display || system::virtual_display_supported(build))
+        .collect()
+}
+
 /// The steps of a repair, in order. The service comes first: the driver
 /// repair refuses a host that runs but does not answer.
 pub fn plan(service: Service) -> Vec<Step> {
@@ -158,7 +167,8 @@ fn repair(progress: &Progress) -> Result<Outcome> {
                     })
             }
             Step::Drivers => {
-                install::repair_drivers_in(&install, progress, RepairRun::Repair, &Driver::ALL).map(
+                let drivers = repairable_drivers(system::windows_build());
+                install::repair_drivers_in(&install, progress, RepairRun::Repair, &drivers).map(
                     |repair| {
                         outcome.restart |= repair.restart;
                         Some(repair.text())

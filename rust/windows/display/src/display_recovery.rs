@@ -173,6 +173,27 @@ fn read_journal(path: &Path) -> Result<Journal> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 
+fn has_pending_recovery_entries(journal: &Journal, current_pid: u32) -> bool {
+    if journal.pid != current_pid {
+        journal.entries.values().any(Entry::pending)
+    } else {
+        journal
+            .entries
+            .values()
+            .any(|entry| entry.stale && entry.pending())
+    }
+}
+
+fn path_has_pending_recovery(path: &Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    match read_journal(path) {
+        Ok(journal) => has_pending_recovery_entries(&journal, std::process::id()),
+        Err(_) => true,
+    }
+}
+
 /// Take the journal and undo what an interrupted host left behind. An
 /// incomplete recovery or an unreadable journal (quarantined to
 /// `display-recovery.corrupt.json`) is returned for logging rather than stopping
@@ -187,6 +208,14 @@ pub fn initialize(directory: &Path) -> Result<Option<anyhow::Error>> {
 
 fn initialize_in(
     path: &Path,
+    recover_fn: impl FnOnce(&Path) -> Result<()>,
+) -> Result<Option<anyhow::Error>> {
+    initialize_in_with(path, &PENDING_STARTUP, recover_fn)
+}
+
+fn initialize_in_with(
+    path: &Path,
+    pending_flag: &AtomicBool,
     recover_fn: impl FnOnce(&Path) -> Result<()>,
 ) -> Result<Option<anyhow::Error>> {
     let _guard = lock(path)?;
@@ -216,7 +245,7 @@ fn initialize_in(
             }
         }
     }
-    PENDING_STARTUP.store(incomplete.is_some() && path.exists(), Ordering::Release);
+    pending_flag.store(path_has_pending_recovery(path), Ordering::Release);
     Ok(incomplete)
 }
 
@@ -237,16 +266,23 @@ pub fn recover_pending() -> Result<bool> {
         PENDING_STARTUP.store(false, Ordering::Release);
         return Ok(false);
     };
-    let outcome = recover_pending_at(path, recover);
-    if outcome.is_ok() {
-        PENDING_STARTUP.store(false, Ordering::Release);
-    }
-    outcome
+    recover_pending_at_with(path, &PENDING_STARTUP, recover)
 }
 
+#[cfg(test)]
 fn recover_pending_at(path: &Path, recover_fn: impl FnOnce(&Path) -> Result<()>) -> Result<bool> {
+    let flag = AtomicBool::new(true);
+    recover_pending_at_with(path, &flag, recover_fn)
+}
+
+fn recover_pending_at_with(
+    path: &Path,
+    pending_flag: &AtomicBool,
+    recover_fn: impl FnOnce(&Path) -> Result<()>,
+) -> Result<bool> {
     let _guard = lock(path)?;
     if !path.exists() {
+        pending_flag.store(false, Ordering::Release);
         return Ok(false);
     }
     let journal = match read_journal(path) {
@@ -258,20 +294,27 @@ fn recover_pending_at(path: &Path, recover_fn: impl FnOnce(&Path) -> Result<()>)
                 error = %format!("{error:#}"),
                 "quarantined unreadable display recovery journal during pending retry"
             );
+            pending_flag.store(false, Ordering::Release);
             return Ok(false);
         }
     };
     let current = std::process::id();
-    let has_stale = journal.entries.values().any(|entry| entry.stale);
-    if journal.pid == current && !has_stale {
+    if !has_pending_recovery_entries(&journal, current) {
         // Every entry belongs to a live stream or monitor lease in this host.
+        pending_flag.store(false, Ordering::Release);
         return Ok(false);
     }
     if journal.pid != 0 && journal.pid != current && identity(journal.pid)? == Some(journal.started)
     {
         anyhow::bail!("another host owns this display recovery journal");
     }
-    recover_fn(path)?;
+    let result = recover_fn(path);
+    let still_pending = path_has_pending_recovery(path);
+    pending_flag.store(still_pending, Ordering::Release);
+    result?;
+    if still_pending {
+        anyhow::bail!("display recovery still has disconnected displays pending restoration");
+    }
     Ok(true)
 }
 
@@ -320,12 +363,20 @@ fn change_journal(update: impl FnOnce(&mut Journal)) -> Result<()> {
     update(&mut journal);
     journal.entries.retain(|_, entry| entry.pending());
     butterpollo_session::state::write_json(path, &journal)?;
+    PENDING_STARTUP.store(
+        has_pending_recovery_entries(&journal, current_pid),
+        Ordering::Release,
+    );
     if journal.entries.is_empty() {
         drop(guard);
         return finish_watch(path);
     }
     if let Err(e) = watch(path) {
         butterpollo_session::state::write_json(path, &prior)?;
+        PENDING_STARTUP.store(
+            has_pending_recovery_entries(&prior, current_pid),
+            Ordering::Release,
+        );
         return Err(e);
     }
     Ok(())
@@ -462,6 +513,7 @@ pub fn reset() -> Result<()> {
     let path = PATH.get().context("display recovery is not initialized")?;
     let guard = lock(path)?;
     let result = recover(path);
+    PENDING_STARTUP.store(path_has_pending_recovery(path), Ordering::Release);
     drop(guard);
     if path.exists() {
         finish_watch(path)?;
@@ -524,6 +576,7 @@ pub fn release(id: &str) -> Result<()> {
     };
     let guard = lock(path)?;
     release_in(path, id)?;
+    PENDING_STARTUP.store(path_has_pending_recovery(path), Ordering::Release);
     drop(guard);
     finish_watch(path)
 }
@@ -563,6 +616,10 @@ pub fn release_position(id: &str) -> Result<()> {
     }
     journal.entries.retain(|_, e| e.pending());
     butterpollo_session::state::write_json(path, &journal)?;
+    PENDING_STARTUP.store(
+        has_pending_recovery_entries(&journal, std::process::id()),
+        Ordering::Release,
+    );
     drop(guard);
     finish_watch(path)
 }
@@ -591,6 +648,10 @@ pub fn release_profile(id: &str) -> Result<()> {
     }
     journal.entries.retain(|_, e| e.pending());
     butterpollo_session::state::write_json(path, &journal)?;
+    PENDING_STARTUP.store(
+        has_pending_recovery_entries(&journal, std::process::id()),
+        Ordering::Release,
+    );
     drop(guard);
     finish_watch(path)
 }

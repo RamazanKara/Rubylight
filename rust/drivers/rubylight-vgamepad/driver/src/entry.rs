@@ -175,7 +175,7 @@ unsafe extern "C" fn evt_driver_device_add(
 
     let mut queue_cfg = WDF_IO_QUEUE_CONFIG {
         Size: core::mem::size_of::<WDF_IO_QUEUE_CONFIG>() as ULONG,
-        DispatchType: wdk_sys::_WDF_IO_QUEUE_DISPATCH_TYPE::WdfIoQueueDispatchSequential,
+        DispatchType: wdk_sys::_WDF_IO_QUEUE_DISPATCH_TYPE::WdfIoQueueDispatchParallel,
         PowerManaged: wdk_sys::_WDF_TRI_STATE::WdfFalse,
         DefaultQueue: wdk_sys::TRUE as u8,
         EvtIoDeviceControl: Some(evt_io_device_control),

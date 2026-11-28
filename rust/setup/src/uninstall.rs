@@ -4,7 +4,7 @@ mod child_session;
 mod files;
 
 use child_session::{child_session_record, delete_child_session_passwords, restore_child_session};
-use files::{profile_note, remove_leftover_folders, remove_package, remove_profile};
+use files::{profile_note, remove_leftover_folders, remove_package_with, remove_profile};
 pub(crate) use files::{remove_earlier_folder, remove_layers, remove_stale_layers};
 
 use crate::{
@@ -91,6 +91,12 @@ fn inside(path: &Path, folder: &Path) -> bool {
     folder
         .components()
         .all(|part| path.next().is_some_and(|own| name(own) == name(part)))
+}
+fn inside_canonical(path: &Path, folder: &Path) -> bool {
+    if let (Ok(path), Ok(folder)) = (path.canonicalize(), folder.canonicalize()) {
+        return inside(&path, &folder);
+    }
+    inside(path, folder)
 }
 /// Remove Rubylight; the notes are problems the user must see, though the
 /// removal itself went through.
@@ -246,7 +252,14 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
     let _ = std::fs::remove_file(legacy_start_menu_link());
     system::delete_key(HKEY_LOCAL_MACHINE, &format!("{UNINSTALL}\\Butterpollo"));
     detect::forget_service();
-    let touched = remove_package(&install);
+    let self_exe = std::env::current_exe()
+        .ok()
+        .filter(|exe| inside_canonical(exe, &install));
+    let touched = remove_package_with(
+        &install,
+        self_exe.as_deref(),
+        &mut system::remove_file_later,
+    );
     remove_leftover_folders(&install, &touched);
     if options.factory_reset {
         progress.set("Deleting settings and paired devices…");
@@ -275,10 +288,9 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
     }
     // This program may run from the folder being removed: delete it once it
     // has exited, then the folder if nothing else is left in it (rd without
-    // /s refuses a folder that is not empty).
-    if let Ok(exe) = std::env::current_exe()
-        && inside(&exe, &install)
-    {
+    // /s refuses a folder that is not empty). Skip queuing it for reboot
+    // deletion above so an immediate reinstall does not lose its uninstall.exe.
+    if let Some(exe) = self_exe {
         let command = format!(
             "ping 127.0.0.1 -n 3 > nul & del /f /q \"{}\" & rd \"{}\"",
             exe.display(),

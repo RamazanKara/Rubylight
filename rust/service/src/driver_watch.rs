@@ -238,6 +238,59 @@ fn declined(record: &Value, driver: Driver) -> bool {
     entry["declined"] == true
 }
 
+/// IddCx 1.10 (the virtual display driver's INF minimum) ships with Windows 11 23H2 (build 22631).
+const IDDCX_1_10_BUILD: u32 = 22631;
+
+/// Current Windows build number from `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`.
+fn windows_build() -> Option<u32> {
+    use windows::{
+        Win32::{
+            Foundation::ERROR_SUCCESS,
+            System::Registry::{
+                HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6464KEY, RegGetValueW,
+            },
+        },
+        core::w,
+    };
+    let mut buf = [0u16; 32];
+    let mut size = (buf.len() * 2) as u32;
+    // SAFETY: `buf` is writable for `size` bytes and the registry strings are static UTF-16 literals.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            w!(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"),
+            w!("CurrentBuildNumber"),
+            RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,
+            None,
+            Some(buf.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return None;
+    }
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    String::from_utf16_lossy(&buf[..len]).trim().parse().ok()
+}
+
+/// Whether `driver` can be installed and watched on `build` (`None` fails open).
+fn driver_supported(driver: Driver, build: Option<u32>) -> bool {
+    match driver {
+        Driver::Display => build.is_none_or(|b| b >= IDDCX_1_10_BUILD),
+        Driver::Gamepad => true,
+    }
+}
+
+/// Drivers packaged in `install` that are supported on `build`.
+fn watched_drivers(install: &Path, build: Option<u32>) -> Vec<Driver> {
+    Driver::ALL
+        .into_iter()
+        .filter(|driver| {
+            install.join(script(*driver)).is_file() && driver_supported(*driver, build)
+        })
+        .collect()
+}
+
 /// Watch the drivers whose installer `install` holds, until `stop` is set;
 /// None when there is nothing to watch.
 pub fn watch(
@@ -247,10 +300,16 @@ pub fn watch(
 ) -> Option<std::thread::JoinHandle<()>> {
     use std::os::windows::process::CommandExt;
     let setup = install.join("uninstall.exe");
-    let drivers: Vec<Driver> = Driver::ALL
-        .into_iter()
-        .filter(|driver| install.join(script(*driver)).is_file())
-        .collect();
+    let build = windows_build();
+    if !driver_supported(Driver::Display, build) && install.join(script(Driver::Display)).is_file()
+    {
+        tracing::info!(
+            build = build.unwrap_or_default(),
+            min_build = IDDCX_1_10_BUILD,
+            "skipping virtual display driver watch: IddCx 1.10 requires Windows 11 23H2 (build 22631) or later"
+        );
+    }
+    let drivers = watched_drivers(install, build);
     if !setup.is_file() || drivers.is_empty() {
         return None;
     }

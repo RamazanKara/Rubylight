@@ -110,8 +110,24 @@ pub(super) fn display_step(
     progress: &Progress,
     notes: &mut Vec<String>,
 ) -> (bool, usize) {
+    display_step_for_build(install, progress, notes, system::windows_build())
+}
+pub(super) fn display_step_for_build(
+    install: &Path,
+    progress: &Progress,
+    notes: &mut Vec<String>,
+    build: Option<u32>,
+) -> (bool, usize) {
+    if !system::virtual_display_supported(build) {
+        line(format!(
+            "skipping virtual display driver: Windows build {} is below IddCx 1.10 minimum ({})",
+            build.unwrap_or_default(),
+            system::IDDCX_1_10_BUILD
+        ));
+        return (false, 0);
+    }
     let before = notes.len();
-    let mut restart_needed = rubylight_display_driver(install, progress, notes);
+    let mut restart_needed = rubylight_display_driver_for_build(install, progress, notes, build);
     let display_notes = notes.len() - before;
     // Rubylight's own driver replaced libvirtualdisplay. The old one goes
     // once the new device runs; where Windows refused the new driver or
@@ -126,13 +142,22 @@ pub(super) fn display_step(
 pub(crate) const RUBYLIGHT_DISPLAY_SCRIPT: &str = "drivers\\rubylight-display\\install-local.ps1";
 /// The driver's name in notes about that removal.
 pub(crate) const LIBVIRTUALDISPLAY: &str = "old libvirtualdisplay";
-/// Set up Rubylight's display driver (again, which also updates it). Returns
-/// whether Windows needs a restart.
-pub(super) fn rubylight_display_driver(
+/// Set up Rubylight's display driver (again, which also updates it) when `build`
+/// supports IddCx 1.10. Returns whether Windows needs a restart.
+pub(super) fn rubylight_display_driver_for_build(
     install: &Path,
     progress: &Progress,
     notes: &mut Vec<String>,
+    build: Option<u32>,
 ) -> bool {
+    if !system::virtual_display_supported(build) {
+        line(format!(
+            "skipping virtual display driver: Windows build {} is below IddCx 1.10 minimum ({})",
+            build.unwrap_or_default(),
+            system::IDDCX_1_10_BUILD
+        ));
+        return false;
+    }
     let script = install.join(RUBYLIGHT_DISPLAY_SCRIPT);
     if !script.is_file() {
         notes.push("The virtual display driver is missing from this package. Run the complete Rubylight installer to add it.".into());

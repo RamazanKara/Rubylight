@@ -406,38 +406,33 @@ impl Topology {
             bail!("display topology cannot be empty");
         }
         let topology = Self::query_all()?;
-        let mut candidates_by_target = Vec::new();
-        let mut target_rotations = Vec::new();
-        for id in ids {
-            let candidates = topology
-                .paths
-                .iter()
+        let (candidates_by_target, target_rotations) = collect_active_target_candidates(
+            &topology.paths,
+            ids,
+            preferred_sources,
+            preferred_rotations,
+            primary,
+            |adapter, target_id| {
                 // SAFETY: The initialized target-name structure has the matching header type and size and lives through the query.
-                .filter(|path| unsafe {
+                unsafe {
                     let mut name = DISPLAYCONFIG_TARGET_DEVICE_NAME {
                         header: header(
                             DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
                             size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>(),
-                            path.targetInfo.adapterId,
-                            path.targetInfo.id,
+                            adapter,
+                            target_id,
                         ),
                         ..Default::default()
                     };
-                    DisplayConfigGetDeviceInfo(&mut name.header) == 0
-                        && (wide(&name.monitorDevicePath).eq_ignore_ascii_case(id)
-                            || monitor_id(&wide(&name.monitorDevicePath)).eq_ignore_ascii_case(id))
-                        && path.targetInfo.targetAvailable.as_bool()
-                })
-                .copied()
-                .collect::<Vec<_>>();
-            if !candidates.is_empty() {
-                let preferred = preferred_sources.get(id).copied();
-                let preferred_rotation = preferred_rotations.get(id).copied();
-                let is_primary = primary.is_some_and(|p| p.eq_ignore_ascii_case(id));
-                candidates_by_target.push((candidates, preferred, is_primary));
-                target_rotations.push(preferred_rotation);
-            }
-        }
+                    if DisplayConfigGetDeviceInfo(&mut name.header) != 0 {
+                        return None;
+                    }
+                    let device_path = wide(&name.monitorDevicePath);
+                    let id = monitor_id(&device_path);
+                    Some((device_path, id))
+                }
+            },
+        );
         let paths = extended_paths_preferred(&candidates_by_target)?;
         if paths.is_empty() {
             bail!("no saved display targets are currently connected");
@@ -504,4 +499,60 @@ impl Topology {
         super::super::end_trace::committed("switch on, placed by Windows", true);
         Ok(())
     }
+}
+
+type TargetCandidates = (
+    Vec<(Vec<DISPLAYCONFIG_PATH_INFO>, Option<u32>, bool)>,
+    Vec<Option<u32>>,
+);
+
+/// Filter available target paths and resolve each unique `(adapter, target)`
+/// identity at most once before matching against `ids`.
+pub(super) fn collect_active_target_candidates(
+    paths: &[DISPLAYCONFIG_PATH_INFO],
+    ids: &[String],
+    preferred_sources: &std::collections::BTreeMap<String, u32>,
+    preferred_rotations: &std::collections::BTreeMap<String, u32>,
+    primary: Option<&str>,
+    mut lookup_target: impl FnMut(LUID, u32) -> Option<(String, String)>,
+) -> TargetCandidates {
+    let mut target_names: std::collections::BTreeMap<(u32, i32, u32), Option<(String, String)>> =
+        std::collections::BTreeMap::new();
+    let mut available_paths: Vec<(DISPLAYCONFIG_PATH_INFO, (u32, i32, u32))> = Vec::new();
+    for path in paths {
+        if !path.targetInfo.targetAvailable.as_bool() {
+            continue;
+        }
+        let adapter = path.targetInfo.adapterId;
+        let target_id = path.targetInfo.id;
+        let key = (adapter.LowPart, adapter.HighPart, target_id);
+        target_names
+            .entry(key)
+            .or_insert_with(|| lookup_target(adapter, target_id));
+        available_paths.push((*path, key));
+    }
+
+    let mut candidates_by_target = Vec::new();
+    let mut target_rotations = Vec::new();
+    for id in ids {
+        let candidates = available_paths
+            .iter()
+            .filter(|(_, key)| {
+                target_names.get(key).and_then(Option::as_ref).is_some_and(
+                    |(device_path, resolved_id)| {
+                        device_path.eq_ignore_ascii_case(id) || resolved_id.eq_ignore_ascii_case(id)
+                    },
+                )
+            })
+            .map(|(path, _)| *path)
+            .collect::<Vec<_>>();
+        if !candidates.is_empty() {
+            let preferred = preferred_sources.get(id).copied();
+            let preferred_rotation = preferred_rotations.get(id).copied();
+            let is_primary = primary.is_some_and(|p| p.eq_ignore_ascii_case(id));
+            candidates_by_target.push((candidates, preferred, is_primary));
+            target_rotations.push(preferred_rotation);
+        }
+    }
+    (candidates_by_target, target_rotations)
 }

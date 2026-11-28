@@ -507,12 +507,106 @@ fn pending_leftover_entries_remain_recoverable_when_journal_marked_stale() -> Re
     butterpollo_session::state::write_json(&path, &mixed)?;
 
     let mut ran = false;
-    let recovered = recover_pending_at(&path, |_| {
+    let recovered = recover_pending_at(&path, |p| {
         ran = true;
-        Ok(())
+        let mut journal = read_journal(p)?;
+        journal.entries.remove("tv");
+        butterpollo_session::state::write_json(p, &journal)
     })?;
     assert!(recovered);
     assert!(ran);
+    // Live entry stays untouched and no longer counts as pending recovery.
+    assert!(!path_has_pending_recovery(&path));
+    assert!(read_journal(&path)?.entries.contains_key("monitor"));
+    Ok(())
+}
+
+#[test]
+fn startup_and_retry_keep_pending_set_until_offline_display_entries_clear() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("display-recovery.json");
+    let offline = Journal {
+        pid: 0,
+        started: 0,
+        entries: BTreeMap::from([(
+            "tv".into(),
+            Entry {
+                hdr: Some((false, true)),
+                ..Default::default()
+            },
+        )]),
+    };
+    butterpollo_session::state::write_json(&path, &offline)?;
+
+    // Startup recovery succeeds for online displays while keeping the offline TV entry.
+    let pending = AtomicBool::new(false);
+    let incomplete = initialize_in_with(&path, &pending, |_| Ok(()))?;
+    assert!(incomplete.is_none());
+    assert!(
+        pending.load(Ordering::Acquire),
+        "offline display retained in journal must keep pending startup recovery active"
+    );
+
+    // First retry while TV is still offline returns Err (so DisplayRecoveryRetry backs off)
+    // and keeps pending set.
+    let first = recover_pending_at_with(&path, &pending, |_| Ok(()));
+    assert!(first.is_err());
+    assert!(pending.load(Ordering::Acquire));
+
+    // Once the TV reconnects and recovery clears the journal, retry returns Ok(true)
+    // and clears pending.
+    let second = recover_pending_at_with(&path, &pending, |p| {
+        std::fs::remove_file(p)?;
+        Ok(())
+    })?;
+    assert!(second);
+    assert!(!pending.load(Ordering::Acquire));
+    Ok(())
+}
+
+#[test]
+fn stale_entry_remains_pending_while_live_stream_owns_journal() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("display-recovery.json");
+    let pid = std::process::id();
+    let mixed = Journal {
+        pid,
+        started: identity(pid)?.unwrap(),
+        entries: BTreeMap::from([
+            (
+                "tv".into(),
+                Entry {
+                    hdr: Some((false, true)),
+                    stale: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                "monitor".into(),
+                Entry {
+                    hdr: Some((false, true)),
+                    stale: false,
+                    ..Default::default()
+                },
+            ),
+        ]),
+    };
+    butterpollo_session::state::write_json(&path, &mixed)?;
+
+    let pending = AtomicBool::new(true);
+    // TV still offline: recover returns Ok(()), leaving stale entry -> retry backs off.
+    assert!(recover_pending_at_with(&path, &pending, |_| Ok(())).is_err());
+    assert!(pending.load(Ordering::Acquire));
+
+    // TV reconnects and only the stale entry is removed; live monitor stays.
+    let cleared = recover_pending_at_with(&path, &pending, |p| {
+        let mut journal = read_journal(p)?;
+        journal.entries.remove("tv");
+        butterpollo_session::state::write_json(p, &journal)
+    })?;
+    assert!(cleared);
+    assert!(!pending.load(Ordering::Acquire));
+    assert!(read_journal(&path)?.entries.contains_key("monitor"));
     Ok(())
 }
 

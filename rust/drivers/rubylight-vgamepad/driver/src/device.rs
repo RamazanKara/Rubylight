@@ -66,9 +66,11 @@ struct VhfTargetState {
 }
 
 pub struct DeviceContext {
-    /// Outer lifecycle lock: read by fast submit IOCTLs, write by create/destroy/power/stop/cleanup.
+    /// Outer lifecycle lock: read by IOCTLs and file cleanup, write by PnP/power stop/cleanup.
     /// Never acquired from `EvtVhf*` callbacks (which `VhfDelete` waits on).
     lifetime_gate: RwLock<()>,
+    /// Serializes controller create/destroy/file-cleanup and VHF target open without blocking submits.
+    control_lock: Mutex<()>,
     state_lock: Mutex<DeviceState>,
     vhf_target: Mutex<VhfTargetState>,
     submits_cv: Condvar,
@@ -81,6 +83,7 @@ impl DeviceContext {
     pub fn new(local_vhf_target: WDFIOTARGET) -> Arc<Self> {
         Arc::new(Self {
             lifetime_gate: RwLock::new(()),
+            control_lock: Mutex::new(()),
             state_lock: Mutex::new(DeviceState::new()),
             vhf_target: Mutex::new(VhfTargetState {
                 target: local_vhf_target as usize,
@@ -95,7 +98,7 @@ impl DeviceContext {
     }
 
     /// Open the dedicated local WDF I/O target by file handle if not already open.
-    /// Callers must hold `lifetime_gate.write()`.
+    /// Callers must hold `lifetime_gate.write()` or `control_lock`.
     pub fn ensure_vhf_target_open(&self) -> Result<HANDLE, NTSTATUS> {
         let (target, existing) = {
             let guard = self.vhf_target.lock().unwrap();
@@ -137,10 +140,7 @@ impl DeviceContext {
 
     pub fn on_prepare_hardware(&self) {
         let _gate = self.lifetime_gate.write().unwrap();
-        {
-            let mut state = self.state_lock.lock().unwrap();
-            state.stopping = false;
-        }
+        self.state_lock.lock().unwrap().stopping = false;
         // Best effort on start; IOCTL_CREATE_CONTROLLER retries opening if VHF wasn't ready yet.
         let _ = self.ensure_vhf_target_open();
     }
@@ -215,8 +215,10 @@ impl DeviceContext {
     }
 
     pub fn publish_vhf(&self, controller_id: u32, vhf: VHFHANDLE) {
-        let mut state = self.state_lock.lock().unwrap();
-        state.publish_vhf(controller_id, vhf as usize);
+        self.state_lock
+            .lock()
+            .unwrap()
+            .publish_vhf(controller_id, vhf as usize);
     }
 
     fn drain_and_delete_vhf(&self, controller_id: u32, vhf: VHFHANDLE) {
@@ -239,25 +241,18 @@ impl DeviceContext {
 
     pub fn on_d0_exit(&self) {
         dbglog!("device exiting D0");
-        {
-            let mut state = self.state_lock.lock().unwrap();
-            state.powered = false;
-        }
+        self.state_lock.lock().unwrap().powered = false;
         let _gate = self.lifetime_gate.write().unwrap();
         self.pid_timer.stop(true);
         self.sc26_keepalive.stop_and_join();
 
-        let retired = {
-            let mut state = self.state_lock.lock().unwrap();
-            state.begin_power_down()
-        };
+        let retired = self.state_lock.lock().unwrap().begin_power_down();
         for (i, token) in retired.iter().enumerate() {
             if let Some(vhf) = *token {
                 self.drain_and_delete_vhf(i as u32, vhf as VHFHANDLE);
             }
         }
-        let mut state = self.state_lock.lock().unwrap();
-        state.finish_power_down(&retired);
+        self.state_lock.lock().unwrap().finish_power_down(&retired);
     }
 
     pub fn on_release_or_cleanup(&self, label: &str, forget_target: bool) {
@@ -306,7 +301,8 @@ impl DeviceContext {
         if owner == 0 {
             return;
         }
-        let _gate = self.lifetime_gate.write().unwrap();
+        let _gate = self.lifetime_gate.read().unwrap();
+        let _control = self.control_lock.lock().unwrap();
         let mut tokens = [None; MAX_CONTROLLERS as usize];
         {
             let mut state = self.state_lock.lock().unwrap();
@@ -513,7 +509,8 @@ impl DeviceContext {
         // Run Configuration Manager device enumeration outside `lifetime_gate` and `state_lock`.
         let child_present = cm_child_exists_for_slot(req.controller_id);
 
-        let _gate = self.lifetime_gate.write().unwrap();
+        let _gate = self.lifetime_gate.read().unwrap();
+        let _control = self.control_lock.lock().unwrap();
         let file_handle = match self.ensure_vhf_target_open() {
             Ok(h) => h,
             Err(st) => {
@@ -581,7 +578,8 @@ impl DeviceContext {
             }
         };
 
-        let _gate = self.lifetime_gate.write().unwrap();
+        let _gate = self.lifetime_gate.read().unwrap();
+        let _control = self.control_lock.lock().unwrap();
         let vhf = {
             let mut state = self.state_lock.lock().unwrap();
             match state.begin_destroy_checked(owner, req.controller_id) {

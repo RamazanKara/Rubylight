@@ -28,7 +28,7 @@ use driver_repair::remember_driver_choice;
 use profile::{
     Target, import_error, migration_source, nvprefs_undo_pending, outside_other_hosts,
     refuse_foreign_service, secure_profile, stop_running, target, trust_console,
-    undo_import_on_error,
+    undo_profile_on_error,
 };
 use side_by_side::{earlier_settings_moved, pc_name, port_free, prepare_side_by_side_profile};
 use staging::{SwitchFailure, copy_package, create_install, remove_legacy, switch_service, unpack};
@@ -105,6 +105,7 @@ pub fn legacy_start_menu_link() -> PathBuf {
 /// After an in-place update: the firewall rule and Start menu entry under
 /// the current name, replacing Butterpollo's once the new one exists.
 pub fn refresh_entries(install: &Path, notes: &mut Vec<String>) {
+    system::prune_pending_renames(install);
     match system::firewall_allow(FIREWALL_RULE, &install.join("butterpollo.exe")) {
         Ok(()) => system::firewall_remove(LEGACY_FIREWALL_RULE),
         Err(error) => notes.push(format!(
@@ -249,6 +250,7 @@ fn install_with(
             SERVICE_DESCRIPTION,
             &install.join("butterpollo-service.exe"),
         )?;
+        system::prune_pending_renames(&install);
         crate::update::run(
             &install,
             options.start,
@@ -315,17 +317,6 @@ fn install_with(
     };
     let created = create_install(&install)?;
     let (staging, entries) = unpack(&mut payload, &install, created, progress)?;
-    let new_profile = side_by_side
-        && prepare_side_by_side_profile(
-            &profile,
-            found.current().is_some(),
-            pc_name().as_deref(),
-            port_free,
-            earlier,
-        )?;
-    if let Some(aside) = earlier {
-        notes.push(earlier_settings_moved(aside));
-    }
 
     let active_profile = previous
         .as_ref()
@@ -366,47 +357,65 @@ fn install_with(
         }
     }
 
-    undo_import_on_error(&profile, previous.is_some() || new_profile, || {
-        if let Some(root) = &previous {
-            progress.set("Importing settings, paired devices and apps…");
-            let source = if root.join("config\\sunshine.conf").is_file() {
-                root.join("config")
-            } else {
-                root.clone()
-            };
-            let (code, output) = system::run(
-                &staging.path().join("butterpollo.exe").display().to_string(),
-                &[
-                    "--config-dir",
-                    &profile.display().to_string(),
-                    "--import-config",
-                    &source.display().to_string(),
-                ],
-                Duration::from_secs(300),
-            )?;
-            if code != 0 {
-                // Nothing has been removed yet: the services that were running
-                // start again when this error returns.
-                bail!(
-                    "importing the settings from {} failed:\n\n{}",
-                    source.display(),
-                    import_error(&output)
-                        .unwrap_or_else(|| format!("butterpollo.exe exited with code {code}"))
-                );
+    undo_profile_on_error(
+        &profile,
+        previous.is_some(),
+        earlier,
+        |created_profile, earlier| {
+            if side_by_side {
+                *created_profile |= prepare_side_by_side_profile(
+                    &profile,
+                    found.current().is_some(),
+                    pc_name().as_deref(),
+                    port_free,
+                    earlier,
+                )?;
             }
-            notes.push(format!(
+            if let Some(root) = &previous {
+                progress.set("Importing settings, paired devices and apps…");
+                let source = if root.join("config\\sunshine.conf").is_file() {
+                    root.join("config")
+                } else {
+                    root.clone()
+                };
+                let (code, output) = system::run(
+                    &staging.path().join("butterpollo.exe").display().to_string(),
+                    &[
+                        "--config-dir",
+                        &profile.display().to_string(),
+                        "--import-config",
+                        &source.display().to_string(),
+                    ],
+                    Duration::from_secs(300),
+                )?;
+                if code != 0 {
+                    // Nothing has been removed yet: the services that were running
+                    // start again when this error returns.
+                    bail!(
+                        "importing the settings from {} failed:\n\n{}",
+                        source.display(),
+                        import_error(&output)
+                            .unwrap_or_else(|| format!("butterpollo.exe exited with code {code}"))
+                    );
+                }
+                notes.push(format!(
                 "Settings, paired devices and apps were imported from {}. The console keeps that host's sign-in: use its username and password.",
                 source.display()
             ));
-        }
+            }
 
-        progress.set("Installing files…");
-        copy_package(staging.path(), &install, &entries)?;
-        payload::write_stub(
-            &install.join("uninstall.exe"),
-            payload::packaged_stub(staging.path(), &entries)?.as_deref(),
-        )
-    })?;
+            progress.set("Installing files…");
+            system::prune_pending_renames(&install);
+            copy_package(staging.path(), &install, &entries)?;
+            payload::write_stub(
+                &install.join("uninstall.exe"),
+                payload::packaged_stub(staging.path(), &entries)?.as_deref(),
+            )
+        },
+    )?;
+    if let Some(aside) = earlier {
+        notes.push(earlier_settings_moved(aside));
+    }
 
     // The previous host is removed from here on, so a failure now starts
     // the service Rubylight runs as instead.
@@ -653,6 +662,7 @@ fn move_install(
     )?;
     crate::update::recover(profile)?;
     progress.set("Installing files…");
+    system::prune_pending_renames(install);
     copy_package(staging.path(), install, &entries)?;
     payload::write_stub(
         &install.join("uninstall.exe"),

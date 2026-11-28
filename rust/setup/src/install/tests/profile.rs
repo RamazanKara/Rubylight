@@ -548,3 +548,28 @@ fn fresh_installs_move_a_linked_profile_aside_not_its_target() -> Result<()> {
     assert_eq!(std::fs::read_dir(&outside)?.count(), 1);
     Ok(())
 }
+#[test]
+fn inherit_contents_sets_admin_owner_before_resetting_permissions() -> Result<()> {
+    assert_eq!(
+        system::INHERIT_OPERATIONS[0].0,
+        &["/setowner", "*S-1-5-32-544"]
+    );
+    assert_eq!(system::INHERIT_OPERATIONS[1].0, &["/reset"]);
+    if !system::elevated() {
+        return Ok(());
+    }
+    let temp = tempfile::tempdir_in(system::program_data())?;
+    system::restrict(temp.path(), true)?;
+    let folder = temp.path().join("restricted");
+    system::create_restricted(&folder, true)?;
+    let child = folder.join("locked.conf");
+    std::fs::write(&child, b"secret")?;
+    // Strip Administrators from the child's ACL and make Users its owner so
+    // `/reset` would fail with ACCESS_DENIED unless `/setowner` runs first.
+    icacls(&child, &["/setowner", "*S-1-5-32-545"])?;
+    icacls(&child, &["/inheritance:r", "/grant:r", "*S-1-5-32-545:(F)"])?;
+    system::inherit_contents(&folder, &[])?;
+    system::trusted_folder(&child)?;
+    assert_eq!(std::fs::read(&child)?, b"secret");
+    Ok(())
+}

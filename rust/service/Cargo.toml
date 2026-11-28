@@ -7,7 +7,7 @@
 # rust/release/service_inputs.py checks it.
 [package]
 name = "butterpollo-service"
-version = "1.0.7"
+version = "1.0.8"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-only"
@@ -27,7 +27,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 windows-service = "=0.8.1"
 windows = { version = "0.62.2", features = [
  "Win32_Devices_DeviceAndDriverInstallation", "Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp",
- "Win32_System_Environment", "Win32_System_JobObjects",
+ "Win32_System_Environment", "Win32_System_JobObjects", "Win32_System_Registry",
  "Win32_System_RemoteDesktop", "Win32_System_Threading"
 ] }
 

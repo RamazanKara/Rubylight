@@ -249,25 +249,54 @@ pub(super) fn migration_source(
 /// one fails, the profile this run imported into is removed again:
 /// `migration_source` found it empty, and a retry refuses to import over
 /// settings it would take for Rubylight's own.
+#[cfg(test)]
 pub(super) fn undo_import_on_error(
     profile: &Path,
     importing: bool,
     steps: impl FnOnce() -> Result<()>,
 ) -> Result<()> {
-    let Err(error) = steps() else {
+    let mut earlier = None;
+    undo_profile_on_error(profile, importing, &mut earlier, |_, _| steps())
+}
+/// Runs profile setup/import and package copy before the previous host is
+/// removed. On error, removes any profile created or imported in this run and
+/// restores an earlier profile moved aside for side-by-side (`earlier`) back
+/// to `profile`.
+pub(super) fn undo_profile_on_error(
+    profile: &Path,
+    mut created_profile: bool,
+    earlier: &mut Option<PathBuf>,
+    steps: impl FnOnce(&mut bool, &mut Option<PathBuf>) -> Result<()>,
+) -> Result<()> {
+    let Err(error) = steps(&mut created_profile, earlier) else {
         return Ok(());
     };
-    if !importing {
+    if !created_profile && earlier.is_none() {
         return Err(error);
     }
     match std::fs::remove_dir_all(profile) {
-        Ok(()) => Err(error),
-        Err(undo) if undo.kind() == std::io::ErrorKind::NotFound => Err(error),
-        Err(undo) => Err(anyhow!(
-            "{error:#}\n\nThe settings setup imported into {} could not be removed again ({undo}). Delete that folder, then run setup again.",
-            profile.display()
-        )),
+        Ok(()) => {}
+        Err(undo) if undo.kind() == std::io::ErrorKind::NotFound => {}
+        Err(undo) => {
+            return Err(anyhow!(
+                "{error:#}\n\nThe settings setup imported into {} could not be removed again ({undo}). Delete that folder, then run setup again.",
+                profile.display()
+            ));
+        }
     }
+    if let Some(aside) = earlier.as_ref() {
+        match std::fs::rename(aside, profile) {
+            Ok(()) => *earlier = None,
+            Err(undo) => {
+                return Err(anyhow!(
+                    "{error:#}\n\nThe earlier settings moved to {} could not be restored to {} ({undo}).",
+                    aside.display(),
+                    profile.display()
+                ));
+            }
+        }
+    }
+    Err(error)
 }
 /// Stop `services`, restarting those that were running if any stop fails.
 pub(super) fn stop_running<F: FnMut(&str) -> Result<()>>(

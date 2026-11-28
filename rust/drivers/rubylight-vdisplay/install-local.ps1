@@ -37,7 +37,16 @@ $hardwareId = 'Root\RubylightVDisplay'
 $classGuid = '{4D36E968-E325-11CE-BFC1-08002BE10318}'
 $state = 'HKLM:\SOFTWARE\Rubylight\VirtualDisplay'
 $subject = 'CN=Rubylight Virtual Display (signed on this PC)'
+# IddCx 1.10 (the driver's INF minimum) ships with Windows 11 23H2 (build 22631).
+$minBuild = 22631
 $script:restart = $false
+
+function Get-WindowsBuild {
+    $raw = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue).CurrentBuildNumber
+    $parsed = 0
+    if ($raw -and [int]::TryParse([string] $raw, [ref] $parsed)) { return $parsed }
+    $null
+}
 
 function Remove-Trust([string] $thumbprint) {
     if (-not $thumbprint) { return }
@@ -155,6 +164,11 @@ function Install-Package {
         Remove-Install $recorded
         return
     }
+    $build = Get-WindowsBuild
+    if ($null -ne $build -and $build -lt $minBuild) {
+        $script:unsupported = "Rubylight's virtual display driver requires Windows 11 23H2 or later (IddCx 1.10, build $minBuild; this PC is on build $build), so streams use a physical display."
+        return
+    }
 
     $catalog = Join-Path $Package 'rubylight_vdisplay.cat'
     $status = (Get-AuthenticodeSignature -LiteralPath $catalog).Status
@@ -192,11 +206,16 @@ function Install-Package {
             $signer = Protect-Catalog (Join-Path $work 'rubylight_vdisplay.cat')
         }
         $inf = Join-Path $work 'rubylight_vdisplay.inf'
+        # Track whether pnputil deferred installing `$ours` (3010) separately from deletions of
+        # older packages so a 3010 on deleting an old package never skips verifying `$ours`.
+        $addRestart = $false
         Add-Package $inf
+        if ($LASTEXITCODE -eq 3010) { $addRestart = $true }
         if (-not (Get-Device)) {
             if (-not $NefConc) { throw "no $hardwareId device: pass -NefConc to create it" }
             Invoke-Checked $NefConc @('--create-device-node', '--class-name', 'Display', '--class-guid', $classGuid, '--hardware-id', $hardwareId)
             Add-Package $inf
+            if ($LASTEXITCODE -eq 3010) { $addRestart = $true }
         }
         # The driver store keeps the INF as it is: this package is the one with its hash.
         $hash = (Get-FileHash -LiteralPath $inf).Hash
@@ -216,13 +235,14 @@ function Install-Package {
                 }
             }
             Add-Package $inf
-            if (-not $script:restart -and (Get-CurrentPackage) -ne $ours) { throw "the device uses $(Get-CurrentPackage), not $ours" }
+            if ($LASTEXITCODE -eq 3010) { $addRestart = $true }
+            if (-not $addRestart -and (Get-CurrentPackage) -ne $ours) { throw "the device uses $(Get-CurrentPackage), not $ours" }
         }
         # A device that cannot start (a policy this script did not recognise refused the
         # driver) counts as a failed install: nothing half-installed stays.
         $device = @(Get-Device)[0]
         $device | Format-List InstanceId, Status, Problem | Out-Host
-        if (-not $script:restart -and $device.Status -ne 'OK') {
+        if (-not $addRestart -and (-not $device -or $device.Status -ne 'OK')) {
             throw "Windows did not start the display driver ($($device.Status), problem $($device.Problem))"
         }
     } catch {
@@ -254,6 +274,7 @@ function Install-Package {
     Ensure-StateKey
     # Setup and the service tell an installed driver by this key.
     Set-ItemProperty $state Installed ((Get-Date).ToUniversalTime().ToString('o'))
+    Remove-ItemProperty $state Problem -ErrorAction SilentlyContinue
     if ($signer) {
         Set-ItemProperty $state LocalSigner $signer.Thumbprint
     } else {

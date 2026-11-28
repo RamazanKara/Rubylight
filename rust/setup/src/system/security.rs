@@ -573,6 +573,13 @@ pub fn create_restricted(folder: &Path, users_read: bool) -> Result<()> {
         result.with_context(|| format!("creating {}", folder.display()))
     }
 }
+/// Operations `inherit_contents` runs on each target, in order: taking
+/// ownership first grants Administrators `WRITE_DAC` so `/reset` succeeds
+/// even when a non-admin owner stripped Administrators from the ACL.
+pub(crate) const INHERIT_OPERATIONS: [(&[&str], &str); 2] = [
+    (&["/setowner", "*S-1-5-32-544"], "setting ownership on"),
+    (&["/reset"], "resetting permissions on"),
+];
 /// Reset a folder's contents to inherit the folder's permissions and belong
 /// to Administrators, except the folders in `opaque` directly in it, which
 /// keep their own and so does everything in them.
@@ -602,10 +609,7 @@ pub fn inherit_contents(folder: &Path, opaque: &[PathBuf]) -> Result<()> {
     let mut failures = Vec::new();
     for (target, recurse) in targets {
         let target = target.display().to_string();
-        for (change, failed) in [
-            (&["/reset"][..], "resetting permissions on"),
-            (&["/setowner", "*S-1-5-32-544"][..], "setting ownership on"),
-        ] {
+        for (change, failed) in INHERIT_OPERATIONS {
             let mut args = vec![target.as_str()];
             args.extend(change);
             if recurse {

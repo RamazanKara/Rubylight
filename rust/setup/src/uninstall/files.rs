@@ -172,12 +172,33 @@ pub(super) fn remove_empty_folders(folder: &Path) {
     }
     let _ = std::fs::remove_dir(folder);
 }
+/// Whether `a` and `b` name the same file (handling verbatim prefixes, case,
+/// and 8.3 short names when both exist on disk).
+pub(super) fn same_file_path(a: &Path, b: &Path) -> bool {
+    if let (Ok(ca), Ok(cb)) = (a.canonicalize(), b.canonicalize()) {
+        return ca == cb;
+    }
+    plain(&a.display().to_string())
+        .replace('/', "\\")
+        .eq_ignore_ascii_case(&plain(&b.display().to_string()).replace('/', "\\"))
+}
 /// Delete what the installer put in `install`: the manifest's files, the
 /// manifest, the uninstaller and driver folders carried over from Vibepollo.
 /// Anything else stays, and so does every folder that is not empty then: the
 /// install folder may also hold the user's own files. Returns the folders that
 /// held a package file.
+#[cfg(test)]
 pub(super) fn remove_package(install: &Path) -> BTreeSet<PathBuf> {
+    remove_package_with(install, None, &mut system::remove_file_later)
+}
+/// [`remove_package`] skipping `skip` (the running `uninstall.exe`, which the
+/// post-exit `cmd.exe` step removes without queuing a reboot deletion) and
+/// delegating file deletions to `later`.
+pub(super) fn remove_package_with(
+    install: &Path,
+    skip: Option<&Path>,
+    later: &mut dyn FnMut(&Path),
+) -> BTreeSet<PathBuf> {
     let mut folders = BTreeSet::new();
     let mut remove = |path: PathBuf| {
         folders.extend(
@@ -186,7 +207,10 @@ pub(super) fn remove_package(install: &Path) -> BTreeSet<PathBuf> {
                 .take_while(|folder| *folder != install && folder.starts_with(install))
                 .map(Path::to_path_buf),
         );
-        system::remove_file_later(&path);
+        if skip.is_some_and(|skipped| same_file_path(&path, skipped)) {
+            return;
+        }
+        later(&path);
     };
     if let Ok(entries) = payload::manifest(install) {
         for entry in entries {

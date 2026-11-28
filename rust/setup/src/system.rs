@@ -1,13 +1,19 @@
 //! Windows facilities setup needs: elevation, commands, services, registry,
 //! processes, firewall rules, shortcuts and folder permissions.
+mod pending_renames;
 mod registry;
 mod security;
 mod services;
 
+#[cfg(test)]
+pub(crate) use pending_renames::{prune_pending_rename_words, rename_aside_for_delete};
+pub use pending_renames::{prune_pending_renames, remove_file_later};
 pub use registry::{
     Value, delete_key, delete_value, machine_dword, registry_dword, registry_string,
     registry_string_view, subkeys, values, write_key,
 };
+#[cfg(test)]
+pub(crate) use security::INHERIT_OPERATIONS;
 pub use security::{
     Untrusted, create_restricted, inherit_contents, no_reparse_points, restrict, restrict_except,
     trusted_ancestors, trusted_folder, trusted_parents, trusted_tree,
@@ -655,20 +661,22 @@ pub fn shortcut(link: &Path, target: &Path, description: &str) -> Result<()> {
         result
     }
 }
-/// Delete a file now, or at the next restart if it is in use.
-pub fn remove_file_later(path: &Path) {
-    if std::fs::remove_file(path).is_ok() || !path.exists() {
-        return;
-    }
-    let source = HSTRING::from(path.as_os_str());
-    // SAFETY: `source` is NUL-terminated UTF-16; a null target schedules deletion.
-    unsafe {
-        let _ = windows::Win32::Storage::FileSystem::MoveFileExW(
-            &source,
-            PCWSTR::null(),
-            windows::Win32::Storage::FileSystem::MOVEFILE_DELAY_UNTIL_REBOOT,
-        );
-    }
+/// IddCx 1.10 (virtual display driver INF minimum) ships with Windows 11 23H2 (build 22631).
+pub const IDDCX_1_10_BUILD: u32 = 22631;
+/// Current Windows build number from `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`.
+pub fn windows_build() -> Option<u32> {
+    registry_string(
+        windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+        "CurrentBuildNumber",
+    )?
+    .trim()
+    .parse()
+    .ok()
+}
+/// Whether `rubylight-vdisplay` is supported on `build` (`None` fails open).
+pub fn virtual_display_supported(build: Option<u32>) -> bool {
+    build.is_none_or(|b| b >= IDDCX_1_10_BUILD)
 }
 pub fn program_data() -> PathBuf {
     PathBuf::from(std::env::var_os("ProgramData").unwrap_or_else(|| "C:\\ProgramData".into()))

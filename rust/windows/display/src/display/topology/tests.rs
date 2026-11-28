@@ -709,3 +709,67 @@ fn referenced_modes_compacts_unreferenced_entries_and_returns_empty_when_all_inv
     let (_, empty) = super::super::hotplug::referenced_modes(&[p], &[mode0, mode1]).unwrap();
     assert!(empty.is_empty());
 }
+
+#[test]
+fn collect_active_target_candidates_filters_unavailable_and_caches_unique_targets() {
+    let gpu = LUID {
+        LowPart: 7,
+        HighPart: 0,
+    };
+    let make = |source: u32, target: u32, available: bool| {
+        let mut p = DISPLAYCONFIG_PATH_INFO::default();
+        p.sourceInfo.adapterId = gpu;
+        p.sourceInfo.id = source;
+        p.targetInfo.adapterId = gpu;
+        p.targetInfo.id = target;
+        p.targetInfo.targetAvailable = available.into();
+        p
+    };
+    let paths = vec![
+        make(0, 10, true),
+        make(1, 10, true),
+        make(2, 10, true),
+        make(0, 20, true),
+        make(1, 20, true),
+        make(0, 30, false),
+        make(1, 30, false),
+    ];
+    let ids = vec![
+        "MON-20".to_owned(),
+        r"\\?\DISPLAY#AAA#10".to_owned(),
+        "MON-30".to_owned(),
+    ];
+    let preferred_sources = std::collections::BTreeMap::from([("MON-20".to_owned(), 1)]);
+    let preferred_rotations = std::collections::BTreeMap::from([("MON-20".to_owned(), 2)]);
+    let mut queries: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+
+    let (candidates, rotations) = routes::collect_active_target_candidates(
+        &paths,
+        &ids,
+        &preferred_sources,
+        &preferred_rotations,
+        Some("mon-20"),
+        |_, target_id| {
+            *queries.entry(target_id).or_default() += 1;
+            match target_id {
+                10 => Some((r"\\?\DISPLAY#AAA#10".to_owned(), "MON-10".to_owned())),
+                20 => Some((r"\\?\DISPLAY#BBB#20".to_owned(), "MON-20".to_owned())),
+                30 => panic!("unavailable target must never be queried"),
+                _ => None,
+            }
+        },
+    );
+
+    assert_eq!(
+        queries,
+        std::collections::BTreeMap::from([(10, 1), (20, 1)])
+    );
+    assert_eq!(candidates.len(), 2);
+    assert_eq!(candidates[0].0.len(), 2);
+    assert_eq!(candidates[0].1, Some(1));
+    assert!(candidates[0].2);
+    assert_eq!(candidates[1].0.len(), 3);
+    assert_eq!(candidates[1].1, None);
+    assert!(!candidates[1].2);
+    assert_eq!(rotations, vec![Some(2), None]);
+}

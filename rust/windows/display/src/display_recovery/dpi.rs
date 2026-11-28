@@ -342,7 +342,7 @@ fn while_journal(
 pub(super) fn wait_for_virtual_displays(bound: Duration, abort: impl Fn() -> bool) {
     let started = Instant::now();
     while started.elapsed() < bound && !abort() {
-        let listed = crate::display::monitors()
+        let listed = crate::display::basic_monitors()
             .map(|all| all.iter().any(|m| m.is_rubylight()))
             .unwrap_or(false);
         if !listed {
@@ -369,7 +369,7 @@ pub(super) fn settle(
         physical_scales,
         |id, percent| {
             check(id, &mut || {
-                let monitors = crate::display::monitors()?;
+                let monitors = crate::display::basic_monitors()?;
                 let monitor = monitors
                     .iter()
                     .find(|m| m.device_id == id)
@@ -420,7 +420,7 @@ pub fn settle_scale(id: &str, percent: u32) -> Result<()> {
 
 /// The scale of each connected physical display, by device id.
 fn physical_scales() -> Result<BTreeMap<String, u32>> {
-    Ok(crate::display::monitors()?
+    Ok(crate::display::basic_monitors()?
         .iter()
         .filter(|m| m.is_known_physical())
         .filter_map(|m| {
@@ -562,5 +562,13 @@ mod tests {
         let desktop_call = settle_fn.find("crate::desktop::on_input_desktop(").unwrap();
         let inner_settle = settle_fn.find("settle(").unwrap();
         assert!(desktop_call < inner_settle);
+    }
+
+    #[test]
+    fn dpi_helpers_use_basic_monitors_without_hdr_queries() {
+        let source = include_str!("dpi.rs");
+        let prod = source.split("#[cfg(test)]").next().unwrap();
+        assert_eq!(prod.matches("crate::display::basic_monitors()").count(), 3);
+        assert!(!prod.contains("crate::display::monitors()"));
     }
 }

@@ -275,3 +275,31 @@ fn a_driver_left_out_at_install_starts_no_setup() {
         (false, false)
     );
 }
+#[test]
+fn display_driver_watch_is_skipped_below_windows_11_23h2() {
+    use Driver::*;
+    for old in [Some(19045), Some(22000), Some(22621), Some(22630)] {
+        assert!(!driver_supported(Display, old), "{old:?}");
+        assert!(driver_supported(Gamepad, old), "{old:?}");
+    }
+    for supported in [Some(22631), Some(26100), None] {
+        assert!(driver_supported(Display, supported), "{supported:?}");
+        assert!(driver_supported(Gamepad, supported), "{supported:?}");
+    }
+    let install = tempfile::tempdir().unwrap();
+    for driver in Driver::ALL {
+        let path = install.path().join(script(driver));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"# script\n").unwrap();
+    }
+    assert_eq!(watched_drivers(install.path(), Some(19045)), vec![Gamepad]);
+    assert_eq!(watched_drivers(install.path(), Some(22621)), vec![Gamepad]);
+    assert_eq!(
+        watched_drivers(install.path(), Some(22631)),
+        vec![Display, Gamepad]
+    );
+    assert_eq!(
+        watched_drivers(install.path(), None),
+        vec![Display, Gamepad]
+    );
+}

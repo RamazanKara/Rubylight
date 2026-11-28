@@ -312,9 +312,21 @@ pub(super) fn prepare_side_by_side_profile(
     if !empty {
         *moved = Some(move_profile_aside(profile)?);
     }
-    std::fs::create_dir_all(profile)?;
-    std::fs::write(profile.join("sunshine.conf"), side_by_side_conf(base, pc))?;
-    std::fs::write(profile.join(SIDE_BY_SIDE_MARK), b"")?;
+    let write = (|| -> Result<()> {
+        std::fs::create_dir_all(profile)?;
+        std::fs::write(profile.join("sunshine.conf"), side_by_side_conf(base, pc))?;
+        std::fs::write(profile.join(SIDE_BY_SIDE_MARK), b"")?;
+        Ok(())
+    })();
+    if let Err(error) = write {
+        let _ = std::fs::remove_dir_all(profile);
+        if let Some(aside) = moved.as_ref()
+            && std::fs::rename(aside, profile).is_ok()
+        {
+            *moved = None;
+        }
+        return Err(error);
+    }
     Ok(true)
 }
 pub(super) fn earlier_settings_moved(aside: &Path) -> String {

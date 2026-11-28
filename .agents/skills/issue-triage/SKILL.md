@@ -5,7 +5,7 @@ description: Take one GitHub issue (Rubylight host or Nightjar mirror) from read
 
 # Issue Triage (one issue, end to end)
 
-Use this skill for a single issue. When several issues are to be fixed at once, hand off to the `issue-batch` skill (from the operator's Claude setup, not this repository).
+Use this skill for a single issue. When several issues are to be fixed at once, use the `merge-train` skill (native `/swarm` in Antigravity, or `issue-batch` in Claude Code).
 
 ## 1. Read
 

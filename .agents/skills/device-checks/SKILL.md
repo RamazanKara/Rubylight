@@ -21,7 +21,7 @@ Use this skill when a check needs real hardware; prove what you can with unit, f
 - Published release: `pwsh rust/release/check.ps1 [v<version>]` downloads, streams, self-tests, uploads results and **installs over the running host** (`-NoInstall -NoUpload` skip those). Run it only with the installed host idle.
 - A build under test: an isolated test host (`rust/release/e2e.py`), never the installed one.
 
-## Laptop (Orca server `laptop`, or ssh)
+## Laptop (`laptop.py` or ssh)
 
 - Full check of a pushed branch: `tools\remote-check.ps1 -Host laptop -Branch <branch> [-Wait]`. Exit 4 = busy, 5 = nobody or another user at the console.
 - Laptop as host, this PC as client: `pwsh tools\hw\laptop-host.ps1 -Out <dir>` (exit 4 = busy or not idle).

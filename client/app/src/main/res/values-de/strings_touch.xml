@@ -45,4 +45,6 @@
     <string name="title_finger_tap_on_cancel">Vom System abgebrochene Fingertipps</string>
     <string name="summary_finger_tap_on_cancel">Drei- und Vier-Finger-Tipps, die das System abbricht, wie bei manchen Oppo- und ColorOS-Geräten, lösen ihre Aktion trotzdem aus, wenn die Finger zusammen aufgesetzt wurden und still lagen; unter Android 13 und neuer zählen nur Abbrüche, die das System als eigene kennzeichnet, unter Android 12 und älter jeder Abbruch in diesem Zeitfenster. Aktiviere es nur, wenn Tipps mit drei oder vier Fingern bei eng beieinander liegenden Fingern nichts auslösen.</string>
     <string name="summary_multi_touch_finger_taps">Im Modus „Multitouch“ löst Tippen mit drei und vier Fingern seine Aktionen aus und erreicht den PC nicht mehr als Berührung. Lass es aus, wenn etwas am PC dieses Tippen nutzt.</string>
+    <string name="title_pinch_to_zoom">Zum Zoomen aufziehen</string>
+    <string name="summary_pinch_to_zoom">Mit zwei Fingern im Stream jederzeit zoomen und verschieben, solange der Touch-Modus aktiv ist. Deaktiviert lassen, um Zwei-Finger-Gesten auf Touchpad-Scrollen zu beschränken, oder Zoom vorübergehend im Kontrollzentrum umschalten.</string>
 </resources>

@@ -43,8 +43,8 @@ public class SettingsRowCountTest {
         context().getSharedPreferences("SettingsScreenState", Context.MODE_PRIVATE).edit().clear().commit();
     }
 
-    /** Settings' rows at the defaults, every More row open, the new Show debug settings, NJ#187 controller mouse sensitivity, NJ#191 compact overlay device info and NJ#190 Picture position included, and Controls' Controller row that opens the controller editor. */
-    static final int ROWS_AT_DEFAULTS = 116;
+    /** Settings' rows at the defaults, every More row open, including Show debug settings, NJ#187 controller mouse sensitivity, NJ#191 compact overlay device info, NJ#190 Picture position, Pinch to zoom, and Controls' Controller row that opens the controller editor. */
+    static final int ROWS_AT_DEFAULTS = 117;
 
     @Test
     public void rowCountsAtTheDefaults() {

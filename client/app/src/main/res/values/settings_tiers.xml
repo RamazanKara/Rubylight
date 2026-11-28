@@ -34,6 +34,7 @@
     </string-array>
     <string-array name="settings_tier_input" translatable="false">
         <item>touch_mode</item>
+        <item>checkbox_pinch_to_zoom</item>
         <item>checkbox_absolute_mouse_mode</item>
         <item>controller_editor</item>
         <item>checkbox_show_onscreen_controls</item>

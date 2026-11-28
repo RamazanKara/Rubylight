@@ -342,6 +342,7 @@ final class PreferenceReader {
         config.threeFingerTap = prefs.getString(THREE_FINGER_TAP_PREF_STRING, FingerTapGesture.KEYBOARD);
         config.fourFingerTap = prefs.getString(FOUR_FINGER_TAP_PREF_STRING, FingerTapGesture.NONE);
         config.multiTouchFingerTaps = prefs.getBoolean(MULTI_TOUCH_FINGER_TAPS_PREF_STRING, false);
+        config.pinchToZoom = prefs.getBoolean(PINCH_TO_ZOOM_PREF_STRING, false);
         config.fingerTapOnCancel = prefs.getBoolean(FINGER_TAP_ON_CANCEL_PREF_STRING, false);
         config.pcKeyboardLayout = prefs.getString(PC_KEYBOARD_LAYOUT_PREF_STRING, "auto");
         config.pcKeyboardSize = Math.max(30, Math.min(70, prefs.getInt(PC_KEYBOARD_SIZE_PREF_STRING, 50)));

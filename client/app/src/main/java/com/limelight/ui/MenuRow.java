@@ -35,8 +35,12 @@ public final class MenuRow extends MaterialButton {
     public MenuRow(Context context, android.util.AttributeSet attrs) {
         super(context, attrs, androidx.appcompat.R.attr.borderlessButtonStyle);
         android.content.res.Resources res = context.getResources();
+        boolean tv = ControlCenterCards.television(context);
         setAllCaps(false);
         setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
+        if (!tv) {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13.5f);
+        }
         setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0));
         setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         setSingleLine(true);
@@ -51,7 +55,8 @@ public final class MenuRow extends MaterialButton {
         setPaddingRelative(gap * 2, 0, gap * 2 + chevronSize, 0);
         setBackground(new GlassControlDrawable(context, GlassControlDrawable.Kind.ROW, res.getDimension(R.dimen.nj_radius_control)));
         chevron = AppCompatResources.getDrawable(context, R.drawable.settings_chevron);
-        valuePaint.setTextSize(res.getDimension(R.dimen.stream_menu_row_value));
+        valuePaint.setTextSize(tv ? res.getDimension(R.dimen.stream_menu_row_value)
+                : android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, 12.5f, res.getDisplayMetrics()));
         valuePaint.setColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
         valuePaint.setTypeface(getTypeface());
         capPaint.setTextSize(res.getDimension(R.dimen.stream_tile_cap_text));

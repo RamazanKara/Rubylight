@@ -244,6 +244,12 @@ final class GameConnection {
     }
 
     void stopConnection() {
+        if (game.conn != null) {
+            ComputerDetails details = game.conn.getHostDetails();
+            if (details != null && details.uuid != null) {
+                com.limelight.console.HostFeed.noteStreamEnded(details.uuid);
+            }
+        }
         destroyMoveWatch();
         launchCurtain.end();
         if (hostLossWatch != null) hostLossWatch.stop();

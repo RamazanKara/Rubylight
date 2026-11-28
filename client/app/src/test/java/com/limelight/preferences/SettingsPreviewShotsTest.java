@@ -91,6 +91,52 @@ public class SettingsPreviewShotsTest {
     @Test @Config(qualifiers = "en-w720dp-h360dp-land-night-xhdpi")
     public void chipsSideways() throws IOException { capture("chips-land"); }
 
+    @Test @Config(qualifiers = "en-w800dp-h360dp-land-notnight-xhdpi")
+    public void phoneLandscapeVideoSize() throws IOException {
+        String output = System.getenv("NIGHTJAR_PREVIEW_OUTPUT");
+        Assume.assumeTrue("previews are an explicitly requested local capture", output != null && !output.isBlank());
+        File directory = new File(output, "day");
+        assertTrue(directory.isDirectory() || directory.mkdirs());
+        StreamSettings screen = Robolectric.buildActivity(StreamSettings.class).setup().visible().get();
+        float density = screen.getResources().getDisplayMetrics().density;
+        int width = Math.round(screen.getResources().getConfiguration().screenWidthDp * density);
+        int height = Math.round(screen.getResources().getConfiguration().screenHeightDp * density);
+        String[] sizes = screen.getResources().getStringArray(R.array.video_scaling_modes);
+        Dialog dialog = SettingsPreviews.pick(screen, screen.getString(R.string.video_scaling_title),
+                SettingsPreviewCard.SCALING, sizes, new float[] {0, 1, 2, 3, 4}, 0, null, which -> { });
+        ShadowLooper.idleMainLooper(400, TimeUnit.MILLISECONDS);
+        View decor = dialog.getWindow().getDecorView();
+        decor.measure(View.MeasureSpec.makeMeasureSpec(Math.min(width, Math.round(560f * density)), View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.AT_MOST));
+        decor.layout(0, 0, decor.getMeasuredWidth(), decor.getMeasuredHeight());
+        draw(decor, decor.getWidth(), decor.getHeight(), new File(directory, "phone-land-video-size.png"));
+        dialog.dismiss();
+    }
+
+    @Test @Config(qualifiers = "en-w360dp-h800dp-port-notnight-xhdpi")
+    public void controlsPinchToZoomDay() throws IOException {
+        String output = System.getenv("NIGHTJAR_PREVIEW_OUTPUT");
+        Assume.assumeTrue("previews are an explicitly requested local capture", output != null && !output.isBlank());
+        File directory = new File(output, "day");
+        assertTrue(directory.isDirectory() || directory.mkdirs());
+        org.robolectric.Shadows.shadowOf(RuntimeEnvironment.getApplication().getPackageManager())
+                .setSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN, true);
+        StreamSettings.rememberRail(RuntimeEnvironment.getApplication(), true);
+        StreamSettings screen = Robolectric.buildActivity(StreamSettings.class).setup().visible().get();
+        SettingsStructureTest.open(screen, "input");
+        float density = screen.getResources().getDisplayMetrics().density;
+        int width = Math.round(screen.getResources().getConfiguration().screenWidthDp * density);
+        int height = Math.round(screen.getResources().getConfiguration().screenHeightDp * density);
+        View root = screen.getWindow().getDecorView();
+        for (int pass = 0; pass < 2; pass++) {
+            root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, width, height);
+            ShadowLooper.idleMainLooper(400, TimeUnit.MILLISECONDS);
+        }
+        draw(root, width, height, new File(directory, "settings-pinch-to-zoom.png"));
+    }
+
     private void capture(String name) throws IOException {
         String output = System.getenv("NIGHTJAR_PREVIEW_OUTPUT");
         Assume.assumeTrue("previews are an explicitly requested local capture", output != null && !output.isBlank());
@@ -143,7 +189,7 @@ public class SettingsPreviewShotsTest {
                 SettingsPreviews.states(SettingsPreviews.UPSCALING, new String[] {"off", "bilinear", "fsr1", "sgsr1"}, 4, null),
                 2, () -> { }, which -> { }), width, new File(directory, name + "-3-pick-upscaling.png"));
         picker(SettingsPreviews.pick(screen, screen.getString(R.string.video_scaling_title), SettingsPreviewCard.SCALING,
-                sizes, new float[] {0, 1, 2, 3}, 0, null, which -> { }), width, new File(directory, name + "-4-pick-size.png"));
+                sizes, new float[] {0, 1, 2, 3, 4}, 0, null, which -> { }), width, new File(directory, name + "-4-pick-size.png"));
 
         // The page that carries two of them.
         StreamSettings.SettingsFragment display = SettingsStructureTest.open(screen, "display");

@@ -180,6 +180,18 @@ public final class TileGrid extends ViewGroup {
             invalidate();
         }
 
+        void fitHeader(int height, int iconSize, int sidePad, int topPad, int iconGap, int bottomPad) {
+            setMinHeight(height);
+            setMinimumHeight(height);
+            topStartSize = iconSize;
+            topStartPad = topPad;
+            inCorner = hotkey != null && capShown;
+            int textTop = Math.max(topPad + iconSize + iconGap, inCorner ? capFoot() + Math.round(2 * dp) : 0);
+            setPaddingRelative(sidePad, textTop, sidePad, bottomPad);
+            requestLayout();
+            invalidate();
+        }
+
         @Override
         public android.graphics.drawable.Drawable getIcon() {
             return topStartIcon != null ? topStartIcon : super.getIcon();

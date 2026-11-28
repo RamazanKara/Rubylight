@@ -101,6 +101,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
             if (!(binder instanceof ComputerManagerService.ComputerManagerBinder)) return;
             final ComputerManagerService.ComputerManagerBinder localBinder =
                     ((ComputerManagerService.ComputerManagerBinder)binder);
+            com.limelight.console.HostFeed.invalidateRecentStreams(localBinder);
 
             // Wait in a separate thread to avoid stalling the UI
             serviceWaitThread = new Thread() {
@@ -584,6 +585,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
 
         inForeground = true;
         startComputerUpdates();
+        com.limelight.console.HostFeed.invalidateRecentStreams(managerBinder);
         if (appGridAdapter != null) appGridAdapter.notifyDataSetChanged();
         updateLibraryState();
     }

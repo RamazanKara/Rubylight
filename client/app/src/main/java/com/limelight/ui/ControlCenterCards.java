@@ -241,11 +241,21 @@ final class ControlCenterCards {
      */
     static TileGrid.Tile card(Context context, int icon, CharSequence label, CharSequence state, Boolean on, String hotkey,
                               boolean capsShown) {
+        return card(context, icon, label, state, on, hotkey, capsShown, context.getResources().getConfiguration().screenHeightDp);
+    }
+
+    static TileGrid.Tile card(Context context, int icon, CharSequence label, CharSequence state, Boolean on, String hotkey,
+                              boolean capsShown, int windowHeightDp) {
         Resources res = context.getResources();
         float density = res.getDisplayMetrics().density;
+        boolean tv = television(context);
         TileGrid.Tile card = new TileGrid.Tile(context);
         card.setAllCaps(false);
-        card.setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
+        card.setTextAppearance(context, tv ? R.style.TextAppearance_Nightjar_Label : R.style.TextAppearance_Nightjar_Tile);
+        if (!tv) {
+            card.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12.5f);
+            androidx.core.widget.TextViewCompat.setLineHeight(card, Math.round(16 * res.getDisplayMetrics().scaledDensity));
+        }
         card.setTextColor(ContextCompat.getColor(context, R.color.nj_surface_control_center_label));
         card.setSingleLine(false);
         card.setMaxLines(3);
@@ -255,7 +265,7 @@ final class ControlCenterCards {
         card.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NONE);
         card.setGravity(Gravity.START | Gravity.BOTTOM);
         card.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_START);
-        int height = cardHeight(context);
+        int height = cardHeight(context, windowHeightDp);
         card.setMinHeight(height);
         card.setMinimumHeight(height);
         card.setMinWidth(0);
@@ -263,21 +273,35 @@ final class ControlCenterCards {
         card.setInsetTop(0);
         card.setInsetBottom(0);
         int side = res.getDimensionPixelSize(R.dimen.control_center_card_pad);
-        int tall = res.getConfiguration().screenHeightDp;
-        boolean low = !television(context) && tall > 0 && tall < LOW_WINDOW_DP;
+        card.setHotkey(hotkey);
+        card.setHotkeyAtEnd(true, side);
+        card.setCapShown(capsShown);
+        card.setTopStartHeader(icon, res.getDimensionPixelSize(R.dimen.control_center_card_icon),
+                ink(context, true), side, Math.round(9 * density), Math.round(4 * density), Math.round(8 * density));
+        fitCard(card, windowHeightDp);
+        card.setBackground(new Tint(context, Tint.Kind.CARD, res.getDimension(R.dimen.nj_radius_control)));
+        card.setOn(on);
+        if (tv) card.setStateListAnimator(Motion.controlFocus(context));
+        write(card, label, state);
+        return card;
+    }
+
+    static void fitCard(TileGrid.Tile card, int windowHeightDp) {
+        Context context = card.getContext();
+        Resources res = context.getResources();
+        float density = res.getDisplayMetrics().density;
+        int height = cardHeight(context, windowHeightDp);
+        int side = res.getDimensionPixelSize(R.dimen.control_center_card_pad);
+        boolean low = isLowWindow(context, windowHeightDp);
         int iconSize = low ? Math.round(16 * density) : res.getDimensionPixelSize(R.dimen.control_center_card_icon);
         int topPad = Math.round((low ? 5 : 9) * density);
         int iconGap = Math.round((low ? 2 : 4) * density);
         int bottomPad = Math.round((low ? 5 : 8) * density);
-        card.setHotkey(hotkey);
-        card.setHotkeyAtEnd(true, side);
-        card.setCapShown(capsShown);
-        card.setTopStartHeader(icon, iconSize, ink(context, true), side, topPad, iconGap, bottomPad);
-        card.setBackground(new Tint(context, Tint.Kind.CARD, res.getDimension(R.dimen.nj_radius_control)));
-        card.setOn(on);
-        if (television(context)) card.setStateListAnimator(Motion.controlFocus(context));
-        write(card, label, state);
-        return card;
+        card.fitHeader(height, iconSize, side, topPad, iconGap, bottomPad);
+    }
+
+    static boolean isLowWindow(Context context, int windowHeightDp) {
+        return !television(context) && windowHeightDp > 0 && windowHeightDp < LOW_WINDOW_DP;
     }
 
     /**
@@ -285,10 +309,13 @@ final class ControlCenterCards {
      * the header and the ways out, as a handheld's and a phone's on its side are. A TV has the height.
      */
     static int cardHeight(Context context) {
+        return cardHeight(context, context.getResources().getConfiguration().screenHeightDp);
+    }
+
+    static int cardHeight(Context context, int windowHeightDp) {
         Resources res = context.getResources();
-        int tall = res.getConfiguration().screenHeightDp;
-        boolean low = !television(context) && tall > 0 && tall < LOW_WINDOW_DP;
-        return res.getDimensionPixelSize(low ? R.dimen.control_center_card_low : R.dimen.nj_size_control_center_card);
+        return res.getDimensionPixelSize(isLowWindow(context, windowHeightDp)
+                ? R.dimen.control_center_card_low : R.dimen.nj_size_control_center_card);
     }
 
     /** A card's name and, under it, its state; also what a screen reader says for it. */
@@ -302,6 +329,9 @@ final class ControlCenterCards {
             text.append(state);
             text.setSpan(new android.text.style.TextAppearanceSpan(context, R.style.TextAppearance_Nightjar_TileDetail),
                     start, text.length(), 0);
+            if (!television(context)) {
+                text.setSpan(new android.text.style.AbsoluteSizeSpan(11, true), start, text.length(), 0);
+            }
             text.setSpan(new android.text.style.ForegroundColorSpan(ContextCompat.getColor(context,
                     R.color.nj_surface_control_center_label_secondary)), start, text.length(), 0);
             card.setText(text);
@@ -427,7 +457,8 @@ final class ControlCenterCards {
         int gap = res.getDimensionPixelSize(R.dimen.control_center_gap);
         TextView notice = new TextView(context);
         notice.setText(text);
-        notice.setTextAppearance(context, R.style.TextAppearance_Nightjar_Supporting);
+        notice.setTextAppearance(context, television(context)
+                ? R.style.TextAppearance_Nightjar_Supporting : R.style.TextAppearance_Nightjar_Caption);
         notice.setTextColor(ContextCompat.getColor(context, R.color.nj_surface_control_center_label_secondary));
         notice.setGravity(Gravity.CENTER_VERTICAL);
         Drawable mark = androidx.appcompat.content.res.AppCompatResources.getDrawable(context, icon);
@@ -466,6 +497,9 @@ final class ControlCenterCards {
         button.setText(label);
         button.setAllCaps(false);
         button.setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
+        if (!television(context)) {
+            button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13.5f);
+        }
         button.setTextColor(ink);
         button.setSingleLine(true);
         button.setEllipsize(android.text.TextUtils.TruncateAt.END);

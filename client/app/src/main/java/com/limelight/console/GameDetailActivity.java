@@ -191,6 +191,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         shown = true;
         followTurn();
         feed.resume();
+        feed.invalidateAll();
         // The game may have started or ended while the stream was in front.
         loadedSignature = null;
         scheduleReload();

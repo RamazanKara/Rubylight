@@ -288,7 +288,7 @@ pub enum Placement {
 /// rail is where the thumb or the D-pad expects it on each.
 pub fn placement(form: FormFactor, width_dp: f32, height_dp: f32) -> Placement {
     match form {
-        FormFactor::Phone if height_dp > width_dp => Placement::Sheet,
+        FormFactor::Phone if width_dp < DOCK_MIN_WINDOW_DP && height_dp > width_dp => Placement::Sheet,
         // A desktop window dragged narrower than a dock and a margin of the game.
         FormFactor::Desktop if width_dp < DOCK_MIN_WINDOW_DP && height_dp > width_dp => Placement::Sheet,
         _ => Placement::Dock,
@@ -471,6 +471,9 @@ mod tests {
     #[test]
     fn only_an_upright_phone_gets_the_sheet() {
         assert_eq!(placement(FormFactor::Phone, 393.0, 852.0), Placement::Sheet);
+        assert_eq!(placement(FormFactor::Phone, 322.0, 792.0), Placement::Sheet);
+        assert_eq!(placement(FormFactor::Phone, 673.0, 841.0), Placement::Dock);
+        assert_eq!(placement(FormFactor::Phone, 841.0, 673.0), Placement::Dock);
         assert_eq!(placement(FormFactor::Phone, 852.0, 393.0), Placement::Dock);
         assert_eq!(placement(FormFactor::Handheld, 1280.0, 720.0), Placement::Dock);
         assert_eq!(placement(FormFactor::Tv, 960.0, 540.0), Placement::Dock);

@@ -46,7 +46,20 @@ public final class DesktopViewport {
     }
 
     public void zoom(float factor, float focusX, float focusY, float minScale, float maxScale) {
+        zoomAndPan(factor, focusX, focusY, 0f, 0f, minScale, maxScale);
+    }
+
+    /**
+     * Atomically scales by {@code factor} around {@code (focusX, focusY)} and shifts that focus point by {@code (dx, dy)},
+     * clamping pan once so simultaneous pinch-zoom and two-finger drag never drift against bounds.
+     */
+    public void zoomAndPan(float factor, float focusX, float focusY, float dx, float dy) {
+        zoomAndPan(factor, focusX, focusY, dx, dy, MIN_SCALE, MAX_SCALE);
+    }
+
+    public void zoomAndPan(float factor, float focusX, float focusY, float dx, float dy, float minScale, float maxScale) {
         if (!Float.isFinite(factor) || factor <= 0 || !Float.isFinite(focusX) || !Float.isFinite(focusY) ||
+                !Float.isFinite(dx) || !Float.isFinite(dy) ||
                 !Float.isFinite(minScale) || !Float.isFinite(maxScale) || minScale <= 0 || minScale > maxScale) {
             return;
         }
@@ -55,8 +68,8 @@ public final class DesktopViewport {
         if (low > high) return;
         float next = Math.max(low, Math.min(high, scale * factor));
         float ratio = next / scale;
-        x = focusX - (focusX - x) * ratio;
-        y = focusY - (focusY - y) * ratio;
+        x = (focusX + dx) - (focusX - x) * ratio;
+        y = (focusY + dy) - (focusY - y) * ratio;
         scale = next;
         clamp();
     }

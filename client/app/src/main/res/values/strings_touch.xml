@@ -72,4 +72,6 @@
     <string name="title_finger_tap_on_cancel">Finger taps cancelled by the system</string>
     <string name="summary_finger_tap_on_cancel">Three- and four-finger taps that the system cancels, as some Oppo and ColorOS phones do, still run their action when the fingers landed together and stayed still; on Android 13 and newer only cancels the system flags count, on Android 12 and older any cancel in that window does. Turn on only if three- or four-finger taps do nothing when your fingers are close together.</string>
     <string name="summary_multi_touch_finger_taps">In Multi-touch mode, three- and four-finger taps run their actions and no longer reach the PC as touches. Leave it off if something on the PC uses those taps.</string>
+    <string name="title_pinch_to_zoom">Pinch to zoom</string>
+    <string name="summary_pinch_to_zoom">Pinch with two fingers on the stream to zoom and pan at any time while Touch mode is on. Leave this off to keep two-finger gestures limited to touchpad scrolling, or toggle Zoom temporarily from the Control Center.</string>
 </resources>

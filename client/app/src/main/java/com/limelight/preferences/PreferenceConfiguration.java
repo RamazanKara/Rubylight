@@ -184,6 +184,7 @@ public class PreferenceConfiguration extends SettingsCatalogGen {
     public String fourFingerTap = FingerTapGesture.NONE;
     /** Three- and four-finger taps run their actions in Multi-touch too. */
     public boolean multiTouchFingerTaps;
+    public boolean pinchToZoom;
     public boolean fingerTapOnCancel;
     public MoonBridge.AudioConfiguration audioConfiguration;
     public int framePacing;

@@ -495,6 +495,9 @@ final class GameMenuActions {
         new Thread(() -> {
             try {
                 exit.run();
+                if (game.conn != null && game.conn.getHostDetails() != null) {
+                    com.limelight.console.HostFeed.noteStreamEnded(game.conn.getHostDetails().uuid);
+                }
                 game.runOnUiThread(game::finish);
             } catch (IOException | XmlPullParserException | RuntimeException e) {
                 game.runOnUiThread(this::confirmHostExitFailedLater);
@@ -518,6 +521,9 @@ final class GameMenuActions {
         // A plain disconnect never waits for a host request; its callbacks check the activity.
         if (!com.limelight.nvstream.jni.NightjarPolicyJni.exitQuitsOnLeave(chosen, game.app.getRole().ordinal(),
                 game.connected, DualScreen.isSecond(game.getIntent()))) {
+            if (game.conn != null && game.conn.getHostDetails() != null) {
+                com.limelight.console.HostFeed.noteStreamEnded(game.conn.getHostDetails().uuid);
+            }
             if (game.connected && game.conn != null) game.conn.announceDisconnect();
             game.finish();
             return;

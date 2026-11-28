@@ -45,4 +45,6 @@
     <string name="title_finger_tap_on_cancel">Chạm bị hệ thống hủy</string>
     <string name="summary_finger_tap_on_cancel">Chạm bằng ba hoặc bốn ngón mà hệ thống hủy, như trên một số điện thoại Oppo và ColorOS, vẫn chạy thao tác của nó nếu các ngón chạm xuống cùng lúc và đứng yên; từ Android 13 chỉ tính các lần hủy mà hệ thống đánh dấu là của chính nó, còn Android 12 trở xuống thì mọi lần hủy trong khoảng đó đều tính. Chỉ bật khi chạm bằng ba hoặc bốn ngón không làm gì khi các ngón ở gần nhau.</string>
     <string name="summary_multi_touch_finger_taps">Ở chế độ “Cảm ứng đa điểm”, chạm ba và bốn ngón thực hiện thao tác của chúng và không còn đến PC dưới dạng chạm. Nên để tắt nếu thứ gì đó trên PC dùng các lần chạm này.</string>
+    <string name="title_pinch_to_zoom">Chụm để thu phóng</string>
+    <string name="summary_pinch_to_zoom">Chụm hai ngón tay trên luồng phát để thu phóng và di chuyển khung hình bất kỳ lúc nào khi chế độ cảm ứng đang bật. Tắt tùy chọn này để giữ thao tác hai ngón chỉ dùng cho cuộn bàn di chuột, hoặc bật Thu phóng tạm thời từ Trung tâm điều khiển.</string>
 </resources>

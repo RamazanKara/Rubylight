@@ -26,6 +26,8 @@ final class PreviewScaling {
                 return PICTURE / SCREEN;
             case VideoScaling.NATIVE:
                 return NATIVE_WIDTH;
+            case VideoScaling.SAFE_FIT:
+                return 0.84f;
             default:
                 return 1f;
         }
@@ -39,6 +41,8 @@ final class PreviewScaling {
                 return 1f;
             case VideoScaling.NATIVE:
                 return NATIVE_WIDTH * SCREEN / PICTURE;
+            case VideoScaling.SAFE_FIT:
+                return 0.84f * SCREEN / PICTURE;
             default:
                 return SCREEN / PICTURE;
         }

@@ -22,6 +22,7 @@ final class ControlCenterPage {
     private final int spacing;
     private final boolean television;
     private boolean capsShown = true;
+    private int windowHeightDp;
     private MaterialButton firstAction;
 
     ControlCenterPage(Context context) {
@@ -57,6 +58,26 @@ final class ControlCenterPage {
     /** Draws the controller caps on the status rows added from here on, and says them; their buttons work either way. */
     void setCapsShown(boolean shown) {
         capsShown = shown;
+    }
+
+    int windowHeightDp() {
+        return windowHeightDp > 0 ? windowHeightDp : context.getResources().getConfiguration().screenHeightDp;
+    }
+
+    void setWindowHeightDp(int windowHeightDp) {
+        this.windowHeightDp = windowHeightDp;
+        int heightDp = windowHeightDp();
+        for (int i = 0; i < content.getChildCount(); i++) {
+            android.view.View child = content.getChildAt(i);
+            if (!(child instanceof TileGrid)) continue;
+            TileGrid grid = (TileGrid) child;
+            for (int j = 0; j < grid.getChildCount(); j++) {
+                android.view.View item = grid.getChildAt(j);
+                if (item instanceof TileGrid.Tile && ((TileGrid.Tile) item).getIcon() != null) {
+                    ControlCenterCards.fitCard((TileGrid.Tile) item, heightDp);
+                }
+            }
+        }
     }
 
     /** Removes every card and row so another page can show, scrolled back to its top. */
@@ -109,7 +130,7 @@ final class ControlCenterPage {
     }
 
     TextView addSection(int title) {
-        TextView heading = ActionSheetRows.sectionHeading(context, context.getText(title), spacing, false);
+        TextView heading = ActionSheetRows.sectionHeading(context, context.getText(title), spacing, !television);
         content.addView(heading);
         return heading;
     }

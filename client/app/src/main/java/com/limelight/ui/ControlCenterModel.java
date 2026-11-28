@@ -226,9 +226,11 @@ public final class ControlCenterModel {
         return placementMirror(form, widthDp, heightDp);
     }
 
+    private static final float DOCK_MIN_WINDOW_DP = 560f;
+
     /** control_center::placement in Java, for a library that cannot answer; pinned to the policy by a test. */
     static String placementMirror(String form, float widthDp, float heightDp) {
-        return ViewportScaler.PHONE.equals(form) && heightDp > widthDp ? SHEET : DOCK;
+        return ViewportScaler.PHONE.equals(form) && widthDp < DOCK_MIN_WINDOW_DP && heightDp > widthDp ? SHEET : DOCK;
     }
 
     /**

@@ -231,7 +231,8 @@ public class ControlCenterTest {
         assertEquals(ControlCenterModel.DOCK, policyPlacement(ViewportScaler.PHONE, 852, 393));
         assertEquals(ControlCenterModel.DOCK, policyPlacement(ViewportScaler.HANDHELD, 1280, 720));
         assertEquals(ControlCenterModel.DOCK, policyPlacement(ViewportScaler.TV, 960, 540));
-        float[][] sizes = {{393, 852}, {852, 393}, {360, 640}, {640, 360}, {600, 600}, {1280, 720}, {960, 540}, {540, 960}};
+        float[][] sizes = {{322, 792}, {393, 852}, {852, 393}, {360, 640}, {640, 360}, {600, 600}, {673, 841}, {841, 673},
+                {1280, 720}, {960, 540}, {540, 960}};
         // The forms an Android window has (ViewportScaler.form): the Java copy answers as the policy for each.
         for (String form : new String[] {ViewportScaler.PHONE, ViewportScaler.HANDHELD, ViewportScaler.TV}) {
             for (float[] size : sizes) {
@@ -560,6 +561,85 @@ public class ControlCenterTest {
             assertEquals("on is said by the rim", ContextCompat.getColor(activity, R.color.nj_hc_color_moon), lit.rim());
             assertTrue(menu.row(OVERLAY).getText().toString().endsWith("\n" + activity.getString(R.string.native_on)));
             menu.sheet().dismiss();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w322dp-h792dp-port-xhdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    public void foldCoverScreenStaysSheetWithUncutCardLabelsAndCompactTypography() throws Exception {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
+            Activity activity = controller.get();
+            StreamMenu menu = open(activity, everything(NvApp.Role.STREAM), new ArrayList<>(), null);
+            assertEquals("narrow upright cover stays sheet", ControlCenterModel.SHEET, menu.sheet().placement());
+            assertTrue("cover screen under 600dp uses tight compact dock",
+                    Boolean.TRUE.equals(ReflectionHelpers.getField(menu.sheet(), "compact")));
+            View decor = menu.sheet().getWindow().getDecorView();
+            float density = activity.getResources().getDisplayMetrics().density;
+            float scaled = activity.getResources().getDisplayMetrics().scaledDensity;
+            int wPx = Math.round(322 * density);
+            int hPx = Math.round(792 * density);
+            decor.measure(View.MeasureSpec.makeMeasureSpec(wPx, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(hPx, View.MeasureSpec.EXACTLY));
+            decor.layout(0, 0, wPx, hPx);
+
+            MaterialButton firstCard = menu.row(KEYBOARD);
+            assertNotNull(firstCard.getLayout());
+            assertEquals("card text fits without ellipsis on 322dp cover", 0,
+                    firstCard.getLayout().getEllipsisCount(Math.max(0, firstCard.getLayout().getLineCount() - 1)));
+            assertTrue("non-TV card label dialed down from 14sp", firstCard.getTextSize() / scaled <= 13.5f);
+            ActionSheetRows.HeaderViews header = ReflectionHelpers.getField(menu.sheet(), "header");
+            assertTrue("non-TV heading dialed down to ~16sp", header.heading.getTextSize() / scaled <= 16.5f);
+            for (int i = 0; i < menu.sheet().exits().getChildCount(); i++) {
+                MaterialButton exit = (MaterialButton) menu.sheet().exits().getChildAt(i);
+                assertNotNull(exit.getLayout());
+                assertEquals("exit button " + i + " fits without ellipsis", 0,
+                        exit.getLayout().getEllipsisCount(0));
+            }
+            menu.sheet().dismiss();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w673dp-h841dp-port-xhdpi")
+    public void unfoldedFoldGetsWideRightDockWithExitIconsAndUpdatesOnResize() throws Exception {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
+            Activity activity = controller.get();
+            StreamMenu menu = open(activity, everything(NvApp.Role.STREAM), new ArrayList<>(), null);
+            ControlCenterDock dock = menu.sheet();
+            float density = activity.getResources().getDisplayMetrics().density;
+            assertEquals("unfolded 673dp fold gets right-edge Dock even when taller than wide",
+                    ControlCenterModel.DOCK, dock.placement());
+            assertFalse("673x841 fold does not force tight compact dock",
+                    Boolean.TRUE.equals(ReflectionHelpers.getField(dock, "compact")));
+            assertTrue("wide dock has exit icons", ((MaterialButton) dock.exits().getChildAt(0)).getIcon() != null);
+
+            View decor = dock.getWindow().getDecorView();
+            decor.measure(View.MeasureSpec.makeMeasureSpec(Math.round(673 * density), View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(Math.round(841 * density), View.MeasureSpec.EXACTLY));
+            decor.layout(0, 0, decor.getMeasuredWidth(), decor.getMeasuredHeight());
+            assertEquals("wide dock uses 408dp width", Math.round(408f * density),
+                    dock.panel().getWidth(), 2f);
+            int tallMinHeight = menu.row(KEYBOARD).getMinimumHeight();
+            int tallCardHeight = menu.row(KEYBOARD).getHeight();
+
+            dock.onResized(Math.round(322 * density), Math.round(792 * density));
+            assertEquals("closing fold switches back to Sheet", ControlCenterModel.SHEET, dock.placement());
+            assertTrue("narrow cover sets tight compact mode",
+                    Boolean.TRUE.equals(ReflectionHelpers.getField(dock, "compact")));
+
+            dock.onResized(Math.round(841 * density), Math.round(400 * density));
+            assertEquals("low height landscape switches back to Dock", ControlCenterModel.DOCK, dock.placement());
+            decor.measure(View.MeasureSpec.makeMeasureSpec(Math.round(841 * density), View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(Math.round(400 * density), View.MeasureSpec.EXACTLY));
+            decor.layout(0, 0, decor.getMeasuredWidth(), decor.getMeasuredHeight());
+            int lowMinHeight = menu.row(KEYBOARD).getMinimumHeight();
+            int lowCardHeight = menu.row(KEYBOARD).getHeight();
+            assertTrue("crossing <440dp height tightens minHeight (" + lowMinHeight + " < " + tallMinHeight + ")",
+                    lowMinHeight < tallMinHeight);
+            assertTrue("crossing <440dp height tightens laid-out cardHeight (" + lowCardHeight + " < " + tallCardHeight + ")",
+                    lowCardHeight < tallCardHeight);
+            dock.dismiss();
         }
     }
 }

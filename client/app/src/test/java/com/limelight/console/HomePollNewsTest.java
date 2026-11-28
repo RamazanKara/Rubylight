@@ -148,4 +148,56 @@ public class HomePollNewsTest {
         settle(home);
         assertEquals(quietAgain + 1, loads(home));
     }
+
+    @Test
+    public void disconnectClearsRunningBadgeWhenFeedInvalidatesAndHostReportsIdle() throws Exception {
+        rig.transport.reply("tower", "capabilities", com.limelight.nativeapi.NativeApiFixtures.ok(
+                "{\"api_version\":1,\"features\":[\"library\"],\"permissions\":{\"list\":true,\"view\":true,\"launch\":true}}"));
+        rig.transport.reply("tower", "library", com.limelight.nativeapi.NativeApiFixtures.ok(
+                com.limelight.nativeapi.NativeApiFixtures.library("t",
+                        com.limelight.nativeapi.NativeApiFixtures.game("t-portal", 11, "Portal", "steam:400", true))));
+        rig.transport.reply("tower", "session", com.limelight.nativeapi.NativeApiFixtures.ok(
+                com.limelight.nativeapi.NativeApiFixtures.session("running", "you",
+                        "{\"install_id\":\"t-portal\",\"app_id\":11,\"title\":\"Portal\"}", "[]")));
+
+        ComputerDetails runningTower = nativeHost("tower", "Tower", true);
+        runningTower.runningGameId = 11;
+        HomeEmptyStateTest.Home home = open(runningTower);
+        settle(home);
+
+        HomeModel initial = ReflectionHelpers.getField(home, "model");
+        assertEquals(HomeModel.Badge.RUNNING, initial.library.get(0).badge);
+        assertEquals(1, initial.continuePlaying.size());
+
+        // Simulate disconnecting from the stream and returning to Home.
+        java.util.List<String> invalidated = new java.util.ArrayList<>();
+        ReflectionHelpers.setField(feed, "binder", new ComputerManagerService().new ComputerManagerBinder() {
+            @Override public boolean isPersistent() { return false; }
+            @Override public void startPolling(ComputerManagerListener listener) { }
+            @Override public void stopPolling() { }
+            @Override public void invalidateStateForComputer(String uuid) { invalidated.add(uuid); }
+            @Override public String getUniqueId() { return "unique"; }
+            @Override public ComputerDetails getComputer(String uuid) { return null; }
+            @Override public void waitForPollingStopped() { }
+        });
+        rig.transport.reply("tower", "library", com.limelight.nativeapi.NativeApiFixtures.ok(
+                com.limelight.nativeapi.NativeApiFixtures.library("t",
+                        com.limelight.nativeapi.NativeApiFixtures.game("t-portal", 11, "Portal", "steam:400", false))));
+        rig.transport.reply("tower", "session", com.limelight.nativeapi.NativeApiFixtures.ok(
+                com.limelight.nativeapi.NativeApiFixtures.IDLE));
+
+        HostFeed.noteStreamEnded("tower");
+        controller.pause();
+        controller.resume();
+        assertTrue("resume after stream end invalidates host state immediately", invalidated.contains("tower"));
+
+        ComputerDetails idleTower = nativeHost("tower", "Tower", true);
+        idleTower.runningGameId = 0;
+        feed.update(idleTower);
+        settle(home);
+
+        HomeModel updated = ReflectionHelpers.getField(home, "model");
+        assertEquals("running badge cleared after disconnect", HomeModel.Badge.NONE, updated.library.get(0).badge);
+        assertTrue("running game removed from Continue Playing when idle", updated.continuePlaying.isEmpty());
+    }
 }

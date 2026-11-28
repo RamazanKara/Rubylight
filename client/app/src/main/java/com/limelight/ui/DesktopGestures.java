@@ -2,74 +2,39 @@ package com.limelight.ui;
 
 import android.content.Context;
 import android.view.MotionEvent;
-import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewParent;
 
 import com.limelight.binding.input.touch.TwoFingerTapGesture;
 
-/** Two-finger pan/pinch never leaks pointer-up events into a canceled host gesture. */
+/** Two-finger pan/pinch tracks active pointer IDs directly and never leaks pointer-up events into a canceled host gesture. */
 public final class DesktopGestures {
     private static final float PASSIVE_PINCH_THRESHOLD_DP = 28f;
+    private static final float PASSIVE_FOCUS_RATIO = 0.75f;
+    private static final float PASSIVE_RELEASE_RESET_LOW = 0.97f;
+    private static final float PASSIVE_RELEASE_RESET_HIGH = 1.03f;
+    private static final float MIN_SPAN_PX = 1e-3f;
 
     private final DesktopViewport viewport = new DesktopViewport();
     private final StreamView view;
-    private final ScaleGestureDetector detector;
     private final Runnable cancelInput;
     private final Runnable rightClick;
     private final TwoFingerTapGesture twoFingerTap = new TwoFingerTapGesture();
     private final float density;
     private final View.OnLayoutChangeListener parentLayoutListener = (v, l, t, r, b, ol, ot, or, ob) -> syncBounds();
     private View observedParent;
-    private boolean enabled, consuming, tapAllowed, hasInitialSpan, passiveReset, passiveMoved;
-    private int passiveDirection;
-    private float lastX, lastY, initialSpan;
+    private boolean enabled, consuming, tapAllowed, hasBaseline;
+    private int pointerIdA = MotionEvent.INVALID_POINTER_ID;
+    private int pointerIdB = MotionEvent.INVALID_POINTER_ID;
+    private float anchorSpan, anchorFocusX, anchorFocusY;
+    private float prevSpan, prevFocusX, prevFocusY;
     private Runnable onTransformChanged;
 
     public DesktopGestures(Context context, StreamView view, Runnable cancelInput, Runnable rightClick) {
-        this.view = view; this.cancelInput = cancelInput; this.rightClick = rightClick;
+        this.view = view;
+        this.cancelInput = cancelInput;
+        this.rightClick = rightClick;
         density = context.getResources().getDisplayMetrics().density;
-        detector = new ScaleGestureDetector(context, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            @Override public boolean onScaleBegin(ScaleGestureDetector d) {
-                twoFingerTap.invalidate();
-                return true;
-            }
-            @Override public boolean onScale(ScaleGestureDetector d) {
-                if (!consuming) {
-                    if (!enabled && (!hasInitialSpan || Math.abs(d.getCurrentSpan() - initialSpan) < PASSIVE_PINCH_THRESHOLD_DP * density)) {
-                        return false;
-                    }
-                    startConsuming(d.getFocusX(), d.getFocusY());
-                }
-                if (enabled) {
-                    viewport.zoom(d.getScaleFactor(), d.getFocusX(), d.getFocusY());
-                } else {
-                    if (passiveReset) return true;
-                    latchPassiveDirection(d.getCurrentSpan());
-                    float minScale = passiveDirection > 0 ? 1.0f : DesktopViewport.MIN_SCALE;
-                    float maxScale = passiveDirection < 0 ? 1.0f : DesktopViewport.MAX_SCALE;
-                    float factor = d.getScaleFactor();
-                    viewport.zoom(factor, d.getFocusX(), d.getFocusY(), minScale, maxScale);
-                    float scale = viewport.scale();
-                    if (passiveDirection > 0) {
-                        if (scale > 1.001f) passiveMoved = true;
-                        else if (passiveMoved || factor < 1.0f) {
-                            viewport.reset();
-                            passiveReset = true;
-                        }
-                    } else if (passiveDirection < 0) {
-                        if (scale < 0.999f) passiveMoved = true;
-                        else if (passiveMoved || factor > 1.0f) {
-                            viewport.reset();
-                            passiveReset = true;
-                        }
-                    }
-                }
-                apply();
-                return true;
-            }
-        });
-        detector.setQuickScaleEnabled(false);
         view.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             attachParentListener();
             syncBounds();
@@ -122,37 +87,76 @@ public final class DesktopGestures {
     public DesktopViewport viewport() { return viewport; }
     public boolean enabled() { return enabled; }
     public void setOnTransformChanged(Runnable listener) { this.onTransformChanged = listener; }
+
     public void setEnabled(boolean enabled) {
-        cancelInput.run(); cancelTouch(); consuming = false; this.enabled = enabled;
+        cancelInput.run();
+        cancelTouch();
+        consuming = false;
+        this.enabled = enabled;
         if (!enabled) reset();
     }
+
     /** Invalidate a pending tap on focus loss, mode changes, or an overlay taking input. */
     public void cancelTouch() {
-        twoFingerTap.reset(); tapAllowed = false; hasInitialSpan = false;
-        passiveDirection = 0; passiveReset = false; passiveMoved = false;
+        twoFingerTap.reset();
+        tapAllowed = false;
+        clearPair();
     }
-    public void reset() { viewport.reset(); apply(); }
+
+    public void reset() {
+        viewport.reset();
+        apply();
+    }
+
     private void apply() {
         view.setVideoTransform(viewport.scale(), viewport.x(), viewport.y());
         if (onTransformChanged != null) onTransformChanged.run();
     }
 
-    private void latchPassiveDirection(float span) {
-        if (passiveDirection != 0) return;
-        if (viewport.scale() > 1.001f) passiveDirection = 1;
-        else if (viewport.scale() < 0.999f) passiveDirection = -1;
-        else if (hasInitialSpan && span != initialSpan) passiveDirection = span > initialSpan ? 1 : -1;
+    private void clearPair() {
+        pointerIdA = MotionEvent.INVALID_POINTER_ID;
+        pointerIdB = MotionEvent.INVALID_POINTER_ID;
+        hasBaseline = false;
     }
 
-    private void startConsuming(float x, float y) {
-        cancelInput.run();
-        consuming = true;
-        lastX = x;
-        lastY = y;
+    private void capturePair(MotionEvent event, int ignoreIndex) {
+        int idxA = -1, idxB = -1;
+        int count = event.getPointerCount();
+        for (int i = 0; i < count; i++) {
+            if (i == ignoreIndex) continue;
+            if (idxA < 0) idxA = i;
+            else {
+                idxB = i;
+                break;
+            }
+        }
+        if (idxA < 0 || idxB < 0) {
+            clearPair();
+            return;
+        }
+        pointerIdA = event.getPointerId(idxA);
+        pointerIdB = event.getPointerId(idxB);
+        float ax = event.getX(idxA), ay = event.getY(idxA);
+        float bx = event.getX(idxB), by = event.getY(idxB);
+        float span = (float) Math.hypot(ax - bx, ay - by);
+        float focusX = (ax + bx) * 0.5f;
+        float focusY = (ay + by) * 0.5f;
+        anchorSpan = span;
+        anchorFocusX = focusX;
+        anchorFocusY = focusY;
+        prevSpan = span;
+        prevFocusX = focusX;
+        prevFocusY = focusY;
+        hasBaseline = true;
     }
 
-    private static float fingerSpan(MotionEvent event) {
-        return (float) Math.hypot(event.getX(0) - event.getX(1), event.getY(0) - event.getY(1));
+    private void softResetIfNearUnity() {
+        float s = viewport.scale();
+        if (!enabled && viewport.isTransformed()
+                && s >= PASSIVE_RELEASE_RESET_LOW && s <= PASSIVE_RELEASE_RESET_HIGH) {
+            viewport.reset();
+            apply();
+        }
     }
 
     public boolean onTouch(MotionEvent event, boolean allowRightClick) {
@@ -165,56 +169,79 @@ public final class DesktopGestures {
         if (action == MotionEvent.ACTION_DOWN) {
             consuming = false;
             tapAllowed = allowRightClick;
-            hasInitialSpan = false;
-            passiveDirection = 0;
-            passiveReset = false;
-            passiveMoved = false;
+            clearPair();
         }
         boolean tapped = twoFingerTap.onTouch(event, density);
-        if (event.getPointerCount() >= 2 && (action == MotionEvent.ACTION_POINTER_DOWN || !hasInitialSpan)) {
-            initialSpan = fingerSpan(event);
-            hasInitialSpan = true;
-            if (!consuming) {
-                passiveDirection = viewport.scale() > 1.001f ? 1 : viewport.scale() < 0.999f ? -1 : 0;
-                passiveMoved = passiveDirection != 0;
-                passiveReset = false;
-            }
-        } else if (event.getPointerCount() < 2) {
-            hasInitialSpan = false;
-        }
-        detector.onTouchEvent(event);
-        if (event.getPointerCount() >= 2) {
-            float x = (event.getX(0) + event.getX(1)) / 2;
-            float y = (event.getY(0) + event.getY(1)) / 2;
-            boolean passiveWaitAtOneX = allowScrollThrough && !enabled && !viewport.isTransformed();
-            if (!consuming) {
-                boolean pinchDiverged = detector.isInProgress() && hasInitialSpan
-                        && Math.abs(fingerSpan(event) - initialSpan) >= PASSIVE_PINCH_THRESHOLD_DP * density;
-                if (!passiveWaitAtOneX || pinchDiverged) {
-                    startConsuming(x, y);
-                    if (!enabled && pinchDiverged) latchPassiveDirection(fingerSpan(event));
+
+        if (action == MotionEvent.ACTION_POINTER_DOWN) {
+            if (!hasBaseline && event.getPointerCount() >= 2) {
+                capturePair(event, -1);
+                boolean passiveWaitAtOneX = allowScrollThrough && !enabled && !viewport.isTransformed();
+                if (!consuming && !passiveWaitAtOneX) {
+                    cancelInput.run();
+                    consuming = true;
                 }
             }
-            else if (action == MotionEvent.ACTION_MOVE && !twoFingerTap.isPossible()
-                    && (enabled || (!passiveReset && viewport.scale() != 1.0f))) {
-                viewport.pan(x - lastX, y - lastY); apply();
-                lastX = x; lastY = y;
+        } else if (action == MotionEvent.ACTION_POINTER_UP) {
+            int liftedIndex = event.getActionIndex();
+            int liftedId = event.getPointerId(liftedIndex);
+            if (event.getPointerCount() - 1 >= 2) {
+                if (!hasBaseline || liftedId == pointerIdA || liftedId == pointerIdB) {
+                    capturePair(event, liftedIndex);
+                }
+            } else {
+                clearPair();
+                softResetIfNearUnity();
             }
-            else {
-                lastX = x; lastY = y;
+        } else if (action == MotionEvent.ACTION_MOVE && event.getPointerCount() >= 2) {
+            int idxA = hasBaseline ? event.findPointerIndex(pointerIdA) : -1;
+            int idxB = hasBaseline ? event.findPointerIndex(pointerIdB) : -1;
+            if (idxA < 0 || idxB < 0) {
+                capturePair(event, -1);
+                idxA = hasBaseline ? event.findPointerIndex(pointerIdA) : -1;
+                idxB = hasBaseline ? event.findPointerIndex(pointerIdB) : -1;
+            }
+            if (idxA >= 0 && idxB >= 0) {
+                float ax = event.getX(idxA), ay = event.getY(idxA);
+                float bx = event.getX(idxB), by = event.getY(idxB);
+                float span = (float) Math.hypot(ax - bx, ay - by);
+                float focusX = (ax + bx) * 0.5f;
+                float focusY = (ay + by) * 0.5f;
+                if (!consuming) {
+                    float dSpan = Math.abs(span - anchorSpan);
+                    float focusTravel = (float) Math.hypot(focusX - anchorFocusX, focusY - anchorFocusY);
+                    boolean pinchDiverged = dSpan >= PASSIVE_PINCH_THRESHOLD_DP * density
+                            && dSpan > focusTravel * PASSIVE_FOCUS_RATIO;
+                    boolean passiveWaitAtOneX = allowScrollThrough && !enabled && !viewport.isTransformed();
+                    if (!passiveWaitAtOneX || pinchDiverged) {
+                        cancelInput.run();
+                        consuming = true;
+                        twoFingerTap.invalidate();
+                        // Re-baseline when passive pinch threshold latches so the first move causes zero start jump.
+                        if (pinchDiverged && passiveWaitAtOneX) {
+                            prevSpan = span;
+                            prevFocusX = focusX;
+                            prevFocusY = focusY;
+                            return true;
+                        }
+                    }
+                }
+                if (consuming && !twoFingerTap.isPossible()) {
+                    float factor = (prevSpan > MIN_SPAN_PX && span > MIN_SPAN_PX) ? span / prevSpan : 1.0f;
+                    viewport.zoomAndPan(factor, prevFocusX, prevFocusY, focusX - prevFocusX, focusY - prevFocusY);
+                    apply();
+                }
+                prevSpan = span;
+                prevFocusX = focusX;
+                prevFocusY = focusY;
             }
         }
+
         boolean handled = consuming;
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-            if (!enabled && viewport.isTransformed() && viewport.scale() >= 0.999f && viewport.scale() <= 1.001f) {
-                viewport.reset();
-                apply();
-            }
+            softResetIfNearUnity();
             consuming = false;
-            hasInitialSpan = false;
-            passiveDirection = 0;
-            passiveReset = false;
-            passiveMoved = false;
+            clearPair();
             if (handled && tapped && tapAllowed) rightClick.run();
             tapAllowed = false;
         }

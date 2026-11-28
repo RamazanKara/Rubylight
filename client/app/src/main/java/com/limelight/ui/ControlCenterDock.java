@@ -74,7 +74,7 @@ public final class ControlCenterDock extends Dialog implements ControlCenterFram
     private Consumer<Boolean> onStep;
     private View startFocus;
     private boolean capsShown, focusPlaced, guideDown, chordArmed;
-    private int held, padVendor;
+    private int held, padVendor, windowHeightDp;
     // A trigger as a key and as an axis: one pull is one step, whichever of them says it, and a trigger already held when
     // the Control Center opened steps nothing.
     private final boolean[] triggerKey = new boolean[2];
@@ -121,6 +121,11 @@ public final class ControlCenterDock extends Dialog implements ControlCenterFram
         int label = ContextCompat.getColor(context, R.color.nj_surface_control_center_label);
         header.heading.setTextColor(label);
         header.subtitle.setTextColor(ContextCompat.getColor(context, R.color.nj_surface_control_center_label_secondary));
+        if (!television) {
+            header.heading.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16f);
+            header.subtitle.setTextAppearance(context, R.style.TextAppearance_Nightjar_Caption);
+            header.subtitle.setTextColor(ContextCompat.getColor(context, R.color.nj_surface_control_center_label_secondary));
+        }
         column.addView(header.header);
         page = new ControlCenterPage(context);
         column.addView(page.scroll(), new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
@@ -146,17 +151,23 @@ public final class ControlCenterDock extends Dialog implements ControlCenterFram
         assemble();
     }
 
-    // Where it sits in a window of this size, and whether at the handheld's width; true when either changed.
+    // Where it sits in a window of this size, whether at compact width, and whether cards take the low height.
     private boolean decide(int width, int height) {
         Resources res = context.getResources();
         float density = res.getDisplayMetrics().density;
-        String form = ViewportScaler.form(res.getConfiguration(), width / density);
-        String now = ControlCenterModel.placement(form, width / density, height / density);
-        // Only a TV and a large window have room for the full width beside the picture.
-        boolean tight = ViewportScaler.PHONE.equals(form) || ViewportScaler.HANDHELD.equals(form);
-        boolean changed = !now.equals(placement) || tight != compact;
+        float widthDp = width / density;
+        float heightDp = height / density;
+        String form = ViewportScaler.form(res.getConfiguration(), widthDp);
+        String now = ControlCenterModel.placement(form, widthDp, heightDp);
+        boolean tight = !television && (widthDp < 600f || heightDp < 480f);
+        int nextHeightDp = Math.round(heightDp);
+        boolean wasLow = ControlCenterCards.isLowWindow(context, windowHeightDp);
+        boolean nowLow = ControlCenterCards.isLowWindow(context, nextHeightDp);
+        boolean changed = !now.equals(placement) || tight != compact || nowLow != wasLow;
         placement = now;
         compact = tight;
+        windowHeightDp = nextHeightDp;
+        if (page != null) page.setWindowHeightDp(nextHeightDp);
         return changed;
     }
 

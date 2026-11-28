@@ -560,4 +560,33 @@ public class HomeShellNavigationTest extends HomeShellCase {
         assertEquals(overscan - card, HomeChrome.listInset(res, GlassForm.TELEVISION, false));
         assertEquals(0, HomeChrome.listInset(res, GlassForm.TELEVISION, true));
     }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionDpadDownFromPcTabMovesToTheFirstAppCardInsteadOfHomeTab() throws Exception {
+        ActivityController<HomeShellTest.Home> controller = home();
+        try {
+            HomeShellTest.Home home = controller.get();
+            showHosts(home, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            View pcTab = home.findViewById(R.id.home_pc);
+            pcTab.setVisibility(View.VISIBLE);
+            layOut(home);
+            TvScreensPreviewTest.leaveTouchMode(home);
+            assertTrue(pcTab.requestFocus());
+
+            View focusDown = pcTab.focusSearch(View.FOCUS_DOWN);
+            org.junit.Assert.assertNotSame("D-pad Down from PC tab must not jump to Home tab",
+                    home.findViewById(R.id.shell_home), focusDown);
+            assertTrue("nextFocusDown points to list or its first card",
+                    focusDown == list(home) || isInside(list(home), focusDown));
+
+            assertTrue(home.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN)));
+            View focused = home.getWindow().getDecorView().findFocus();
+            assertNotNull("focus moved after DPAD_DOWN from PC tab", focused);
+            org.junit.Assert.assertNotSame("focus did not jump to shell_home", home.findViewById(R.id.shell_home), focused);
+            assertTrue("focus landed on a card inside console_list", isInside(list(home), focused));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

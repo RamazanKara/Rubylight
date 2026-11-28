@@ -45,4 +45,6 @@
     <string name="title_finger_tap_on_cancel">Stuknięcia anulowane przez system</string>
     <string name="summary_finger_tap_on_cancel">Stuknięcia trzema i czterema palcami, które system anuluje, jak w niektórych telefonach Oppo i ColorOS, nadal wykonują swoją akcję, gdy palce dotknęły ekranu razem i były nieruchome; od Androida 13 liczą się tylko anulowania oznaczone przez system jako jego własne, a w Androidzie 12 i starszym każde anulowanie w tym oknie. Włącz tylko wtedy, gdy stuknięcia trzema lub czterema palcami nic nie robią, gdy palce są blisko siebie.</string>
     <string name="summary_multi_touch_finger_taps">W trybie „Wielodotyk” stuknięcia trzema i czterema palcami wykonują swoje akcje i nie trafiają już do komputera jako dotyk. Zostaw wyłączone, jeśli coś na komputerze używa tych stuknięć.</string>
+    <string name="title_pinch_to_zoom">Uszczypnij, aby powiększyć</string>
+    <string name="summary_pinch_to_zoom">Rozsuń lub zsuń dwa palce na strumieniu, aby w dowolnej chwili powiększać i przesuwać obraz, gdy tryb dotyku jest włączony. Pozostaw wyłączone, aby ograniczyć gesty dwoma palcami do przewijania touchpadem, lub tymczasowo przełączaj Zoom w Centrum sterowania.</string>
 </resources>

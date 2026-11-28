@@ -588,6 +588,9 @@ public class ControlCenterTest {
             assertEquals("card text fits without ellipsis on 322dp cover", 0,
                     firstCard.getLayout().getEllipsisCount(Math.max(0, firstCard.getLayout().getLineCount() - 1)));
             assertTrue("non-TV card label dialed down from 14sp", firstCard.getTextSize() / scaled <= 13.5f);
+            android.text.Spanned spanned = (android.text.Spanned) menu.row(OVERLAY).getText();
+            assertEquals("card detail text uses sp TextAppearance instead of dp AbsoluteSizeSpan", 0,
+                    spanned.getSpans(0, spanned.length(), android.text.style.AbsoluteSizeSpan.class).length);
             ActionSheetRows.HeaderViews header = ReflectionHelpers.getField(menu.sheet(), "header");
             assertTrue("non-TV heading dialed down to ~16sp", header.heading.getTextSize() / scaled <= 16.5f);
             for (int i = 0; i < menu.sheet().exits().getChildCount(); i++) {

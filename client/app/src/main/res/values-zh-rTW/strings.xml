@@ -624,4 +624,5 @@
     <string name="controller_studio_touchpad">觸控板</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · 扳機 %2$d%%</string>
     <string name="controller_studio_a11y_summary">控制器工作室：%1$s 按鍵配置，搖桿死區 %2$d%%，扳機死區 %3$d%%</string>
+    <string name="hevc_low_latency_auto_disabled_notice">為防止畫面凍結，已自動為此解碼器關閉 HEVC 低延遲旗標。可在「設定 → 進階」中覆寫。</string>
 </resources>

@@ -222,7 +222,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private final Runnable reload = this::reloadNow;
     private final Runnable followUpRefresh = () -> {
         if (!shown || isFinishing() || isDestroyed()) return;
-        if (feed != null) feed.invalidateAll();
+        if (feed != null) HostFeed.invalidateRecentStreams(feed.binder());
         refreshedSignature = null;
         reloadNow();
     };
@@ -489,7 +489,6 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         ShellBar.refresh(this);
         feed.prune();
         feed.resume();
-        feed.invalidateAll();
         // A game may have started or ended while another screen was in front.
         refreshedSignature = null;
         handler.removeCallbacks(followUpRefresh);

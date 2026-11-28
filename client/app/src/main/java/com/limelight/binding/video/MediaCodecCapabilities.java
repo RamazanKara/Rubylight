@@ -600,10 +600,15 @@ final class MediaCodecCapabilities {
 
     static boolean decoderSupportsRefFrameInvalidationHevc(MediaCodecInfo decoderInfo,
                                                            boolean lowLatency, boolean vendorLowLatency,
-                                                           boolean disableHevcLowLatency,
+                                                           int hevcLowLatencyMode,
                                                            List<String> refFrameInvalidationHevcPrefixes) {
-        // The stability override must also avoid the extra reference buffering RFI can require.
-        if (disableHevcLowLatency) return false;
+        if (decoderInfo == null) return false;
+        // Omitting HEVC low-latency flags (explicit Off, or Auto on decoders like c2.amlogic.*
+        // outside Fire TV, erratum 22) must also disable HEVC RFI so decoders fall back to 1
+        // reference frame instead of stalling at ~1 FPS.
+        if (MediaCodecLowLatencyOptions.omitsHevcLowLatencyFlags("video/hevc", decoderInfo.getName(), hevcLowLatencyMode)) {
+            return false;
+        }
         // Amlogic HEVC decoders on Fire TV hang on RFI. On Fire OS 6 (Fire TV 3, Fire TV Cube 1) it
         // turned artifacts after packet loss into full decoder output hangs. On Fire OS 7 the Fire
         // TV Cube 3 (OMX.amlogic.hevc) stops rendering seconds into a stream from a host that marks

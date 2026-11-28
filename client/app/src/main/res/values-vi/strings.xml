@@ -624,4 +624,5 @@
     <string name="controller_studio_touchpad">Bàn di</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Cò %2$d%%</string>
     <string name="controller_studio_a11y_summary">Studio tay cầm: bố cục nút %1$s, vùng chết cần gạt %2$d%%, vùng chết cò %3$d%%</string>
+    <string name="hevc_low_latency_auto_disabled_notice">Cờ độ trễ thấp HEVC đã tự động tắt cho bộ giải mã này để tránh đứng hình. Có thể đổi trong Cài đặt → Nâng cao.</string>
 </resources>

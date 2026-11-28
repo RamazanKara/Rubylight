@@ -624,4 +624,5 @@
     <string name="controller_studio_touchpad">Panel táctil</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Gatillo %2$d%%</string>
     <string name="controller_studio_a11y_summary">Estudio de mando: botones %1$s, zona muerta del stick %2$d%%, zona muerta del gatillo %3$d%%</string>
+    <string name="hevc_low_latency_auto_disabled_notice">Las opciones de baja latencia HEVC se desactivaron automáticamente en este decodificador para evitar bloqueos. Cámbialo en Ajustes → Avanzado.</string>
 </resources>

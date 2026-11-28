@@ -109,7 +109,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     private final Runnable reload = this::reloadNow;
     private final Runnable followUpRefresh = () -> {
         if (!shown || isFinishing() || isDestroyed()) return;
-        if (feed != null) feed.invalidateAll();
+        if (feed != null) HostFeed.invalidateRecentStreams(feed.binder());
         refreshedSignature = null;
         reloadNow();
     };
@@ -317,7 +317,6 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         ShellBar.refresh(this);
         feed.prune();
         feed.resume();
-        feed.invalidateAll();
         refreshedSignature = null;
         scheduleReload();
         handler.removeCallbacks(followUpRefresh);

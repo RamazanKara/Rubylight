@@ -624,4 +624,5 @@
     <string name="controller_studio_touchpad">Touchpad</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Grilletto %2$d%%</string>
     <string name="controller_studio_a11y_summary">Studio controller: tasti %1$s, zona morta stick %2$d%%, zona morta grilletti %3$d%%</string>
+    <string name="hevc_low_latency_auto_disabled_notice">Opzioni HEVC a bassa latenza disattivate automaticamente per questo decoder per evitare blocchi. Modificabile in Impostazioni → Avanzate.</string>
 </resources>

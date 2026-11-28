@@ -33,7 +33,7 @@ SoC names are the ones the source or its comments name.
 ### Per-device exceptions
 
 - **Amlogic HEVC on Fire TV** (`omx.amlogic`, `c2.amlogic`): no reference frame invalidation. The Fire TV Cube 3 stopped rendering seconds into an HEVC stream from a host that marks long-term references; without RFI the stream asks for one reference frame and recovers from loss with a keyframe. Amlogic decoders on other devices keep RFI.
-- **Amlogic Codec2 HEVC outside Fire TV** (`c2.amlogic`): the HEVC low-latency flags are left out while the HEVC low-latency setting is on Automatic, since with them the decoder configures and then shows about one frame a second. Fire TV keeps them: its Fire TV 3 shows no frames without low-latency decoding.
+- **Amlogic Codec2 HEVC outside Fire TV** (`c2.amlogic`): the HEVC low-latency flags and HEVC RFI are left out while the HEVC low-latency setting is on Automatic, since with them the decoder configures and then shows about one frame a second. Fire TV keeps the flags: its Fire TV 3 shows no frames without low-latency decoding.
 - **Xiaomi FX Mini LED Fire TV** (`AFTNE4E43F`), MediaTek decoders: Android low-latency mode starts off, once and again after Reset all settings, because the picture can break into coloured blocks with it. Turned back on, the stream asks for one reference frame, asks for a keyframe when decode time climbs and when the climb ends (and at least every 30 seconds), and spaces out frames that arrive right behind each other.
 
 Also sent, and not listed above: `vdec-lowlatency`, the Kirin and Amlogic keys, `FEATURE_LowLatency`, adaptive playback keys, colour range, `KEY_FRAME_RATE`, decoder blocklists and whitelists, and the SPS and RFI quirks inherited from Moonlight.

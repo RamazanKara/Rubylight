@@ -329,9 +329,6 @@ final class ControlCenterCards {
             text.append(state);
             text.setSpan(new android.text.style.TextAppearanceSpan(context, R.style.TextAppearance_Nightjar_TileDetail),
                     start, text.length(), 0);
-            if (!television(context)) {
-                text.setSpan(new android.text.style.AbsoluteSizeSpan(11, true), start, text.length(), 0);
-            }
             text.setSpan(new android.text.style.ForegroundColorSpan(ContextCompat.getColor(context,
                     R.color.nj_surface_control_center_label_secondary)), start, text.length(), 0);
             card.setText(text);

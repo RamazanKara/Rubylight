@@ -135,18 +135,6 @@ public final class HostFeed {
         return invalidated;
     }
 
-    /** Invalidates any recently ended stream hosts, or every known host on resume. */
-    void invalidateAll() {
-        ComputerManagerService.ComputerManagerBinder current = binder;
-        if (current == null) return;
-        invalidateRecentStreams(current);
-        for (ComputerDetails host : hosts()) {
-            if (host != null && host.uuid != null && !host.uuid.isEmpty()) {
-                current.invalidateStateForComputer(host.uuid);
-            }
-        }
-    }
-
     void resume() {
         foreground = true;
         invalidateRecentStreams(binder);

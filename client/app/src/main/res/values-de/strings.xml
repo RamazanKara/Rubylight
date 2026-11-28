@@ -624,4 +624,5 @@
     <string name="controller_studio_touchpad">Touchpad</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Trigger %2$d%%</string>
     <string name="controller_studio_a11y_summary">Controller-Studio: Tastenlayout %1$s, Stick-Totzone %2$d%%, Trigger-Totzone %3$d%%</string>
+    <string name="hevc_low_latency_auto_disabled_notice">HEVC-Latenzflags wurden für diesen Decoder automatisch deaktiviert, um Einfrieren zu verhindern. In Einstellungen → Erweitert überschreiben.</string>
 </resources>

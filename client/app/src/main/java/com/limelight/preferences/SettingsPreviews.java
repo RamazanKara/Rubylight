@@ -210,8 +210,10 @@ final class SettingsPreviews {
             for (int column = 0; column < columns; column++) {
                 int index = start + column;
                 if (index >= names.length) {
-                    // A last line with fewer choices keeps the cards' width.
-                    line.addView(new View(context), new LinearLayout.LayoutParams(0, 0, 1f));
+                    // Use MATCH_PARENT height so LinearLayout keeps allFillParent == true and does not collapse
+                    // an incomplete trailing row to this spacer's 0px alternativeMaxHeight inside ScrollView.
+                    line.addView(new View(context), new LinearLayout.LayoutParams(
+                            0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
                     continue;
                 }
                 SettingsPreviewCard card = (SettingsPreviewCard) inflater.inflate(R.layout.settings_preview_choice, line, false);

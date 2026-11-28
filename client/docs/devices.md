@@ -99,7 +99,7 @@ If HEVC video stutters or freezes, set **Settings → Advanced → Low-latency d
 
 | Value | Effect |
 | --- | --- |
-| **Auto** (default) | Uses the flags on every HEVC decoder except the newer Amlogic decoders (`c2.amlogic`) outside Fire TV, which configure normally and then show about one frame per second. Older `omx.amlogic` decoders and every Fire TV keep the flags. |
+| **Auto** (default) | Uses the flags on every HEVC decoder except the newer Amlogic decoders (`c2.amlogic`) outside Fire TV, which configure normally and then show about one frame per second. Also disables HEVC reference-frame invalidation there and notifies once on stream start. Older `omx.amlogic` decoders and every Fire TV keep the flags. |
 | **On** | Uses the flags on every HEVC decoder, for firmware that has fixed the problem. |
 | **Off** | Omits Android's and the vendors' optional low-latency flags for HEVC, in streams and in the decoder benchmark, and disables HEVC reference-frame invalidation. |
 

@@ -1,6 +1,7 @@
 # ensure shell scripts are checked out with LF line endings
 *.sh text eol=lf
-*.patch text eol=lf
+# Unified patches use a single space to mark blank context lines.
+*.patch text eol=lf whitespace=-blank-at-eol
 # The native API fixtures are byte-compared, so they stay LF on Windows runners.
 client/protocol/native-api/tests/fixtures/** text eol=lf
 # The timing-report tests edit these byte by byte and check they stay LF.
@@ -11,9 +12,6 @@ client/protocol/policy/settings.toml text eol=lf
 rust/assets/locale/*.json text eol=lf
 client/app/src/main/res/values*/*.xml text eol=lf
 .agents/skills/**/*.md text eol=lf
-
-# Unified patches use a single space to mark blank context lines.
-rust/compatibility/**/*.patch whitespace=-blank-at-eol
 
 rust/core/session/src/library/fixtures/*.db binary
 # The HRIR data is checked by its SHA-256.

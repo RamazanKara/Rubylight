@@ -508,6 +508,7 @@ impl Hosts {
             version: "v1".into(),
             image: Some(egui::ColorImage::filled([30, 40], egui::Color32::from_rgb(20, 200, 20))),
             ambient: Some(egui::ColorImage::filled([16, 16], egui::Color32::from_rgb(10, 40, 20))),
+            prepared: None,
             sized: Some(1.0),
         }).expect("art channel");
         self.drain(ctx);

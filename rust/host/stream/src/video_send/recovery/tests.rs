@@ -560,4 +560,173 @@ fn recovery_estimate_includes_existing_pacing_debt_and_remaining_wire_bytes() {
     );
 }
 
+fn loss_fec_report(frame: u32) -> [u8; 21] {
+    let mut report = [0u8; 21];
+    report[..4].copy_from_slice(&frame.to_be_bytes());
+    for (offset, word) in [(4, 11u16), (10, 10), (12, 2), (14, 7), (16, 1)] {
+        report[offset..offset + 2].copy_from_slice(&word.to_be_bytes());
+    }
+    report[18] = 20;
+    report[20] = 1;
+    report
+}
+
+#[test]
+fn wired_auto_configures_loss_handoff_and_reports_adaptive_loss_reason() {
+    use std::sync::atomic::Ordering;
+
+    let fixture = crate::state::test_support::Fixture::new();
+    let packetizer = VideoPacketizer {
+        sequence: 0,
+        iv_counter: 0,
+        frame: 1,
+        packet_size: 1392,
+        fec_percent: 20,
+        min_fec: 2,
+        key: Some([0; 16]),
+    };
+    let period = Duration::from_secs_f64(1. / 60.);
+    let peer: SocketAddr = "192.0.2.9:12345".parse().unwrap();
+    let route = Link {
+        bps: 1_000_000_000,
+        wireless: false,
+        ..Default::default()
+    };
+
+    let session = Session::new(
+        fixture.launch(fixture.client(0), Role::Stream),
+        butterpollo_media_policy::rtsp::Negotiated {
+            codec: 1,
+            bitrate_kbps: 40_000,
+            client_wireless: false,
+            moonlight_features: butterpollo_media_policy::rtsp::FEC_STATUS_FEATURE,
+            ..Default::default()
+        },
+    );
+    let config = Config::default();
+    let keyframe_loss = configure(&session, &config);
+    assert!(keyframe_loss);
+    session.configure_keyframe_loss(keyframe_loss);
+    assert!(!session.automatic_pacing_enabled());
+    assert_eq!(pacing_reason(&session, &config), "route pacing");
+
+    // Provisional Startup latch stays on KeyframeLoss until confirmed.
+    session.keyframe_loss.lock().unwrap().sending_at(
+        1,
+        true,
+        Instant::now() - Duration::from_millis(700),
+    );
+    session.stats.video_frame.store(2, Ordering::Release);
+    session.record_fec_status(&loss_fec_report(1));
+    assert!(session.keyframe_loss_active());
+    assert!(!session.automatic_pacing_enabled());
+    assert_ne!(
+        pacing_reason(&session, &config),
+        "adaptive packet pacing after video loss"
+    );
+    assert_eq!(
+        pace(&session, &config, &packetizer, period, peer, route).bps,
+        80_000_000
+    );
+
+    // Sustained client-reported loss activates adaptive pacing and its recovery reason.
+    session.stats.video_frame.store(13, Ordering::Release);
+    for frame in 10..=12 {
+        session.record_fec_status(&loss_fec_report(frame));
+    }
+    assert!(session.automatic_pacing_enabled());
+    assert_eq!(
+        pacing_reason(&session, &config),
+        "adaptive packet pacing after video loss"
+    );
+    assert_eq!(
+        pace(&session, &config, &packetizer, period, peer, route).bps,
+        80_000_000
+    );
+    let start = Instant::now();
+    session.tick_automatic_pacing(start, Duration::from_millis(2));
+    for step in 1..=20u64 {
+        let now = start + Duration::from_millis(500 * step);
+        let frames = 30 * step;
+        session.stats.frames.store(frames, Ordering::Relaxed);
+        session.stats.packets.store(frames * 70, Ordering::Relaxed);
+        session
+            .stats
+            .bytes
+            .store(frames * 83_334, Ordering::Relaxed);
+        session
+            .stats
+            .video_frame
+            .store(frames + 1, Ordering::Release);
+        session.record_control_ping(now, &[4, 0, 0, 0, 0, 0, 0, 0]);
+        session.tick_automatic_pacing(now, Duration::from_millis(2));
+    }
+    assert!(pace(&session, &config, &packetizer, period, peer, route).bps > 80_000_000);
+    report(
+        &session,
+        &config,
+        RecoveryFrame {
+            frame: 20,
+            idr: true,
+            after_invalidation: false,
+            payload_bytes: 100_000,
+            cap_bytes: None,
+            cap_target_bytes: None,
+            reencoded: false,
+            fec_limited: false,
+            wire_bytes: 120_000,
+            pace_bps: 80_000_000,
+            elapsed: Duration::from_millis(2),
+            lost: false,
+        },
+    );
+
+    // Off, Fixed, PyroWave, and legacy clients without FEC_STATUS_FEATURE do not hand over.
+    for (label, text, codec, features) in [
+        (
+            "off",
+            "packet_pacing=off",
+            1,
+            butterpollo_media_policy::rtsp::FEC_STATUS_FEATURE,
+        ),
+        (
+            "fixed",
+            "packet_pacing=80000",
+            1,
+            butterpollo_media_policy::rtsp::FEC_STATUS_FEATURE,
+        ),
+        (
+            "pyrowave",
+            "",
+            3,
+            butterpollo_media_policy::rtsp::FEC_STATUS_FEATURE,
+        ),
+        ("legacy", "", 1, 0),
+    ] {
+        let cfg = Config::parse(text).unwrap();
+        let s = Session::new(
+            fixture.launch(fixture.client(0), Role::Stream),
+            butterpollo_media_policy::rtsp::Negotiated {
+                codec,
+                bitrate_kbps: 40_000,
+                client_wireless: false,
+                moonlight_features: features,
+                ..Default::default()
+            },
+        );
+        let kf = configure(&s, &cfg);
+        s.configure_keyframe_loss(kf);
+        s.stats.video_frame.store(13, Ordering::Release);
+        for frame in 10..=12 {
+            s.record_fec_status(&loss_fec_report(frame));
+        }
+        assert!(!s.automatic_pacing_enabled(), "{label}");
+        assert_ne!(
+            pacing_reason(&s, &cfg),
+            "adaptive packet pacing after video loss",
+            "{label}"
+        );
+    }
+}
+
 mod route_unavailable;

@@ -378,6 +378,15 @@ impl Config {
             && self.manual_pacing_kbps().is_none()
             && !self.adaptive_packet_pacing(codec, client_wireless)
     }
+    /// Whether a wired H.264, HEVC, or AV1 stream under `PacketPacing::Auto`
+    /// hands packet pacing over to adaptive packet pacing after sustained
+    /// client-reported loss (or a remembered lossy route).
+    pub fn adaptive_pacing_after_loss(&self, codec: u8, client_wireless: bool) -> bool {
+        self.packet_pacing() == PacketPacing::Auto
+            && codec <= 2
+            && !client_wireless
+            && self.keyframe_loss_pacing(codec, client_wireless)
+    }
     /// Lower the encoder bitrate when the link cannot carry the stream:
     /// Adaptive bitrate on, or on with network delay.
     pub fn link_rate_adaptation(&self) -> bool {

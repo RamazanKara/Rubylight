@@ -460,3 +460,5 @@ fn reason_logs_once_per_change_and_switches_when_trigger_changes() {
     assert_eq!(reverted.reason, PacingReason::ProbeLoss);
     assert!(reverted.reason_changed);
 }
+
+mod wired_handoff;

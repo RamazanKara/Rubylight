@@ -143,6 +143,7 @@ pub(crate) fn configure(session: &Session, config: &Config) -> bool {
     );
     let (codec, wireless) = (session.config.codec, session.config.client_wireless);
     session.configure_automatic_pacing(config.adaptive_packet_pacing(codec, wireless));
+    session.configure_adaptive_pacing_on_loss(config.adaptive_pacing_after_loss(codec, wireless));
     config.keyframe_loss_pacing(codec, wireless)
 }
 
@@ -289,6 +290,24 @@ pub(crate) struct RecoveryFrame {
     pub lost: bool,
 }
 
+pub(crate) fn pacing_reason(session: &Session, config: &Config) -> &'static str {
+    if session.automatic_pacing_enabled() && session.keyframe_loss_active() {
+        "adaptive packet pacing after video loss"
+    } else {
+        session.keyframe_loss_reason().unwrap_or_else(|| {
+            if config.manual_pacing_kbps().is_some() {
+                "configured pacing limit"
+            } else if config
+                .adaptive_packet_pacing(session.config.codec, session.config.client_wireless)
+            {
+                "adaptive packet pacing"
+            } else {
+                "route pacing"
+            }
+        })
+    }
+}
+
 pub(crate) fn report(session: &Session, config: &Config, frame: RecoveryFrame) {
     if !frame.idr && !frame.after_invalidation {
         return;
@@ -299,17 +318,7 @@ pub(crate) fn report(session: &Session, config: &Config, frame: RecoveryFrame) {
             .keyframes_past_fec
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
-    let pacing_reason = session.keyframe_loss_reason().unwrap_or_else(|| {
-        if config.manual_pacing_kbps().is_some() {
-            "configured pacing limit"
-        } else if config
-            .adaptive_packet_pacing(session.config.codec, session.config.client_wireless)
-        {
-            "adaptive packet pacing"
-        } else {
-            "route pacing"
-        }
-    });
+    let pacing_reason = pacing_reason(session, config);
     tracing::info!(
         stream_id = %session.launch.id,
         frame = frame.frame,

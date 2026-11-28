@@ -151,11 +151,17 @@ pub struct Session<P = (), A = ()> {
     /// The route policy paced the last frame faster than the Wi-Fi rate, so
     /// a latch that slows it may be the whole fix (see `LinkRate::on_latch`).
     pace_was_fast: AtomicBool,
+    /// Latest pre-latch pacing rate (bps) seen on this path, 0 before any frame
+    /// or after a roam.
+    last_fast_bps: AtomicU64,
     pub adaptive_video_pacing_bps: AtomicU64,
     pub automatic_pacing:
         std::sync::Mutex<butterpollo_media_policy::adaptive_pacing::AdaptivePacing>,
     /// Whether `automatic_pacing` is enabled, set with it at stream start.
     automatic_pacing_on: AtomicBool,
+    /// Whether sustained client-reported loss on a wired stream hands pacing over
+    /// to `automatic_pacing`.
+    adaptive_pacing_on_loss: AtomicBool,
     /// Slower pacing once the client's link has dropped a keyframe.
     pub keyframe_loss: std::sync::Mutex<butterpollo_media_policy::keyframe_loss::KeyframeLoss>,
     /// FEC percentage for the next video frame; the video sender reads it per
@@ -309,9 +315,11 @@ impl<P, A> Session<P, A> {
             transport_sent: butterpollo_media_policy::congestion::SendLedger::new(started),
             congestion_pacing_bps: AtomicU64::new(0),
             pace_was_fast: AtomicBool::new(false),
+            last_fast_bps: AtomicU64::new(0),
             adaptive_video_pacing_bps: AtomicU64::new(0),
             automatic_pacing: Default::default(),
             automatic_pacing_on: AtomicBool::new(false),
+            adaptive_pacing_on_loss: AtomicBool::new(false),
             keyframe_loss: Default::default(),
             fec_percent: AtomicU32::new(
                 butterpollo_media_policy::adaptive_fec::AdaptiveFec::default().percent() as u32,
@@ -411,7 +419,10 @@ impl<P, A> Session<P, A> {
     /// bitrate adaptation forgets the old path's RTT baseline, and the keyframe-loss
     /// guard starts over without the old path's latch.
     pub fn new_network_path(&self) {
-        self.configure_automatic_pacing(self.automatic_pacing_enabled());
+        let keep_adaptive = self.automatic_pacing_enabled()
+            && !self.adaptive_pacing_on_loss.load(Ordering::Acquire);
+        self.configure_automatic_pacing(keep_adaptive);
+        self.last_fast_bps.store(0, Ordering::Release);
         self.adaptive_bitrate.lock().unwrap().new_path();
         {
             let mut loss = self.keyframe_loss.lock().unwrap();

@@ -588,3 +588,139 @@ fn unpair_is_idempotent_and_an_old_stream_cannot_recreate_repaired_history() {
     assert!(saved.clients.is_empty());
     assert_eq!(saved.document["root"][FIELD], json!([]));
 }
+
+fn fec_report(frame: u32, received_data: u16, received_parity: u16) -> [u8; 21] {
+    let mut report = [0; 21];
+    report[..4].copy_from_slice(&frame.to_be_bytes());
+    for (offset, word) in [(4, 11u16), (10, 10), (12, 2)] {
+        report[offset..offset + 2].copy_from_slice(&word.to_be_bytes());
+    }
+    report[14..16].copy_from_slice(&received_data.to_be_bytes());
+    report[16..18].copy_from_slice(&received_parity.to_be_bytes());
+    report[18] = 20;
+    report[20] = 1;
+    report
+}
+
+#[test]
+fn wired_fec_status_client_remembers_sustained_loss_and_probes_up_from_frame_one() {
+    use butterpollo_media_policy::{
+        network_pacing, packet::VideoPacketizer, rtsp::FEC_STATUS_FEATURE,
+    };
+    use butterpollo_win_io::net::Link;
+
+    let f = Fixture::new();
+    let c = f.client(0x071f1f00);
+    let wired = |codec: u8, features: u32| {
+        let mut launch = f.launch(c.clone(), Role::Stream);
+        launch.peer = "192.0.2.1".parse().unwrap();
+        Session::new(
+            launch,
+            Negotiated {
+                codec,
+                bitrate_kbps: 40_000,
+                client_wireless: false,
+                moonlight_features: features,
+                ..Default::default()
+            },
+        )
+    };
+    let packetizer = VideoPacketizer {
+        sequence: 0,
+        iv_counter: 0,
+        frame: 1,
+        packet_size: 1392,
+        fec_percent: 20,
+        min_fec: 2,
+        key: Some([0; 16]),
+    };
+    let period = Duration::from_secs_f64(1. / 60.);
+    let peer: std::net::SocketAddr = "192.0.2.1:12345".parse().unwrap();
+    let route = Link {
+        bps: 1_000_000_000,
+        wireless: false,
+        ..Default::default()
+    };
+    let config = Config::default();
+
+    // First session: sustained client-reported loss triggers adaptive handoff and saves route.
+    let first = wired(1, FEC_STATUS_FEATURE);
+    let keyframe_loss = crate::video_send::recovery::configure(&first, &config);
+    assert!(keyframe_loss);
+    assert!(!first.automatic_pacing_enabled());
+    let guard = f.host.configure_keyframe_loss(&first, keyframe_loss);
+    first.stats.video_frame.store(13, Ordering::Release);
+    for frame in 10..=12 {
+        first.record_fec_status(&fec_report(frame, 7, 1));
+    }
+    assert!(first.automatic_pacing_enabled());
+    assert!(first.keyframe_loss_sustained_at().is_some());
+    drop(guard);
+
+    // Next session on the remembered route activates adaptive pacing from frame 1.
+    let remembered = wired(1, FEC_STATUS_FEATURE);
+    let keyframe_loss = crate::video_send::recovery::configure(&remembered, &config);
+    let guard = f.host.configure_keyframe_loss(&remembered, keyframe_loss);
+    assert!(remembered.keyframe_loss_active());
+    assert!(remembered.automatic_pacing_enabled());
+    assert_eq!(
+        crate::video_send::recovery::pace(&remembered, &config, &packetizer, period, peer, route)
+            .bps,
+        80_000_000
+    );
+    let start = Instant::now();
+    remembered.tick_automatic_pacing(start, Duration::from_millis(2));
+    for step in 1..=20u64 {
+        let now = start + Duration::from_millis(500 * step);
+        let frames = 30 * step;
+        remembered.stats.frames.store(frames, Ordering::Relaxed);
+        remembered
+            .stats
+            .packets
+            .store(frames * 70, Ordering::Relaxed);
+        remembered
+            .stats
+            .bytes
+            .store(frames * 83_334, Ordering::Relaxed);
+        remembered
+            .stats
+            .video_frame
+            .store(frames + 1, Ordering::Release);
+        remembered.record_control_ping(now, &[4, 0, 0, 0, 0, 0, 0, 0]);
+        remembered.tick_automatic_pacing(now, Duration::from_millis(2));
+    }
+    assert!(
+        crate::video_send::recovery::pace(&remembered, &config, &packetizer, period, peer, route)
+            .bps
+            > 80_000_000
+    );
+    drop(guard);
+
+    // Non-eligible policies and legacy clients keep existing behavior on remembered routes.
+    for (label, text, codec, features) in [
+        ("legacy", "", 1, 0),
+        ("off", "packet_pacing=off", 1, FEC_STATUS_FEATURE),
+        ("fixed", "packet_pacing=80000", 1, FEC_STATUS_FEATURE),
+        ("pyrowave", "", 3, FEC_STATUS_FEATURE),
+    ] {
+        let cfg = Config::parse(text).unwrap();
+        let s = wired(codec, features);
+        let kf = crate::video_send::recovery::configure(&s, &cfg);
+        let g = f.host.configure_keyframe_loss(&s, kf);
+        assert!(!s.automatic_pacing_enabled(), "{label}");
+        drop(g);
+    }
+
+    // Probe session (`PROBE_EVERY`-th eligible session) runs fast at 800 Mbps without adaptive pacing.
+    let probe = wired(1, FEC_STATUS_FEATURE);
+    let kf = crate::video_send::recovery::configure(&probe, &config);
+    let _g = f.host.configure_keyframe_loss(&probe, kf);
+    assert!(!probe.keyframe_loss_active());
+    assert!(!probe.automatic_pacing_enabled());
+    let needed = network_pacing::video_wire_rate_bps(&packetizer, 40_000, period, false);
+    assert!(needed < 80_000_000);
+    assert_eq!(
+        crate::video_send::recovery::pace(&probe, &config, &packetizer, period, peer, route).bps,
+        800_000_000
+    );
+}

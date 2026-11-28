@@ -490,6 +490,217 @@ fn floor_changes_below_the_current_rate_do_not_drop_loss_cuts_or_reset_samples()
     assert_eq!(stream.healthy(), Some((FAST, FAST / 2)));
 }
 
+#[test]
+fn new_after_loss_seeds_at_double_bitrate_fences_pre_handoff_frames_and_probes_up() {
+    let now = Instant::now();
+    let period = Duration::from_secs_f64(1. / 60.);
+    let mut pacing = AdaptivePacing::new_after_loss(Some(100), None);
+    assert!(pacing.enabled());
+    assert_eq!(pacing.preview_rate(FAST, DEMAND, 40_000), SEED);
+    assert_eq!(pacing.rate(FAST, DEMAND, 40_000), SEED);
+    assert_eq!(
+        pacing.tick(
+            now,
+            Traffic::default(),
+            Some(100),
+            period,
+            40_000,
+            Duration::ZERO,
+        ),
+        None
+    );
+    // Reports for frames sent at the prior fast rate (<= 100) stay fenced out.
+    for frame in [99, 100] {
+        pacing.on_block(frame, 100, period, Block::Unrecoverable);
+    }
+    assert!(!pacing.any_loss);
+    let next = now + Duration::from_millis(500);
+    pacing.on_ping(next, &PING);
+    let traffic = Traffic {
+        frames: 30,
+        bytes: 2_500_000,
+        packets: 2_000,
+        send_losses: 0,
+    };
+    assert_eq!(
+        pacing.tick(
+            next,
+            traffic,
+            Some(130),
+            period,
+            40_000,
+            Duration::from_millis(2)
+        ),
+        Some((SEED, 90_000_000))
+    );
+    // Reports after the probe fence (> 130) trigger probe rollback.
+    pacing.on_block(131, 160, period, Block::Unrecoverable);
+    let probe_end = next + Duration::from_millis(500);
+    pacing.on_ping(probe_end, &PING);
+    assert_eq!(
+        pacing.tick(
+            probe_end,
+            Traffic {
+                frames: 60,
+                bytes: 5_000_000,
+                packets: 4_000,
+                send_losses: 0,
+            },
+            Some(160),
+            period,
+            40_000,
+            Duration::from_millis(2),
+        ),
+        Some((90_000_000, SEED))
+    );
+
+    // Frame 101 immediately crosses the `Some(100)` fence while 100 does not.
+    let mut boundary = AdaptivePacing::new_after_loss(Some(100), None);
+    boundary.rate(FAST, DEMAND, 40_000);
+    boundary.on_block(100, 101, period, Block::Unrecoverable);
+    assert!(!boundary.any_loss);
+    boundary.on_block(101, 101, period, Block::Unrecoverable);
+    assert!(boundary.any_loss);
+
+    // Without a prior frame (`None`, e.g. remembered loss), frame 1 is accepted.
+    let mut remembered = AdaptivePacing::new_after_loss(None, None);
+    remembered.rate(FAST, DEMAND, 40_000);
+    remembered.on_block(1, 1, period, Block::Unrecoverable);
+    assert!(remembered.any_loss);
+}
+
+#[test]
+fn post_loss_refinements_stay_scoped_from_normal_adaptive_pacing() {
+    let period = Duration::from_secs_f64(1. / 60.);
+
+    // 1) `failed_bps / 2` caps ceiling on mid-stream handoff; `None` keeps full route ceiling.
+    let mut capped = AdaptivePacing::new_after_loss(Some(10), Some(FAST));
+    assert_eq!(capped.preview_rate(FAST, DEMAND, 40_000), SEED);
+    capped.rate(FAST, DEMAND, 40_000);
+    assert_eq!(capped.snapshot()["ceiling_kbps"], 400_000);
+
+    // 2) ProbeLoss locks `learned_ceiling` in post-loss mode, stopping 60 s sawtooths,
+    // while `AdaptivePacing::new(true)` (Wi-Fi / Always) keeps probing normally.
+    let now = Instant::now();
+    let mut post = AdaptivePacing::new_after_loss(Some(0), Some(FAST));
+    post.rate(FAST, DEMAND, 40_000);
+    post.tick(
+        now,
+        Traffic::default(),
+        Some(0),
+        period,
+        40_000,
+        Duration::ZERO,
+    );
+    let t1 = now + Duration::from_millis(500);
+    post.on_ping(t1, &PING);
+    let traffic1 = Traffic {
+        frames: 30,
+        bytes: 2_500_000,
+        packets: 2_000,
+        send_losses: 0,
+    };
+    assert_eq!(
+        post.tick(
+            t1,
+            traffic1,
+            Some(30),
+            period,
+            40_000,
+            Duration::from_millis(2)
+        ),
+        Some((SEED, 90_000_000))
+    );
+    post.on_block_kind(
+        31,
+        31,
+        period,
+        Block::Recovered { lost: 1, data: 10 },
+        false,
+    );
+    let t2 = t1 + Duration::from_millis(500);
+    post.on_ping(t2, &PING);
+    assert_eq!(
+        post.tick(
+            t2,
+            Traffic {
+                frames: 60,
+                bytes: 5_000_000,
+                packets: 4_000,
+                send_losses: 0,
+            },
+            Some(60),
+            period,
+            40_000,
+            Duration::from_millis(2),
+        ),
+        Some((90_000_000, SEED))
+    );
+    assert_eq!(post.rate(FAST, DEMAND, 40_000), SEED);
+    assert_eq!(post.snapshot()["ceiling_kbps"], 80_000);
+
+    // 3) Single unrecoverable keyframe cuts post-loss pacing immediately, while
+    // normal AdaptivePacing::new(true) still requires two failed frames.
+    let mut normal = Stream::new(true);
+    normal
+        .pacing
+        .on_block_kind(30, 30, period, Block::Unrecoverable, true);
+    assert_eq!(normal.healthy(), None);
+    let mut post_kf = AdaptivePacing::new_after_loss(Some(0), Some(FAST));
+    post_kf.rate(FAST, DEMAND, 40_000);
+    post_kf.tick(
+        now,
+        Traffic::default(),
+        Some(0),
+        period,
+        40_000,
+        Duration::ZERO,
+    );
+    post_kf.on_block_kind(10, 10, period, Block::Unrecoverable, true);
+    assert_eq!(
+        post_kf.tick(
+            t1,
+            traffic1,
+            Some(30),
+            period,
+            40_000,
+            Duration::from_millis(2)
+        ),
+        Some((SEED, 62_500_000))
+    );
+
+    // 4) Low FEC (< 10%) skips upward probes in post-loss mode without collapsing `limit`,
+    // whereas normal AdaptivePacing::new(true) is unaffected.
+    let mut low_fec = AdaptivePacing::new_after_loss(Some(0), Some(FAST));
+    low_fec.set_fec_percent(5);
+    low_fec.rate(FAST, 40_000_000, 40_000);
+    low_fec.tick(
+        now,
+        Traffic::default(),
+        Some(0),
+        period,
+        40_000,
+        Duration::ZERO,
+    );
+    low_fec.on_ping(t1, &PING);
+    assert_eq!(
+        low_fec.tick(
+            t1,
+            traffic1,
+            Some(30),
+            period,
+            40_000,
+            Duration::from_millis(2)
+        ),
+        None
+    );
+    assert_eq!(low_fec.rate(FAST, 40_000_000, 40_000), SEED);
+
+    let mut normal_low = Stream::fresh(true);
+    normal_low.pacing.set_fec_percent(5);
+    assert_eq!(normal_low.healthy(), Some((SEED, 90_000_000)));
+}
+
 mod loss_and_recovery;
 mod path_sim;
 mod wireless;

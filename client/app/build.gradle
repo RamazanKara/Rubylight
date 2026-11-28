@@ -344,7 +344,22 @@ abstract class CargoAndroidBuild extends DefaultTask {
         if (!wrapper) return [:]
         Map<String, String> out = ['RUSTC_WRAPPER': wrapper]
         if (!System.getenv('CARGO_INCREMENTAL')) out['CARGO_INCREMENTAL'] = '0'
+        if (!System.getenv('SCCACHE_IDLE_TIMEOUT')) out['SCCACHE_IDLE_TIMEOUT'] = '3600'
         return out
+    }
+
+    static String targetDirEnv() {
+        (System.getenv('CARGO_TARGET_DIR') ?: System.getenv('CARGO_BUILD_TARGET_DIR'))?.trim() ?: null
+    }
+
+    static void stripTargetDirEnv(org.gradle.process.ExecSpec spec) {
+        // sccache hashes CARGO_TARGET_DIR / CARGO_BUILD_TARGET_DIR into its Rust cache key;
+        // pass --target-dir on Cargo's CLI instead so gradle-rust shares sccache with client slots.
+        Map<String, Object> env = new LinkedHashMap<>(spec.environment)
+        env.keySet().removeIf { String k ->
+            k.equalsIgnoreCase('CARGO_TARGET_DIR') || k.equalsIgnoreCase('CARGO_BUILD_TARGET_DIR')
+        }
+        spec.setEnvironment(env)
     }
 
     @TaskAction
@@ -363,10 +378,11 @@ abstract class CargoAndroidBuild extends DefaultTask {
         def profileName = cargoProfile.get()
         def profileArgs = profileName == 'release' ? ['--release'] : ['--profile', profileName]
         def cacheEnv = sccacheEnv(windows)
-        String targetDirRaw = System.getenv('CARGO_TARGET_DIR')?.trim()
+        String targetDirRaw = targetDirEnv()
         File targetRoot = targetDirRaw ?
                 (new File(targetDirRaw).isAbsolute() ? new File(targetDirRaw) : new File(protocol, targetDirRaw)) :
                 new File(protocol, 'target')
+        def targetDirArgs = targetDirRaw ? ['--target-dir', targetRoot.absolutePath] : []
         def out = outputDir.get().asFile
         out.deleteDir()
         abis.get().each { abi ->
@@ -380,10 +396,11 @@ abstract class CargoAndroidBuild extends DefaultTask {
                     ("CFLAGS_$lower".toString())                  : "--target=$clangTarget".toString(),
                     ("AR_$lower".toString())                      : ar,
             ] + cacheEnv
-            execOperations.exec {
-                workingDir protocol
-                environment env
-                commandLine([cargo, 'build', *profileArgs, '--locked', '-p', 'nightjar-android', '--target', triple])
+            execOperations.exec { spec ->
+                spec.workingDir protocol
+                spec.environment env
+                stripTargetDirEnv(spec)
+                spec.commandLine([cargo, 'build', *profileArgs, '--locked', *targetDirArgs, '-p', 'nightjar-android', '--target', triple])
             }
             def profileDir = (profileName in ['dev', 'test']) ? 'debug' : (profileName == 'bench' ? 'release' : profileName)
             def lib = new File(targetRoot, "$triple/$profileDir/libnightjar_core.so")
@@ -552,17 +569,20 @@ abstract class CargoHostBuild extends DefaultTask {
             }
         }
 
-        extraEnv.putAll(CargoAndroidBuild.sccacheEnv(windows))
-        execOperations.exec {
-            workingDir protocol
-            if (extraEnv) environment(extraEnv)
-            commandLine cargo, 'build', '--locked', '-p', 'nightjar-android'
-        }
-
-        String targetDirRaw = System.getenv('CARGO_TARGET_DIR')?.trim()
+        String targetDirRaw = CargoAndroidBuild.targetDirEnv()
         File targetRoot = targetDirRaw ?
                 (new File(targetDirRaw).isAbsolute() ? new File(targetDirRaw) : new File(protocol, targetDirRaw)) :
                 new File(protocol, 'target')
+        def targetDirArgs = targetDirRaw ? ['--target-dir', targetRoot.absolutePath] : []
+        extraEnv.putAll(CargoAndroidBuild.sccacheEnv(windows))
+        if (!System.getenv('CARGO_PROFILE_DEV_DEBUG')) extraEnv['CARGO_PROFILE_DEV_DEBUG'] = '0'
+        execOperations.exec { spec ->
+            spec.workingDir protocol
+            if (extraEnv) spec.environment(extraEnv)
+            CargoAndroidBuild.stripTargetDirEnv(spec)
+            spec.commandLine([cargo, 'build', '--locked', *targetDirArgs, '-p', 'nightjar-android'])
+        }
+
         String buildTarget = System.getenv('CARGO_BUILD_TARGET')?.trim()
         File profileDir = buildTarget ? new File(new File(targetRoot, buildTarget), 'debug') : new File(targetRoot, 'debug')
         File lib = new File(profileDir, libName)

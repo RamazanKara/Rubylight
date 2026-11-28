@@ -288,6 +288,16 @@ public class TvScreensPreviewTest {
         capture(screen, new File(directory, "tv-" + name + ".png"));
     }
 
+    public static void previewDialogIfRequested(Activity screen, android.app.Dialog dialog, String name) throws IOException {
+        String output = System.getenv("NIGHTJAR_PREVIEW_OUTPUT");
+        if (output == null || output.isBlank()) return;
+        boolean night = (screen.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        File directory = new File(output, night ? "night" : "day");
+        assertTrue(directory.isDirectory() || directory.mkdirs());
+        captureDialog(screen, dialog, new File(directory, "tv-" + name + ".png"));
+    }
+
     static void capture(Activity screen, File destination) throws IOException {
         Shadows.shadowOf(Looper.getMainLooper()).idle();
         View root = screen.getWindow().getDecorView();

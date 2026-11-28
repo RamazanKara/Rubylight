@@ -771,6 +771,12 @@ type = "String"
 value = "checkbox_finger_tap_on_cancel"
 
 [[android_const]]
+name = "PINCH_TO_ZOOM_PREF_STRING"
+vis = "package"
+type = "String"
+value = "checkbox_pinch_to_zoom"
+
+[[android_const]]
 name = "PC_KEYBOARD_LAYOUT_PREF_STRING"
 vis = "package"
 type = "String"
@@ -2437,6 +2443,16 @@ xml_default = "false"
 scope = "global"
 shown_only = "on a device with a touch screen"
 advice = "Off by default. Three- and four-finger taps that the system cancels, as some Oppo and ColorOS phones do, still run their action when the fingers landed together and stayed still; on Android 13 and newer only cancels the system flags count, on Android 12 and older any cancel in that window does. Turn on only if three- or four-finger taps do nothing when your fingers are close together."
+
+[[android_setting]]
+key = "checkbox_pinch_to_zoom"
+category = "category_input_settings"
+tier = "main"
+kind = "bool"
+xml_default = "false"
+scope = "global"
+shown_only = "on a device with a touch screen"
+advice = "Off by default so two-finger touches scroll without unintended zooming. Turn on to allow passive two-finger pinch to zoom and pan at any time while Touch mode is enabled, or toggle Zoom temporarily from the Control Center."
 
 [[android_setting]]
 key = "seekbar_trackpad_sensitivity_x"

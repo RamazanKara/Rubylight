@@ -45,4 +45,6 @@
     <string name="title_finger_tap_on_cancel">Sistem tarafından iptal edilen parmak dokunuşları</string>
     <string name="summary_finger_tap_on_cancel">Sistemin iptal ettiği üç ve dört parmakla dokunuşlar, bazı Oppo ve ColorOS telefonlarda olduğu gibi, parmaklar birlikte inip hareketsiz kaldıysa yine eylemlerini çalıştırır; Android 13 ve üzerinde yalnızca sistemin kendi iptali olarak işaretlediği iptaller sayılır, Android 12 ve öncesinde bu zaman aralığındaki her iptal sayılır. Yalnızca parmaklar birbirine yakınken üç veya dört parmakla dokunuşlar hiçbir şey yapmıyorsa açın.</string>
     <string name="summary_multi_touch_finger_taps">“Çoklu dokunma” modunda üç ve dört parmakla dokunuşlar eylemlerini çalıştırır ve artık bilgisayara dokunuş olarak ulaşmaz. Bilgisayarda bu dokunuşları kullanan bir şey varsa kapalı bırakın.</string>
+    <string name="title_pinch_to_zoom">Sıkıştırarak yakınlaştır</string>
+    <string name="summary_pinch_to_zoom">Dokunma modu açıkken akış üzerinde istediğiniz zaman yakınlaştırmak ve kaydırmak için iki parmağınızı sıkıştırıp açın. İki parmak hareketlerini dokunmatik yüzey kaydırmasıyla sınırlamak için kapalı bırakın veya Kontrol Merkezinden Yakınlaştırmayı geçici olarak açın.</string>
 </resources>

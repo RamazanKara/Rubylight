@@ -45,4 +45,6 @@
     <string name="title_finger_tap_on_cancel">Toques con dedos cancelados por el sistema</string>
     <string name="summary_finger_tap_on_cancel">Los toques con tres y cuatro dedos que el sistema cancela, como ocurre en algunos teléfonos Oppo y ColorOS, siguen ejecutando su acción si los dedos cayeron juntos y quietos; en Android 13 y posteriores solo cuentan las cancelaciones que el sistema marca como propias, y en Android 12 y anteriores, cualquier cancelación en ese intervalo. Actívalo solo si los toques con tres o cuatro dedos no hacen nada cuando los dedos están juntos.</string>
     <string name="summary_multi_touch_finger_taps">En el modo Multitáctil, los toques con tres y cuatro dedos ejecutan sus acciones y dejan de llegar al PC como toques. Déjalo desactivado si algo en el PC usa esos toques.</string>
+    <string name="title_pinch_to_zoom">Pellizcar para hacer zoom</string>
+    <string name="summary_pinch_to_zoom">Pellizca con dos dedos en la transmisión para ampliar y desplazar en cualquier momento mientras el modo táctil está activado. Déjalo desactivado para limitar los gestos de dos dedos al desplazamiento del panel táctil o activa Zoom temporalmente en el Centro de control.</string>
 </resources>

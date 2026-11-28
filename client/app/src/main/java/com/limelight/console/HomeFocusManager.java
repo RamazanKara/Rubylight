@@ -162,7 +162,7 @@ final class HomeFocusManager {
                 () -> host.shelves().isFastTravel() || Motion.reduced(activity));
         rows.setRowFocus(shelves);
         shelves.setAboveHero(from -> ShellBar.nearestInTopRow(activity, from,
-                R.id.home_pc, R.id.console_view, R.id.home_search_top));
+                R.id.home_pc, R.id.console_view, R.id.home_search, R.id.home_search_top));
         list.setLayoutManager(rows);
         list.setItemAnimator(null);
         list.setItemViewCacheSize(2);
@@ -334,6 +334,44 @@ final class HomeFocusManager {
         }
         host.setFocusPending(false);
         restoreFocus(first, 0);
+    }
+
+    /** Moves D-pad Down focus from the TV/handheld top bar directly into the first app card (or setup/empty action). */
+    boolean focusDownFromTopRow(View setupCard, View empty) {
+        if (setupCard != null && setupCard.getVisibility() == View.VISIBLE) {
+            View close = setupCard.findViewById(R.id.home_setup_dismiss);
+            if (close != null && close.isFocusable() && close.requestFocus()) return true;
+        }
+        if (empty != null && empty.getVisibility() == View.VISIBLE) {
+            View hosts = host.activity().findViewById(R.id.console_empty_hosts);
+            if (hosts != null && hosts.requestFocus()) return true;
+        }
+        RecyclerView list = host.list();
+        ConsoleHomeAdapter shelves = host.shelves();
+        if (shelves != null) {
+            ConsoleHomeAdapter.Cursor first = shelves.initialFocus();
+            if (first != null) {
+                View card = shelves.cardView(list, first);
+                if (card != null && card.requestFocus()) return true;
+                shelves.reveal(list, first);
+                restoreFocus(shelves.rowKey(first.row), shelves.keyAt(first), 0);
+                return true;
+            }
+        } else {
+            ConsoleHomeListAdapter adapter = host.adapter();
+            int first = adapter != null ? adapter.initialFocus() : -1;
+            if (first >= 0) {
+                RecyclerView.ViewHolder holder = list.findViewHolderForAdapterPosition(first);
+                if (holder != null && holder.itemView.requestFocus()) return true;
+                revealCard(first);
+                list.post(() -> {
+                    RecyclerView.ViewHolder h = list.findViewHolderForAdapterPosition(first);
+                    if (h != null) h.itemView.requestFocus();
+                });
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

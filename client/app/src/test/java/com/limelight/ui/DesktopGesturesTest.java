@@ -123,15 +123,14 @@ public class DesktopGesturesTest {
         assertTrue(gestures.viewport().x() < 0f);
         assertTrue(gestures.viewport().y() < 0f);
 
-        // Pinching back down to 1.0x ends consumed gesture, then subsequent 2-finger drags scroll again.
+        // Pinching back down near 1.0x passes smoothly without locking out, and passive release resets softly.
         assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2100,
                 new float[] {150, 110}, new float[] {550, 110}));
-        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2120,
-                new float[] {250, 110}, new float[] {450, 110}));
         assertEquals(1.0f, gestures.viewport().scale(), 0.001f);
         assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 2130,
-                new float[] {250, 110}, new float[] {450, 110}));
-        assertTrue(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 2140, new float[] {250, 110}));
+                new float[] {150, 110}, new float[] {550, 110}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 2140, new float[] {150, 110}));
+        assertFalse(gestures.viewport().isTransformed());
 
         assertFalse(send(gestures, true, true, MotionEvent.ACTION_DOWN, 0, one, 3000, new float[] {200, 150}));
         assertFalse(send(gestures, true, true, MotionEvent.ACTION_POINTER_DOWN, 1, two, 3010,
@@ -185,16 +184,24 @@ public class DesktopGesturesTest {
                 new float[] {160, 180}, new float[] {360, 180}));
         assertTrue(gestures.viewport().isTransformed());
 
-        // Pinching back out to 1.0x resets and returns to scrolling.
+        // Pinching back out across 1.0x continues smoothly without lockout; soft release inside [0.97, 1.03] resets.
         assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2030,
-                new float[] {60, 180}, new float[] {460, 180}));
+                new float[] {110, 180}, new float[] {410, 180}));
+        assertEquals(1.0f, gestures.viewport().scale(), 0.001f);
+        assertTrue("crossing 1.0x preserves continuous zoom without locking out",
+                send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2035,
+                        new float[] {60, 180}, new float[] {460, 180}));
+        assertTrue(gestures.viewport().scale() > 1.03f);
+        // Pinch back to 1.02x (within [0.97, 1.03]) and release -> softly resets to 1.0x and un-transformed.
+        float targetHalfSpan = 200f * (1.02f / gestures.viewport().scale());
         assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2040,
-                new float[] {10, 180}, new float[] {610, 180}));
+                new float[] {260 - targetHalfSpan, 180}, new float[] {260 + targetHalfSpan, 180}));
+        assertTrue(gestures.viewport().scale() >= 0.97f && gestures.viewport().scale() <= 1.03f);
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 2050,
+                new float[] {260 - targetHalfSpan, 180}, new float[] {260 + targetHalfSpan, 180}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 2060, new float[] {260 - targetHalfSpan, 180}));
         assertFalse(gestures.viewport().isTransformed());
         assertEquals(1.0f, gestures.viewport().scale(), 0.001f);
-        assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 2050,
-                new float[] {10, 180}, new float[] {610, 180}));
-        assertTrue(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 2060, new float[] {10, 180}));
 
         assertFalse(send(gestures, true, true, MotionEvent.ACTION_DOWN, 0, one, 3000, new float[] {200, 150}));
         assertFalse(send(gestures, true, true, MotionEvent.ACTION_POINTER_DOWN, 1, two, 3010,
@@ -288,8 +295,87 @@ public class DesktopGesturesTest {
         assertTrue(gestures.viewport().scale() > 1.0f && gestures.viewport().scale() <= 1.01f);
         assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2040,
                 new float[] {-575, 200}, new float[] {1375, 200}));
-        assertEquals(1.0f, gestures.viewport().scale(), 0.001f);
+        assertTrue("reversing keeps continuous tracking below 1.0 instead of locking",
+                gestures.viewport().scale() < 1.0f);
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2045,
+                new float[] {-620, 200}, new float[] {1420, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 2050,
+                new float[] {-620, 200}, new float[] {1420, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 2060, new float[] {-620, 200}));
         assertFalse(gestures.viewport().isTransformed());
+    }
+
+    @Test
+    public void passiveThresholdRebaselinesWithoutStartJumpAndRejectsScrollDrift() {
+        AtomicInteger cancels = new AtomicInteger();
+        DesktopGestures gestures = newGestures(cancels, new AtomicInteger());
+        int[] one = {0}, two = {0, 1};
+
+        // Fast 2-finger scroll with large vertical travel and slight finger drift (dSpan <= focusTravel * 0.75) stays scroll.
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_DOWN, 0, one, 1000, new float[] {300, 100}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_POINTER_DOWN, 1, two, 1010,
+                new float[] {300, 100}, new float[] {500, 100}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 1030,
+                new float[] {280, 220}, new float[] {520, 220}));
+        assertEquals(0, cancels.get());
+        assertEquals(1.0f, gestures.viewport().scale(), 0f);
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 1040,
+                new float[] {280, 220}, new float[] {520, 220}) == false);
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 1050, new float[] {280, 220}));
+
+        // Pure pinch latching >= 28dp re-baselines prevSpan/prevFocus so the latching move produces zero start jump.
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_DOWN, 0, one, 2000, new float[] {300, 200}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_POINTER_DOWN, 1, two, 2010,
+                new float[] {300, 200}, new float[] {500, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 2020,
+                new float[] {250, 200}, new float[] {550, 200}));
+        assertEquals(1, cancels.get());
+        assertEquals("re-baselined latch move has zero start jump", 1.0f, gestures.viewport().scale(), 0.0001f);
+        assertEquals(0f, gestures.viewport().x(), 0.0001f);
+    }
+
+    @Test
+    public void atomicZoomAndPanKeepsContentAnchoredUnderMovingFocusWithoutDrift() {
+        DesktopGestures gestures = newGestures(new AtomicInteger(), new AtomicInteger());
+        gestures.setEnabled(true);
+        int[] one = {0}, two = {0, 1};
+        assertFalse(send(gestures, true, false, MotionEvent.ACTION_DOWN, 0, one, 1000, new float[] {200, 100}));
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_POINTER_DOWN, 1, two, 1010,
+                new float[] {200, 100}, new float[] {400, 100}));
+        float uX = gestures.viewport().inputX(300f), uY = gestures.viewport().inputY(100f);
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_MOVE, 0, two, 1030,
+                new float[] {140, 130}, new float[] {540, 130}));
+        assertEquals(2.0f, gestures.viewport().scale(), 0.001f);
+        assertEquals("new focus screen X preserves original world X without drift",
+                340f, gestures.viewport().x() + uX * gestures.viewport().scale(), 0.05f);
+        assertEquals("new focus screen Y preserves original world Y without drift",
+                130f, gestures.viewport().y() + uY * gestures.viewport().scale(), 0.05f);
+    }
+
+    @Test
+    public void threeFingerSwapAndPrimaryLiftDoNotTeleportViewport() {
+        DesktopGestures gestures = newGestures(new AtomicInteger(), new AtomicInteger());
+        gestures.setEnabled(true);
+        int[] one = {0}, two = {0, 1}, three = {0, 1, 2};
+        assertFalse(send(gestures, true, false, MotionEvent.ACTION_DOWN, 0, one, 1000, new float[] {200, 200}));
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_POINTER_DOWN, 1, two, 1010,
+                new float[] {200, 200}, new float[] {400, 200}));
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_MOVE, 0, two, 1020,
+                new float[] {150, 200}, new float[] {450, 200}));
+        float scaleBeforeThird = gestures.viewport().scale();
+        float xBeforeThird = gestures.viewport().x();
+        // Adding a 3rd finger and lifting primary finger 0 re-anchors on pointers (1, 2) with zero teleport.
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_POINTER_DOWN, 2, three, 1030,
+                new float[] {150, 200}, new float[] {450, 200}, new float[] {650, 200}));
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_POINTER_UP, 0, three, 1040,
+                new float[] {150, 200}, new float[] {450, 200}, new float[] {650, 200}));
+        assertEquals(scaleBeforeThird, gestures.viewport().scale(), 0.0001f);
+        assertEquals(xBeforeThird, gestures.viewport().x(), 0.0001f);
+        int[] swappedTwo = {1, 2};
+        assertTrue(send(gestures, true, false, MotionEvent.ACTION_MOVE, 0, swappedTwo, 1050,
+                new float[] {450, 200}, new float[] {650, 200}));
+        assertEquals(scaleBeforeThird, gestures.viewport().scale(), 0.0001f);
+        assertEquals(xBeforeThird, gestures.viewport().x(), 0.0001f);
     }
 
     @Test

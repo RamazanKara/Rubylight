@@ -379,6 +379,7 @@ final class SettingRules {
     static final String MOMENTUM_GLIDE = "list_trackpad_momentum_glide";
     static final String FINGER_TAPS = "checkbox_multi_touch_finger_taps";
     static final String FINGER_TAP_ON_CANCEL = "checkbox_finger_tap_on_cancel";
+    static final String PINCH_TO_ZOOM = PreferenceConfiguration.PINCH_TO_ZOOM_PREF_STRING;
     static final String TRACKPAD_SENSITIVITY_X = "seekbar_trackpad_sensitivity_x";
     static final String TRACKPAD_SENSITIVITY_Y = "seekbar_trackpad_sensitivity_y";
     static final String TRACKPAD_SWAP_AXIS = "checkbox_trackpad_swap_axis";
@@ -407,7 +408,7 @@ final class SettingRules {
     static final java.util.List<String> WHEN_ROWS = java.util.Arrays.asList(
             VIBRATE_STRENGTH, MOUSE_SPEED, MOUSE_NAV_BUTTONS,
             TRACKPAD_SPEED, LOCAL_CURSOR_SPEED, ACCELERATION_CURVE,
-            MOMENTUM_GLIDE, TRACKPAD_AREA, FINGER_TAPS, FINGER_TAP_ON_CANCEL, TRACKPAD_SENSITIVITY_X, TRACKPAD_SENSITIVITY_Y, TRACKPAD_SWAP_AXIS, NATIVE_TOUCHPAD,
+            MOMENTUM_GLIDE, TRACKPAD_AREA, FINGER_TAPS, FINGER_TAP_ON_CANCEL, PINCH_TO_ZOOM, TRACKPAD_SENSITIVITY_X, TRACKPAD_SENSITIVITY_Y, TRACKPAD_SWAP_AXIS, NATIVE_TOUCHPAD,
             BACK_AS_META, OVERLAY_POSITION, SCREEN2_RESOLUTION, COVERING_DECODER_SIZE, CHIPSET_TUNING, TV_DISPLAY_COMPATIBILITY, IGDB_SECRET);
 
     /**
@@ -450,6 +451,7 @@ final class SettingRules {
             case TRACKPAD_AREA:
             case FINGER_TAPS:
             case FINGER_TAP_ON_CANCEL:
+            case PINCH_TO_ZOOM:
                 // Not by the stored touch mode: an external display makes the screen a trackpad whatever it is
                 // (GameVideoOutput), the stream menu shows the on-screen controller (whose modern style has a pointer
                 // touchpad) without saving it, and the second screen picks its touch mode for its own stream. Only a
@@ -515,6 +517,7 @@ final class SettingRules {
             case TRACKPAD_AREA:
             case FINGER_TAPS:
             case FINGER_TAP_ON_CANCEL:
+            case PINCH_TO_ZOOM:
                 return context.getString(R.string.tag_unused_no_touchscreen);
             case TRACKPAD_SENSITIVITY_X:
             case TRACKPAD_SENSITIVITY_Y:

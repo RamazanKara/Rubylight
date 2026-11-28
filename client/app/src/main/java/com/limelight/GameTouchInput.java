@@ -440,7 +440,8 @@ final class GameTouchInput {
         noteTouchArrivals(event);
         game.keyboardInput.noteStreamPress(view, event);
         if (game.desktopGestures != null && game.foreground && game.connected && game.streamMenu == null
-                && (game.desktopGestures.enabled() || (!game.nativeTouchEnabled && touchMode() != TouchMode.OFF))) {
+                && (game.desktopGestures.enabled()
+                || (game.prefConfig.pinchToZoom && !game.nativeTouchEnabled && touchMode() != TouchMode.OFF))) {
             MotionEvent relative = MotionEvent.obtain(event);
             relative.offsetLocation(GameNativeTouchSender.getStreamViewOffsetX(game, view),
                     GameNativeTouchSender.getStreamViewOffsetY(game, view));

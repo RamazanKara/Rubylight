@@ -143,6 +143,7 @@ final class ActionSheetLayoutViews {
         private Runnable onOutsideTap;
         private boolean pressedOutside;
         private android.view.View anchor;
+        private int columns = 1;
 
         PanelFrameBase(Context context, android.view.View panel, int margin) {
             super(context);
@@ -164,6 +165,10 @@ final class ActionSheetLayoutViews {
 
         void setAnchor(android.view.View anchor) {
             this.anchor = anchor;
+        }
+
+        void setColumns(int columns) {
+            this.columns = Math.max(1, columns);
         }
 
         /**
@@ -193,7 +198,11 @@ final class ActionSheetLayoutViews {
             LayoutParams params = (LayoutParams) panel.getLayoutParams();
             float density = getResources().getDisplayMetrics().density;
             if (anchor != null && anchor.isAttachedToWindow()) {
-                params.width = Math.max(0, Math.min(Math.round(MIN_WIDTH_DP * density), width - 2 * margin));
+                int base = panelWidth(width, height, margin, density);
+                params.width = columns > 1 && width > height
+                        ? Math.max(base, Math.min(width - 2 * margin,
+                                Math.min(Math.round(560f * density), Math.round(width * LANDSCAPE_SHARE))))
+                        : base;
                 params.gravity = Gravity.TOP | Gravity.LEFT;
                 int[] anchorAt = new int[2];
                 int[] frameAt = new int[2];

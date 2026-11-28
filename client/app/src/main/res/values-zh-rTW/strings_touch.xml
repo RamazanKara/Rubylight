@@ -45,4 +45,6 @@
     <string name="title_finger_tap_on_cancel">系統取消的多指輕觸</string>
     <string name="summary_finger_tap_on_cancel">系統取消的三指和四指輕觸，例如部分 Oppo 和 ColorOS 手機上的情況，如果手指是同時落下且保持不動的，仍會執行對應動作；Android 13 及以上只計入系統標記為自身取消的動作，Android 12 及以下則計入該時間範圍內的所有取消。僅當手指靠近時三指和四指輕觸沒有任何反應，才需要開啟。</string>
     <string name="summary_multi_touch_finger_taps">在「多點觸控」模式下，三指和四指輕觸會執行對應動作，不再作為觸控傳送到電腦。如果電腦上有程式會用到這些輕觸，請保持關閉。</string>
+    <string name="title_pinch_to_zoom">雙指捏合縮放</string>
+    <string name="summary_pinch_to_zoom">開啟觸控模式時，可隨時以兩指捏合畫面進行縮放與平移。保持關閉可讓兩指手勢僅用於觸控板捲動，或從控制中心暫時切換縮放。</string>
 </resources>

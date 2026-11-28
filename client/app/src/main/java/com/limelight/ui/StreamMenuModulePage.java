@@ -151,11 +151,12 @@ final class StreamMenuModulePage {
                 if (saved == null || cell.shortcut >= saved.size()) continue;
                 KeyboardShortcuts.Shortcut shortcut = saved.get(cell.shortcut);
                 card = ControlCenterCards.card(context, R.drawable.ic_keyboard, shortcut.name,
-                        StreamMenuShortcutsPage.keysUnder(shortcut), null, null, capsShown);
+                        StreamMenuShortcutsPage.keysUnder(shortcut), null, null, capsShown, view.windowHeightDp());
                 card.setOnClickListener(pressed -> host.send(shortcut));
             } else if (cell.kind == StreamMenuModel.Cell.Kind.ADD) {
                 card = ControlCenterCards.card(context, R.drawable.ic_plus,
-                        StreamMenuCatalog.label(activity, labels, StreamMenuModel.ADD), null, null, null, capsShown);
+                        StreamMenuCatalog.label(activity, labels, StreamMenuModel.ADD), null, null, null, capsShown,
+                        view.windowHeightDp());
                 card.setOnClickListener(pressed -> host.addShortcut());
             } else {
                 Entry entry = StreamMenuCatalog.find(offered, cell.id);
@@ -210,7 +211,7 @@ final class StreamMenuModulePage {
     private TileGrid.Tile card(Entry entry, CharSequence name, Boolean on, String hotkey, boolean capsShown) {
         TileGrid.Tile card = ControlCenterCards.card(context, entry.icon, name,
                 on == null ? null : ControlCenterCards.switchState(activity, on), on,
-                hotkey == null ? null : hotkey.toUpperCase(Locale.ROOT), capsShown);
+                hotkey == null ? null : hotkey.toUpperCase(Locale.ROOT), capsShown, view.windowHeightDp());
         names.put(entry.item, name);
         host.put(entry, card);
         card.setOnClickListener(pressed -> host.choose(entry));

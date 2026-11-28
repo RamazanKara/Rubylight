@@ -290,6 +290,11 @@
     <PreferenceCategory android:key="category_input_main">
         <Preference android:key="touch_mode"
             android:title="@string/stream_touch_mode" android:persistent="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_pinch_to_zoom"
+            android:title="@string/title_pinch_to_zoom"
+            android:dialogMessage="@string/summary_pinch_to_zoom"
+            android:defaultValue="false" />
         <!-- Captured or Desktop pointer: the switch checkbox_absolute_mouse_mode, drawn as the two-value choice. -->
         <Preference android:key="checkbox_absolute_mouse_mode" android:title="@string/title_checkbox_absolute_mouse_mode"
             android:dialogMessage="@string/summary_checkbox_absolute_mouse_mode" android:persistent="false" />

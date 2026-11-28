@@ -36,6 +36,7 @@ import org.robolectric.annotation.Config;
 import org.robolectric.util.ReflectionHelpers;
 
 import java.util.Collections;
+import java.util.List;
 
 /** Regression tests for console lists, HostCapsule actions, focus safety, cover tags, fact filter, and resume refresh. */
 @RunWith(RobolectricTestRunner.class)
@@ -187,5 +188,23 @@ public class ConsoleRegressionTest {
         assertNotEquals("sessionIdle change must invalidate refreshedSignature",
                 ConsoleHomeActivity.signature(Collections.singletonList(running)),
                 ConsoleHomeActivity.signature(Collections.singletonList(suspended)));
+    }
+
+    @Test
+    public void noteStreamEndedInvalidatesTargetHostOnlyOnResume() {
+        List<String> invalidated = new java.util.ArrayList<>();
+        com.limelight.computers.ComputerManagerService service = new com.limelight.computers.ComputerManagerService();
+        com.limelight.computers.ComputerManagerService.ComputerManagerBinder recorder =
+                service.new ComputerManagerBinder() {
+                    @Override
+                    public void invalidateStateForComputer(String uuid) {
+                        invalidated.add(uuid);
+                    }
+                };
+
+        HostFeed.noteStreamEnded("host-a");
+        assertTrue("first invalidateRecentStreams handles ended host", HostFeed.invalidateRecentStreams(recorder));
+        assertEquals(Collections.singletonList("host-a"), invalidated);
+        assertFalse("subsequent call does not re-invalidate once drained", HostFeed.invalidateRecentStreams(recorder));
     }
 }

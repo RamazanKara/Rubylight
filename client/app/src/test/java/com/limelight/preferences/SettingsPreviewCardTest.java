@@ -227,4 +227,51 @@ public class SettingsPreviewCardTest {
                     .findPreference("search_result_frame_pacing"));
         }
     }
+
+    private static void assertVideoSizePickerScrollsAndPicksLastChoice(StreamSettings screen, int maxViewportPx) {
+        StreamSettings.SettingsFragment display = SettingsStructureTest.open(screen, "display");
+        Preference size = display.findPreference(VideoScaling.PREF);
+        size.getOnPreferenceClickListener().onPreferenceClick(size);
+        Dialog picker = ShadowDialog.getLatestDialog();
+        assertNotNull(picker);
+        View grid = picker.findViewById(R.id.settings_preview_grid);
+        assertNotNull(grid);
+        assertTrue("grid lives directly in a ScrollView", grid.getParent() instanceof android.widget.ScrollView);
+        android.widget.ScrollView scroll = (android.widget.ScrollView) grid.getParent();
+        ViewGroup.LayoutParams lp = grid.getLayoutParams();
+        assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, lp.height);
+
+        scroll.measure(View.MeasureSpec.makeMeasureSpec(900, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(maxViewportPx, View.MeasureSpec.AT_MOST));
+        scroll.layout(0, 0, scroll.getMeasuredWidth(), scroll.getMeasuredHeight());
+
+        List<SettingsPreviewCard> cards = cards(picker);
+        assertEquals(5, cards.size());
+        SettingsPreviewCard last = cards.get(VideoScaling.SAFE_FIT);
+        assertTrue("fifth choice card has wrap-sized non-zero height", last.getHeight() > 0 && grid.getHeight() > 0);
+        if (grid.getHeight() > scroll.getHeight()) {
+            assertTrue("ScrollView can scroll down when content exceeds short viewport", scroll.canScrollVertically(1));
+            scroll.scrollTo(0, grid.getHeight() - scroll.getHeight());
+            assertTrue("scrolling to bottom reaches the fifth card", scroll.getScrollY() > 0);
+        }
+        last.performClick();
+        assertEquals(VideoScaling.SAFE_FIT, StreamSettingsSearchAndSummaries.storedVideoScaling(prefs()));
+        assertFalse(picker.isShowing());
+    }
+
+    @Test
+    @Config(qualifiers = "w640dp-h360dp-land")
+    public void onShortLandscapeScreenTheVideoSizePickerScrollsToTheFifthChoice() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            assertVideoSizePickerScrollsAndPicksLastChoice(controller.get(), 220);
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w322dp-h792dp-port", fontScale = 1.4f)
+    public void onFoldCoverWithLargeFontScaleTheVideoSizePickerScrollsToAllFiveChoices() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            assertVideoSizePickerScrollsAndPicksLastChoice(controller.get(), 260);
+        }
+    }
 }

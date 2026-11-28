@@ -23,7 +23,7 @@ import java.util.Map;
  * the list of PCs does, polls while the screen is in front and calls the listener on the UI thread with
  * every change. Use it from the UI thread.
  */
-final class HostFeed {
+public final class HostFeed {
     interface Listener {
         /** A host was added or its state changed. */
         void onHostsChanged();
@@ -61,6 +61,7 @@ final class HostFeed {
                         return;
                     }
                     binder = candidate;
+                    invalidateRecentStreams(candidate);
                     for (ComputerDetails details : saved) {
                         if (details != null && details.uuid != null) {
                             update(new ComputerDetails(details));
@@ -106,8 +107,49 @@ final class HostFeed {
         polling = false;
     }
 
+    private static final long STREAM_RETURN_WINDOW_MS = 10_000L;
+    private static final java.util.concurrent.ConcurrentHashMap<String, Long> RECENT_STREAM_HOSTS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Notes that a stream for {@code hostUuid} just ended so resuming library screens poll the host at once. */
+    public static void noteStreamEnded(String hostUuid) {
+        if (hostUuid != null && !hostUuid.isEmpty()) {
+            RECENT_STREAM_HOSTS.put(hostUuid, android.os.SystemClock.uptimeMillis());
+        }
+    }
+
+    /** Invalidates hosts whose stream recently ended, bypassing the poll cooldown; returns true if any ran. */
+    public static boolean invalidateRecentStreams(ComputerManagerService.ComputerManagerBinder binder) {
+        if (binder == null || RECENT_STREAM_HOSTS.isEmpty()) return false;
+        long now = android.os.SystemClock.uptimeMillis();
+        boolean invalidated = false;
+        java.util.Iterator<java.util.Map.Entry<String, Long>> it = RECENT_STREAM_HOSTS.entrySet().iterator();
+        while (it.hasNext()) {
+            java.util.Map.Entry<String, Long> entry = it.next();
+            if (now - entry.getValue() <= STREAM_RETURN_WINDOW_MS) {
+                binder.invalidateStateForComputer(entry.getKey());
+                invalidated = true;
+            }
+            it.remove();
+        }
+        return invalidated;
+    }
+
+    /** Invalidates any recently ended stream hosts, or every known host on resume. */
+    void invalidateAll() {
+        ComputerManagerService.ComputerManagerBinder current = binder;
+        if (current == null) return;
+        invalidateRecentStreams(current);
+        for (ComputerDetails host : hosts()) {
+            if (host != null && host.uuid != null && !host.uuid.isEmpty()) {
+                current.invalidateStateForComputer(host.uuid);
+            }
+        }
+    }
+
     void resume() {
         foreground = true;
+        invalidateRecentStreams(binder);
         startPolling();
     }
 

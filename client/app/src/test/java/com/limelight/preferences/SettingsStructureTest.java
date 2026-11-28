@@ -212,7 +212,7 @@ public class SettingsStructureTest {
             PreferenceScreen controls = open(screen, "input").getPreferenceScreen();
             // The main rows in an untitled first group, then the More row (open here), then the groups behind it.
             assertEquals(Arrays.asList("category_input_main", "category_more_input"), keys(controls).subList(0, 2));
-            assertEquals(Arrays.asList("touch_mode", "checkbox_absolute_mouse_mode", "controller_editor",
+            assertEquals(Arrays.asList("touch_mode", "checkbox_pinch_to_zoom", "checkbox_absolute_mouse_mode", "controller_editor",
                     "checkbox_show_onscreen_controls", "checkbox_keyboard_follows_text_fields", "checkbox_clipboard_sync"),
                     keys((PreferenceGroup) controls.getPreference(0)));
             assertEquals(Arrays.asList("category_input_main", "category_more_input", "category_input_settings",

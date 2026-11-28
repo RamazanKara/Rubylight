@@ -688,4 +688,41 @@ public class HomeViewScreenTest {
         // A phone and a tablet keep their wide cards as they were.
         assertEquals(2, ConsoleHomeActivity.spanOf(ConsoleHomeListAdapter.HOST, 6));
     }
+
+    @Test
+    @Config(qualifiers = "de-w960dp-h540dp-land-television-xhdpi")
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    public void onATelevisionTheViewSheetPassesTvAuditWithoutClippingAndCapturesPreview() throws Exception {
+        HomeShellTest.Home home = home().get();
+        View root = home.getWindow().getDecorView();
+        root.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, 1920, 1080);
+        home.findViewById(R.id.console_view).performClick();
+        ActionSheet sheet = openSheet();
+        assertNotNull(sheet);
+        try {
+            List<String> problems = com.limelight.ui.TvAudit.findings(sheet);
+            assertTrue("TV View sheet TvAudit findings: " + problems, problems.isEmpty());
+            View content = sheet.findViewById(android.R.id.content);
+            java.util.ArrayDeque<View> walk = new java.util.ArrayDeque<>(Collections.singletonList(content));
+            while (!walk.isEmpty()) {
+                View v = walk.pop();
+                if (v instanceof MaterialButton && v.getVisibility() == View.VISIBLE) {
+                    MaterialButton btn = (MaterialButton) v;
+                    assertNotNull("button laid out: " + btn.getText(), btn.getLayout());
+                    for (int line = 0; line < btn.getLayout().getLineCount(); line++) {
+                        assertEquals("View button not ellipsized: " + btn.getText(), 0, btn.getLayout().getEllipsisCount(line));
+                    }
+                } else if (v instanceof ViewGroup) {
+                    ViewGroup vg = (ViewGroup) v;
+                    for (int i = 0; i < vg.getChildCount(); i++) walk.push(vg.getChildAt(i));
+                }
+            }
+            com.limelight.ui.TvScreensPreviewTest.previewDialogIfRequested(home, sheet, "view-sheet");
+        } finally {
+            sheet.dismiss();
+            shadowOf(Looper.getMainLooper()).idle();
+        }
+    }
 }

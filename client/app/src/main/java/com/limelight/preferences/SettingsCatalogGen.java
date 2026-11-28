@@ -106,6 +106,7 @@ public class SettingsCatalogGen {
     static final String FOUR_FINGER_TAP_PREF_STRING = "list_four_finger_tap";
     static final String MULTI_TOUCH_FINGER_TAPS_PREF_STRING = "checkbox_multi_touch_finger_taps";
     static final String FINGER_TAP_ON_CANCEL_PREF_STRING = "checkbox_finger_tap_on_cancel";
+    static final String PINCH_TO_ZOOM_PREF_STRING = "checkbox_pinch_to_zoom";
     static final String PC_KEYBOARD_LAYOUT_PREF_STRING = "list_pc_keyboard_layout";
     static final String PC_KEYBOARD_SIZE_PREF_STRING = "seekbar_pc_keyboard_size";
     static final String PC_KEYBOARD_OPACITY_PREF_STRING = "seekbar_pc_keyboard_opacity";

@@ -235,7 +235,9 @@ final class SettingsPreviews {
         }
         ScrollView scroll = new ScrollView(context);
         scroll.setClipToPadding(false);
-        scroll.addView(grid);
+        scroll.setVerticalScrollBarEnabled(true);
+        scroll.addView(grid, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(context).setTitle(title).setView(scroll)
                 .setNegativeButton(android.R.string.cancel, null);
         if (help != null) builder.setNeutralButton(R.string.help, null);
@@ -244,7 +246,19 @@ final class SettingsPreviews {
         UiHelper.showDialog(context, dialog);
         // Like the list pickers, Help explains the choices without closing them.
         if (help != null) dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> help.run());
-        if (first != null) first.requestFocus();
+        if (first != null) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                for (int which : new int[] {AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL, AlertDialog.BUTTON_POSITIVE}) {
+                    View button = dialog.getButton(which);
+                    if (button != null) button.setFocusedByDefault(false);
+                }
+            }
+            View initialFocus = first;
+            initialFocus.requestFocus();
+            scroll.post(() -> {
+                if (!initialFocus.isInTouchMode() && !initialFocus.hasFocus()) initialFocus.requestFocus();
+            });
+        }
         return dialog;
     }
 }

@@ -171,4 +171,13 @@ public class PreviewGeometryTest {
         assertTrue(PreviewScaling.height(VideoScaling.NATIVE) < PreviewScaling.height(VideoScaling.FIT));
         assertEquals(1f, PreviewScaling.roundness(VideoScaling.NATIVE), E);
     }
+
+    @Test
+    public void safeFitInsetsAllSidesAndKeepsAspectRatio() {
+        assertTrue("smaller than Fit horizontally", PreviewScaling.width(VideoScaling.SAFE_FIT) < PreviewScaling.width(VideoScaling.FIT));
+        assertTrue("smaller than Fit vertically", PreviewScaling.height(VideoScaling.SAFE_FIT) < PreviewScaling.height(VideoScaling.FIT));
+        assertTrue("larger than 1:1 horizontally", PreviewScaling.width(VideoScaling.SAFE_FIT) > PreviewScaling.width(VideoScaling.NATIVE));
+        assertTrue("larger than 1:1 vertically", PreviewScaling.height(VideoScaling.SAFE_FIT) > PreviewScaling.height(VideoScaling.NATIVE));
+        assertEquals(1f, PreviewScaling.roundness(VideoScaling.SAFE_FIT), E);
+    }
 }

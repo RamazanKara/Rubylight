@@ -119,4 +119,43 @@ public class GameDialogLifecycleTest {
             cleanupRecovery(game);
         }
     }
+
+    @Test
+    @Config(qualifiers = "w640dp-h360dp-land")
+    public void showVideoScalingDialogOnShortLandscapeScreenOffersAllFiveModesAndScrollsToSafeFit() {
+        Game game = establishedGame();
+        try {
+            com.limelight.preferences.PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+            config.upscalingMode = com.limelight.binding.video.UpscalingPolicy.Mode.OFF;
+            config.videoScaling = com.limelight.ui.VideoScaling.FIT;
+            ReflectionHelpers.setField(game, "renderView", new com.limelight.ui.StreamView(game));
+
+            game.videoOutput.showVideoScalingDialog();
+            androidx.appcompat.app.AlertDialog dialog = ReflectionHelpers.getField(game, "streamMenu");
+            assertNotNull("showVideoScalingDialog must open dialog", dialog);
+            assertTrue(dialog.isShowing());
+
+            android.widget.ListView list = dialog.getListView();
+            assertNotNull(list);
+            int expectedCount = game.getResources().getStringArray(R.array.video_scaling_modes).length;
+            assertEquals(5, expectedCount);
+            assertEquals(expectedCount, list.getCount());
+
+            list.measure(android.view.View.MeasureSpec.makeMeasureSpec(640, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(220, android.view.View.MeasureSpec.EXACTLY));
+            list.layout(0, 0, 640, 220);
+            assertTrue("short landscape dialog list can scroll down to Safe fit",
+                    list.canScrollVertically(1) || list.getLastVisiblePosition() == expectedCount - 1);
+
+            list.setSelection(com.limelight.ui.VideoScaling.SAFE_FIT);
+            list.performItemClick(list.getAdapter().getView(com.limelight.ui.VideoScaling.SAFE_FIT, null, list),
+                    com.limelight.ui.VideoScaling.SAFE_FIT,
+                    list.getAdapter().getItemId(com.limelight.ui.VideoScaling.SAFE_FIT));
+            ShadowLooper.idleMainLooper();
+            assertFalse("picking Safe fit closes dialog", dialog.isShowing());
+            assertEquals(com.limelight.ui.VideoScaling.SAFE_FIT, config.videoScaling);
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
 }

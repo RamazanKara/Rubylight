@@ -45,4 +45,6 @@
     <string name="title_finger_tap_on_cancel">システムにキャンセルされた複数本指タップ</string>
     <string name="summary_finger_tap_on_cancel">Oppo や ColorOS の一部の端末のように、システムが 3 本指・4 本指のタップをキャンセルしても、指がまとめて置かれて動かなかった場合はそのタップの動作を実行します。Android 13 以降ではシステムが自身のキャンセルとして示したものだけが対象になり、Android 12 以前ではその時間内のあらゆるキャンセルが対象になります。指を近づけたときに 3 本指・4 本指のタップが何も起こさない場合にだけオンにしてください。</string>
     <string name="summary_multi_touch_finger_taps">「マルチタッチ」モードでも、3 本指と 4 本指のタップで設定した動作を実行します。これらのタップはタッチとして PC に届かなくなります。PC 側でこれらのタップを使う場合はオフのままにしてください。</string>
+    <string name="title_pinch_to_zoom">ピンチしてズーム</string>
+    <string name="summary_pinch_to_zoom">タッチモードがオンの間、2 本指でピンチしていつでもズームとパンを行えます。オフのままにすると 2 本指操作はタッチパッドのスクロール専用になり、コントロールセンターから一時的にズームを切り替えることもできます。</string>
 </resources>

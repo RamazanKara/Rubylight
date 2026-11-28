@@ -193,6 +193,7 @@ public class GameTouchGesturesTest {
         RecordingConnection connection = new RecordingConnection();
         Game game = game(connection);
         PreferenceConfiguration config = touchConfig(game, TouchMode.TRACKPAD);
+        config.pinchToZoom = true;
         FrameLayout container = gestureContainer(game);
         com.limelight.ui.StreamView stream = ReflectionHelpers.getField(game, "streamView");
         com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(
@@ -560,5 +561,48 @@ public class GameTouchGesturesTest {
         assertTrue(panel == null || panel.getVisibility() != View.VISIBLE);
         finishTap(container, 2, 2100, 0);
         assertTrue(connection.heldTouches.isEmpty());
+    }
+
+    @Test
+    public void passivePinchZoomIsOffByDefaultAndLiveControlCenterZoomResetsWhenTurnedOff() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        PreferenceConfiguration config = touchConfig(game, TouchMode.TRACKPAD);
+        assertFalse("pinchToZoom defaults to false", config.pinchToZoom);
+        FrameLayout container = gestureContainer(game);
+        com.limelight.ui.StreamView stream = ReflectionHelpers.getField(game, "streamView");
+        com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(
+                game, stream, game.touchInput::cancelHostTouchInput, game.touchInput::clickRightMouseButton);
+        desktop.viewport().resize(800, 400);
+        ReflectionHelpers.setField(game, "desktopGestures", desktop);
+
+        // With checkbox_pinch_to_zoom=false and Control Center Zoom=false, wide 2-finger pinch does not zoom or cancel.
+        dispatch(container, MotionEvent.ACTION_DOWN, 0, new int[] {0}, new float[] {300, 200});
+        dispatch(container, MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {0, 1},
+                new float[] {300, 200}, new float[] {500, 200});
+        dispatch(container, MotionEvent.ACTION_MOVE, 0, new int[] {0, 1},
+                new float[] {200, 200}, new float[] {600, 200});
+        dispatch(container, MotionEvent.ACTION_MOVE, 0, new int[] {0, 1},
+                new float[] {100, 200}, new float[] {700, 200});
+        dispatch(container, MotionEvent.ACTION_POINTER_UP, 1, new int[] {0, 1},
+                new float[] {100, 200}, new float[] {700, 200});
+        dispatch(container, MotionEvent.ACTION_UP, 0, new int[] {0}, new float[] {100, 200});
+        assertEquals(1.0f, desktop.viewport().scale(), 0f);
+        assertFalse(desktop.viewport().isTransformed());
+
+        // Enabling Control Center Zoom works live even while pref pinchToZoom=false, and disabling resets cleanly.
+        desktop.setEnabled(true);
+        dispatch(container, MotionEvent.ACTION_DOWN, 0, new int[] {0}, new float[] {300, 200});
+        dispatch(container, MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {0, 1},
+                new float[] {300, 200}, new float[] {500, 200});
+        dispatch(container, MotionEvent.ACTION_MOVE, 0, new int[] {0, 1},
+                new float[] {200, 200}, new float[] {600, 200});
+        dispatch(container, MotionEvent.ACTION_POINTER_UP, 1, new int[] {0, 1},
+                new float[] {200, 200}, new float[] {600, 200});
+        dispatch(container, MotionEvent.ACTION_UP, 0, new int[] {0}, new float[] {200, 200});
+        assertTrue(desktop.viewport().scale() > 1.0f);
+        desktop.setEnabled(false);
+        assertEquals(1.0f, desktop.viewport().scale(), 0f);
+        assertFalse(desktop.viewport().isTransformed());
     }
 }

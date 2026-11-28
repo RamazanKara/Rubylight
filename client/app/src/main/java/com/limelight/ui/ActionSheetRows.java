@@ -172,7 +172,8 @@ final class ActionSheetRows {
         button.setChecked(checked);
         button.setText(label);
         button.setAllCaps(false);
-        button.setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
+        button.setTextAppearance(context, compact
+                ? R.style.TextAppearance_Nightjar_Tile : R.style.TextAppearance_Nightjar_Label);
         button.setSingleLine(false);
         button.setMaxLines(2);
         button.setIconResource(icon);
@@ -181,8 +182,8 @@ final class ActionSheetRows {
         button.setIconPadding(spacing / 2);
         button.setMinHeight(minTileHeight);
         // The icon sits above the label, so the label can use nearly the whole width of its share.
-        // A full step above the icon: half a step, or the button's own few pixels, left it against the tile's top edge.
-        if (compact) button.setPaddingRelative(spacing, spacing, spacing, spacing / 2);
+        // Give compact choice pills generous horizontal and vertical breathing room around labels.
+        if (compact) button.setPaddingRelative(spacing * 3 / 2, spacing * 5 / 4, spacing * 3 / 2, spacing * 5 / 4);
         else button.setPaddingRelative(spacing, Math.max(spacing, button.getPaddingTop()), spacing, button.getPaddingBottom());
         int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
         android.content.res.ColorStateList foreground = new android.content.res.ColorStateList(states, new int[] {
@@ -220,6 +221,9 @@ final class ActionSheetRows {
         button.setText(label);
         button.setAllCaps(false);
         button.setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
+        if (!television) {
+            button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13.5f);
+        }
         button.setTextColor(ink);
         button.setSingleLine(true);
         button.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -288,6 +292,9 @@ final class ActionSheetRows {
         TextView name = new TextView(context);
         name.setText(label);
         name.setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
+        if (!ControlCenterCards.television(context)) {
+            name.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13.5f);
+        }
         name.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0));
         TextView shown = new TextView(context);
         shown.setText(value);
@@ -344,9 +351,10 @@ final class ActionSheetRows {
     static TextView sectionHeading(Context context, CharSequence title, int spacing, boolean compact) {
         TextView heading = new TextView(context);
         heading.setText(title);
-        heading.setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
+        heading.setTextAppearance(context, compact
+                ? R.style.TextAppearance_Nightjar_Tile : R.style.TextAppearance_Nightjar_Label);
         heading.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
-        heading.setPadding(spacing, compact ? spacing : spacing * 2, spacing, spacing);
+        heading.setPadding(spacing, compact ? spacing / 2 : spacing * 2, spacing, compact ? spacing / 2 : spacing);
         ViewCompat.setAccessibilityHeading(heading, true);
         return heading;
     }
@@ -376,13 +384,16 @@ final class ActionSheetRows {
         LinearLayout row = new LinearLayout(context);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(spacing, spacing / 2, spacing, spacing / 2);
+        boolean tv = ControlCenterCards.television(context);
         TextView name = new TextView(context);
         name.setText(label);
         name.setTextAppearance(context, R.style.TextAppearance_Nightjar_Supporting);
+        if (!tv) name.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12.5f);
         name.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
         TextView text = new TextView(context);
         text.setText(value);
         text.setTextAppearance(context, R.style.TextAppearance_Nightjar_Body);
+        if (!tv) text.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13.5f);
         text.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0));
         text.setGravity(Gravity.END);
         row.addView(name, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -413,7 +424,8 @@ final class ActionSheetRows {
         android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder(label).append('\n');
         int start = text.length();
         text.append(note);
-        text.setSpan(new android.text.style.TextAppearanceSpan(context, R.style.TextAppearance_Nightjar_Supporting),
+        text.setSpan(new android.text.style.TextAppearanceSpan(context, ControlCenterCards.television(context)
+                ? R.style.TextAppearance_Nightjar_Supporting : R.style.TextAppearance_Nightjar_Caption),
                 start, text.length(), 0);
         text.setSpan(new android.text.style.ForegroundColorSpan(MaterialColors.getColor(context,
                 com.google.android.material.R.attr.colorOnSurfaceVariant, 0)), start, text.length(), 0);
@@ -425,6 +437,9 @@ final class ActionSheetRows {
         MaterialButton button = new MaterialButton(context, null, androidx.appcompat.R.attr.borderlessButtonStyle);
         button.setText(label);
         button.setTextAppearance(context, R.style.TextAppearance_Nightjar_Body);
+        if (!television) {
+            button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13.5f);
+        }
         button.setTextColor(MaterialColors.getColor(context, textColor, 0));
         button.setAllCaps(false);
         button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);

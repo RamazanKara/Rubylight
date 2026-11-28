@@ -62,6 +62,24 @@ public class ControlCenterPreviewTest {
                 ControlCenterModel.CLIPS, ControlCenterModel.POWER);
     }
 
+    @Test @Config(qualifiers = "w322dp-h792dp-port-xhdpi")
+    public void aFoldCoverGetsTheSheetWithoutClippedLabels() throws Exception {
+        draw("fold-cover", ControlCenterModel.SHEET, false, ControlCenterModel.QUICK, ControlCenterModel.PICTURE,
+                ControlCenterModel.AUDIO, ControlCenterModel.CLIPS, ControlCenterModel.POWER);
+    }
+
+    @Test @Config(qualifiers = "w673dp-h841dp-port-xhdpi")
+    public void anUnfoldedFoldPortraitGetsTheDock() throws Exception {
+        draw("fold-inner-port", ControlCenterModel.DOCK, false, ControlCenterModel.QUICK, ControlCenterModel.PICTURE,
+                ControlCenterModel.AUDIO, ControlCenterModel.CLIPS, ControlCenterModel.POWER);
+    }
+
+    @Test @Config(qualifiers = "w841dp-h673dp-land-xhdpi")
+    public void anUnfoldedFoldLandscapeGetsTheDock() throws Exception {
+        draw("fold-inner-land", ControlCenterModel.DOCK, false, ControlCenterModel.QUICK, ControlCenterModel.PICTURE,
+                ControlCenterModel.AUDIO, ControlCenterModel.CLIPS, ControlCenterModel.POWER);
+    }
+
     // Opens it over a stream that has everything, with a controller or without, and walks the modules named.
     private static void draw(String form, String placement, boolean pad, String... modules) throws Exception {
         StreamMenu.gamepadForTest = pad;

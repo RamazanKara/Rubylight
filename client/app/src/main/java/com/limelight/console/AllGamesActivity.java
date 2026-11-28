@@ -95,8 +95,10 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     private String refreshedSignature;
     /** What the last reload drew the PCs from; a poll that brings nothing else does not reload. */
     private final HostsDrawn drawn = new HostsDrawn();
+    private static final long RESUME_REFRESH_MS = 500L;
     private int generation;
     private boolean shown;
+    private boolean pausedOnce;
     private boolean loaded;
     private boolean focusPending = true;
     /** The card that has focus last, by key and place; a bind keeps focus on it even before the grid lays out. */
@@ -105,6 +107,12 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     /** Each focus request outdates the ones still posted. */
     private int focusTicket;
     private final Runnable reload = this::reloadNow;
+    private final Runnable followUpRefresh = () -> {
+        if (!shown || isFinishing() || isDestroyed()) return;
+        if (feed != null) feed.invalidateAll();
+        refreshedSignature = null;
+        reloadNow();
+    };
 
     /** The data behind the screen; the debug demo overrides this with canned hosts. */
     protected ConsoleRepository createRepository(String uniqueId) {
@@ -309,14 +317,21 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         ShellBar.refresh(this);
         feed.prune();
         feed.resume();
+        feed.invalidateAll();
         refreshedSignature = null;
         scheduleReload();
+        handler.removeCallbacks(followUpRefresh);
+        if (pausedOnce) {
+            handler.postDelayed(followUpRefresh, RESUME_REFRESH_MS);
+        }
     }
 
     @Override
     protected void onPause() {
         shown = false;
+        pausedOnce = true;
         feed.pause();
+        handler.removeCallbacks(followUpRefresh);
         handler.removeCallbacks(reload);
         super.onPause();
     }

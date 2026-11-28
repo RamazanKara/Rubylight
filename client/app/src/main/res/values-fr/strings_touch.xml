@@ -45,4 +45,6 @@
     <string name="title_finger_tap_on_cancel">Appuis annulés par le système</string>
     <string name="summary_finger_tap_on_cancel">Les appuis à trois et quatre doigts que le système annule, comme sur certains téléphones Oppo et ColorOS, lancent quand même leur action si les doigts se sont posés ensemble et sont restés immobiles ; sous Android 13 et plus récent, seules les annulations que le système marque comme siennes comptent, et sous Android 12 et plus ancien, toute annulation dans cet intervalle. Activez-le seulement si les appuis à trois ou quatre doigts ne font rien quand les doigts sont rapprochés.</string>
     <string name="summary_multi_touch_finger_taps">En mode « Multitouch », les appuis à trois et quatre doigts lancent leurs actions et n’atteignent plus le PC comme appuis tactiles. Laissez-le désactivé si quelque chose sur le PC utilise ces appuis.</string>
+    <string name="title_pinch_to_zoom">Pincer pour zoomer</string>
+    <string name="summary_pinch_to_zoom">Pincez avec deux doigts sur le flux pour zoomer et déplacer l’image à tout moment lorsque le mode tactile est activé. Laissez cette option désactivée pour réserver les gestes à deux doigts au défilement du pavé tactile, ou activez temporairement Zoom dans le Centre de contrôle.</string>
 </resources>

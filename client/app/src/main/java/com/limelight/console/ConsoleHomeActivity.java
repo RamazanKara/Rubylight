@@ -222,6 +222,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private final Runnable reload = this::reloadNow;
     private final Runnable followUpRefresh = () -> {
         if (!shown || isFinishing() || isDestroyed()) return;
+        if (feed != null) feed.invalidateAll();
         refreshedSignature = null;
         reloadNow();
     };
@@ -428,6 +429,14 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                         findViewById(R.id.home_top_row), findViewById(R.id.console_view))) {
             return true;
         }
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.hasNoModifiers()
+                && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_DOWN
+                && chrome != null && chrome.form() != GlassForm.PHONE) {
+            View topRow = findViewById(R.id.home_top_row);
+            if (topRow != null && topRow.hasFocus()) {
+                return focus.focusDownFromTopRow(setupCard, empty);
+            }
+        }
         return super.dispatchKeyEvent(event);
     }
 
@@ -480,6 +489,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         ShellBar.refresh(this);
         feed.prune();
         feed.resume();
+        feed.invalidateAll();
         // A game may have started or ended while another screen was in front.
         refreshedSignature = null;
         handler.removeCallbacks(followUpRefresh);

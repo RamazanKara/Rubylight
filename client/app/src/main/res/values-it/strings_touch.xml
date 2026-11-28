@@ -45,4 +45,6 @@
     <string name="title_finger_tap_on_cancel">Tocchi annullati dal sistema</string>
     <string name="summary_finger_tap_on_cancel">I tocchi con tre e quattro dita che il sistema annulla, come su alcuni telefoni Oppo e ColorOS, eseguono comunque la loro azione se le dita sono atterrate insieme e sono rimaste ferme; da Android 13 in poi contano solo gli annullamenti che il sistema segnala come propri, su Android 12 e precedenti qualsiasi annullamento in quell’intervallo. Attivalo solo se i tocchi con tre o quattro dita non fanno nulla quando le dita sono vicine.</string>
     <string name="summary_multi_touch_finger_taps">Nella modalità Multi-touch, i tocchi con tre e quattro dita eseguono le loro azioni e non arrivano più al PC come tocchi. Lascialo disattivato se qualcosa sul PC usa quei tocchi.</string>
+    <string name="title_pinch_to_zoom">Pizzica per ingrandire</string>
+    <string name="summary_pinch_to_zoom">Pizzica con due dita sullo streaming per ingrandire e spostare l’immagine in qualsiasi momento quando la modalità touch è attiva. Lascia disattivata questa opzione per limitare i gesti a due dita allo scorrimento del touchpad o attiva temporaneamente Zoom dal Centro di controllo.</string>
 </resources>

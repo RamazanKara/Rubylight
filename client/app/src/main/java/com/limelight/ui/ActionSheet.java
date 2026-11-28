@@ -163,6 +163,7 @@ public final class ActionSheet extends BottomSheetDialog {
         if (panel) {
             footer = new FooterBar(context, context.getResources().getDimensionPixelSize(R.dimen.stream_tile_gap));
             footer.setPadding(edge, spacing * 3 / 2, edge, edge);
+            footer.setVisibility(android.view.View.GONE);
             if (television) footer.setClipChildren(false);
             body.addView(footer, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -386,6 +387,7 @@ public final class ActionSheet extends BottomSheetDialog {
      * instead of down: a TV's View sheet, whose panel hanging under its button has no room below.
      */
     public LinearLayout[] addColumns(int count) {
+        if (frame != null) frame.setColumns(count);
         return ActionSheetRows.addColumns(content, getContext(), count);
     }
 
@@ -399,7 +401,7 @@ public final class ActionSheet extends BottomSheetDialog {
 
     /** A toggle tile's least height: a size down in a panel under an anchor. */
     private int compactTile() {
-        return compact ? spacing * 15 / 2 : spacing * 9;
+        return compact ? spacing * 8 : spacing * 9;
     }
 
     /** A grid of compact tiles, as many to a row as fit, for {@link TileGrid#addTile}. */
@@ -427,6 +429,7 @@ public final class ActionSheet extends BottomSheetDialog {
             if (hotkey != null) row.setText(label + "  " + hotkey);
             return row;
         }
+        footer.setVisibility(android.view.View.VISIBLE);
         return ActionSheetRows.addFooterAction(getContext(), footer, icon, label, destructive, hotkey, spacing, capsShown, television);
     }
 

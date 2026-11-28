@@ -29,6 +29,11 @@ import androidx.window.layout.WindowLayoutInfo;
 import com.limelight.R;
 
 public final class AdaptiveLayout {
+    /** Listener registered on the stream root to receive safe-area padding updates immediately. */
+    public interface SafeInsetsListener {
+        void onSafeInsetsChanged(int left, int top, int right, int bottom);
+    }
+
     private final Activity activity;
     private final View root;
     private final boolean streaming;
@@ -225,6 +230,13 @@ public final class AdaptiveLayout {
                     ((GameTouchControls) child).setSafeInsets(left, top, right, bottom);
                 }
             }
+        }
+        if (activity instanceof StreamWindow) {
+            ((StreamWindow) activity).onSafeAreaChanged(left, top, right, bottom);
+        }
+        Object observer = root.getTag(R.id.pad_safe_insets_observer);
+        if (observer instanceof SafeInsetsListener) {
+            ((SafeInsetsListener) observer).onSafeInsetsChanged(left, top, right, bottom);
         }
     }
 

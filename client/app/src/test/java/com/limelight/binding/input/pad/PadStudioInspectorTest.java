@@ -129,8 +129,19 @@ public class PadStudioInspectorTest extends ModernControllerHarness {
         assertTrue(add.performClick());
         settle();
         assertFalse(shows(R.id.pad_editor_scroll));
-        // With nothing left out there is nothing to add.
+        // Repeatable Touch zone and KBM button tiles stay addable after built-in controls are placed,
+        // until both reach capacity.
         editor.addTouchpad();
+        settle();
+        assertTrue(add.isEnabled());
+        PadLayout draft = editor.draft();
+        while (draft.touchZones().size() < PadTouchZone.MAX_ZONES) {
+            editor.addTouchZone();
+        }
+        while (draft.customButtons().size() < PadCustomButton.MAX_CUSTOM_BUTTONS) {
+            editor.addCustomButton();
+        }
+        editor.select(null);
         settle();
         assertFalse(add.isEnabled());
         controller.finishEditing(false);

@@ -25,7 +25,7 @@ public final class PadPointerMotion {
     static final float CAMERA_STOP = .02f;
 
     // A fresh pair starts each touch, so no fraction of the last gesture's pixel is carried into the next.
-    private MouseDeltaAccumulator deltaX = new MouseDeltaAccumulator(), deltaY = new MouseDeltaAccumulator();
+    private final MouseDeltaAccumulator deltaX = new MouseDeltaAccumulator(), deltaY = new MouseDeltaAccumulator();
     private final PointerAcceleration acceleration;
     /** The finger speed that fully deflects the camera stick: {@link #CAMERA_FULL_SPEED} at the Trackpad speed. */
     private final float cameraFullSpeed;
@@ -125,8 +125,8 @@ public final class PadPointerMotion {
         directionY = 0;
         cameraX = 0;
         cameraY = 0;
-        deltaX = new MouseDeltaAccumulator();
-        deltaY = new MouseDeltaAccumulator();
+        deltaX.reset();
+        deltaY.reset();
     }
 
     private void updateCamera() {

@@ -10,10 +10,12 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
 
+import com.limelight.R;
 import com.limelight.binding.input.HeldInputState;
 import com.limelight.binding.input.LayoutGamepad;
 import com.limelight.binding.input.touch.PointerAcceleration;
 import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.ui.AdaptiveLayout;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -46,9 +48,12 @@ public final class ModernController {
     private final String gameKey;
     private final SharedPreferences store;
     private final LayoutGamepad gamepad;
+    private final PadHeldInputs heldInputs;
     /** The WASD stick's keys, Windows virtual-key codes through the sink's {@code key}. */
     private final WasdKeys.Keys keys;
     private final PadPainter painter;
+    private final PadCustomOverlay overlay;
+    private final AdaptiveLayout.SafeInsetsListener safeInsetsListener = this::setSafeInsets;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<PadLayout.Control, PadControlView> views = new EnumMap<>(PadLayout.Control.class);
     private final Runnable resend;
@@ -94,8 +99,10 @@ public final class ModernController {
         this.gameKey = gameKey == null || gameKey.isEmpty() ? null : gameKey;
         this.store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         this.gamepad = new LayoutGamepad(sink);
-        this.keys = sink::key;
+        this.heldInputs = new PadHeldInputs(sink);
+        this.keys = heldInputs.asWasdKeys();
         this.painter = new PadPainter(context);
+        this.overlay = new PadCustomOverlay(context, frame, painter.skin, heldInputs, gamepad, this::changed);
         this.landscape = landscape();
         resend = gamepad::resend;
         resize = (v, l, t, r, b, ol, ot, or, ob) -> {
@@ -163,6 +170,7 @@ public final class ModernController {
         if (editor != null || Objects.equals(controllerModel, chooseController())) return;
         releaseInput();
         load();
+        overlay.sync(layout, shown, editor != null, prefs.oscOpacity / 100f);
         applyAppearance();
         place();
         if (onLayoutChanged != null) onLayoutChanged.run();
@@ -187,6 +195,14 @@ public final class ModernController {
     public void setPointerSink(PointerSink sink) {
         pointerSink = sink;
         for (PadControlView view : views.values()) view.setPointerSink(sink);
+        overlay.setPointerSink(sink);
+    }
+
+    /** Repositions custom buttons and edge-to-edge touch zones when Safe Fit or cutout padding flips. */
+    public void setSafeInsets(int left, int top, int right, int bottom) {
+        if (overlay.setSafeInsets(left, top, right, bottom)) {
+            place();
+        }
     }
 
     /** Whether the settings keep this control off whatever the layout says. */
@@ -245,6 +261,10 @@ public final class ModernController {
             View knob = view.knobLayer();
             if (knob != null) frame.addView(knob, new FrameLayout.LayoutParams(0, 0, Gravity.TOP | Gravity.START));
         }
+        overlay.setHaptics(prefs.vibrateOsc);
+        overlay.setPointerSink(pointerSink);
+        overlay.sync(layout, shown, editor != null, prefs.oscOpacity / 100f);
+        frame.setTag(R.id.pad_safe_insets_observer, safeInsetsListener);
         frame.addOnLayoutChangeListener(resize);
         place();
     }
@@ -295,6 +315,7 @@ public final class ModernController {
             }
             view.setRestingAlpha(prefs.oscOpacity / 100f * layout.spec(control).opacity / 100f);
         }
+        overlay.place(shown, editor != null, prefs.oscOpacity / 100f);
     }
 
     /**
@@ -366,6 +387,7 @@ public final class ModernController {
         if (editor != null) return;
         releaseInput();
         load();
+        overlay.sync(layout, shown, editor != null, prefs.oscOpacity / 100f);
         applyAppearance();
         place();
         if (onLayoutChanged != null) onLayoutChanged.run();
@@ -387,12 +409,18 @@ public final class ModernController {
 
     public void releaseInput() {
         for (PadControlView view : views.values()) view.release();
+        overlay.releaseInput();
         handler.removeCallbacks(resend);
         gamepad.releaseAll();
+        heldInputs.releaseAll();
     }
 
     public void removeElements() {
         frame.removeOnLayoutChangeListener(resize);
+        if (frame.getTag(R.id.pad_safe_insets_observer) == safeInsetsListener) {
+            frame.setTag(R.id.pad_safe_insets_observer, null);
+        }
+        overlay.removeViews();
         for (PadControlView view : views.values()) {
             frame.removeView(view);
             frame.removeView(view.haloLayer());
@@ -414,6 +442,7 @@ public final class ModernController {
         for (PadControlView view : views.values()) {
             com.limelight.ui.OverlayPlacement.addVisible(view, frame, out);
         }
+        overlay.collectVisibleBounds(out);
     }
 
     /**
@@ -468,6 +497,7 @@ public final class ModernController {
         if (save) save(closing.draft(), closing.perGame(), closing.forController() ? editTarget : null);
         else load(); // Cancel after a rotation shows the new orientation's saved layout, not the old one.
         // Cancel also restores the glyphs and pointer mode the editor previewed.
+        overlay.sync(layout, shown, false, prefs.oscOpacity / 100f);
         applyAppearance();
         place();
         if (onLayoutChanged != null) onLayoutChanged.run();
@@ -545,6 +575,7 @@ public final class ModernController {
         perGame = forThisGame && gameKey != null;
         // Another connected controller with its own layout still brings it.
         if (chooseController() != null) load();
+        overlay.sync(layout, shown, editor != null, prefs.oscOpacity / 100f);
         applyAppearance();
     }
 
@@ -591,5 +622,13 @@ public final class ModernController {
 
     FrameLayout frame() {
         return frame;
+    }
+
+    PadCustomOverlay customOverlay() {
+        return overlay;
+    }
+
+    PadHeldInputs heldInputs() {
+        return heldInputs;
     }
 }

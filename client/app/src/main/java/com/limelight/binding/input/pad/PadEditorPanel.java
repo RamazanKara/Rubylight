@@ -53,6 +53,7 @@ final class PadEditorPanel {
     private final View surface;
     private final float density;
     private final PadStudioInspector inspector;
+    private PadCustomInspector customInspector;
     private final View panel, tray, sizeRow, opacityRow, controlSection, pointerMode, mouseCard, cameraCard, thisGame;
     private final MaterialSwitch thisController;
     /** The Touch area row (#172): its slider in percent of the box, and the value at its end. */
@@ -363,8 +364,11 @@ final class PadEditorPanel {
     /** Moves the panel to the other half when the picked control sits under it, until the player places it. */
     void keepClear() {
         PadLayout.Control selected = editor.selected();
-        if (selected == null || panel.getWidth() == 0 || panelPlaced) return;
-        float[] box = editor.draft().bounds(selected, editor.getWidth(), editor.getHeight(), density, new float[4]);
+        if ((selected == null && !editor.hasSelection()) || panel.getWidth() == 0 || panelPlaced) return;
+        float[] box = selected != null
+                ? editor.draft().bounds(selected, editor.getWidth(), editor.getHeight(), density, new float[4])
+                : PadCustomInspector.selectedBox(editor, editor.getWidth(), editor.getHeight(), density, new float[4]);
+        if (box == null) return;
         RectF control = new RectF(box[0], box[1], box[0] + box[2], box[1] + box[3]);
         RectF under = new RectF(panel.getLeft(), panel.getTop(), panel.getRight(), panel.getBottom());
         if (!RectF.intersects(control, under)) return;
@@ -382,12 +386,28 @@ final class PadEditorPanel {
     void update() {
         PadLayout draft = editor.draft();
         PadLayout.Control selected = editor.selected();
+        PadTouchZone selectedZone = editor.selectedZone();
+        PadCustomButton selectedButton = editor.selectedButton();
         PadLayout.Spec spec = editor.reference();
-        String name = selected == null ? context.getString(R.string.pad_edit_all) :
-                name(context, selected, draft.glyph());
-        if (selected != null && spec.hidden) name = context.getString(R.string.pad_edit_hidden, name);
+        String name;
+        if (selectedZone != null) {
+            name = PadCustomInspector.kindName(context, selectedZone.kind);
+        } else if (selectedButton != null) {
+            name = selectedButton.effectiveLabel();
+        } else {
+            name = selected == null ? context.getString(R.string.pad_edit_all) :
+                    name(context, selected, draft.glyph());
+            if (selected != null && spec.hidden) name = context.getString(R.string.pad_edit_hidden, name);
+        }
         selection.setText(name);
-        sizeText.setText(sizeLabel(spec));
+        if (selectedZone != null) {
+            sizeText.setText(Math.round((selectedZone.right - selectedZone.left) * 100f) + "% × "
+                    + Math.round((selectedZone.bottom - selectedZone.top) * 100f) + "%");
+        } else if (selectedButton != null) {
+            sizeText.setText(percent(Math.round(selectedButton.scale() * 100f)));
+        } else {
+            sizeText.setText(sizeLabel(spec));
+        }
         settingOpacity = true;
         opacity.setValue(Math.max(PadLayout.MIN_OPACITY, Math.min(PadLayout.MAX_OPACITY, Math.round(spec.opacity / 5f) * 5)));
         settingOpacity = false;
@@ -398,20 +418,26 @@ final class PadEditorPanel {
         reachText.setText(percent(Math.round(reach.getValue())));
         // The tray shows the picked control, or with none one of the layout's trays: the Add tiles, or every
         // control's size and opacity with the glyphs and the game. With neither the dock is its bar alone.
-        boolean picked = selected != null;
+        boolean picked = selected != null || selectedZone != null || selectedButton != null;
         if (picked) inspector.picked();
         inspector.update(updateAdd());
         boolean adding = !picked && inspector.tray() == PadStudioInspector.ADD;
         boolean more = !picked && inspector.tray() == PadStudioInspector.MORE;
         tray.setVisibility(picked || adding || more ? View.VISIBLE : View.GONE);
         sizeRow.setVisibility(picked || more ? View.VISIBLE : View.GONE);
-        opacityRow.setVisibility(picked || more ? View.VISIBLE : View.GONE);
-        reachRow.setVisibility(picked || more ? View.VISIBLE : View.GONE);
-        controlSection.setVisibility(picked ? View.VISIBLE : View.GONE);
+        opacityRow.setVisibility(selected != null || more ? View.VISIBLE : View.GONE);
+        reachRow.setVisibility(selected != null || more ? View.VISIBLE : View.GONE);
+        controlSection.setVisibility(selected != null ? View.VISIBLE : View.GONE);
+        if (customInspector == null) {
+            customInspector = new PadCustomInspector(context, editor,
+                    panel.findViewById(R.id.pad_editor_zone_section),
+                    panel.findViewById(R.id.pad_editor_kbm_section), density);
+        }
+        customInspector.update(selectedZone, selectedButton);
         layoutSection.setVisibility(adding || more ? View.VISIBLE : View.GONE);
         addSection.setVisibility(adding ? View.VISIBLE : View.GONE);
         options.setVisibility(more ? View.VISIBLE : View.GONE);
-        boolean showing = picked && spec.hidden;
+        boolean showing = selected != null && spec.hidden;
         hide.setIconResource(showing ? R.drawable.ic_visibility : R.drawable.ic_visibility_off);
         hide.setText(showing ? R.string.pad_edit_show : R.string.pad_edit_hide);
         boolean pointerPad = selected == PadLayout.Control.POINTER_PAD;
@@ -424,8 +450,8 @@ final class PadEditorPanel {
         hint.setText(pointerPad ? R.string.pad_edit_hint_camera : R.string.pad_edit_hint);
         hint.setVisibility(pointerPad || (more && !shortSurface) ? View.VISIBLE : View.GONE);
         // Split for a shown face cluster or D-pad; Join for one of the members that stand in for it.
-        split.setVisibility(picked && PadLayout.members(selected).length > 0 && !spec.hidden ? View.VISIBLE : View.GONE);
-        join.setVisibility(picked && selected.cluster() != null ? View.VISIBLE : View.GONE);
+        split.setVisibility(selected != null && PadLayout.members(selected).length > 0 && !spec.hidden ? View.VISIBLE : View.GONE);
+        join.setVisibility(selected != null && selected.cluster() != null ? View.VISIBLE : View.GONE);
         glyphs.setText(glyphName(context, draft.glyph()));
         arrangeLayout();
     }
@@ -435,6 +461,7 @@ final class PadEditorPanel {
      * whether there is any control to add.
      */
     private boolean updateAdd() {
+        PadLayout draft = editor.draft();
         StringBuilder shown = new StringBuilder();
         List<PadLayout.Control> out = new ArrayList<>();
         for (PadLayout.Control control : PadLayout.Control.values()) {
@@ -442,14 +469,16 @@ final class PadEditorPanel {
             out.add(control);
             shown.append(control.name()).append(',');
         }
+        shown.append(PadCustomInspector.addStateKey(draft));
+        boolean hasAny = !out.isEmpty() || PadCustomInspector.hasAddableExtras(draft);
         if (shown.toString().equals(addShown)) {
             for (PadEditor.Tile tile : tiles) tile.refresh();
-            return !out.isEmpty();
+            return hasAny;
         }
         addShown = shown.toString();
         addSection.removeAllViews();
         tiles.clear();
-        if (out.isEmpty()) return false;
+        if (!hasAny) return false;
         // Each group its name over its tiles; the groups side by side as far as the dock is wide.
         int gap = Math.round(PadEditor.TILE_GAP_DP * density);
         TileFlow groups = new TileFlow(context, Math.round(PadEditor.GROUP_GAP_DP * density), gap);
@@ -460,20 +489,35 @@ final class PadEditorPanel {
             for (PadLayout.Control control : out) {
                 if (PadEditor.addGroup(control) != group) continue;
                 if (flow == null) {
-                    LinearLayout block = new LinearLayout(context);
-                    block.setOrientation(LinearLayout.VERTICAL);
-                    block.addView(heading(groupName(group), R.style.TextAppearance_Nightjar_Caption,
-                            R.color.nj_color_label_secondary));
-                    flow = new TileFlow(context, gap, gap);
-                    block.addView(flow);
-                    groups.addView(block);
+                    flow = ensureAddGroup(groups, group, gap);
                 }
                 PadEditor.Tile tile = editor.newTile(control);
                 tiles.add(tile);
                 flow.addView(tile);
             }
+            if (group == PadEditor.KEYBOARD_MOUSE) {
+                if (draft.touchZones().size() < PadTouchZone.MAX_ZONES) {
+                    if (flow == null) flow = ensureAddGroup(groups, group, gap);
+                    flow.addView(PadCustomInspector.makeAddTile(context, editor, density, true));
+                }
+                if (draft.customButtons().size() < PadCustomButton.MAX_CUSTOM_BUTTONS) {
+                    if (flow == null) flow = ensureAddGroup(groups, group, gap);
+                    flow.addView(PadCustomInspector.makeAddTile(context, editor, density, false));
+                }
+            }
         }
         return true;
+    }
+
+    private TileFlow ensureAddGroup(TileFlow groups, int group, int gap) {
+        LinearLayout block = new LinearLayout(context);
+        block.setOrientation(LinearLayout.VERTICAL);
+        block.addView(heading(groupName(group), R.style.TextAppearance_Nightjar_Caption,
+                R.color.nj_color_label_secondary));
+        TileFlow flow = new TileFlow(context, gap, gap);
+        block.addView(flow);
+        groups.addView(block);
+        return flow;
     }
 
     private TextView heading(int text, int appearance, int color) {

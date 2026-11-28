@@ -99,6 +99,7 @@ final class PadEditorSurface extends View {
         for (float y = step; y < height; y += step) canvas.drawLine(0, y, width, y, grid);
         float base = editor.baseOpacity();
         PadLayout.Control selected = editor.selected();
+        PadCustomInspector.drawTouchZones(getContext(), canvas, draft, width, height, density, editor.selectedZoneId());
         for (PadLayout.Control control : PadLayout.Control.values()) {
             if (!editor.onSurface(control)) continue;
             PadLayout.Spec spec = draft.spec(control);
@@ -110,9 +111,15 @@ final class PadEditorSurface extends View {
             painter.setOpacity(1);
             if (control != selected) outline(canvas, false);
         }
-        // The picked control's outline and handles over every control, so a neighbour never covers a handle.
-        if (selected != null && editor.onSurface(selected)) {
-            draft.bounds(selected, width, height, density, box);
+        PadCustomInspector.drawCustomButtons(editor.skin(), canvas, draft, width, height, density, base);
+        String selectedBtnId = editor.selectedButtonId();
+        for (PadCustomButton button : draft.customButtons()) {
+            if (button.id.equals(selectedBtnId)) continue;
+            button.bounds(width, height, density, box);
+            outline(canvas, false);
+        }
+        // The picked control, button, or zone's outline and handles over every item.
+        if (selectedBounds(width, height, box)) {
             outline(canvas, true);
         }
         float half = guide.getStrokeWidth() / 2;
@@ -188,10 +195,27 @@ final class PadEditorSurface extends View {
      * {@link PadEditor#BOTTOM_CORNER} bits, or -1. Each handle takes a 48 dp touch around the corner it is drawn on;
      * inside the control only a corner's quarter counts, so a small control's middle still moves it.
      */
-    private int corner(float x, float y) {
+    private boolean selectedBounds(float width, float height, float[] out) {
         PadLayout.Control selected = editor.selected();
-        if (selected == null || !editor.onSurface(selected)) return -1;
-        draft.bounds(selected, getWidth(), getHeight(), density, box);
+        if (selected != null && editor.onSurface(selected)) {
+            draft.bounds(selected, width, height, density, out);
+            return true;
+        }
+        PadCustomButton button = editor.selectedButton();
+        if (button != null) {
+            button.bounds(width, height, density, out);
+            return true;
+        }
+        PadTouchZone zone = editor.selectedZone();
+        if (zone != null) {
+            zone.pixelBounds(width, height, out);
+            return true;
+        }
+        return false;
+    }
+
+    private int corner(float x, float y) {
+        if (!selectedBounds(getWidth(), getHeight(), box)) return -1;
         float reach = PadLayout.MIN_TOUCH_DP / 2 * density, outline = OUTLINE_DP * density;
         float insideX = Math.min(reach, box[2] / 4), insideY = Math.min(reach, box[3] / 4);
         boolean inside = x > box[0] && x < box[0] + box[2] && y > box[1] && y < box[1] + box[3];
@@ -216,6 +240,9 @@ final class PadEditorSurface extends View {
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         PadLayout.Control selected = editor.selected();
+        PadCustomButton selectedBtn = editor.selectedButton();
+        PadTouchZone selectedZone = editor.selectedZone();
+        float w = getWidth(), h = getHeight();
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN: {
                 pinching = false;
@@ -224,57 +251,108 @@ final class PadEditorSurface extends View {
                 downX = event.getX();
                 downY = event.getY();
                 snap.release();
-                // A corner handle of the picked control wins over whatever lies under it.
+                // A corner handle of the picked item wins over whatever lies under it.
                 resizing = corner(event.getX(), event.getY());
-                if (resizing >= 0) {
+                if (resizing >= 0 && selectedBounds(w, h, box)) {
                     dragging = false;
-                    draft.bounds(selected, getWidth(), getHeight(), density, box);
-                    boolean right = (resizing & PadEditor.RIGHT_CORNER) != 0, bottom = (resizing & PadEditor.BOTTOM_CORNER) != 0;
-                    // The dragged corner follows the finger from where it took hold; the opposite one stays.
+                    boolean right = (resizing & PadEditor.RIGHT_CORNER) != 0;
+                    boolean bottom = (resizing & PadEditor.BOTTOM_CORNER) != 0;
                     offsetX = (right ? box[0] + box[2] : box[0]) - event.getX();
                     offsetY = (bottom ? box[1] + box[3] : box[1]) - event.getY();
                     anchorX = right ? box[0] : box[0] + box[2];
                     anchorY = bottom ? box[1] : box[1] + box[3];
                     break;
                 }
-                PadLayout.Control control = hit(event.getX(), event.getY());
-                editor.select(control);
-                dragging = control != null;
-                if (dragging) {
-                    draft.bounds(control, getWidth(), getHeight(), density, box);
+                PadCustomButton hitBtn = PadCustomInspector.hitButton(draft, event.getX(), event.getY(), w, h, density, box);
+                if (hitBtn != null) {
+                    editor.selectButton(hitBtn.id);
+                    dragging = true;
+                    hitBtn.bounds(w, h, density, box);
                     offsetX = box[0] + box[2] / 2 - event.getX();
                     offsetY = box[1] + box[3] / 2 - event.getY();
+                    break;
                 }
+                PadLayout.Control control = hit(event.getX(), event.getY());
+                if (control != null) {
+                    editor.select(control);
+                    dragging = true;
+                    draft.bounds(control, w, h, density, box);
+                    offsetX = box[0] + box[2] / 2 - event.getX();
+                    offsetY = box[1] + box[3] / 2 - event.getY();
+                    break;
+                }
+                PadTouchZone hitZone = PadCustomInspector.hitZone(draft, event.getX(), event.getY(), w, h, box);
+                if (hitZone != null) {
+                    editor.selectZone(hitZone.id);
+                    dragging = true;
+                    hitZone.pixelBounds(w, h, box);
+                    offsetX = box[0] + box[2] / 2 - event.getX();
+                    offsetY = box[1] + box[3] / 2 - event.getY();
+                    break;
+                }
+                editor.select(null);
+                dragging = false;
                 break;
             }
             case MotionEvent.ACTION_POINTER_DOWN:
-                if (selected != null && event.getPointerCount() == 2) {
+                if (editor.hasSelection() && event.getPointerCount() == 2) {
                     pinching = true;
                     dragging = false;
                     resizing = -1;
                     snap.release();
                     pinchDistance = distance(event);
-                    pinchWidth = draft.spec(selected).widthScale;
-                    pinchHeight = draft.spec(selected).heightScale;
+                    if (selected != null) {
+                        pinchWidth = draft.spec(selected).widthScale;
+                        pinchHeight = draft.spec(selected).heightScale;
+                    } else if (selectedBtn != null) {
+                        pinchWidth = selectedBtn.widthScale;
+                        pinchHeight = selectedBtn.heightScale;
+                    } else if (selectedZone != null) {
+                        pinchWidth = selectedZone.right - selectedZone.left;
+                        pinchHeight = selectedZone.bottom - selectedZone.top;
+                    }
                 }
                 break;
             case MotionEvent.ACTION_MOVE:
                 if (pinching && event.getPointerCount() >= 2 && pinchDistance > 0) {
-                    change(selected);
-                    draft.scaleFrom(selected, pinchWidth, pinchHeight, distance(event) / pinchDistance, getWidth(),
-                            getHeight(), density);
-                    editor.carryTwin(selected);
-                    editor.changed();
-                } else if ((resizing >= 0 || dragging) && selected != null) {
+                    float factor = distance(event) / pinchDistance;
+                    if (selected != null) {
+                        change(selected);
+                        draft.scaleFrom(selected, pinchWidth, pinchHeight, factor, w, h, density);
+                        editor.carryTwin(selected);
+                        editor.changed();
+                    } else if (selectedBtn != null) {
+                        changeCustom();
+                        selectedBtn.scaleFrom(pinchWidth, pinchHeight, factor, w, h, density);
+                        editor.changed();
+                    } else if (selectedZone != null) {
+                        changeCustom();
+                        float cx = (selectedZone.left + selectedZone.right) / 2f;
+                        float cy = (selectedZone.top + selectedZone.bottom) / 2f;
+                        float hw = Math.max(PadTouchZone.MIN_SIZE / 2f, Math.min(0.5f, pinchWidth * factor / 2f));
+                        float hh = Math.max(PadTouchZone.MIN_SIZE / 2f, Math.min(0.5f, pinchHeight * factor / 2f));
+                        float nl = Math.max(0f, Math.min(1f - 2f * hw, cx - hw));
+                        float nt = Math.max(0f, Math.min(1f - 2f * hh, cy - hh));
+                        selectedZone.setBounds(nl, nt, nl + 2f * hw, nt + 2f * hh);
+                        editor.changed();
+                    }
+                } else if ((resizing >= 0 || dragging) && editor.hasSelection()) {
                     // A tap that trembles moves nothing, and a drag straight along one axis leaves the other alone:
                     // each axis follows once the finger has really set off along it.
                     movedX |= Math.abs(event.getX() - downX) >= slop;
                     movedY |= Math.abs(event.getY() - downY) >= slop;
                     if (!movedX && !movedY) break;
-                    if (resizing >= 0) {
-                        resize(selected, event.getX() + offsetX, event.getY() + offsetY);
-                    } else {
-                        drag(selected, event.getX() + offsetX, event.getY() + offsetY);
+                    float tx = event.getX() + offsetX;
+                    float ty = event.getY() + offsetY;
+                    if (selected != null) {
+                        if (resizing >= 0) resize(selected, tx, ty);
+                        else drag(selected, tx, ty);
+                    } else if (selectedBtn != null) {
+                        if (resizing >= 0) resizeButton(selectedBtn, tx, ty);
+                        else dragButton(selectedBtn, tx, ty);
+                    } else if (selectedZone != null) {
+                        if (resizing >= 0) resizeZone(selectedZone, tx, ty);
+                        else dragZone(selectedZone, tx, ty);
                     }
                 }
                 break;
@@ -308,6 +386,99 @@ final class PadEditorSurface extends View {
         changing = true;
         editor.beginChange(control);
         editor.stepBack(true);
+    }
+
+    private void changeCustom() {
+        if (changing) return;
+        changing = true;
+        editor.recordCheckpoint();
+        editor.stepBack(true);
+    }
+
+    private void linesCustom(String skipButtonId) {
+        float width = getWidth(), height = getHeight();
+        snap.begin(width, height);
+        for (PadLayout.Control control : PadLayout.Control.values()) {
+            if (!editor.onSurface(control)) continue;
+            draft.bounds(control, width, height, density, other);
+            snap.neighbour(other[0], other[1], other[2], other[3]);
+        }
+        for (PadCustomButton b : draft.customButtons()) {
+            if (b.id.equals(skipButtonId)) continue;
+            b.bounds(width, height, density, other);
+            snap.neighbour(other[0], other[1], other[2], other[3]);
+        }
+    }
+
+    private void dragButton(PadCustomButton btn, float x, float y) {
+        float width = getWidth(), height = getHeight(), heldX = snap.guideX, heldY = snap.guideY;
+        changeCustom();
+        btn.bounds(width, height, density, box);
+        linesCustom(btn.id);
+        snap.move(x, y, box[2], box[3]);
+        if (!movedX) snap.keepX(box[0] + box[2] / 2);
+        if (!movedY) snap.keepY(box[1] + box[3] / 2);
+        btn.moveTo(snap.x, snap.y, width, height, density);
+        tick(heldX, heldY);
+        invalidate();
+    }
+
+    private void resizeButton(PadCustomButton btn, float x, float y) {
+        float width = getWidth(), height = getHeight(), heldX = snap.guideX, heldY = snap.guideY;
+        float minPx = PadCustomButton.MIN_TOUCH_DP * density;
+        boolean right = (resizing & PadEditor.RIGHT_CORNER) != 0, bottom = (resizing & PadEditor.BOTTOM_CORNER) != 0;
+        changeCustom();
+        btn.bounds(width, height, density, box);
+        linesCustom(btn.id);
+        snap.size(x, y, anchorX, anchorY, right, bottom, minPx, minPx);
+        if (!movedX) snap.keepX(right ? box[0] + box[2] : box[0]);
+        if (!movedY) snap.keepY(bottom ? box[1] + box[3] : box[1]);
+        float left = right ? anchorX : snap.x, top = bottom ? anchorY : snap.y;
+        float rw = Math.abs(snap.x - anchorX), rh = Math.abs(snap.y - anchorY);
+        if (btn.shape == PadCustomButton.Shape.ROUND) {
+            float side = Math.max(rw, rh);
+            if (!right) left = anchorX - side;
+            if (!bottom) top = anchorY - side;
+            rw = rh = side;
+        }
+        btn.setBounds(left, top, rw, rh, width, height, density);
+        tick(heldX, heldY);
+        editor.changed();
+    }
+
+    private void dragZone(PadTouchZone zone, float x, float y) {
+        float width = getWidth(), height = getHeight(), heldX = snap.guideX, heldY = snap.guideY;
+        if (width <= 0f || height <= 0f) return;
+        changeCustom();
+        zone.pixelBounds(width, height, box);
+        linesCustom("");
+        snap.move(x, y, box[2], box[3]);
+        if (!movedX) snap.keepX(box[0] + box[2] / 2);
+        if (!movedY) snap.keepY(box[1] + box[3] / 2);
+        float nw = box[2] / width, nh = box[3] / height;
+        float nl = Math.max(0f, Math.min(1f - nw, (snap.x - box[2] / 2f) / width));
+        float nt = Math.max(0f, Math.min(1f - nh, (snap.y - box[3] / 2f) / height));
+        zone.setBounds(nl, nt, nl + nw, nt + nh);
+        tick(heldX, heldY);
+        invalidate();
+    }
+
+    private void resizeZone(PadTouchZone zone, float x, float y) {
+        float width = getWidth(), height = getHeight(), heldX = snap.guideX, heldY = snap.guideY;
+        if (width <= 0f || height <= 0f) return;
+        float minW = PadTouchZone.MIN_SIZE * width, minH = PadTouchZone.MIN_SIZE * height;
+        boolean right = (resizing & PadEditor.RIGHT_CORNER) != 0, bottom = (resizing & PadEditor.BOTTOM_CORNER) != 0;
+        changeCustom();
+        zone.pixelBounds(width, height, box);
+        linesCustom("");
+        snap.size(x, y, anchorX, anchorY, right, bottom, minW, minH);
+        if (!movedX) snap.keepX(right ? box[0] + box[2] : box[0]);
+        if (!movedY) snap.keepY(bottom ? box[1] + box[3] : box[1]);
+        float left = right ? anchorX : snap.x, top = bottom ? anchorY : snap.y;
+        float rw = Math.abs(snap.x - anchorX), rh = Math.abs(snap.y - anchorY);
+        zone.setBounds(left / width, top / height, (left + rw) / width, (top + rh) / height);
+        tick(heldX, heldY);
+        editor.changed();
     }
 
     /**

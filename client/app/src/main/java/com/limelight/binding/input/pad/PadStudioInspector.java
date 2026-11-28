@@ -72,7 +72,7 @@ final class PadStudioInspector {
     /** Opens the {@code which} tray, or closes them with {@link #NONE}. The trays are the layout's: a picked control is let go. */
     void show(int which) {
         tray = which;
-        if (which != NONE && editor.selected() != null) {
+        if (which != NONE && editor.hasSelection()) {
             // Letting go changes the dock, smoothly, by itself.
             editor.select(null);
         } else {

@@ -19,4 +19,8 @@ public interface StreamWindow {
      * activity whose window still covers the whole display streams like a full-screen one.
      */
     boolean isWindowedStream();
+
+    /** Called when Safe Fit / cutout / hinge padding changes on the stream's root frame. */
+    default void onSafeAreaChanged(int left, int top, int right, int bottom) {
+    }
 }

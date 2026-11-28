@@ -340,7 +340,7 @@ final class GameMouseInput {
     }
 
     void sendCustomMouse(int button, boolean down) {
-        game.conn.sendOverlayMouseButton((byte)button, down);
+        if (game.conn != null) game.conn.sendOverlayMouseButton((byte)button, down);
     }
 
     void releaseMouseButtons() {

@@ -3,6 +3,7 @@
     <item name="resolution_height" type="id" />
     <item name="controller_mapping_capture" type="id" />
     <item name="adaptive_layout" type="id" />
+    <item name="pad_safe_insets_observer" type="id" />
     <!-- Navigation buttons and bodies created by com.limelight.ui.TopAppBar -->
     <item name="page_navigate_up" type="id" />
     <item name="page_scroll" type="id" />

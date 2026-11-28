@@ -56,6 +56,9 @@ final class PadEditor extends FrameLayout {
     private final String controllerName;
     private boolean forController;
     private PadLayout.Control selected;
+    private String selectedZoneId;
+    private String selectedButtonId;
+    private PadSkin70 skin;
     /** A Touch area drag's Undo step, per control (or the whole layout), apart from an opacity drag's. */
     private final java.util.Map<Object, Object> reachRuns = new java.util.HashMap<>();
     private final PadEditorSurface surface;
@@ -233,6 +236,12 @@ final class PadEditor extends FrameLayout {
         if (selected != null && !onSurface(selected)) {
             select(null);
         }
+        if (selectedZoneId != null && draft.touchZone(selectedZoneId) == null) {
+            selectedZoneId = null;
+        }
+        if (selectedButtonId != null && draft.customButton(selectedButtonId) == null) {
+            selectedButtonId = null;
+        }
         changed();
     }
 
@@ -278,15 +287,159 @@ final class PadEditor extends FrameLayout {
     }
 
     void select(PadLayout.Control control) {
-        if (control != selected) {
+        if (control != selected || selectedZoneId != null || selectedButtonId != null) {
             panel.transition();
             // The next slider drag is a change of its own.
             run = null;
         }
         selected = control;
+        selectedZoneId = null;
+        selectedButtonId = null;
         panel.update();
         surface.invalidate();
         post(panel::keepClear);
+    }
+
+    void selectZone(String id) {
+        String normalized = id != null && draft.touchZone(id) != null ? id : null;
+        if (normalized == null ? hasSelection() : !normalized.equals(selectedZoneId)) {
+            panel.transition();
+            run = null;
+        }
+        selected = null;
+        selectedButtonId = null;
+        selectedZoneId = normalized;
+        panel.update();
+        surface.invalidate();
+        post(panel::keepClear);
+    }
+
+    void selectButton(String id) {
+        String normalized = id != null && draft.customButton(id) != null ? id : null;
+        if (normalized == null ? hasSelection() : !normalized.equals(selectedButtonId)) {
+            panel.transition();
+            run = null;
+        }
+        selected = null;
+        selectedZoneId = null;
+        selectedButtonId = normalized;
+        panel.update();
+        surface.invalidate();
+        post(panel::keepClear);
+    }
+
+    String selectedZoneId() {
+        return selectedZoneId;
+    }
+
+    String selectedButtonId() {
+        return selectedButtonId;
+    }
+
+    PadTouchZone selectedZone() {
+        return selectedZoneId == null ? null : draft.touchZone(selectedZoneId);
+    }
+
+    PadCustomButton selectedButton() {
+        return selectedButtonId == null ? null : draft.customButton(selectedButtonId);
+    }
+
+    boolean hasSelection() {
+        return selected != null || selectedZone() != null || selectedButton() != null;
+    }
+
+    PadSkin70 skin() {
+        if (skin == null) {
+            skin = new PadSkin70(getContext());
+        }
+        return skin;
+    }
+
+    void recordCheckpoint() {
+        checkpoint(null);
+    }
+
+    void notifyEdited() {
+        changed();
+    }
+
+    void invalidateSurface() {
+        surface.invalidate();
+    }
+
+    void addTouchZone() {
+        if (draft.touchZones().size() >= PadTouchZone.MAX_ZONES) return;
+        checkpoint(null);
+        boolean hasLook = false;
+        boolean hasMove = false;
+        for (PadTouchZone z : draft.touchZones()) {
+            if (z.kind.isLook()) hasLook = true;
+            if (z.kind.isMove()) hasMove = true;
+        }
+        boolean gamepadMode = PadFpsPresets.isGamepadZoneMode(draft);
+        PadTouchZone zone;
+        if (!hasLook) {
+            zone = new PadTouchZone(draft.nextZoneId(),
+                    gamepadMode ? PadTouchZone.Kind.LOOK_STICK : PadTouchZone.Kind.LOOK_MOUSE,
+                    0.50f, 0f, 1f, 1f);
+        } else if (!hasMove) {
+            zone = new PadTouchZone(draft.nextZoneId(),
+                    gamepadMode ? PadTouchZone.Kind.MOVE_STICK : PadTouchZone.Kind.MOVE_WASD,
+                    0f, 0f, 0.50f, 1f);
+            zone.autoSprint = !gamepadMode;
+        } else {
+            zone = new PadTouchZone(draft.nextZoneId(), PadTouchZone.Kind.LOOK_MOUSE,
+                    0.25f, 0.25f, 0.75f, 0.75f);
+        }
+        draft.addTouchZone(zone);
+        selectZone(zone.id);
+        changed();
+    }
+
+    void addCustomButton() {
+        if (draft.customButtons().size() >= PadCustomButton.MAX_CUSTOM_BUTTONS) return;
+        checkpoint(null);
+        int idx = draft.customButtons().size();
+        float offsetX = 0.70f + (idx % 3) * 0.07f;
+        float offsetY = 0.35f + ((idx / 3) % 4) * 0.13f;
+        PadCustomButton button = PadCustomButton.key(draft.nextCustomButtonId(), 0x43, "", offsetX, offsetY);
+        draft.addCustomButton(button);
+        selectButton(button.id);
+        changed();
+    }
+
+    void duplicateSelectedButton() {
+        PadCustomButton source = selectedButton();
+        if (source == null || draft.customButtons().size() >= PadCustomButton.MAX_CUSTOM_BUTTONS) return;
+        checkpoint(null);
+        PadCustomButton copy = source.duplicate(draft.nextCustomButtonId());
+        draft.addCustomButton(copy);
+        selectButton(copy.id);
+        changed();
+    }
+
+    void deleteSelected() {
+        if (selectedZoneId != null) {
+            checkpoint(null);
+            draft.removeTouchZone(selectedZoneId);
+            selectZone(null);
+            changed();
+        } else if (selectedButtonId != null) {
+            checkpoint(null);
+            draft.removeCustomButton(selectedButtonId);
+            selectButton(null);
+            changed();
+        }
+    }
+
+    void applyZoneQuickPreset(PadTouchZone.QuickPreset preset) {
+        if (preset == null) return;
+        checkpoint(null);
+        PadTouchZone.applyQuickPreset(draft.mutableTouchZones(), preset,
+                PadFpsPresets.isGamepadZoneMode(draft));
+        String nextId = draft.touchZones().isEmpty() ? null : draft.touchZones().get(0).id;
+        selectZone(nextId);
+        changed();
     }
 
     /** The controls the editor shows: everything but what the settings keep off. */
@@ -329,6 +482,30 @@ final class PadEditor extends FrameLayout {
      */
     void scaleBy(float step) {
         float width = surfaceWidth(), height = surfaceHeight();
+        PadTouchZone zone = selectedZone();
+        if (zone != null) {
+            checkpoint(zone.id);
+            float factor = step > 0 ? 1.10f : 0.90f;
+            float cx = (zone.left + zone.right) / 2f;
+            float cy = (zone.top + zone.bottom) / 2f;
+            float hw = Math.max(PadTouchZone.MIN_SIZE / 2f, Math.min(0.5f, (zone.right - zone.left) * factor / 2f));
+            float hh = Math.max(PadTouchZone.MIN_SIZE / 2f, Math.min(0.5f, (zone.bottom - zone.top) * factor / 2f));
+            float nl = Math.max(0f, Math.min(1f - 2f * hw, cx - hw));
+            float nt = Math.max(0f, Math.min(1f - 2f * hh, cy - hh));
+            zone.setBounds(nl, nt, nl + 2f * hw, nt + 2f * hh);
+            changed();
+            return;
+        }
+        PadCustomButton button = selectedButton();
+        if (button != null) {
+            checkpoint(null);
+            float from = button.scale();
+            float to = Math.max(PadCustomButton.MIN_SCALE, Math.round((from + step) / SCALE_STEP) * SCALE_STEP);
+            button.scaleFrom(button.widthScale, button.heightScale, to / Math.max(0.1f, from),
+                    width, height, density);
+            changed();
+            return;
+        }
         if (selected != null) {
             beginChange(selected);
         } else {
@@ -340,6 +517,14 @@ final class PadEditor extends FrameLayout {
             // Round the larger side to the step so repeated taps land on 50 %, 60 %, ... rather than drifting.
             float from = spec.scale(), to = Math.round((from + step) / SCALE_STEP) * SCALE_STEP;
             draft.scaleFrom(control, spec.widthScale, spec.heightScale, to / from, width, height, density);
+        }
+        if (selected == null) {
+            for (PadCustomButton custom : draft.customButtons()) {
+                float from = custom.scale();
+                float to = Math.max(PadCustomButton.MIN_SCALE, Math.round((from + step) / SCALE_STEP) * SCALE_STEP);
+                custom.scaleFrom(custom.widthScale, custom.heightScale, to / Math.max(0.1f, from),
+                        width, height, density);
+            }
         }
         if (selected != null) carryTwin(selected);
         changed();
@@ -356,6 +541,20 @@ final class PadEditor extends FrameLayout {
 
     /** The opacity slider: the picked control's, or every control's. A drag through many values is one Undo step. */
     void setOpacity(int value) {
+        PadTouchZone zone = selectedZone();
+        if (zone != null) {
+            checkpoint(zone.id);
+            zone.setOpacity(value);
+            surface.invalidate();
+            return;
+        }
+        PadCustomButton button = selectedButton();
+        if (button != null) {
+            checkpoint(button.id);
+            button.setOpacity(value);
+            surface.invalidate();
+            return;
+        }
         checkpoint(selected != null ? selected : draft);
         for (PadLayout.Control control : PadLayout.Control.values()) {
             if (!editable(control) || (selected != null && control != selected)) continue;
@@ -438,14 +637,17 @@ final class PadEditor extends FrameLayout {
     /** A preset replaces the layout with its selection of controls; Done keeps it, Cancel drops it. */
     void choosePreset() {
         new NavigationDialogBuilder(getContext()).setTitle(R.string.pad_edit_preset)
-                .setItems(R.array.pad_preset_names, (dialog, which) -> {
-                    checkpoint(null);
-                    draft.applyPreset(PadLayout.Preset.values()[which]);
-                    painter.setGlyph(draft.glyph());
-                    painter.setFacesSwapped(draft.facesSwapped());
-                    select(null);
-                    changed();
-                }).setNegativeButton(android.R.string.cancel, null).create().show();
+                .setItems(R.array.pad_preset_names, (dialog, which) -> applyPresetChoice(which))
+                .setNegativeButton(android.R.string.cancel, null).create().show();
+    }
+
+    void applyPresetChoice(int which) {
+        checkpoint(null);
+        PadFpsPresets.applyPresetChoice(draft, which);
+        painter.setGlyph(draft.glyph());
+        painter.setFacesSwapped(draft.facesSwapped());
+        select(null);
+        changed();
     }
 
     /** The face letters and shoulder names of one controller family. */

@@ -201,4 +201,88 @@ public class GameOscControlsTest {
         assertTrue("No mouse move bypasses TrackpadPointer: " + connection.moves, connection.moves.isEmpty());
         game.modernController.destroy();
     }
+
+    @Test public void modernControllerMouseSinkAndKeyboardModifierStateIntegrateEndToEnd() {
+        List<int[]> keyEvents = new ArrayList<>();
+        List<int[]> mouseEvents = new ArrayList<>();
+        List<Integer> scrollEvents = new ArrayList<>();
+        PermissionConnection spy = new PermissionConnection() {
+            @Override
+            public boolean canSendInput() {
+                return true;
+            }
+
+            @Override
+            public void sendKeyboardInput(short keyMap, byte keyDirection, byte modifier, byte flags) {
+                keyEvents.add(new int[] {keyMap & 0xFFFF, keyDirection & 0xFF, modifier & 0xFF});
+            }
+
+            @Override
+            public void sendOverlayMouseButton(byte mouseButton, boolean down) {
+                mouseEvents.add(new int[] {down ? 1 : 0, mouseButton & 0xFF});
+            }
+
+            @Override
+            public void sendMouseButtonDown(byte mouseButton) {
+                mouseEvents.add(new int[] {1, mouseButton & 0xFF});
+            }
+
+            @Override
+            public void sendMouseButtonUp(byte mouseButton) {
+                mouseEvents.add(new int[] {0, mouseButton & 0xFF});
+            }
+
+            @Override
+            public void sendMouseHighResScroll(short amount) {
+                scrollEvents.add((int) amount);
+            }
+        };
+        Game game = Robolectric.buildActivity(Game.class).get();
+        game.setTheme(R.style.AppTheme);
+        ReflectionHelpers.setField(game, "prefConfig", oscPrefs());
+        ReflectionHelpers.setField(game, "conn", spy);
+        ReflectionHelpers.setField(game, "connected", true);
+        ReflectionHelpers.setField(game, "app", new NvApp("Game", 7, false));
+        ReflectionHelpers.setField(game, "keyboardTranslator",
+                new com.limelight.binding.input.KeyboardTranslator());
+        StreamView stream = new StreamView(game);
+        FrameLayout parent = new FrameLayout(game);
+        parent.addView(stream);
+        parent.measure(View.MeasureSpec.makeMeasureSpec(1600, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY));
+        parent.layout(0, 0, 1600, 720);
+        ReflectionHelpers.setField(game, "streamView", stream);
+
+        game.showOnscreenController();
+        Object heldInputs = ReflectionHelpers.callInstanceMethod(game.modernController, "heldInputs");
+        com.limelight.binding.input.HeldInputState.Sink sink =
+                ReflectionHelpers.getField(heldInputs, "sink");
+        com.limelight.binding.input.pad.ModernController.PointerSink pointerSink =
+                ReflectionHelpers.getField(game.modernController, "pointerSink");
+
+        sink.mouse(com.limelight.nvstream.input.MouseButtonPacket.BUTTON_LEFT, true);
+        sink.mouse(com.limelight.nvstream.input.MouseButtonPacket.BUTTON_LEFT, false);
+        pointerSink.scroll(1, 0);
+
+        assertEquals(2, mouseEvents.size());
+        assertArrayEquals(new int[] {1, com.limelight.nvstream.input.MouseButtonPacket.BUTTON_LEFT}, mouseEvents.get(0));
+        assertArrayEquals(new int[] {0, com.limelight.nvstream.input.MouseButtonPacket.BUTTON_LEFT}, mouseEvents.get(1));
+        assertFalse("Custom scroll wheel reaches NvConnection", scrollEvents.isEmpty());
+
+        sink.key(0xA0, true); // VK_LSHIFT held on screen
+        assertEquals(com.limelight.nvstream.input.KeyboardPacket.MODIFIER_SHIFT,
+                game.keyboardInput.onScreenModifierState() & 0xFF);
+        game.keyboardInput.sendCustomKey(android.view.KeyEvent.KEYCODE_C, true); // Press C while LSHIFT held
+        assertFalse(keyEvents.isEmpty());
+        int[] cDown = keyEvents.get(keyEvents.size() - 1);
+        assertEquals(com.limelight.nvstream.input.KeyboardPacket.MODIFIER_SHIFT,
+                cDown[2] & com.limelight.nvstream.input.KeyboardPacket.MODIFIER_SHIFT);
+        game.keyboardInput.sendOnScreenKey(0x45, true); // Press E while LSHIFT held
+        int[] eDown = keyEvents.get(keyEvents.size() - 1);
+        assertEquals(com.limelight.nvstream.input.KeyboardPacket.MODIFIER_SHIFT,
+                eDown[2] & com.limelight.nvstream.input.KeyboardPacket.MODIFIER_SHIFT);
+        sink.key(0xA0, false);
+        assertEquals(0, game.keyboardInput.onScreenModifierState() & 0xFF);
+        game.modernController.destroy();
+    }
 }

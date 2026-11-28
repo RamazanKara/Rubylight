@@ -186,6 +186,8 @@ public final class PadLayout {
     }
 
     private final Spec[] specs = new Spec[Control.values().length];
+    private final java.util.List<PadTouchZone> touchZones = new java.util.ArrayList<>();
+    private final java.util.List<PadCustomButton> customButtons = new java.util.ArrayList<>();
     private Glyph glyph = Glyph.XBOX;
     private PointerMode pointerMode = PointerMode.MOUSE;
     /**
@@ -202,9 +204,94 @@ public final class PadLayout {
         return specs[control.ordinal()];
     }
 
+    public java.util.List<PadTouchZone> touchZones() {
+        return java.util.Collections.unmodifiableList(touchZones);
+    }
+
+    java.util.List<PadTouchZone> mutableTouchZones() {
+        return touchZones;
+    }
+
+    public PadTouchZone touchZone(String id) {
+        if (id == null) return null;
+        for (PadTouchZone z : touchZones) if (id.equals(z.id)) return z;
+        return null;
+    }
+
+    public boolean addTouchZone(PadTouchZone zone) {
+        if (zone == null || touchZones.size() >= PadTouchZone.MAX_ZONES || touchZone(zone.id) != null) return false;
+        touchZones.add(zone);
+        return true;
+    }
+
+    public boolean removeTouchZone(String id) {
+        if (id == null) return false;
+        for (int i = 0; i < touchZones.size(); i++) {
+            if (id.equals(touchZones.get(i).id)) {
+                touchZones.remove(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void clearTouchZones() {
+        touchZones.clear();
+    }
+
+    public String nextZoneId() {
+        for (int n = 1; n <= 99; n++) {
+            String candidate = "zone" + n;
+            if (touchZone(candidate) == null) return candidate;
+        }
+        return "zone_" + touchZones.size();
+    }
+
+    public java.util.List<PadCustomButton> customButtons() {
+        return java.util.Collections.unmodifiableList(customButtons);
+    }
+
+    public PadCustomButton customButton(String id) {
+        if (id == null) return null;
+        for (PadCustomButton b : customButtons) if (id.equals(b.id)) return b;
+        return null;
+    }
+
+    public boolean addCustomButton(PadCustomButton button) {
+        if (button == null || customButtons.size() >= PadCustomButton.MAX_CUSTOM_BUTTONS
+                || customButton(button.id) != null) return false;
+        customButtons.add(button);
+        return true;
+    }
+
+    public boolean removeCustomButton(String id) {
+        if (id == null) return false;
+        for (int i = 0; i < customButtons.size(); i++) {
+            if (id.equals(customButtons.get(i).id)) {
+                customButtons.remove(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void clearCustomButtons() {
+        customButtons.clear();
+    }
+
+    public String nextCustomButtonId() {
+        for (int n = 1; n <= 999; n++) {
+            String candidate = "kbm" + n;
+            if (customButton(candidate) == null) return candidate;
+        }
+        return "kbm_" + customButtons.size();
+    }
+
     public PadLayout copy() {
         PadLayout copy = new PadLayout();
         for (int i = 0; i < specs.length; i++) copy.specs[i].copyFrom(specs[i]);
+        for (PadTouchZone z : touchZones) copy.touchZones.add(z.copy());
+        for (PadCustomButton b : customButtons) copy.customButtons.add(b.copy());
         copy.glyph = glyph;
         copy.pointerMode = pointerMode;
         copy.facesSwapped = facesSwapped;
@@ -213,6 +300,10 @@ public final class PadLayout {
 
     public void copyFrom(PadLayout other) {
         for (int i = 0; i < specs.length; i++) specs[i].copyFrom(other.specs[i]);
+        touchZones.clear();
+        for (PadTouchZone z : other.touchZones) touchZones.add(z.copy());
+        customButtons.clear();
+        for (PadCustomButton b : other.customButtons) customButtons.add(b.copy());
         glyph = other.glyph;
         pointerMode = other.pointerMode;
         facesSwapped = other.facesSwapped;
@@ -220,6 +311,7 @@ public final class PadLayout {
 
     public boolean isDefault() {
         if (glyph != Glyph.XBOX || pointerMode != PointerMode.MOUSE || facesSwapped) return false;
+        if (!touchZones.isEmpty() || !customButtons.isEmpty()) return false;
         for (Spec spec : specs) {
             if (!spec.isDefault()) return false;
         }
@@ -228,6 +320,8 @@ public final class PadLayout {
 
     public void reset() {
         for (Spec spec : specs) spec.copyFrom(new Spec(spec.defaultHidden));
+        touchZones.clear();
+        customButtons.clear();
         glyph = Glyph.XBOX;
         pointerMode = PointerMode.MOUSE;
         facesSwapped = false;

@@ -125,7 +125,9 @@ final class GameOnscreenControls {
                 (FrameLayout) game.streamView.getParent(), new HeldInputState.Sink() {
                     // The WASD stick: Windows virtual-key codes, sent like the PC keyboard's keys.
                     @Override public void key(int key, boolean down) { game.keyboardInput.sendOnScreenKey(key, down); }
-                    @Override public void mouse(int button, boolean down) { }
+                    @Override public void mouse(int button, boolean down) {
+                        if (game.conn != null) game.touchInput.sendCustomMouse(button, down);
+                    }
                     @Override public void gamepad(int buttons, short leftX, short leftY, short rightX, short rightY,
                                                   byte leftTrigger, byte rightTrigger) {
                         // The on-screen gamepad's report.
@@ -163,9 +165,7 @@ final class GameOnscreenControls {
                 else game.conn.sendMouseButtonUp((byte) button);
             }
             @Override public void scroll(int vertical, int horizontal) {
-                if (game.conn == null) return;
-                if (vertical != 0) game.conn.sendMouseHighResScroll((short) vertical);
-                if (horizontal != 0) game.conn.sendMouseHighResHScroll((short) horizontal);
+                game.touchInput.sendCustomScroll(vertical, horizontal);
             }
         });
         game.modernController.setOnLayoutChanged(() -> {

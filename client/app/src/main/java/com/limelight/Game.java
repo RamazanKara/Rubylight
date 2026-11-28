@@ -768,6 +768,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         videoOutput.updatePipAutoEnter();
     }
 
+    @Override public void onSafeAreaChanged(int left, int top, int right, int bottom) {
+        if (modernController != null) modernController.setSafeInsets(left, top, right, bottom);
+    }
+
     @Override
     public boolean onKey(View view, int keyCode, KeyEvent keyEvent) {
         switch (keyEvent.getAction()) {

@@ -431,6 +431,20 @@
                 </LinearLayout>
             </LinearLayout>
 
+            <LinearLayout
+                android:id="@+id/pad_editor_zone_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/pad_editor_kbm_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone" />
+
             <!-- Nothing picked: the Add tray's tiles, or the More tray's glyphs and where Done saves. -->
             <LinearLayout
                 android:id="@+id/pad_editor_layout"

@@ -497,6 +497,12 @@ final class GameTouchInput {
         mouseInput.sendCustomMouse(button, down);
     }
 
+    void sendCustomScroll(int vertical, int horizontal) {
+        if (game.conn == null) return;
+        if (vertical != 0) game.conn.sendMouseHighResScroll((short) vertical);
+        if (horizontal != 0) game.conn.sendMouseHighResHScroll((short) horizontal);
+    }
+
     void releaseMouseButtons() {
         mouseInput.releaseMouseButtons();
     }

@@ -61,6 +61,7 @@ final class PadLayoutCodec {
             }
             if (reach) out.append(',').append(String.format(Locale.ROOT, "%.2f", spec.reach));
         }
+        PadCustomButtonCodec.appendTokens(layout, out);
         return out.toString();
     }
 
@@ -99,6 +100,9 @@ final class PadLayoutCodec {
             if (part.startsWith("mode=")) {
                 layout.setPointerMode("camera".equalsIgnoreCase(part.substring("mode=".length())) ?
                         PadLayout.PointerMode.CAMERA : PadLayout.PointerMode.MOUSE);
+                continue;
+            }
+            if (PadCustomButtonCodec.parseToken(part, layout)) {
                 continue;
             }
             String[] fields = part.split(",", -1);

@@ -533,7 +533,7 @@ final class GameKeyboardInput {
             boolean changed = down ? stickPressedKeys.add(key) : stickPressedKeys.remove(key);
             if (changed && !pressedKeys.containsKey(key) && !customPressedKeys.containsKey(key)) {
                 game.conn.sendKeyboardInput(key, down ? KeyboardPacket.KEY_DOWN : KeyboardPacket.KEY_UP,
-                        (byte) (getModifierState() | customModifierState()), (byte) 0);
+                        (byte) (getModifierState() | customModifierState() | onScreenModifierState()), (byte) 0);
             }
         }
     }
@@ -685,9 +685,21 @@ final class GameKeyboardInput {
                 pressedKeys.remove(key);
             }
             if (!customPressedKeys.containsKey(key) && !stickPressedKeys.contains(key)) {
-                game.conn.sendKeyboardInput(key, direction, (byte)(modifiers | customModifierState()), flags);
+                game.conn.sendKeyboardInput(key, direction, (byte)(modifiers | customModifierState() | onScreenModifierState()), flags);
             }
         }
+    }
+
+    byte onScreenModifierState() {
+        int m = 0;
+        for (short k : stickPressedKeys) {
+            int vk = k & 0xFF;
+            if (vk == 0xA0 || vk == 0xA1) m |= KeyboardPacket.MODIFIER_SHIFT;
+            else if (vk == 0xA2 || vk == 0xA3) m |= KeyboardPacket.MODIFIER_CTRL;
+            else if (vk == 0xA4 || vk == 0xA5) m |= KeyboardPacket.MODIFIER_ALT;
+            else if (vk == 0x5B || vk == 0x5C) m |= KeyboardPacket.MODIFIER_META;
+        }
+        return (byte) m;
     }
 
     private byte customModifierState() {
@@ -705,7 +717,7 @@ final class GameKeyboardInput {
             if (down) customPressedKeys.put(key, keyCode); else customPressedKeys.remove(key);
             if (!pressedKeys.containsKey(key) && !stickPressedKeys.contains(key)) {
                 game.conn.sendKeyboardInput(key, down ? KeyboardPacket.KEY_DOWN : KeyboardPacket.KEY_UP,
-                        (byte)(getModifierState() | customModifierState()), (byte)0);
+                        (byte)(getModifierState() | customModifierState() | onScreenModifierState()), (byte)0);
             }
         }
     }

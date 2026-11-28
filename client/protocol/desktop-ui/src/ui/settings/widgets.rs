@@ -371,6 +371,16 @@ pub(in crate::ui) fn setting_row(
 /// Where the settings page says whether keys or a controller are in the hand, for [`settings_row`].
 pub(super) const KEYS_IN_HAND: &str = "settings-keys-in-hand";
 
+/// Whether a focused widget should reveal a settings row's hint: it must sit in the row's own
+/// layer and over the row. A list open on the row keeps its options in a popup layer of their own,
+/// so moving through them never unhides the hints of the rows the open list covers (the ring stays
+/// on the list; without this check the rows it sits over would light up their hints behind it).
+fn focus_in_row(ui: &Ui, row: Rect) -> bool {
+    ui.memory(|m| m.focused())
+        .and_then(|id| ui.ctx().read_response(id))
+        .is_some_and(|r| r.layer_id == ui.layer_id() && row.contains(r.rect.center()))
+}
+
 /// A row: its label on the left, the control with the value on the right. The hint shows under
 /// the label while the pointer is over the row or focus is in it: one line, cut, with the whole
 /// text as a tooltip, or wrapped whole (the row grows for it) for a row keys or a controller
@@ -430,7 +440,7 @@ pub(super) fn settings_row(
             }
             // The hint while the pointer is over the row or focus is in it.
             let row = ui.min_rect().expand2(vec2(18.0, 8.0));
-            let focused = ui.memory(|m| m.focused()).and_then(|id| ui.ctx().read_response(id)).is_some_and(|r| row.contains(r.rect.center()));
+            let focused = focus_in_row(ui, row);
             let active = focused || ui.rect_contains_pointer(row);
             // Any focused row wraps its full subtitle cleanly (preventing mid-sentence clipping on
             // Recommended and clicked rows), while pointer hover alone stays one line so rows below
@@ -666,4 +676,50 @@ pub(super) fn notice(ui: &mut Ui, text: &str, button: &'static str) -> Response 
     banner(ui, |ui| {
         ui.label(RichText::new(text).font(regular(text::LABEL)).color(ON_SURFACE));
     }, |ui| quiet_button(ui, button))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Runs `build` for two frames in `ctx` (one to take focus, one to settle) and returns
+    /// `focus_in_row(ui, row)` from the second frame.
+    fn reveals(ctx: &egui::Context, row: Rect, build: impl Fn(&mut Ui)) -> bool {
+        let mut revealed = false;
+        for settle in [false, true] {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 400.0))),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                build(ui);
+                if settle {
+                    revealed = focus_in_row(ui, row);
+                }
+            });
+            output.textures_delta.clear();
+        }
+        revealed
+    }
+
+    /// An open list keeps its options in a popup layer, so a focused option sitting over a row
+    /// behind it does not reveal that row's hint; a control in the row's own layer still does.
+    #[test]
+    fn focus_reveals_a_row_only_from_its_own_layer() {
+        let row = Rect::from_min_size(Pos2::ZERO, vec2(300.0, 60.0));
+        // A focused option in a popup layer (an Area) over the row: the row behind stays hidden.
+        let popup = egui::Context::default();
+        let over = reveals(&popup, row, |ui| {
+            egui::Area::new(egui::Id::new("list")).fixed_pos(row.center()).show(ui.ctx(), |ui| {
+                ui.button("option").request_focus();
+            });
+        });
+        assert!(!over, "a list's option over the row must not reveal the row's hint behind it");
+        // A focused control in the row's own layer, over the row: the row's hint shows.
+        let same = egui::Context::default();
+        let here = reveals(&same, row, |ui| {
+            ui.put(Rect::from_center_size(row.center(), vec2(40.0, 20.0)), egui::Button::new("here")).request_focus();
+        });
+        assert!(here, "a control in the row's own layer must reveal the row's hint");
+    }
 }

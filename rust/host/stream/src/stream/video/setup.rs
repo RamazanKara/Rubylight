@@ -342,8 +342,8 @@ impl SessionThread<'_> {
         // reports a wireless route. Explicit pacing and host bitrate
         // adaptation keep their own policies.
         let keyframe_loss_pacing = crate::video_send::recovery::configure(&s, &c);
-        let automatic_pacing = s.automatic_pacing_enabled();
         workers.keyframe_loss_memory = Some(h.configure_keyframe_loss(&s, keyframe_loss_pacing));
+        let automatic_pacing = s.automatic_pacing_enabled();
         let packetizer = VideoPacketizer {
             sequence: 0,
             iv_counter: 0,

@@ -32,9 +32,10 @@ impl<P, A> Session<P, A> {
             let frame = u32::from_be_bytes(payload[..4].try_into().unwrap());
             let period = self.stream_mode().period();
             self.link_status(payload, frame, block);
-            let route_abandoned = {
+            let (route_abandoned, keyframe) = {
                 let mut loss = self.keyframe_loss.lock().unwrap();
                 let route_abandoned = loss.is_route_abandoned(frame);
+                let keyframe = loss.is_keyframe(frame);
                 if matches!(
                     block,
                     butterpollo_media_policy::adaptive_fec::Block::Unrecoverable
@@ -45,14 +46,15 @@ impl<P, A> Session<P, A> {
                     drop(loss);
                     self.report_keyframe_loss(latched, ignored);
                 }
-                route_abandoned
+                (route_abandoned, keyframe)
             };
             if !route_abandoned {
-                self.automatic_pacing.lock().unwrap().on_block(
+                self.automatic_pacing.lock().unwrap().on_block_kind(
                     frame,
                     last_sent.unwrap(),
                     period,
                     block,
+                    keyframe,
                 );
                 self.adaptive_bitrate.lock().unwrap().on_block(block);
                 let mut fec = self.adaptive_fec.lock().unwrap();

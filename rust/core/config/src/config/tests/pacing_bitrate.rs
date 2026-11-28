@@ -568,3 +568,31 @@ fn resetting_packet_pacing_restores_the_default() {
     assert_eq!(config.get("packet_pacing", ""), "always");
     assert!(!config.values.contains_key("host_adaptive_pacing"));
 }
+
+#[test]
+fn adaptive_pacing_after_loss_only_applies_to_wired_auto_conventional_streams() {
+    let wired = [true, true, true, false];
+    let off = [false; 4];
+    for (text, expected_wired) in [
+        ("", wired),
+        ("packet_pacing=auto", wired),
+        ("packet_pacing=0", wired),
+        ("packet_pacing=off", off),
+        ("packet_pacing=always", off),
+        ("packet_pacing=80000", off),
+        ("keyframe_loss_pacing=false", off),
+    ] {
+        let config = super::Config::parse(text).unwrap();
+        for codec in 0..4u8 {
+            assert_eq!(
+                config.adaptive_pacing_after_loss(codec, false),
+                expected_wired[usize::from(codec)],
+                "wired codec {codec}: {text}"
+            );
+            assert!(
+                !config.adaptive_pacing_after_loss(codec, true),
+                "wireless codec {codec}: {text}"
+            );
+        }
+    }
+}

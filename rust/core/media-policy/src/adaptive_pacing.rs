@@ -9,16 +9,10 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use crate::adaptive_fec::Block;
-
-/// Rolling window for the RTT floor used to detect delay growth without
-/// locking onto a one-off minimum from an earlier route state.
-const RTT_FLOOR_WINDOW: Duration = Duration::from_secs(30);
-const RTT_FLOOR_BUCKETS: usize = 32;
-/// Excess RTT over the rolling floor required before an unknown-link wireless
-/// stream treats delay as a standing queue rather than ordinary Wi-Fi jitter.
-const QUEUE_DELAY_MARGIN: Duration = Duration::from_millis(15);
-/// Continuous busy, non-draining queue delay required before stepping down.
-const QUEUE_DELAY_HOLD: Duration = Duration::from_secs(2);
+mod post_loss;
+mod rtt_watch;
+use post_loss::{PostLoss, PostLossConfig};
+use rtt_watch::{QUEUE_DELAY_MARGIN, QueueWatch};
 
 #[derive(Clone, Copy, Default)]
 pub struct Traffic {
@@ -104,12 +98,8 @@ pub struct AdaptivePacing {
     /// control loop supplies the new sent-frame fence before sampling again.
     awaiting_fence: bool,
     recovery_hold: Duration,
-}
-
-#[derive(Clone, Copy)]
-struct QueueWatch {
-    started: Instant,
-    min_excess: Duration,
+    /// Wired post-loss refinement (`None` for Wi-Fi/`Always`/`Off`).
+    post_loss: Option<PostLoss>,
 }
 
 struct Probe {
@@ -151,6 +141,33 @@ impl AdaptivePacing {
             probe: None,
             awaiting_fence: false,
             recovery_hold: Duration::from_secs(8),
+            post_loss: None,
+        }
+    }
+
+    /// Start adaptive pacing after sustained loss, seeded at twice the bitrate
+    /// and fenced so reports up to `after_frame` from the prior rate cannot
+    /// trigger an immediate cut.
+    pub fn new_after_loss(after_frame: Option<u32>, failed_bps: Option<u64>) -> Self {
+        Self::new_after_loss_with(after_frame, failed_bps, PostLossConfig::DEFAULT)
+    }
+
+    /// Start post-loss adaptive pacing with an explicit [`PostLossConfig`].
+    pub(self) fn new_after_loss_with(
+        after_frame: Option<u32>,
+        failed_bps: Option<u64>,
+        config: PostLossConfig,
+    ) -> Self {
+        let mut pacing = Self::new(true);
+        pacing.after_frame = after_frame;
+        pacing.post_loss = Some(PostLoss::new(failed_bps, config));
+        pacing
+    }
+
+    /// Update the active FEC percentage (used by post-loss low-FEC probe guards).
+    pub fn set_fec_percent(&mut self, fec_percent: usize) {
+        if let Some(post_loss) = &mut self.post_loss {
+            post_loss.set_fec_percent(fec_percent);
         }
     }
 
@@ -177,11 +194,13 @@ impl AdaptivePacing {
 
     fn effective_ceiling(
         wireless_unknown_link: bool,
+        post_loss: Option<&PostLoss>,
         route_ceiling: u64,
         needed: u64,
         encoder_kbps: u32,
     ) -> u64 {
-        let route_ceiling = route_ceiling.max(1);
+        let route_ceiling =
+            post_loss.map_or(route_ceiling.max(1), |p| p.ceiling(route_ceiling, needed));
         if wireless_unknown_link {
             crate::network_pacing::wireless_unknown_link_ceiling_bps(
                 route_ceiling,
@@ -193,6 +212,20 @@ impl AdaptivePacing {
         }
     }
 
+    fn refresh_bounds(&mut self, needed: u64, encoder_kbps: u32) {
+        self.ceiling = Self::effective_ceiling(
+            self.wireless_unknown_link,
+            self.post_loss.as_ref(),
+            self.route_ceiling,
+            needed,
+            encoder_kbps,
+        );
+        self.floor = needed
+            .saturating_add(needed / 4)
+            .max(1_000_000)
+            .min(self.ceiling);
+    }
+
     /// Refresh on each frame: FEC, FPS, bitrate and the route can change.
     /// The physical/configured ceiling wins when the requested stream cannot
     /// fit. The caller reports that shortfall; this controller cannot fix it.
@@ -202,16 +235,7 @@ impl AdaptivePacing {
         let previous_ceiling = self.ceiling;
         let previous_floor = self.floor;
         self.route_ceiling = route_ceiling.max(1);
-        self.ceiling = Self::effective_ceiling(
-            self.wireless_unknown_link,
-            self.route_ceiling,
-            needed,
-            encoder_kbps,
-        );
-        self.floor = needed
-            .saturating_add(needed / 4)
-            .max(1_000_000)
-            .min(self.ceiling);
+        self.refresh_bounds(needed, encoder_kbps);
         if !self.enabled {
             return route_ceiling;
         }
@@ -249,6 +273,10 @@ impl AdaptivePacing {
                     // failed probe or restart fast startup probing.
                     self.startup = false;
                     self.recovery_hold = (self.recovery_hold * 2).min(Duration::from_secs(60));
+                    if let Some(post_loss) = &mut self.post_loss {
+                        post_loss.on_probe_loss(probe.stable);
+                        self.refresh_bounds(needed, encoder_kbps);
+                    }
                 }
                 true
             } else {
@@ -308,8 +336,13 @@ impl AdaptivePacing {
             return route_ceiling;
         }
         let route_ceiling = route_ceiling.max(1);
-        let ceiling =
-            Self::effective_ceiling(wireless_unknown_link, route_ceiling, needed, encoder_kbps);
+        let ceiling = Self::effective_ceiling(
+            wireless_unknown_link,
+            self.post_loss.as_ref(),
+            route_ceiling,
+            needed,
+            encoder_kbps,
+        );
         let floor = needed
             .saturating_add(needed / 4)
             .max(1_000_000)
@@ -346,6 +379,18 @@ impl AdaptivePacing {
     /// distinct lost frames, not their (up to four) block reports. Delayed
     /// reports must not penalize the replacement rate for an earlier burst.
     pub fn on_block(&mut self, frame: u32, last_sent: u32, period: Duration, block: Block) {
+        self.on_block_kind(frame, last_sent, period, block, false);
+    }
+
+    /// Like [`Self::on_block`], with whether `frame` was sent as a keyframe.
+    pub fn on_block_kind(
+        &mut self,
+        frame: u32,
+        last_sent: u32,
+        period: Duration,
+        block: Block,
+        keyframe: bool,
+    ) {
         let recent_frames =
             (Duration::from_secs(2).as_nanos() / period.as_nanos().max(1)).clamp(1, 1024) as u32;
         if !self.enabled
@@ -364,6 +409,9 @@ impl AdaptivePacing {
         self.reported_frames
             .retain(|(seen, _)| last_sent.wrapping_sub(*seen) < recent_frames);
         let failed = matches!(block, Block::Unrecoverable);
+        if failed && let Some(post_loss) = &mut self.post_loss {
+            post_loss.on_failed_block(keyframe);
+        }
         if let Some((_, was_failed)) = self
             .reported_frames
             .iter_mut()
@@ -419,6 +467,9 @@ impl AdaptivePacing {
             self.failed_frames = 0;
             self.lost_packets = 0;
             self.any_loss = false;
+            if let Some(post_loss) = &mut self.post_loss {
+                post_loss.clear_keyframe_failed();
+            }
         }
         let Some((previous, before)) = self.last_sample else {
             self.last_sample = Some((now, traffic));
@@ -435,7 +486,12 @@ impl AdaptivePacing {
         let frames = traffic.frames.saturating_sub(before.frames);
         let packets = traffic.packets.saturating_sub(before.packets);
         let loss = std::mem::take(&mut self.any_loss) || traffic.send_losses > before.send_losses;
-        let substantial = self.failed_frames >= 2
+        let keyframe_failed = self
+            .post_loss
+            .as_mut()
+            .is_some_and(PostLoss::take_keyframe_failed);
+        let substantial = keyframe_failed
+            || self.failed_frames >= 2
             || (self.lost_frames >= 2 && packets > 0 && self.lost_packets >= packets.div_ceil(50));
         self.lost_frames = 0;
         self.failed_frames = 0;
@@ -461,10 +517,17 @@ impl AdaptivePacing {
                 // the quiet period before another attempt (up to a minute).
                 self.recovery_hold = (self.recovery_hold * 2).min(Duration::from_secs(60));
                 reason = Some(PacingReason::ProbeLoss);
+                if let Some(post_loss) = &mut self.post_loss {
+                    post_loss.on_probe_loss(probe.stable);
+                }
                 probe.stable
             } else {
                 reason = Some(PacingReason::PacketLoss);
-                old / 2
+                if let Some(post_loss) = &mut self.post_loss {
+                    post_loss.packet_loss_rate(old, self.floor, self.ceiling)
+                } else {
+                    old / 2
+                }
             };
             self.limit = Some(next.clamp(self.floor, self.ceiling));
             self.startup = false;
@@ -593,7 +656,9 @@ impl AdaptivePacing {
                         self.recovery_hold
                     };
                     if self.probe.is_none() && now.saturating_duration_since(clean) >= hold {
-                        if old < self.ceiling {
+                        if !self.post_loss.as_ref().is_none_or(PostLoss::probe_allowed) {
+                            // Hold the current safe rate when low FEC leaves too little parity for probes.
+                        } else if old < self.ceiling {
                             let step = if self.startup {
                                 // Smaller probes leave ordinary FEC more room to
                                 // repair losses while feedback returns. This is
@@ -641,56 +706,6 @@ impl AdaptivePacing {
             reason,
             reason_changed,
         })
-    }
-
-    fn observe_rtt(&mut self, now: Instant, rtt: Duration) {
-        match self.rtt_floor.back_mut() {
-            Some((at, low)) if now.saturating_duration_since(*at) < Duration::from_secs(1) => {
-                *low = (*low).min(rtt);
-            }
-            _ => {
-                if self.rtt_floor.len() >= RTT_FLOOR_BUCKETS {
-                    self.rtt_floor.pop_front();
-                }
-                self.rtt_floor.push_back((now, rtt));
-            }
-        }
-        while self
-            .rtt_floor
-            .front()
-            .is_some_and(|(at, _)| now.saturating_duration_since(*at) > RTT_FLOOR_WINDOW)
-        {
-            self.rtt_floor.pop_front();
-        }
-    }
-
-    fn rtt_floor(&self) -> Option<Duration> {
-        self.rtt_floor.iter().map(|(_, low)| *low).min()
-    }
-
-    fn advance_queue_watch(
-        &mut self,
-        now: Instant,
-        excess: Duration,
-        prior_started: Option<Instant>,
-    ) -> bool {
-        let Some(watch) = &mut self.queue_watch else {
-            let started = prior_started.unwrap_or(now);
-            self.queue_watch = Some(QueueWatch {
-                started,
-                min_excess: excess,
-            });
-            return now.saturating_duration_since(started) >= QUEUE_DELAY_HOLD;
-        };
-        if excess < watch.min_excess {
-            // ENet's smoothed RTT reached a new lower excess since the hold
-            // started, so delay is actively draining toward the floor. Wait
-            // instead of stepping pacing down through the decay tail.
-            watch.started = now;
-            watch.min_excess = excess;
-            return false;
-        }
-        now.saturating_duration_since(watch.started) >= QUEUE_DELAY_HOLD
     }
 
     pub fn snapshot(&self) -> serde_json::Value {

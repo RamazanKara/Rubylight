@@ -202,13 +202,18 @@ impl InlineSender {
     ) -> Result<()> {
         // A large picture or feedback can make even a fast
         // route block capture. Hand off before that frame sends.
+        let automatic_pacing = self.automatic_pacing || ctx.s.automatic_pacing_enabled();
         let loss_paced =
             self.send_thread && self.video_sender.get().is_none() && ctx.s.keyframe_loss_active();
         // A streamed frame stays on this path until its last unit.
         if !(self.send_thread
             && self.video_sender.get().is_none()
             && !slices::open(&self.slice_route, &self.streaming)
-            && (!self.sender_decided || !output.is_empty() || self.inline_paced || loss_paced))
+            && (!self.sender_decided
+                || !output.is_empty()
+                || self.inline_paced
+                || loss_paced
+                || automatic_pacing))
         {
             return Ok(());
         }
@@ -242,7 +247,7 @@ impl InlineSender {
         if std::mem::take(&mut self.inline_paced)
             || loss_paced
             || large_frame
-            || self.automatic_pacing
+            || automatic_pacing
             || self.send_jitter_set
             || butterpollo_media_policy::network_pacing::paced(bps, needed)
         {
@@ -272,7 +277,7 @@ impl InlineSender {
                 pacing_bps = bps,
                 bitrate_kbps = bitrate,
                 wire_budget_bps = needed,
-                automatic_pacing = self.automatic_pacing,
+                automatic_pacing,
                 large_frame,
                 send_jitter = self.send_jitter_set,
                 mid_stream,

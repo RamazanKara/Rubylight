@@ -40,6 +40,8 @@ mod native;
 mod pairing;
 mod poll;
 mod power;
+pub(crate) mod wake_relay;
+pub(crate) mod wake_relay_worker;
 
 pub use covers::*;
 pub use host::{Host, NativeRead};
@@ -144,6 +146,10 @@ pub struct Hosts {
     merged_into: HashMap<u64, u64>,
     /// In-flight `/cancel` requests so shutdown can wait for quit-on-leave to finish.
     pending_quits: Vec<Arc<(Mutex<bool>, Condvar)>>,
+    /// Per-host away wake relay bundles (`wake-relay-keys.json`).
+    wake_relay_keys: wake_relay::KeysStore,
+    /// Active away-wake request cancel flag (`(host_id, run, cancel)`).
+    wake_cancel: Option<(u64, u64, Arc<std::sync::atomic::AtomicBool>)>,
     /// The demo's PCs while a first-run page shows a shorter list.
     #[cfg(feature = "demo-library")]
     pub(crate) demo_shelf: Vec<Host>,
@@ -287,6 +293,8 @@ impl Hosts {
             cover_worker: None,
             merged_into: HashMap::new(),
             pending_quits: Vec::new(),
+            wake_relay_keys: wake_relay::KeysStore::default(),
+            wake_cancel: None,
             #[cfg(feature = "demo-library")]
             demo_shelf: Vec::new(),
         };
@@ -559,11 +567,22 @@ impl Hosts {
         true
     }
 
+    pub fn load_wake_relay_keys(&mut self, dir: &std::path::Path) {
+        self.wake_relay_keys = wake_relay::KeysStore::open(dir);
+    }
+
     pub fn remove(&mut self, id: u64) {
+        if self.wake_cancel.as_ref().is_some_and(|(hid, ..)| *hid == id) {
+            self.cancel_wake();
+        }
+        let uid = self.get(id).map(|h| h.record.unique_id.clone());
         self.list.retain(|h| h.id != id);
         self.link_claims.remove(&id);
         self.merged_into.retain(|&k, &mut v| k != id && v != id);
         self.drop_workers(id);
+        if let Some(uid) = uid.filter(|u| !u.is_empty() && !self.list.iter().any(|h| h.record.unique_id == *u)) {
+            self.wake_relay_keys.forget(&uid);
+        }
     }
 
     /// Follows any `unique_id` merges so an old host ID resolves to the surviving PC record.

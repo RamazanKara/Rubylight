@@ -210,6 +210,7 @@ settings_fields!(
     plain language,
     plain check_updates,
     plain post_stream_decode_time,
+    plain wake_relay,
     ;
     retired "adaptive_bitrate" => retired_busy_bitrate,
     retired "client_hint_bitrate" => retired_lost_bitrate,

@@ -117,15 +117,20 @@ pub(super) fn stored_favourite<'a>(host: &Host, app: u32, favourites: &'a [crate
     favourites.iter().find(|f| !unique_id.is_empty() && f.host == unique_id && f.app_id == app)
 }
 
-/// "Waking <PC>…" while the wake packets go out, with a way to stop.
-pub(in crate::ui) fn waking(ctx: &egui::Context, host: &str, commands: &mut Vec<Command>) {
+/// "Waking <PC>…" while the wake packets go out or a wake relay is asked, with a way to stop.
+pub(in crate::ui) fn waking(ctx: &egui::Context, waking: &WakingView, commands: &mut Vec<Command>) {
     modal(ctx, "waking", |ui| {
         ui.set_width(400.0);
-        ui.label(RichText::new(trf("Waking {}…", &[&host])).font(semibold(text::SECTION)));
+        ui.label(RichText::new(trf("Waking {}…", &[&waking.host])).font(semibold(text::SECTION)));
         ui.add_space(space::M);
         ui.horizontal(|ui| {
             spinner(ui, 10.0);
-            ui.label(RichText::new(tr("Sending Wake-on-LAN until the PC answers.")).color(ON_SURFACE));
+            let line = if waking.status.is_empty() {
+                tr("Sending Wake-on-LAN until the PC answers.").to_owned()
+            } else {
+                waking.status.clone()
+            };
+            ui.add(egui::Label::new(RichText::new(line).color(ON_SURFACE)).wrap());
         });
         dialog_buttons(ui, |ui| {
             let r = quiet_button(ui, "Cancel");

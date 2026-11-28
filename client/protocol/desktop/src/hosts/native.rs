@@ -47,6 +47,7 @@ impl Hosts {
             host.native.full_at = Some(Instant::now());
         }
         let approves = host.native.capabilities.as_ref().is_some_and(NativeCapabilities::may_approve_pairing);
+        let server_caps = host.info.as_ref().map_or(nightjar_policy::http::HostCapabilities::UNKNOWN, |i| i.capabilities.clone());
         host.native_seq += 1;
         let (epoch, seq) = (host.native_epoch, host.native_seq);
         let record = host.connect_record();
@@ -72,6 +73,10 @@ impl Hosts {
                         }
                     }
                 });
+                let wake_relay = capabilities.as_ref().and_then(|c| {
+                    let offered = server_caps.with_native(c).has(Feature::AwayWakeRelay);
+                    super::wake_relay::fetch_sync(&client, offered)
+                });
                 let update = capabilities.as_ref().and_then(|c| {
                     if !c.capabilities.features.iter().any(|f| f == nightjar_core::http::FEATURE_UPDATE) {
                         return None;
@@ -91,7 +96,7 @@ impl Hosts {
                 // one, Home still has the games and shows the session error beside them.
                 match (&session, full) {
                     (Err(e), false) => Err(e.clone()),
-                    _ => Ok(Box::new(NativeRead { capabilities, library, session, wake, update, pairing_requests })),
+                    _ => Ok(Box::new(NativeRead { capabilities, library, session, wake, wake_relay, update, pairing_requests })),
                 }
             });
             Some(Event::Native { id, epoch, seq, result })

@@ -272,6 +272,7 @@ pub(super) fn draw_controls_sections(
         setting_row(ui, s, rows, &["input_only_any_host"], "Input-only on any PC", "Offers Input-only on PCs without that mode: this device only sends input, for a game shown on another screen. The PC still sends a small stream, under 1 Mbps.", |ui, s| {
             toggle(ui, &mut s.input_only_any_host)
         });
+        draw_wake_relay_row(ui, s, rows, ctx.wake_relay, commands);
     }
 
     if !layered {
@@ -435,4 +436,96 @@ pub(super) fn draw_controls_sections(
     ctx.open_help = open_help;
     ctx.open_page = open_page;
     ctx.open_section = open_section;
+}
+
+fn wake_relay_status_note(status: &WakeRelayView) -> Option<(String, bool)> {
+    if status.conflict {
+        return Some((
+            tr("Already running outside Nightjar (nightjar wake-relay).").to_owned(),
+            true,
+        ));
+    }
+    if status.paused_for_stream {
+        return Some((tr("Paused while streaming.").to_owned(), false));
+    }
+    if status.running {
+        let mut parts = Vec::new();
+        let mut warn = false;
+        if status.targets > 0 {
+            let pcs = if status.targets == 1 {
+                tr("1 PC").to_owned()
+            } else {
+                trf("{} PCs", &[&status.targets])
+            };
+            let devs = match status.devices {
+                0 => tr("no devices").to_owned(),
+                1 => tr("1 device").to_owned(),
+                n => trf("{} devices", &[&n]),
+            };
+            parts.push(trf("Relaying for {} ({}).", &[&pcs, &devs]));
+        } else if status.refused > 0 {
+            warn = true;
+            if status.refused == 1 {
+                parts.push(tr("Not enrolled yet: 1 PC refused this relay.").to_owned());
+            } else {
+                parts.push(trf("Not enrolled yet: {} PCs refused this relay.", &[&status.refused]));
+            }
+        } else {
+            parts.push(tr("Waiting for a paired PC on this network to allow away wake relays.").to_owned());
+        }
+        if let Some(last) = &status.last_wake {
+            parts.push(trf("Last wake: {}.", &[&last]));
+        }
+        if status.symmetric_nat {
+            warn = true;
+            parts.push(tr("Symmetric NAT: only devices behind a cone NAT can reach this relay.").to_owned());
+        }
+        if let Some(error) = &status.error {
+            warn = true;
+            parts.push(error.clone());
+        }
+        return Some((parts.join(" "), warn));
+    }
+    if let Some(error) = &status.error {
+        return Some((error.clone(), true));
+    }
+    if status.has_saved {
+        return Some((tr("Off (enrollments kept for next start).").to_owned(), false));
+    }
+    None
+}
+
+fn draw_wake_relay_row(
+    ui: &mut Ui,
+    s: &mut Settings,
+    rows: &mut Rows<'_>,
+    status: &WakeRelayView,
+    commands: &mut Vec<Command>,
+) {
+    if let Some((note, warn)) = wake_relay_status_note(status) {
+        rows.note(note, if warn { *WARN } else { *ON_SURFACE_VARIANT });
+    }
+    let shown = setting_row(ui, s, rows, &["wake_relay"], "Act as a LAN wake relay", "Lets paired devices away from home wake PCs on this local network through this computer, without forwarding ports. Pauses while streaming.", |ui, s| toggle(ui, &mut s.wake_relay)).is_some();
+    if !shown || status.conflict {
+        return;
+    }
+    let can_reenroll = s.wake_relay && status.running && !status.paused_for_stream;
+    let can_leave = status.running || status.has_saved;
+    if !can_reenroll && !can_leave {
+        return;
+    }
+    group_row(ui, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(tr("Wake relay actions")).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+            ui.add_space(space::S);
+            ui.add_enabled_ui(!status.busy, |ui| {
+                if can_reenroll && quiet_button(ui, "Re-enroll").clicked() {
+                    commands.push(Command::WakeRelayReenroll);
+                }
+                if can_leave && quiet_button(ui, "Leave").clicked() {
+                    commands.push(Command::WakeRelayLeave);
+                }
+            });
+        });
+    });
 }

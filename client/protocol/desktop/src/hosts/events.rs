@@ -230,6 +230,7 @@ impl Hosts {
                 Event::Native { id, epoch, seq, result } => {
                     let mut reload_apps = false;
                     let mut save = false;
+                    let mut wake_relay_sync = None;
                     // A read that started before an unpair says nothing about the PC now.
                     if let Some(host) = self.get_mut(id).filter(|h| h.native_epoch == epoch && h.record.server_certificate.is_some()) {
                         host.native.loading = false;
@@ -245,6 +246,9 @@ impl Hosts {
                                         merge_native(info, Some(&capabilities));
                                     }
                                     host.native.capabilities = Some(capabilities);
+                                }
+                                if let Some(sync) = read.wake_relay {
+                                    wake_relay_sync = Some((host.record.unique_id.clone(), sync));
                                 }
                                 if let Some((macs, broadcasts)) = read.wake
                                     && (host.record.wake_macs != macs || host.record.wake_broadcasts != broadcasts) {
@@ -282,6 +286,9 @@ impl Hosts {
                             }
                         }
                     }
+                    if let Some((uid, sync)) = wake_relay_sync {
+                        self.wake_relay_keys.apply(&uid, sync);
+                    }
                     if save && !self.library_saves.contains(&id) {
                         self.library_saves.push(id);
                     }
@@ -308,6 +315,16 @@ impl Hosts {
                 Event::Wake { id, run, result } => {
                     self.poll_one(id);
                     out.push(Event::Wake { id, run, result });
+                }
+                event @ Event::WakeProgress { .. } => out.push(event),
+                Event::WakeRelayDone { id, run, name, outcome, relays } => {
+                    if self.wake_cancel.as_ref().is_some_and(|(hid, r, _)| *hid == id && *r == run) {
+                        self.wake_cancel = None;
+                    }
+                    if outcome != super::wake_relay::Outcome::Cancelled {
+                        self.poll_one(id);
+                    }
+                    out.push(Event::WakeRelayDone { id, run, name, outcome, relays });
                 }
                 event @ Event::Sleep { .. } => out.push(event),
                 event @ Event::PcPower { .. } => out.push(event),
@@ -548,6 +565,7 @@ impl Hosts {
     }
 
     fn store_info(&mut self, index: usize, address: String, path: InfoPath, result: Result<Box<ServerInfo>, String>) -> bool {
+        let mut forget_uid: Option<String> = None;
         let host = &mut self.list[index];
         let mut changed = false;
         match result {
@@ -578,6 +596,7 @@ impl Hosts {
                 if host.record.unique_id != info.unique_id {
                     // Another PC answers at this address: what the old one said and allowed is not its.
                     if !host.record.unique_id.is_empty() {
+                        forget_uid = Some(host.record.unique_id.clone());
                         host.record.notices.clear();
                         host.record.other_http_ports.clear();
                         host.record.full_chroma = Default::default();
@@ -615,6 +634,9 @@ impl Hosts {
                         path != InfoPath::CertificateMismatch,
                     )
                 {
+                    if !host.record.unique_id.is_empty() && forget_uid.is_none() {
+                        forget_uid = Some(host.record.unique_id.clone());
+                    }
                     host.record.server_certificate = None;
                     host.apps = Apps::NotLoaded;
                     // Its grants (folders, files, USB, co-op) went with the pairing; a read in flight is dropped.
@@ -636,6 +658,11 @@ impl Hosts {
             }
         }
         host.sync_classic();
+        if let Some(uid) = forget_uid
+            && !self.list.iter().any(|h| h.paired() && h.record.unique_id == uid)
+        {
+            self.wake_relay_keys.forget(&uid);
+        }
         changed
     }
 

@@ -631,3 +631,81 @@ fn missing_identity_or_host_on_pair_or_invite_emits_error_and_wakes() {
     ));
     assert_eq!(wakes.load(Ordering::SeqCst), 2);
 }
+
+#[test]
+fn away_wake_keys_follow_native_offerings_unpair_and_remove() {
+    use nightjar_core::http::native_api::wake_relay::{RelayCredential, WakeRelayBundle};
+    let dir = std::env::temp_dir().join(format!("nightjar-hosts-wakerelay-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let mut hosts = Hosts::without_discovery(vec![paired_record("uid-1")], Arc::new(|| {}));
+    hosts.load_wake_relay_keys(&dir);
+    let id = hosts.list[0].id;
+    let info = native_info_of("uid-1", true);
+    info_lands(&mut hosts, id, info);
+
+    let bundle = WakeRelayBundle {
+        target_id: "uid-1".into(),
+        epoch: 1,
+        device: "a".repeat(64),
+        relays: vec![RelayCredential { id: "r1".into(), name: "Home NUC".into(), secret: "b".repeat(64) }],
+    };
+    let epoch = hosts.get(id).unwrap().native_epoch;
+    let read = NativeRead {
+        pairing_requests: Vec::new(),
+        capabilities: Some(native_caps(&[], false)),
+        library: Some(library().into()),
+        session: Ok(session("idle")),
+        wake: None,
+        wake_relay: Some(crate::hosts::wake_relay::WakeRelaySync::Offered(Some(bundle.clone()))),
+        update: None,
+    };
+    send(&mut hosts, Event::Native { id, epoch, seq: 1, result: Ok(Box::new(read)) });
+    assert_eq!(
+        hosts.wake_relay_keys.get("uid-1"),
+        Some(crate::hosts::wake_relay::KeptEntry::Relays(bundle))
+    );
+
+    // Offline + not on home network selects away wake path and supports cancellation.
+    hosts.list[0].reach = Reach::Offline;
+    hosts.list[0].record.address = "198.51.100.42".into();
+    match hosts.start_wake(id, 1) {
+        WakeStart::Relay { initial_status } => assert!(initial_status.contains("Home NUC")),
+        other => panic!("expected Relay start, got {:?}", matches!(other, WakeStart::Lan)),
+    }
+    assert!(hosts.wake_cancel.is_some());
+    hosts.cancel_wake();
+    assert!(hosts.wake_cancel.is_none());
+
+    // Dropping offer forgets cached bundle.
+    let read_off = NativeRead {
+        pairing_requests: Vec::new(),
+        capabilities: Some(native_caps(&[], false)),
+        library: None,
+        session: Ok(session("idle")),
+        wake: None,
+        wake_relay: Some(crate::hosts::wake_relay::WakeRelaySync::NotOffered),
+        update: None,
+    };
+    send(&mut hosts, Event::Native { id, epoch, seq: 2, result: Ok(Box::new(read_off)) });
+    assert_eq!(hosts.wake_relay_keys.get("uid-1"), None);
+
+    // Re-store Offered(None) then test unpair / remove cleans it up.
+    let read_no_relays = NativeRead {
+        pairing_requests: Vec::new(),
+        capabilities: Some(native_caps(&[], false)),
+        library: None,
+        session: Ok(session("idle")),
+        wake: None,
+        wake_relay: Some(crate::hosts::wake_relay::WakeRelaySync::Offered(None)),
+        update: None,
+    };
+    send(&mut hosts, Event::Native { id, epoch, seq: 3, result: Ok(Box::new(read_no_relays)) });
+    assert_eq!(hosts.wake_relay_keys.get("uid-1"), Some(crate::hosts::wake_relay::KeptEntry::NoRelay));
+    assert!(matches!(hosts.start_wake(id, 2), WakeStart::NoRelay { .. }));
+    hosts.remove(id);
+    assert_eq!(hosts.wake_relay_keys.get("uid-1"), None);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

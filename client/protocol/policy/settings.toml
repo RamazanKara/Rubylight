@@ -4622,3 +4622,10 @@ default_expr = "false"
 scope = "global"
 override_allowed = false
 android_key = "checkbox_enable_post_stream_toast"
+
+[[desktop_setting]]
+key = "wake_relay"
+rust_type = "bool"
+default_expr = "false"
+scope = "global"
+override_allowed = false

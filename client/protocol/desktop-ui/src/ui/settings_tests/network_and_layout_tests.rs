@@ -534,3 +534,31 @@ fn home_wifi_ssid_controls_reflect_platform_support_and_keep_remove() {
     click_text(&mut f, "Remove");
     assert!(f.l.profiles.home_wifi.is_empty(), "{:?}", f.l.profiles.home_wifi);
 }
+
+#[test]
+fn act_as_a_lan_wake_relay_shows_live_status_and_actions_in_streaming() {
+    let mut f = settings_with(Settings::default());
+    f.l.settings_view.section = "Streaming";
+    open_folds(&mut f);
+    f.settle();
+    assert!(shows(&f, "Act as a LAN wake relay"), "{:?}", f.drawn);
+    assert!(!shows(&f, "Re-enroll") && !shows(&f, "Leave"), "{:?}", f.drawn);
+
+    f.l.settings.wake_relay = true;
+    f.l.wake_relay = WakeRelayView {
+        running: true,
+        targets: 2,
+        devices: 3,
+        last_wake: Some("Gaming PC: magic packets sent".into()),
+        symmetric_nat: true,
+        has_saved: true,
+        ..WakeRelayView::default()
+    };
+    f.settle();
+    let note_shown = |needle: &str| f.drawn.iter().any(|t| t.contains(needle));
+    assert!(note_shown("Relaying for 2 PCs (3 devices)."), "{:?}", f.drawn);
+    assert!(note_shown("Last wake: Gaming PC: magic packets sent."), "{:?}", f.drawn);
+    assert!(note_shown("Symmetric NAT: only devices behind a cone NAT can reach this relay."), "{:?}", f.drawn);
+    assert!(click_text(&mut f, "Re-enroll").iter().any(|c| matches!(c, Command::WakeRelayReenroll)));
+    assert!(click_text(&mut f, "Leave").iter().any(|c| matches!(c, Command::WakeRelayLeave)));
+}

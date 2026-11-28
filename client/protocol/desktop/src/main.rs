@@ -97,6 +97,9 @@ struct App {
     ending_probes: Vec<LaunchProbe>,
     /// The PC being woken and the clock of its resends ("Waking <PC>…").
     waking: wol::Wakes,
+    wake_away_relay: bool,
+    wake_status: String,
+    wake_relay_worker: hosts::wake_relay_worker::WakeRelayController,
     streaming: Option<(Streaming, TimerResolution)>,
     overlay: StreamOverlay,
     pending_power_handed: std::collections::HashMap<u64, hosts::Handed>,
@@ -504,6 +507,9 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         None => None,
     };
     hosts.load_cached_libraries(&store);
+    if !cfg!(feature = "demo-library") && !second_screen::this_process() {
+        hosts.load_wake_relay_keys(store.dir());
+    }
     // SteamGridDB and IGDB with the player's keys; the demo and the second screen stay offline.
     if !cfg!(feature = "demo-library") && !second_screen::this_process() {
         let agent = format!("Nightjar/{} ({})", VERSION, std::env::consts::OS);
@@ -585,6 +591,8 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         open_play::opened_by_player(cli.is_some(), std::env::var_os("NIGHTJAR_AUTOSTREAM").is_some(), opened_by_link),
         started,
     );
+    let store_dir = store.dir().to_path_buf();
+    let store_read_only = store.is_read_only();
     let mut app = App {
         window,
         renderer,
@@ -606,6 +614,13 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         packed_probed: None,
         ending_probes: Vec::new(),
         waking: wol::Wakes::default(),
+        wake_away_relay: false,
+        wake_status: String::new(),
+        wake_relay_worker: hosts::wake_relay_worker::WakeRelayController::new(
+            store_dir,
+            store_read_only,
+            waker.clone(),
+        ),
         streaming: None,
         overlay: StreamOverlay::default(),
         pending_power_handed: std::collections::HashMap::new(),
@@ -697,6 +712,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     }
 
     while app.running {
+        app.sync_wake_relay();
         app.updates.hold(app.streaming.is_some() || app.attempts.is_connecting() || app.network_launch.is_some() || app.probe.is_some());
         if app.streaming.is_some() {
             // The stream watches the network itself (`RoamWatch`), and the launcher's pages are

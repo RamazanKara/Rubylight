@@ -24,23 +24,43 @@ impl App {
         let (id, run) = (waking.host, waking.run);
         // A PC removed meanwhile has nothing left to wake.
         let Some(host) = self.hosts.get(id) else {
+            self.hosts.cancel_wake();
             self.waking.end();
+            self.wake_away_relay = false;
+            self.wake_status.clear();
             return;
         };
-        match waking.wait.next(host.reach == hosts::Reach::Online, Instant::now()) {
+        let (host_reach, host_name) = (host.reach, host.display_name().to_owned());
+        if self.wake_away_relay {
+            if host_reach == hosts::Reach::Online {
+                self.hosts.cancel_wake();
+                self.waking.end();
+                self.wake_away_relay = false;
+                self.wake_status.clear();
+            }
+            return;
+        }
+        match waking.wait.next(host_reach == hosts::Reach::Online, Instant::now()) {
             wol::Step::Send => self.hosts.wake(id, run),
             wol::Step::Wait => {}
             wol::Step::Online => self.waking.end(),
             wol::Step::TimedOut => {
-                let name = host.display_name().to_owned();
+                if let Some(status) = self.hosts.start_away_wake_fallback(id, run) {
+                    self.wake_away_relay = true;
+                    self.wake_status = status;
+                    return;
+                }
+                let hint = self.hosts.no_relay_hint(id);
                 self.waking.end();
-                self.launcher.notify(
-                    tr("The PC did not wake up"),
-                    trf(
-                        "{} did not answer within {} seconds. Check that Wake-on-LAN is on in its firmware and its network adapter settings.",
-                        &[&name, &wol::WakeWait::TIMEOUT.as_secs()],
-                    ),
+                let mut body = trf(
+                    "{} did not answer within {} seconds. Check that Wake-on-LAN is on in its firmware and its network adapter settings.",
+                    &[&host_name, &wol::WakeWait::TIMEOUT.as_secs()],
                 );
+                if let Some(hint) = hint {
+                    body.push_str("\n\n");
+                    body.push_str(&hint);
+                }
+                self.launcher.notify(tr("The PC did not wake up"), body);
             }
         }
     }

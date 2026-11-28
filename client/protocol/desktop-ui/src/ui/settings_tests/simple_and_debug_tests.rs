@@ -416,11 +416,11 @@ fn row_counts_at_defaults() {
 /// "Group incoming video packets" and none of Linux' renderer, display output, video planes and
 /// GPU power rows; Windows has rows of its own in their place.
 const ROWS_AT_DEFAULTS: usize = if cfg!(windows) {
-    101
+    102
 } else if cfg!(target_os = "macos") {
-    98
+    99
 } else {
-    103
+    104
 };
 
 /// Debug is listed only with "Show debug settings", while one of its settings is changed, while it

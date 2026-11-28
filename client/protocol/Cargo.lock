@@ -1526,6 +1526,7 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "rubylight-protocol",
+ "rubylight-traverse",
  "sdl3-sys",
  "serde",
  "serde_json",

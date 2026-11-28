@@ -164,6 +164,7 @@ pub const DESKTOP_SETTING_KEYS: &[&str] = &[
     "language",
     "check_updates",
     "post_stream_decode_time",
+    "wake_relay",
 ];
 
 /// Desktop `Settings` keys permitted in per-PC, per-game, or named profile overrides.
@@ -430,5 +431,6 @@ pub(super) fn default_settings() -> Settings {
         language: Language::System,
         check_updates: true,
         post_stream_decode_time: false,
+        wake_relay: false,
     }
 }

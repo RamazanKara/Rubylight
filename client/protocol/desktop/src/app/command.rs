@@ -134,10 +134,36 @@ impl App {
             Command::DenyPairing { host, request, name } => self.hosts.deny_pairing(host, request, name),
             Command::Wake(host) => {
                 if self.waking.start(host, Instant::now()) {
-                    self.wake_step();
+                    let run = self.waking.current().map_or(0, |w| w.run);
+                    match self.hosts.start_wake(host, run) {
+                        hosts::WakeStart::Lan => {
+                            self.wake_away_relay = false;
+                            self.wake_status.clear();
+                            self.wake_step();
+                        }
+                        hosts::WakeStart::Relay { initial_status } => {
+                            self.wake_away_relay = true;
+                            self.wake_status = initial_status;
+                        }
+                        hosts::WakeStart::NoRelay { name } => {
+                            self.waking.end();
+                            self.wake_away_relay = false;
+                            self.wake_status.clear();
+                            self.launcher.notify(
+                                tr("Could not wake the PC"),
+                                hosts::wake_relay::no_relay_message(&name),
+                            );
+                        }
+                        hosts::WakeStart::Missing => self.waking.end(),
+                    }
                 }
             }
-            Command::CancelWake => self.waking.end(),
+            Command::CancelWake => {
+                self.hosts.cancel_wake();
+                self.waking.end();
+                self.wake_away_relay = false;
+                self.wake_status.clear();
+            }
             Command::SleepOffer { host, ask } => self.hosts.sleep_offer(host, ask),
             Command::Sleep { host, ask, token, at } => {
                 let at = self
@@ -489,7 +515,10 @@ Redacted logs, oldest line first; addresses, PC names, user folders, PINs and cr
                 if self.streaming.is_none() && wanted_launcher != self.launcher_window_mode {
                     self.apply_launcher_window_mode();
                 }
+                self.sync_wake_relay();
             }
+            Command::WakeRelayReenroll => self.wake_relay_worker.reenroll(),
+            Command::WakeRelayLeave => self.wake_relay_worker.request_leave(),
             Command::RetryLaunch => {
                 if let Some((host, app, resume, kind)) = self.failed_launch.take() {
                     self.launch(host, app, resume, kind, LaunchFrom::Launcher);

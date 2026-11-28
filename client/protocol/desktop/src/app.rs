@@ -60,7 +60,31 @@ impl App {
         self.save_hosts_and_place();
     }
 
+    pub(crate) fn sync_wake_relay(&mut self) {
+        let enabled = self.launcher.settings.wake_relay
+            && !cfg!(feature = "demo-library")
+            && !second_screen::this_process();
+        self.wake_relay_worker.sync(
+            enabled,
+            self.streaming.is_some(),
+            self.hosts.identity().cloned(),
+        );
+        if let Some(leave) = self.wake_relay_worker.take_leave_finished() {
+            self.launcher.settings.wake_relay = false;
+            if let Err(e) = self.store.save_settings(&self.launcher.settings) {
+                eprintln!("nightjar: saving settings failed: {e}");
+            }
+            match leave {
+                Ok(()) => self.launcher.toast(tr("Left all PCs")),
+                Err(e) => self.launcher.notify(tr("Could not leave every PC"), e),
+            }
+        }
+        self.launcher.wake_relay = self.wake_relay_worker.status();
+    }
+
     pub(crate) fn shutdown(&mut self) {
+        self.hosts.cancel_wake();
+        self.wake_relay_worker.stop_and_join();
         self.save_edits();
         self.network_test = None;
         // Its decoders may run on the renderer's device, which goes with the process.

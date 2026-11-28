@@ -203,7 +203,106 @@ pub(super) fn sleep_confirmed(
         .map_err(format_sleep_failure)
 }
 
+/// How `Hosts::start_wake` starts waking a PC.
+pub enum WakeStart {
+    /// Local network Wake-on-LAN loop (`Hosts::wake`).
+    Lan,
+    /// Away wake relay request running in a worker thread with live status updates.
+    Relay { initial_status: String },
+    /// Host offers away wake relay, but has no enrolled relay for this device.
+    NoRelay { name: String },
+    /// Host is no longer listed.
+    Missing,
+}
+
 impl Hosts {
+    pub fn start_wake(&mut self, id: u64, run: u64) -> WakeStart {
+        let Some(host) = self.get(id) else {
+            return WakeStart::Missing;
+        };
+        let offline = host.reach != Reach::Online;
+        let on_network = super::wake_relay::on_pc_network(&host.record);
+        let kept = self.wake_relay_keys.get(&host.record.unique_id);
+        match super::wake_relay::choose_wake_path(offline, on_network, kept.as_ref()) {
+            super::wake_relay::WakePath::Lan => WakeStart::Lan,
+            super::wake_relay::WakePath::NoRelay => {
+                WakeStart::NoRelay { name: host.display_name().to_owned() }
+            }
+            super::wake_relay::WakePath::Relay(bundle) => {
+                if host.record.can_wake() {
+                    let record = host.record.clone();
+                    let _ = std::thread::Builder::new().name("wake-lan-hint".into()).spawn(move || {
+                        let _ = crate::wol::wake(&record);
+                    });
+                }
+                let initial_status =
+                    self.spawn_away_wake(id, run, host.display_name().to_owned(), *bundle);
+                WakeStart::Relay { initial_status }
+            }
+        }
+    }
+
+    pub fn start_away_wake_fallback(&mut self, id: u64, run: u64) -> Option<String> {
+        let host = self.get(id)?;
+        let super::wake_relay::KeptEntry::Relays(bundle) =
+            self.wake_relay_keys.get(&host.record.unique_id)?
+        else {
+            return None;
+        };
+        if bundle.relays.is_empty() {
+            return None;
+        }
+        Some(self.spawn_away_wake(id, run, host.display_name().to_owned(), bundle))
+    }
+
+    pub fn no_relay_hint(&self, id: u64) -> Option<String> {
+        let host = self.get(id)?;
+        match self.wake_relay_keys.get(&host.record.unique_id) {
+            Some(super::wake_relay::KeptEntry::NoRelay) => {
+                Some(super::wake_relay::no_relay_message(host.display_name()))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn cancel_wake(&mut self) {
+        if let Some((_, _, cancel)) = self.wake_cancel.take() {
+            cancel.store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+
+    fn spawn_away_wake(
+        &mut self,
+        id: u64,
+        run: u64,
+        pc: String,
+        bundle: nightjar_core::http::native_api::wake_relay::WakeRelayBundle,
+    ) -> String {
+        self.cancel_wake();
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.wake_cancel = Some((id, run, cancel.clone()));
+        let initial = super::wake_relay::starting_message(&bundle);
+        let sender = self.sender.clone();
+        let waker = self.waker.clone();
+        self.spawn("wake-relay", move || {
+            if cancel.load(std::sync::atomic::Ordering::Acquire) {
+                return Some(Event::WakeRelayDone {
+                    id,
+                    run,
+                    name: pc,
+                    outcome: super::wake_relay::Outcome::Cancelled,
+                    relays: Vec::new(),
+                });
+            }
+            let (outcome, relays) = super::wake_relay::run_away_wake(&bundle, &pc, &cancel, &mut |status| {
+                let _ = sender.send(Event::WakeProgress { id, run, status });
+                (waker)();
+            });
+            Some(Event::WakeRelayDone { id, run, name: pc, outcome, relays })
+        });
+        initial
+    }
+
     pub fn wake(&self, id: u64, run: u64) {
         let Some(host) = self.get(id) else { return };
         let record = host.record.clone();

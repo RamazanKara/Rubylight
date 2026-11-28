@@ -83,7 +83,7 @@ fn a_panel_blurs_the_whole_screen_from_the_pass_after_it_opens() {
     let mut f = Frames::new(record("PC", true, false), Reach::Online);
     crate::live_glass::set_tier(&f.ctx, crate::live_glass::Tier::Live);
     f.settle();
-    f.waking = Some("PC".to_owned());
+    f.waking = Some(WakingView::new("PC"));
     f.frame(vec![]);
     assert!(blurred_share(&f) > 0.99, "the waking card stands anywhere as a dialog does");
     f.waking = None;

@@ -47,7 +47,7 @@ pub(super) struct Frames {
     pub(super) drawn: Vec<String>,
     /// The same text with where it landed and the clip it was drawn in.
     pub(super) placed: Vec<(String, Rect, Rect)>,
-    pub(super) waking: Option<String>,
+    pub(super) waking: Option<WakingView>,
     /// A start under way, as app/launch.rs hands it over: the launch scene covers the launcher.
     pub(super) connecting: Option<ConnectingView>,
     /// Every texture change since the first frame, and the last frame's shapes, for screenshots.

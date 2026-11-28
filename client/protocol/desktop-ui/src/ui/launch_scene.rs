@@ -186,7 +186,9 @@ impl Launcher {
     /// start (`--host`, `--autostream`) reports and ends on.
     pub fn message_shown(&self) -> Option<String> {
         match &self.dialog {
-            Dialog::Message { title, body } => Some(format!("{title}: {body}")),
+            Dialog::Message { title, body } | Dialog::WakeFailed { title, body, .. } => {
+                Some(format!("{title}: {body}"))
+            }
             Dialog::ConnectFailed { body, .. } => Some(format!("{}: {body}", tr("The stream could not start"))),
             _ => None,
         }

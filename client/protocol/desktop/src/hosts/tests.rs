@@ -31,7 +31,7 @@ pub(crate) fn native_caps(features: &[&str], shared_folders: bool) -> NativeCapa
 /// A full native read of `id` with these capabilities lands, as the worker would send it.
 pub(crate) fn native_lands(hosts: &mut Hosts, id: u64, capabilities: NativeCapabilities) {
     let epoch = hosts.get(id).unwrap().native_epoch;
-    let read = NativeRead { pairing_requests: Vec::new(), capabilities: Some(capabilities), library: Some(library().into()), session: Ok(session("idle")), wake: None, update: None };
+    let read = NativeRead { pairing_requests: Vec::new(), capabilities: Some(capabilities), library: Some(library().into()), session: Ok(session("idle")), wake: None, wake_relay: None, update: None };
     send(hosts, Event::Native { id, epoch, seq: 1, result: Ok(Box::new(read)) });
 }
 
@@ -173,7 +173,7 @@ fn grants_go_when_the_pc_forgets_this_device_or_another_pc_answers() {
         assert_eq!(gated(&hosts), [false; 4], "{why}: no old grant opens a row or a gate");
         assert!(hosts.list[0].native.capabilities.is_none() && hosts.list[0].native.library.is_none(), "{why}");
         // A read that started before lands now: dropped.
-        let read = NativeRead { pairing_requests: Vec::new(), capabilities: Some(granted.clone()), library: Some(library().into()), session: Ok(session("idle")), wake: None, update: None };
+        let read = NativeRead { pairing_requests: Vec::new(), capabilities: Some(granted.clone()), library: Some(library().into()), session: Ok(session("idle")), wake: None, wake_relay: None, update: None };
         hosts.list[0].record.server_certificate = Some("pem".into());
         send(&mut hosts, Event::Native { id, epoch: in_flight, seq: 9, result: Ok(Box::new(read)) });
         assert!(hosts.list[0].native.capabilities.is_none(), "{why}: the old read is not taken in");
@@ -556,7 +556,7 @@ pub(super) fn session(state: &str) -> Session {
 }
 
 pub(super) fn full_read(session: Session) -> Box<NativeRead> {
-    Box::new(NativeRead { pairing_requests: Vec::new(), capabilities: None, library: Some(library().into()), session: Ok(session), wake: None, update: None })
+    Box::new(NativeRead { pairing_requests: Vec::new(), capabilities: None, library: Some(library().into()), session: Ok(session), wake: None, wake_relay: None, update: None })
 }
 
 #[test]

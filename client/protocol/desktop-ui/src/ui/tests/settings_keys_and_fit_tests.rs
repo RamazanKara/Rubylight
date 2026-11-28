@@ -76,6 +76,7 @@ fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
             Dialog::MoveFailed { host: id, app: 7 },
             Dialog::PairError { host: id, body: "PIN rejected. Generate a new one-time PIN in the PC’s web UI and check the passphrase.".into(), one_time: true },
             Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() },
+            Dialog::WakeFailed { host: id, title: "Could not wake the PC".into(), body: "Your wake relay (Living Room NUC) is offline.".into() },
             Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: None },
             Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: Some(("t".into(), Handed::now())) },
             Dialog::ConfirmPcPower { host: id, ask: 1, name: "A long name for a gaming PC".into(), action: PcPower::ShutDown, offer: None },
@@ -536,7 +537,7 @@ fn a_toast_stands_on_glass_the_page_does_not_read_through() {
 #[test]
 fn waking_shows_the_pc_and_cancel_stops_it() {
     let mut f = Frames::new(record("Den", true, true), Reach::Offline);
-    f.waking = Some("Den".into());
+    f.waking = Some(WakingView::new("Den"));
     f.settle();
     assert!(f.drawn.iter().any(|t| t == "Waking Den…"), "{:?}", f.drawn);
     assert!(f.press(Key::Escape).is_empty(), "Back does not leave the PC half woken");
@@ -544,6 +545,29 @@ fn waking_shows_the_pc_and_cancel_stops_it() {
     f.l.settings.language = Language::German;
     f.settle();
     assert!(f.drawn.iter().any(|t| t == "Den wird aufgeweckt…"), "{:?}", f.drawn);
+
+    // Away-wake live status text updates the modal body and Dialog::WakeFailed offers Retry.
+    f.l.settings.language = Language::English;
+    f.waking = Some(WakingView {
+        host: "Den".into(),
+        status: "Contacting your wake relay (Living Room NUC)…".into(),
+    });
+    f.settle();
+    assert!(
+        f.drawn.iter().any(|t| t.contains("Living Room NUC")),
+        "{:?}",
+        f.drawn
+    );
+    f.waking = None;
+    let id = f.hosts.list[0].id;
+    f.l.ask(Dialog::WakeFailed {
+        host: id,
+        title: "Could not wake the PC".into(),
+        body: "Nightjar could not reach your wake relay (Living Room NUC). Check that it is on and online, then try again.".into(),
+    });
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t == "Retry"), "{:?}", f.drawn);
+    assert!(matches!(f.press(Key::Enter)[..], [Command::Wake(h)] if h == id));
 }
 
 #[test]

@@ -67,7 +67,7 @@ pub use launch_scene::settings_line;
 pub use settings::{pick_display_choice, DISPLAY_CHOICES};
 pub(crate) use icons::Icon;
 use navigation::{destination_icon, page_area};
-pub use types::{Command, ConnectingView, Dialog, Screen, View, DESTINATIONS, GUIDES};
+pub use types::{Command, ConnectingView, Dialog, Screen, View, WakeRelayView, WakingView, DESTINATIONS, GUIDES};
 
 /// A PC in `Dialog::KeptSettings`: its name, whether it has settings of its own, and for how
 /// many games. Put into words as it is drawn, in the language chosen by then.
@@ -257,6 +257,8 @@ pub struct Launcher {
     toast: Option<(String, std::time::Instant)>,
     /// The PIN lock; None in tests that do not look at it.
     pub pin: Option<crate::pin_ui::PinLock>,
+    /// Live status of the desktop LAN wake relay, fed by `App`.
+    pub wake_relay: WakeRelayView,
 }
 
 const CONTENT_MAX: f32 = 1760.0;
@@ -374,6 +376,7 @@ impl Launcher {
             latency_bench: Default::default(),
             toast: None,
             pin: None,
+            wake_relay: WakeRelayView::default(),
         }
     }
 
@@ -558,8 +561,8 @@ impl Launcher {
             egui::Popup::close_all(&ctx);
         }
         self.dialogs(&ctx, &view, &mut commands);
-        if let Some(host) = &view.waking {
-            waking(&ctx, host, &mut commands);
+        if let Some(waking_view) = &view.waking {
+            waking(&ctx, waking_view, &mut commands);
         }
         self.button_hints(&ctx, &view);
         // A Files page left while it transfers: its transfers go on, and this opens it again. One

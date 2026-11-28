@@ -428,6 +428,9 @@ pub struct Settings {
     /// "Show decode time after streaming" (Android's `checkbox_enable_post_stream_toast`): when a
     /// stream ends, a notice gives its average decode time and codec. Off by default.
     pub post_stream_decode_time: bool,
+    /// Desktop-only: act as a wake relay on this local network so paired devices away from home
+    /// can wake PCs on this LAN. Off by default; paused while streaming.
+    pub wake_relay: bool,
 }
 
 impl Default for Settings {

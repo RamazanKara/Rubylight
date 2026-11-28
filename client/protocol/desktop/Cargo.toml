@@ -25,6 +25,7 @@ nightjar-desktop-media = { path = "../desktop-media" }
 nightjar-core = { path = "../client" }
 nightjar-policy = { path = "../policy" }
 rubylight-protocol = { path = "../core" }
+rubylight-traverse = { path = "../traverse" }
 egui = { version = "0.37", default-features = false, features = ["default_fonts"] }
 # Finds a face by name in a system font collection (font_loader.rs); egui already builds on it.
 skrifa = { version = "0.44", default-features = false, features = ["std"] }

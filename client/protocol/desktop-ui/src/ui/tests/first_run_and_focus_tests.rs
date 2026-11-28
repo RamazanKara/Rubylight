@@ -531,7 +531,7 @@ fn polish_screenshots() {
         f.l.ask(Dialog::ConnectionTest { host: pc, result: crate::network_test::Connection { latency_ms: Some(23.0), jitter_ms: Some(6.0), loss_percent: Some(10.0), speed: None } });
         shoot(&mut f, "dialog-connection-test-delay");
         f.l.close_dialog();
-        f.waking = Some("Office PC".into());
+        f.waking = Some(WakingView::new("Office PC"));
         shoot(&mut f, "waking");
         f.waking = None;
         // The launch scene: the game's cover in its ambient with its ring, then the card of a

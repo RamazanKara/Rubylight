@@ -28,6 +28,8 @@ pub struct NativeRead {
     /// PC without `wake`; None when they were not read, or the read failed (those adapters
     /// still belong to the PC).
     pub(super) wake: Option<(Vec<String>, Vec<String>)>,
+    /// `GET /wake/relay` where the PC offers away wake relay; `None` when not read this pass.
+    pub(super) wake_relay: Option<super::wake_relay::WakeRelaySync>,
     /// `GET /update` where the PC lists `update`; None when it does not, or the read failed.
     pub(super) update: Option<HostUpdate>,
     /// `GET /pairing/requests` where this device may approve; empty otherwise, or when the read failed.

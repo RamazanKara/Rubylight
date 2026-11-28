@@ -11,21 +11,29 @@
 //! runs unless the user starts it.
 
 use std::io::Write;
-use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+#[cfg(test)]
+use std::net::Ipv4Addr;
+
+#[cfg(test)]
+use nightjar_core::http::Error;
+#[cfg(test)]
 use nightjar_core::http::native_api::error::ErrorCode;
-use nightjar_core::http::native_api::wake_relay::RelayEnroll;
-use nightjar_core::http::{ClientIdentity, Error};
+use nightjar_core::http::ClientIdentity;
 use nightjar_core::wake_relay::driver::{
-    self, Ask, Driver, Interface, Nat, Note, Outcome, RelayStatus, Status, UdpLan, WakeRelayPeer,
-    is_lan,
+    self, Driver, Nat, Note, RelayStatus, Status, UdpLan, WakeRelayPeer,
 };
 use nightjar_core::wake_relay::saved;
 
 use crate::config::{HostRecord, Store};
+pub(crate) use crate::hosts::wake_relay_worker::{
+    LeaveStep, ask, display_name, interfaces, leave_saved, paired, try_acquire_process_lock,
+};
+#[cfg(test)]
+pub(crate) use crate::hosts::wake_relay_worker::{interface_of, left_already, on_this_network};
 
 /// `nightjar wake-relay`'s options.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -81,123 +89,6 @@ fn stopped() -> bool {
 /// A line on stdout; a reader that is gone is no reason to stop relaying.
 fn say(line: &str) {
     let _ = writeln!(std::io::stdout(), "{line}");
-}
-
-/// This device's IPv4 interfaces that are up, without loopback, for the magic packets.
-fn interfaces() -> Vec<Interface> {
-    match if_addrs::get_if_addrs() {
-        Ok(list) => list
-            .iter()
-            .filter(|interface| interface.is_oper_up() && !interface.is_loopback())
-            .filter_map(|interface| match &interface.addr {
-                if_addrs::IfAddr::V4(v4) => interface_of(v4.ip, v4.netmask),
-                if_addrs::IfAddr::V6(_) => None,
-            })
-            .collect(),
-        Err(_) => Vec::new(),
-    }
-}
-
-/// An interface from its address and netmask; `None` for loopback, no address, or a netmask
-/// that is not a prefix.
-fn interface_of(ip: Ipv4Addr, netmask: Ipv4Addr) -> Option<Interface> {
-    let mask = u32::from(netmask);
-    let prefix = mask.leading_ones();
-    if ip.is_loopback() || ip.is_unspecified() || mask.checked_shl(prefix).unwrap_or(0) != 0 {
-        return None;
-    }
-    Some(Interface {
-        ip,
-        prefix: u8::try_from(prefix).ok()?,
-    })
-}
-
-/// Whether the relay asks a PC at `address`: an IPv4 address of a home network, or a name. A PC
-/// takes an enrollment only from one of its own subnets, so a public, tunnelled or IPv6
-/// address would only earn a refusal.
-fn on_this_network(address: &str) -> bool {
-    let trimmed = address.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    let unbracketed = trimmed
-        .strip_prefix('[')
-        .and_then(|rest| rest.strip_suffix(']'))
-        .unwrap_or(trimmed);
-    let (candidate, stripped_zone) = match unbracketed.split_once('%') {
-        Some((host, _)) if host.contains(':') => (host, true),
-        _ => (unbracketed, false),
-    };
-    match candidate.parse::<IpAddr>() {
-        Ok(IpAddr::V4(ip)) if !stripped_zone => is_lan(ip),
-        Ok(IpAddr::V4(_)) | Ok(IpAddr::V6(_)) => false,
-        Err(_) => true,
-    }
-}
-
-/// The PC's addresses the relay asks it at, in the order a poll tries them.
-fn addresses(record: &HostRecord) -> Vec<String> {
-    let shared = record.to_shared_fields();
-    let reply = nightjar_core::hosts::poll::parse_internet_reply(record.internet_play.as_deref());
-    crate::hosts::poll_addresses(record)
-        .into_iter()
-        .filter(|address| on_this_network(address))
-        .filter(|address| {
-            !nightjar_core::hosts::poll::away_address(&shared, reply.as_ref(), address)
-        })
-        .collect()
-}
-
-fn display_name(record: &HostRecord) -> String {
-    record
-        .alias
-        .clone()
-        .filter(|alias| !alias.trim().is_empty())
-        .unwrap_or_else(|| record.name.clone())
-}
-
-/// The PCs saved and paired here.
-fn paired(store: &Store) -> Vec<HostRecord> {
-    nightjar_core::hosts::HostStore::open(store.dir())
-        .with_read_only(store.is_read_only())
-        .load_records::<HostRecord, _>(crate::config::keep_readable_settings_value)
-        .into_iter()
-        .filter(|record| record.server_certificate.is_some() && !record.unique_id.is_empty())
-        .collect()
-}
-
-/// Asks the PC; the first address that answers at all decides.
-fn ask(
-    identity: &Arc<ClientIdentity>,
-    record: &HostRecord,
-    asking: Ask,
-    name: Option<&str>,
-) -> Outcome {
-    let mut last = Outcome::Unreachable("no address of the PC on this network".into());
-    for address in addresses(record) {
-        let client = match crate::hosts::client_for(identity, record, &address) {
-            Ok(client) => client,
-            Err(why) => {
-                last = Outcome::Unreachable(why);
-                continue;
-            }
-        };
-        if asking == Ask::Enroll {
-            match driver::offered(client.native_capabilities()) {
-                Ok(()) => {}
-                Err(outcome @ Outcome::Unreachable(_)) => {
-                    last = outcome;
-                    continue;
-                }
-                Err(outcome) => return outcome,
-            }
-        }
-        match driver::outcome(client.enroll_wake_relay(&asking.request(name))) {
-            outcome @ Outcome::Unreachable(_) => last = outcome,
-            outcome => return outcome,
-        }
-    }
-    last
 }
 
 /// A PC's note as a line.
@@ -326,6 +217,15 @@ pub fn run(relay: &WakeRelay, store: &Store) -> i32 {
         eprintln!("nightjar: wake-relay: {why}");
         1
     };
+    let _lock = match try_acquire_process_lock(store.dir()) {
+        Ok(Some(lock)) => lock,
+        Ok(None) => {
+            return fail(
+                "another Nightjar wake relay is running in this settings folder; turn off \"Act as a LAN wake relay\" in Nightjar’s settings first".into(),
+            );
+        }
+        Err(e) => return fail(e.to_string()),
+    };
     let saved = match saved::load(store.dir()) {
         Ok(saved) => saved,
         Err(e) => return fail(e.to_string()),
@@ -429,80 +329,24 @@ pub fn run(relay: &WakeRelay, store: &Store) -> i32 {
 /// holds the secrets. A PC that cannot be told keeps listing the relay until it is removed in
 /// its console; the exit code is 1 then.
 fn leave(saved: &saved::Saved, identity: &Arc<ClientIdentity>, store: &Store) -> i32 {
-    let records = paired(store);
-    let mut code = 0;
-    for host in saved.hosts.iter().filter(|host| host.assignment.is_some()) {
-        let Some(record) = records.iter().find(|record| record.unique_id == host.host) else {
-            say(&format!(
-                "{}: not paired here any more; remove this relay in the PC's console",
-                host.name
-            ));
-            code = 1;
-            continue;
-        };
-        let name = display_name(record);
-        match leave_one(identity, record) {
-            Ok(true) => say(&format!("{name}: left")),
-            Ok(false) => say(&format!(
-                "{name}: this relay was not enrolled there any more"
+    let report = leave_saved(saved, identity, store.dir(), store.is_read_only());
+    for step in &report.steps {
+        match step {
+            LeaveStep::Left { name } => say(&format!("{name}: left")),
+            LeaveStep::AlreadyGone { name } => say(&format!("{name}: this relay was not enrolled there any more")),
+            LeaveStep::NotPaired { name } => say(&format!(
+                "{name}: not paired here any more; remove this relay in the PC's console"
             )),
-            Err(why) => {
-                say(&format!(
-                    "{name}: could not leave ({why}); remove this relay in the PC's console"
-                ));
-                code = 1;
-            }
+            LeaveStep::Failed { name, why } => say(&format!(
+                "{name}: could not leave ({why}); remove this relay in the PC's console"
+            )),
         }
     }
-    match saved::remove(store.dir()) {
-        Ok(()) => say(&format!("{} deleted", saved::FILE_NAME)),
-        Err(e) => {
-            eprintln!(
-                "nightjar: wake-relay: {} cannot be deleted: {e}",
-                saved::FILE_NAME
-            );
-            code = 1;
-        }
+    match &report.remove_error {
+        None => say(&format!("{} deleted", saved::FILE_NAME)),
+        Some(e) => eprintln!("nightjar: wake-relay: {} cannot be deleted: {e}", saved::FILE_NAME),
     }
-    code
-}
-
-/// Leaves one PC: whether it had this relay enrolled, or why it could not be told.
-fn leave_one(identity: &Arc<ClientIdentity>, record: &HostRecord) -> Result<bool, String> {
-    let mut last = Err("no address of the PC on this network".to_owned());
-    for address in addresses(record) {
-        let client = match crate::hosts::client_for(identity, record, &address) {
-            Ok(client) => client,
-            Err(why) => {
-                last = Err(why);
-                continue;
-            }
-        };
-        let error = match client.enroll_wake_relay(&RelayEnroll::Leave) {
-            Ok(_) => return Ok(true),
-            Err(error) => error,
-        };
-        if left_already(&error) {
-            return Ok(false);
-        }
-        match driver::of_error(&error) {
-            Outcome::Unreachable(why) => last = Err(why),
-            Outcome::Refused(why) | Outcome::Failed(why) | Outcome::NotOffered(why) => {
-                return Err(why);
-            }
-            Outcome::Assigned(_) => return Err("the PC answered with an assignment".into()),
-        }
-    }
-    last
-}
-
-/// Whether a `leave` failed only because the PC no longer has this relay.
-fn left_already(error: &Error) -> bool {
-    match error {
-        Error::Api { status, error } => *status == 404 || error.code == ErrorCode::NotFound,
-        Error::NotFound(_) | Error::Status { code: 404, .. } => true,
-        _ => false,
-    }
+    i32::from(report.had_failures)
 }
 
 #[cfg(test)]

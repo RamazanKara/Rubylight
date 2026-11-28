@@ -176,6 +176,10 @@ pub enum Command {
     Quit,
     /// Shut down, restart or sleep this PC, once confirmed (`Dialog::ConfirmPower`).
     Power(crate::power_types::Offer),
+    /// Ask the in-process LAN wake relay to re-enroll with PCs that previously refused it.
+    WakeRelayReenroll,
+    /// Leave all PCs this LAN wake relay enrolled with and delete saved assignments.
+    WakeRelayLeave,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -276,6 +280,8 @@ pub enum Dialog {
     ConfirmPreset(nightjar_policy::presets::Preset),
     Otp { host: u64, pin: String, passphrase: String, error: Option<String> },
     Message { title: String, body: String },
+    /// An away-wake attempt ended with an error where retrying may succeed.
+    WakeFailed { host: u64, title: String, body: String },
     /// The countdown of an automatic start (`open_play`): closing it any way cancels the start.
     OpenPlay { game: String, pc: String, left: u64 },
     /// Quit the running app, then start `start`. `resume` is the running app's id when the
@@ -368,11 +374,41 @@ pub struct ConnectingView {
     pub app_id: i32,
 }
 
+/// What the waking dialog shows while a PC is woken on the LAN or from away through a relay.
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+pub struct WakingView {
+    pub host: String,
+    /// Live status line while contacting/asking a wake relay; empty shows default LAN WoL copy.
+    pub status: String,
+}
+
+impl WakingView {
+    pub fn new(host: impl Into<String>) -> Self {
+        Self { host: host.into(), status: String::new() }
+    }
+}
+
+/// Live status of the desktop LAN wake relay shown in Settings -> Streaming.
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+pub struct WakeRelayView {
+    pub running: bool,
+    pub paused_for_stream: bool,
+    pub conflict: bool,
+    pub targets: usize,
+    pub devices: usize,
+    pub refused: usize,
+    pub last_wake: Option<String>,
+    pub symmetric_nat: bool,
+    pub error: Option<String>,
+    pub has_saved: bool,
+    pub busy: bool,
+}
+
 /// What the launcher shows, borrowed from the app each frame.
 pub struct View<'a> {
     pub hosts: &'a Hosts,
     pub pads: &'a crate::pads_view::PadsView,
     pub connecting: Option<ConnectingView>,
-    /// The name of the PC being woken.
-    pub waking: Option<String>,
+    /// The PC being woken and its live status.
+    pub waking: Option<WakingView>,
 }

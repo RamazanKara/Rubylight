@@ -266,18 +266,24 @@ impl Hosts {
 
     /// The PC no longer lists this device: drop the certificate and what needed it.
     pub(super) fn forget_pairing(&mut self, id: u64) {
-        let Some(host) = self.get_mut(id) else { return };
-        host.record.server_certificate = None;
-        host.apps = Apps::NotLoaded;
-        Arc::make_mut(&mut host.art).clear();
-        Arc::make_mut(&mut host.ambient).clear();
-        Arc::make_mut(&mut host.ambient_glow).clear();
-        Arc::make_mut(&mut host.art_versions).clear();
-        Arc::make_mut(&mut host.art_sized).clear();
-        Arc::make_mut(&mut host.art_retry).clear();
-        host.native = Native::default();
-        host.set_classic_apps(None);
-        host.native_epoch += 1;
+        let uid = {
+            let Some(host) = self.get_mut(id) else { return };
+            host.record.server_certificate = None;
+            host.apps = Apps::NotLoaded;
+            Arc::make_mut(&mut host.art).clear();
+            Arc::make_mut(&mut host.ambient).clear();
+            Arc::make_mut(&mut host.ambient_glow).clear();
+            Arc::make_mut(&mut host.art_versions).clear();
+            Arc::make_mut(&mut host.art_sized).clear();
+            Arc::make_mut(&mut host.art_retry).clear();
+            host.native = Native::default();
+            host.set_classic_apps(None);
+            host.native_epoch += 1;
+            host.record.unique_id.clone()
+        };
+        if !uid.is_empty() && !self.list.iter().any(|h| h.id != id && h.paired() && h.record.unique_id == uid) {
+            self.wake_relay_keys.forget(&uid);
+        }
     }
 }
 

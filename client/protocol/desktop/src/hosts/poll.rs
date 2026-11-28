@@ -139,6 +139,18 @@ pub enum Event {
         run: u64,
         result: Result<(), String>,
     },
+    WakeProgress {
+        id: u64,
+        run: u64,
+        status: String,
+    },
+    WakeRelayDone {
+        id: u64,
+        run: u64,
+        name: String,
+        outcome: super::wake_relay::Outcome,
+        relays: Vec<String>,
+    },
     /// A Sleep PC step: the offer to confirm, or (`confirmed`) the answer to the request. `ask`
     /// is the number the UI gave the request, so an answer to an earlier ask is told apart.
     Sleep {

@@ -6,7 +6,7 @@ use std::ops::RangeInclusive;
 /// Total Android settings rows documented in `settings.toml`.
 pub const ANDROID_SETTING_COUNT: usize = 196;
 /// Total Desktop `Settings` fields declared in `settings.toml`.
-pub const DESKTOP_SETTING_COUNT: usize = 148;
+pub const DESKTOP_SETTING_COUNT: usize = 149;
 
 /// Default Hold Guide to open the Control Center duration in milliseconds.
 pub const DEFAULT_GUIDE_MENU_HOLD_MS: u32 = 1000;

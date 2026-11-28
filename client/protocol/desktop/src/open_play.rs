@@ -559,7 +559,7 @@ impl crate::App {
             pin_screen: self.launcher.pin.as_ref().is_some_and(crate::pin_ui::PinLock::app_locked),
             no_dialog: matches!(dialog, Dialog::None),
             countdown: matches!(dialog, Dialog::OpenPlay { .. }),
-            message: matches!(dialog, Dialog::Message { .. } | Dialog::ConnectFailed { .. }),
+            message: matches!(dialog, Dialog::Message { .. } | Dialog::WakeFailed { .. } | Dialog::ConnectFailed { .. }),
             identity: self.hosts.identity().is_some(),
             host: host.map(|h| HostSeen {
                 reach: h.reach,

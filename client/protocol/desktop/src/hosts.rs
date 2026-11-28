@@ -68,6 +68,18 @@ pub use nightjar_desktop_ui::hosts_model::{
 /// A request a PC's own worker runs; what it returns is queued for the UI thread.
 type PcJob = Box<dyn FnOnce() -> Option<Event> + Send>;
 
+#[cfg(test)]
+pub(crate) type AwayWakeRunner = Arc<
+    dyn Fn(
+            &nightjar_core::http::native_api::wake_relay::WakeRelayBundle,
+            &str,
+            &std::sync::atomic::AtomicBool,
+            &mut dyn FnMut(String),
+        ) -> (wake_relay::Outcome, Vec<String>)
+        + Send
+        + Sync,
+>;
+
 /// Which of a PC's two workers runs a request. The timed background polls have their own, so a
 /// slow one (an away PC is tried over the internet too, for up to about 50 s) never holds up a
 /// check the user asked for or a native read.
@@ -150,6 +162,9 @@ pub struct Hosts {
     wake_relay_keys: wake_relay::KeysStore,
     /// Active away-wake request cancel flag (`(host_id, run, cancel)`).
     wake_cancel: Option<(u64, u64, Arc<std::sync::atomic::AtomicBool>)>,
+    /// Optional test override for `run_away_wake` so unit tests never bind `0.0.0.0:0` or send live STUN/DHT packets.
+    #[cfg(test)]
+    away_wake_runner: Option<AwayWakeRunner>,
     /// The demo's PCs while a first-run page shows a shorter list.
     #[cfg(feature = "demo-library")]
     pub(crate) demo_shelf: Vec<Host>,
@@ -295,6 +310,8 @@ impl Hosts {
             pending_quits: Vec::new(),
             wake_relay_keys: wake_relay::KeysStore::default(),
             wake_cancel: None,
+            #[cfg(test)]
+            away_wake_runner: None,
             #[cfg(feature = "demo-library")]
             demo_shelf: Vec::new(),
         };

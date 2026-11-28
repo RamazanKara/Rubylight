@@ -336,3 +336,139 @@ fn unreadable_list_names_removed_pc_or_unready_key() {
         crate::strings::tr("This PC is no longer in your list.")
     );
 }
+
+#[test]
+fn away_wake_outcome_awake_waits_for_online_reach_without_disarming_open_play() {
+    use crate::hosts::{Apps, Host, Hosts, Reach};
+    use crate::open_play::{AppsSeen, HostSeen, Run, Seen, SessionSeen, Step, Target};
+    use nightjar_desktop_config::config::{HostRecord, OpenGame};
+
+    let record = HostRecord {
+        unique_id: "uid-awake".into(),
+        name: "Living Room".into(),
+        address: "198.51.100.10".into(),
+        mac: Some("aa:bb:cc:dd:ee:ff".into()),
+        ..HostRecord::default()
+    };
+    let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
+    let id = hosts.list[0].id;
+    hosts.list[0].reach = Reach::Offline;
+
+    let mut run_state = Run::new(Target {
+        host: id,
+        pc: "Living Room".into(),
+        game: OpenGame {
+            host: "uid-awake".into(),
+            app_id: 7,
+            install_id: String::new(),
+            title: "Hades".into(),
+        },
+    });
+    let t0 = Instant::now();
+    let seen_of = |reach: Reach, waking: bool, countdown: bool, has_dialog: bool| Seen {
+        pin_screen: false,
+        no_dialog: !has_dialog && !countdown,
+        countdown,
+        message: has_dialog,
+        identity: true,
+        host: Some(HostSeen {
+            reach,
+            can_wake: true,
+            paired: true,
+            apps: AppsSeen::NotLoaded,
+            session: SessionSeen::Free,
+            reads: None,
+        }),
+        waking,
+        network: true,
+        busy: false,
+        streaming: false,
+        left_by_player: false,
+    };
+
+    assert_eq!(run_state.next(&seen_of(Reach::Offline, false, false, false), t0), Step::Count(3));
+    let t1 = t0 + Duration::from_secs(4);
+    assert_eq!(run_state.next(&seen_of(Reach::Offline, false, true, false), t1), Step::Begin);
+    assert_eq!(run_state.next(&seen_of(Reach::Offline, false, true, false), t1), Step::Wake);
+
+    let mut waking = wol::Wakes::default();
+    assert!(waking.start(id, t1));
+    let run_num = waking.current().unwrap().run;
+    let mut away = launch::AwayWakeUi::default();
+    away.begin("Contacting your wake relay…".into());
+    let mut launcher = ui::Launcher::new(
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        nightjar_desktop_ui::stream_types::Display {
+            width: 1920,
+            height: 1080,
+            refresh_hz: 60.0,
+            refresh_reported: true,
+        },
+    );
+
+    // Relay reports Outcome::Awake while poll_one hasn't landed Reach::Online yet.
+    let mut ctx = launch::WakeContext {
+        hosts: &mut hosts,
+        waking: &mut waking,
+        away: &mut away,
+        launcher: &mut launcher,
+    };
+    launch::on_wake_relay_done_at(
+        &mut ctx,
+        id,
+        run_num,
+        "Living Room",
+        hosts::wake_relay::Outcome::Awake,
+        &["Relay NUC".into()],
+        t1,
+    );
+    assert!(waking.host().is_some(), "waking must stay active until host poll confirms Online");
+    assert_eq!(
+        run_state.next(&seen_of(Reach::Offline, waking.host().is_some(), false, false), t1),
+        Step::Wait,
+        "open_play must wait rather than disarming on Outcome::Awake before Reach::Online"
+    );
+
+    // Once poll_one sets Reach::Online, wake_step clears waking and OpenPlay advances cleanly.
+    hosts.list[0].reach = Reach::Online;
+    hosts.list[0].apps = Apps::NotLoaded;
+    let mut ctx = launch::WakeContext {
+        hosts: &mut hosts,
+        waking: &mut waking,
+        away: &mut away,
+        launcher: &mut launcher,
+    };
+    launch::wake_step_at(&mut ctx, t1 + Duration::from_millis(250));
+    assert!(waking.host().is_none());
+    assert!(!away.active);
+    let next_step = run_state.next(&seen_of(Reach::Online, false, false, false), t1 + Duration::from_millis(250));
+    assert!(!matches!(next_step, Step::Over { .. }), "must advance rather than disarm: {next_step:?}");
+
+    // If poll stays offline past WAKE_RELAY_POLL_TIMEOUT, wake_step surfaces Dialog::WakeFailed.
+    let mut waking2 = wol::Wakes::default();
+    assert!(waking2.start(id, t1));
+    let run2 = waking2.current().unwrap().run;
+    hosts.list[0].reach = Reach::Offline;
+    let mut away2 = launch::AwayWakeUi::default();
+    let mut ctx2 = launch::WakeContext {
+        hosts: &mut hosts,
+        waking: &mut waking2,
+        away: &mut away2,
+        launcher: &mut launcher,
+    };
+    launch::on_wake_relay_done_at(
+        &mut ctx2,
+        id,
+        run2,
+        "Living Room",
+        hosts::wake_relay::Outcome::Awake,
+        &["Relay NUC".into()],
+        t1,
+    );
+    launch::wake_step_at(&mut ctx2, t1 + launch::WAKE_RELAY_POLL_TIMEOUT);
+    assert!(waking2.host().is_none());
+    assert!(matches!(launcher.dialog, ui::Dialog::WakeFailed { host, .. } if host == id));
+    let _ = Host::ui_view;
+}

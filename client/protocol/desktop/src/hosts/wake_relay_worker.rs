@@ -135,6 +135,7 @@ struct SharedState {
     enabled: bool,
     streaming: bool,
     shutdown: bool,
+    worker_done: bool,
     identity: Option<Arc<ClientIdentity>>,
     reenroll_seq: u64,
     seen_reenroll: u64,
@@ -188,7 +189,7 @@ impl WakeRelayController {
 
     /// Synchronizes desired enabled/streaming/identity state and manages worker lifecycle.
     pub fn sync(&mut self, enabled: bool, streaming: bool, identity: Option<Arc<ClientIdentity>>) {
-        let (should_run, notify) = {
+        let (should_run, worker_done, notify) = {
             let mut st = self.shared.lock().unwrap_or_else(|e| e.into_inner());
             let leave_pending = st.leave_seq > st.seen_leave || st.status.busy;
             let effective_enabled = enabled && !leave_pending;
@@ -210,12 +211,12 @@ impl WakeRelayController {
                 st.status.error = None;
                 st.status.has_saved = has_saved_assignments(&self.store_dir);
             }
-            (should_run, changed)
+            (should_run, st.worker_done, changed)
         };
         if notify {
             self.notify_worker();
         }
-        if should_run && self.worker.as_ref().is_none_or(JoinHandle::is_finished) {
+        if should_run && (worker_done || self.worker.as_ref().is_none_or(JoinHandle::is_finished)) {
             if let Some(old) = self.worker.take() {
                 let _ = old.join();
             }
@@ -231,15 +232,19 @@ impl WakeRelayController {
         self.notify_worker();
     }
 
-    pub fn request_leave(&mut self) {
-        {
+    pub fn request_leave(&mut self, identity: Option<Arc<ClientIdentity>>) {
+        let worker_done = {
             let mut st = self.shared.lock().unwrap_or_else(|e| e.into_inner());
             st.leave_seq += 1;
             st.status.busy = true;
             st.enabled = false;
-        }
+            if let Some(id) = identity {
+                st.identity = Some(id);
+            }
+            st.worker_done
+        };
         self.notify_worker();
-        if self.worker.as_ref().is_none_or(JoinHandle::is_finished) {
+        if worker_done || self.worker.as_ref().is_none_or(JoinHandle::is_finished) {
             if let Some(old) = self.worker.take() {
                 let _ = old.join();
             }
@@ -284,6 +289,10 @@ impl WakeRelayController {
 
     fn spawn_worker(&mut self) {
         self.stop_flag.store(false, Ordering::Release);
+        {
+            let mut st = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+            st.worker_done = false;
+        }
         let shared = self.shared.clone();
         let wake = self.wake.clone();
         let dir = self.store_dir.clone();
@@ -423,6 +432,7 @@ fn run_worker_loop(
                 let mut st = shared.lock().unwrap_or_else(|e| e.into_inner());
                 st.seen_leave = leave_seq;
                 st.enabled = false;
+                st.worker_done = true;
                 st.leave_done = Some(outcome.clone());
                 st.status = WakeRelayView {
                     has_saved: has_saved_assignments(dir),
@@ -434,13 +444,39 @@ fn run_worker_loop(
             return;
         }
         if !enabled {
-            break;
-        }
-        if reenroll_seq > seen_reenroll {
-            {
-                let mut st = shared.lock().unwrap_or_else(|e| e.into_inner());
-                st.seen_reenroll = reenroll_seq;
+            if let Some(mut relay) = active.take() {
+                if let Some(peer) = relay.peer.take() {
+                    peer.stop();
+                }
+                if relay.driver.take_changed() {
+                    let _ = backend.save_saved(dir, &relay.driver.saved());
+                }
             }
+            let notify_exit = {
+                let mut st = shared.lock().unwrap_or_else(|e| e.into_inner());
+                if !st.shutdown
+                    && !stop_flag.load(Ordering::Acquire)
+                    && (st.leave_seq > st.seen_leave || st.enabled)
+                {
+                    continue;
+                }
+                st.worker_done = true;
+                let leave_pending = st.leave_seq > st.seen_leave;
+                let final_view = WakeRelayView {
+                    has_saved: has_saved_assignments(dir),
+                    busy: leave_pending,
+                    ..WakeRelayView::default()
+                };
+                let changed = st.status != final_view;
+                st.status = final_view;
+                changed
+            };
+            if notify_exit {
+                (waker)();
+            }
+            return;
+        }
+        if reenroll_seq > seen_reenroll && !streaming {
             if let Some(mut old) = active.take() {
                 if let Some(peer) = old.peer.take() {
                     peer.stop();
@@ -449,7 +485,12 @@ fn run_worker_loop(
                     let _ = backend.save_saved(dir, &old.driver.saved());
                 }
             }
-            let _ = start_active(dir, backend, true, &mut active, shared, waker);
+            if !start_active(dir, backend, true, &mut active, shared, waker) {
+                wait_for(wake, CONFLICT_RETRY);
+                continue;
+            }
+            let mut st = shared.lock().unwrap_or_else(|e| e.into_inner());
+            st.seen_reenroll = reenroll_seq;
         }
         if active.is_none() && !streaming {
             if !start_active(dir, backend, false, &mut active, shared, waker) {
@@ -559,11 +600,21 @@ fn run_worker_loop(
             let _ = backend.save_saved(dir, &relay.driver.saved());
         }
     }
-    let final_view = WakeRelayView {
-        has_saved: has_saved_assignments(dir),
-        ..WakeRelayView::default()
+    let notify_exit = {
+        let mut st = shared.lock().unwrap_or_else(|e| e.into_inner());
+        st.worker_done = true;
+        let final_view = WakeRelayView {
+            has_saved: has_saved_assignments(dir),
+            busy: st.leave_seq > st.seen_leave,
+            ..WakeRelayView::default()
+        };
+        let changed = st.status != final_view;
+        st.status = final_view;
+        changed
     };
-    update_view(shared, waker, final_view);
+    if notify_exit {
+        (waker)();
+    }
 }
 
 fn start_active(

@@ -97,8 +97,7 @@ struct App {
     ending_probes: Vec<LaunchProbe>,
     /// The PC being woken and the clock of its resends ("Waking <PC>…").
     waking: wol::Wakes,
-    wake_away_relay: bool,
-    wake_status: String,
+    away_wake: app::AwayWakeUi,
     wake_relay_worker: hosts::wake_relay_worker::WakeRelayController,
     streaming: Option<(Streaming, TimerResolution)>,
     overlay: StreamOverlay,
@@ -614,8 +613,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         packed_probed: None,
         ending_probes: Vec::new(),
         waking: wol::Wakes::default(),
-        wake_away_relay: false,
-        wake_status: String::new(),
+        away_wake: app::AwayWakeUi::default(),
         wake_relay_worker: hosts::wake_relay_worker::WakeRelayController::new(
             store_dir,
             store_read_only,

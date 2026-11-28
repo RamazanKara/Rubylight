@@ -2,9 +2,11 @@
 //! start (replace, PIN, moved PC), and `launch_ready`, which resolves the settings and connects.
 
 mod types;
+mod wake;
 
 use super::*;
 pub(crate) use types::*;
+pub(crate) use wake::*;
 
 /// Whether a `--quit-on-exit` session is settled enough to inspect any final dialog message and close.
 pub(crate) fn cli_stream_settled(
@@ -20,49 +22,13 @@ impl App {
     /// Resends the wake packets while the PC stays away, and ends the wait when it answers or the
     /// time is up.
     pub(crate) fn wake_step(&mut self) {
-        let Some(waking) = self.waking.current() else { return };
-        let (id, run) = (waking.host, waking.run);
-        // A PC removed meanwhile has nothing left to wake.
-        let Some(host) = self.hosts.get(id) else {
-            self.hosts.cancel_wake();
-            self.waking.end();
-            self.wake_away_relay = false;
-            self.wake_status.clear();
-            return;
+        let mut ctx = WakeContext {
+            hosts: &mut self.hosts,
+            waking: &mut self.waking,
+            away: &mut self.away_wake,
+            launcher: &mut self.launcher,
         };
-        let (host_reach, host_name) = (host.reach, host.display_name().to_owned());
-        if self.wake_away_relay {
-            if host_reach == hosts::Reach::Online {
-                self.hosts.cancel_wake();
-                self.waking.end();
-                self.wake_away_relay = false;
-                self.wake_status.clear();
-            }
-            return;
-        }
-        match waking.wait.next(host_reach == hosts::Reach::Online, Instant::now()) {
-            wol::Step::Send => self.hosts.wake(id, run),
-            wol::Step::Wait => {}
-            wol::Step::Online => self.waking.end(),
-            wol::Step::TimedOut => {
-                if let Some(status) = self.hosts.start_away_wake_fallback(id, run) {
-                    self.wake_away_relay = true;
-                    self.wake_status = status;
-                    return;
-                }
-                let hint = self.hosts.no_relay_hint(id);
-                self.waking.end();
-                let mut body = trf(
-                    "{} did not answer within {} seconds. Check that Wake-on-LAN is on in its firmware and its network adapter settings.",
-                    &[&host_name, &wol::WakeWait::TIMEOUT.as_secs()],
-                );
-                if let Some(hint) = hint {
-                    body.push_str("\n\n");
-                    body.push_str(&hint);
-                }
-                self.launcher.notify(tr("The PC did not wake up"), body);
-            }
-        }
+        wake_step_at(&mut ctx, Instant::now());
     }
 
     /// Drives the unattended measurement start (see `autostream`); does nothing otherwise.

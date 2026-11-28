@@ -283,10 +283,6 @@ impl Launcher {
                     ui.label(RichText::new(title.as_str()).font(semibold(text::SECTION)));
                     ui.add(egui::Label::new(RichText::new(body.as_str()).color(ON_SURFACE_VARIANT)).wrap());
                     dialog_buttons(ui, |ui| {
-                        let ok = quiet_button(ui, "OK");
-                        if ok.clicked() {
-                            close = true;
-                        }
                         let retry = primary_button(ui, "Retry");
                         if focus_first {
                             retry.request_focus();
@@ -294,6 +290,10 @@ impl Launcher {
                         }
                         if retry.clicked() {
                             commands.push(Command::Wake(host));
+                            close = true;
+                        }
+                        let ok = quiet_button(ui, "OK");
+                        if ok.clicked() {
                             close = true;
                         }
                     });

@@ -276,3 +276,35 @@ pub(crate) fn read_list_for_launch(hosts: &mut Hosts, host: u64) -> bool {
     hosts.load_apps(host);
     matches!(hosts.get(host).map(|h| &h.apps), Some(Apps::Loading))
 }
+
+/// How long away wake keeps the wake wait open after the relay reports the PC awake while
+/// `Hosts::poll_one` confirms `Reach::Online`.
+pub(crate) const WAKE_RELAY_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Active away-wake UI state tracked while waiting on a relay or post-Awake poll confirmation.
+#[derive(Default)]
+pub(crate) struct AwayWakeUi {
+    pub(crate) active: bool,
+    pub(crate) status: String,
+    pub(crate) awake_until: Option<Instant>,
+}
+
+impl AwayWakeUi {
+    pub(crate) fn clear(&mut self) {
+        self.active = false;
+        self.status.clear();
+        self.awake_until = None;
+    }
+
+    pub(crate) fn begin(&mut self, status: String) {
+        self.active = true;
+        self.status = status;
+        self.awake_until = None;
+    }
+
+    pub(crate) fn mark_awake(&mut self, status: String, deadline: Instant) {
+        self.active = true;
+        self.status = status;
+        self.awake_until = Some(deadline);
+    }
+}

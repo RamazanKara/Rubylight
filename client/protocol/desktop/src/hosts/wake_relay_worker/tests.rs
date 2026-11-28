@@ -162,11 +162,11 @@ fn worker_starts_pauses_while_streaming_resumes_and_leaves_cleanly() {
     wait_until(|| !ctrl.status().paused_for_stream && backend.starts.load(Ordering::SeqCst) == 2);
 
     // Toggle off stops cleanly.
-    ctrl.sync(false, false, id);
+    ctrl.sync(false, false, id.clone());
     wait_until(|| !ctrl.status().running && backend.peer.stopped.load(Ordering::SeqCst) == 2);
 
     // Leave cleans saved file and finishes with Ok.
-    ctrl.request_leave();
+    ctrl.request_leave(id);
     wait_until(|| ctrl.take_leave_finished().is_some());
     assert_eq!(backend.leaves.load(Ordering::SeqCst), 1);
 
@@ -177,6 +177,56 @@ fn worker_starts_pauses_while_streaming_resumes_and_leaves_cleanly() {
     }
     std::thread::sleep(Duration::from_millis(40));
     assert!(ctrl.take_leave_finished().is_none());
+    assert_eq!(backend.leaves.load(Ordering::SeqCst), 1);
+
+    ctrl.stop_and_join();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn reenroll_waits_for_stream_and_retains_request_across_conflict_retry() {
+    let dir = temp_dir("reenroll-guard");
+    let id = Some(Arc::new(ClientIdentity::generate().expect("a key")));
+    let backend = FakeBackend::new(false);
+    let record = HostRecord {
+        name: "Gaming PC".into(),
+        address: "192.168.1.50".into(),
+        unique_id: "pc-uid-2".into(),
+        ..HostRecord::default()
+    };
+    *backend.paired.lock().unwrap() = vec![record];
+    let mut saved = saved::Saved::default();
+    saved.hosts.push(saved::SavedHost {
+        host: "pc-uid-2".into(),
+        name: "Gaming PC".into(),
+        assignment: None,
+        refused: Some("removed".into()),
+    });
+    saved::save(&dir, &saved).unwrap();
+
+    let waker: Waker = Arc::new(|| {});
+    let mut ctrl = WakeRelayController::with_backend(dir.clone(), false, waker, backend.clone());
+    ctrl.sync(true, true, id.clone());
+    // Wait briefly to confirm streaming blocks re-enroll start_active.
+    ctrl.reenroll();
+    std::thread::sleep(Duration::from_millis(40));
+    assert_eq!(backend.starts.load(Ordering::SeqCst), 0);
+
+    // Hold lock briefly when stream stops so first start_active(..., enroll_again=true) returns false.
+    backend.lock_blocked.store(true, Ordering::Release);
+    ctrl.sync(true, false, id.clone());
+    wait_until(|| ctrl.status().conflict);
+    assert_eq!(backend.starts.load(Ordering::SeqCst), 0);
+
+    // Clear conflict -> re-enroll must still run with enroll_again=true and ask the refused host!
+    backend.lock_blocked.store(false, Ordering::Release);
+    wait_until(|| {
+        backend.asked.load(Ordering::SeqCst) >= 1 && backend.starts.load(Ordering::SeqCst) == 1
+    });
+
+    // Calling request_leave immediately without a prior sync(false) cleans saved file reliably.
+    ctrl.request_leave(id);
+    wait_until(|| ctrl.take_leave_finished().is_some());
     assert_eq!(backend.leaves.load(Ordering::SeqCst), 1);
 
     ctrl.stop_and_join();

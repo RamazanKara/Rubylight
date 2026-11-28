@@ -1,7 +1,7 @@
 //! Source inventories for the desktop localization table tests (`SOURCES` and `MARKED_ONLY`).
 
 /// The UI sources, up to their test modules.
-pub(super) const SOURCES: [(&str, &str); 95] = [
+pub(super) const SOURCES: [(&str, &str); 96] = [
     ("strings.rs", include_str!("../../strings.rs")),
     ("app_types.rs", include_str!("../../app_types.rs")),
     ("gamepad_types.rs", include_str!("../../gamepad_types.rs")),
@@ -58,6 +58,7 @@ pub(super) const SOURCES: [(&str, &str); 95] = [
     ("app/command.rs", include_str!("../../../../desktop/src/app/command.rs")),
     ("app/renderer.rs", include_str!("../../../../desktop/src/app/renderer.rs")),
     ("app/launch.rs", include_str!("../../../../desktop/src/app/launch.rs")),
+    ("app/launch/wake.rs", include_str!("../../../../desktop/src/app/launch/wake.rs")),
     ("app/session.rs", include_str!("../../../../desktop/src/app/session.rs")),
     ("app/overlay.rs", include_str!("../../../../desktop/src/app/overlay.rs")),
     ("app/control_center.rs", include_str!("../../../../desktop/src/app/control_center.rs")),

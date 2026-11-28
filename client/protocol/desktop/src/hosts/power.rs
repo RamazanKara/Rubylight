@@ -265,6 +265,11 @@ impl Hosts {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_away_wake_runner(&mut self, runner: crate::hosts::AwayWakeRunner) {
+        self.away_wake_runner = Some(runner);
+    }
+
     pub fn cancel_wake(&mut self) {
         if let Some((_, _, cancel)) = self.wake_cancel.take() {
             cancel.store(true, std::sync::atomic::Ordering::Release);
@@ -284,6 +289,8 @@ impl Hosts {
         let initial = super::wake_relay::starting_message(&bundle);
         let sender = self.sender.clone();
         let waker = self.waker.clone();
+        #[cfg(test)]
+        let test_runner = self.away_wake_runner.clone();
         self.spawn("wake-relay", move || {
             if cancel.load(std::sync::atomic::Ordering::Acquire) {
                 return Some(Event::WakeRelayDone {
@@ -294,10 +301,19 @@ impl Hosts {
                     relays: Vec::new(),
                 });
             }
-            let (outcome, relays) = super::wake_relay::run_away_wake(&bundle, &pc, &cancel, &mut |status| {
+            let mut progress = |status: String| {
                 let _ = sender.send(Event::WakeProgress { id, run, status });
                 (waker)();
-            });
+            };
+            #[cfg(test)]
+            let (outcome, relays) = if let Some(runner) = test_runner {
+                runner(&bundle, &pc, &cancel, &mut progress)
+            } else {
+                super::wake_relay::run_away_wake(&bundle, &pc, &cancel, &mut progress)
+            };
+            #[cfg(not(test))]
+            let (outcome, relays) =
+                super::wake_relay::run_away_wake(&bundle, &pc, &cancel, &mut progress);
             Some(Event::WakeRelayDone { id, run, name: pc, outcome, relays })
         });
         initial

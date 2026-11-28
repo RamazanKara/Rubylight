@@ -406,36 +406,23 @@ impl App {
                 // Only the running wake ends: a send of a cancelled one may fail after a new one began.
                 HostEvent::Wake { id, run, result: Err(e) } => {
                     if self.waking.failed(id, run) {
-                        self.wake_away_relay = false;
-                        self.wake_status.clear();
+                        self.away_wake.clear();
                         self.launcher.notify(tr("Could not wake the PC"), e);
                     }
                 }
                 HostEvent::WakeProgress { id, run, status } => {
-                    if self.wake_away_relay && self.waking.current().is_some_and(|w| w.host == id && w.run == run) {
-                        self.wake_status = status;
+                    if self.away_wake.active && self.waking.current().is_some_and(|w| w.host == id && w.run == run) {
+                        self.away_wake.status = status;
                     }
                 }
                 HostEvent::WakeRelayDone { id, run, name, outcome, relays } => {
-                    if self.waking.failed(id, run) {
-                        self.wake_away_relay = false;
-                        self.wake_status.clear();
-                        if outcome == hosts::wake_relay::Outcome::Awake {
-                            if let Some(msg) = hosts::wake_relay::outcome_message(&outcome, &name, &relays) {
-                                self.launcher.toast(msg);
-                            }
-                        } else if let Some(body) = hosts::wake_relay::outcome_message(&outcome, &name, &relays) {
-                            if outcome.offers_retry() {
-                                self.launcher.ask(Dialog::WakeFailed {
-                                    host: id,
-                                    title: tr("Could not wake the PC").to_owned(),
-                                    body,
-                                });
-                            } else {
-                                self.launcher.notify(tr("Could not wake the PC"), body);
-                            }
-                        }
-                    }
+                    let mut ctx = super::WakeContext {
+                        hosts: &mut self.hosts,
+                        waking: &mut self.waking,
+                        away: &mut self.away_wake,
+                        launcher: &mut self.launcher,
+                    };
+                    super::on_wake_relay_done_at(&mut ctx, id, run, &name, outcome, &relays, Instant::now());
                 }
                 HostEvent::Sleep { id, ask, name, confirmed, result } => self.launcher.sleep_answered(id, ask, &name, confirmed, result.map(|s| s.into_ui(&mut self.pending_power_handed, ask))),
                 HostEvent::PcPower { id, ask, name, action, confirmed, result } => self.launcher.pc_power_answered(id, ask, &name, action, confirmed, result.map(|s| s.into_ui(&mut self.pending_power_handed, ask))),
@@ -588,7 +575,7 @@ impl App {
         }));
         let waking = self.waking.host().and_then(|id| self.hosts.get(id)).map(|h| ui::WakingView {
             host: h.display_name().to_owned(),
-            status: if self.wake_away_relay { self.wake_status.clone() } else { String::new() },
+            status: if self.away_wake.active { self.away_wake.status.clone() } else { String::new() },
         });
         // Outside the frame: egui can run it twice, and the answer comes only once.
         if let Some(part) = self.updates.step() {

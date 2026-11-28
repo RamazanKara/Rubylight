@@ -137,32 +137,31 @@ impl App {
                     let run = self.waking.current().map_or(0, |w| w.run);
                     match self.hosts.start_wake(host, run) {
                         hosts::WakeStart::Lan => {
-                            self.wake_away_relay = false;
-                            self.wake_status.clear();
+                            self.away_wake.clear();
                             self.wake_step();
                         }
                         hosts::WakeStart::Relay { initial_status } => {
-                            self.wake_away_relay = true;
-                            self.wake_status = initial_status;
+                            self.away_wake.begin(initial_status);
                         }
                         hosts::WakeStart::NoRelay { name } => {
                             self.waking.end();
-                            self.wake_away_relay = false;
-                            self.wake_status.clear();
+                            self.away_wake.clear();
                             self.launcher.notify(
                                 tr("Could not wake the PC"),
                                 hosts::wake_relay::no_relay_message(&name),
                             );
                         }
-                        hosts::WakeStart::Missing => self.waking.end(),
+                        hosts::WakeStart::Missing => {
+                            self.waking.end();
+                            self.away_wake.clear();
+                        }
                     }
                 }
             }
             Command::CancelWake => {
                 self.hosts.cancel_wake();
                 self.waking.end();
-                self.wake_away_relay = false;
-                self.wake_status.clear();
+                self.away_wake.clear();
             }
             Command::SleepOffer { host, ask } => self.hosts.sleep_offer(host, ask),
             Command::Sleep { host, ask, token, at } => {
@@ -524,12 +523,7 @@ Redacted logs, oldest line first; addresses, PC names, user folders, PINs and cr
                 if let Err(e) = self.store.save_settings(&self.launcher.settings) {
                     eprintln!("nightjar: saving settings failed: {e}");
                 }
-                self.wake_relay_worker.sync(
-                    false,
-                    self.streaming.is_some(),
-                    self.hosts.identity().cloned(),
-                );
-                self.wake_relay_worker.request_leave();
+                self.wake_relay_worker.request_leave(self.hosts.identity().cloned());
                 self.launcher.wake_relay = self.wake_relay_worker.status();
             }
             Command::RetryLaunch => {

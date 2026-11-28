@@ -567,6 +567,12 @@ fn waking_shows_the_pc_and_cancel_stops_it() {
     });
     f.settle();
     assert!(f.drawn.iter().any(|t| t == "Retry"), "{:?}", f.drawn);
+    let retry_rect = f.placed.iter().find(|(t, ..)| t == "Retry").expect("Retry rect").1;
+    let ok_rect = f.placed.iter().find(|(t, ..)| t == "OK").expect("OK rect").1;
+    assert!(
+        retry_rect.left() >= ok_rect.right(),
+        "primary Retry must sit right of OK in right-to-left dialog row: retry={retry_rect:?} ok={ok_rect:?}"
+    );
     assert!(matches!(f.press(Key::Enter)[..], [Command::Wake(h)] if h == id));
 }
 

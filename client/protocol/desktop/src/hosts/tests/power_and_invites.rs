@@ -667,16 +667,53 @@ fn away_wake_keys_follow_native_offerings_unpair_and_remove() {
         Some(crate::hosts::wake_relay::KeptEntry::Relays(bundle))
     );
 
-    // Offline + not on home network selects away wake path and supports cancellation.
+    // Offline + not on home network selects away wake path and supports cancellation without touching live sockets.
+    let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let saw_cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let started_bg = Arc::clone(&started);
+    let finished_bg = Arc::clone(&finished);
+    let saw_cancel_bg = Arc::clone(&saw_cancel);
+    hosts.set_away_wake_runner(Arc::new(move |_bundle, _pc, cancel, _progress| {
+        started_bg.store(true, std::sync::atomic::Ordering::Release);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
+            if cancel.load(std::sync::atomic::Ordering::Acquire) {
+                saw_cancel_bg.store(true, std::sync::atomic::Ordering::Release);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        finished_bg.store(true, std::sync::atomic::Ordering::Release);
+        (crate::hosts::wake_relay::Outcome::Cancelled, Vec::new())
+    }));
+
     hosts.list[0].reach = Reach::Offline;
     hosts.list[0].record.address = "198.51.100.42".into();
     match hosts.start_wake(id, 1) {
         WakeStart::Relay { initial_status } => assert!(initial_status.contains("Home NUC")),
         other => panic!("expected Relay start, got {:?}", matches!(other, WakeStart::Lan)),
     }
+    let wait_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while !started.load(std::sync::atomic::Ordering::Acquire)
+        && std::time::Instant::now() < wait_deadline
+    {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
     assert!(hosts.wake_cancel.is_some());
     hosts.cancel_wake();
     assert!(hosts.wake_cancel.is_none());
+    while !finished.load(std::sync::atomic::Ordering::Acquire)
+        && std::time::Instant::now() < wait_deadline
+    {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(saw_cancel.load(std::sync::atomic::Ordering::Acquire));
+    let (events, _) = hosts.drain(&egui::Context::default());
+    assert!(matches!(
+        events.last(),
+        Some(Event::WakeRelayDone { outcome: crate::hosts::wake_relay::Outcome::Cancelled, .. })
+    ));
 
     // Dropping offer forgets cached bundle.
     let read_off = NativeRead {

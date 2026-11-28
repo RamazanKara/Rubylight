@@ -336,3 +336,76 @@ fn unreadable_list_names_removed_pc_or_unready_key() {
         crate::strings::tr("This PC is no longer in your list.")
     );
 }
+
+#[test]
+fn kms_overlay_leave_and_switch_reset_host_covers_and_launcher_textures() {
+    use nightjar_desktop_config::config::Profiles;
+    use nightjar_desktop_config::stream_types::Display;
+    use std::sync::Arc;
+
+    let mut gui = Gui::new();
+    let mut hosts = Hosts::without_discovery(
+        vec![config::HostRecord { name: "Deck".into(), unique_id: "uid".into(), ..Default::default() }],
+        Arc::new(|| {}),
+    );
+    let mut launcher = Launcher::new(
+        config::Settings::default(),
+        Profiles::default(),
+        shortcuts::Shortcuts::default(),
+        Display { width: 1280, height: 720, refresh_hz: 60.0, refresh_reported: true },
+    );
+    let pads = Gamepads::default();
+    let mut overlay = StreamOverlay::default();
+
+    let draw_launcher = |gui: &Gui, hosts: &Hosts, launcher: &mut Launcher| {
+        let hosts_view = hosts.ui_view();
+        let pads_view = pads.view();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0))),
+            ..Default::default()
+        };
+        let mut out = gui.ctx.run_ui(input, |ui| {
+            let _ = launcher.ui(ui, View { hosts: &hosts_view, pads: &pads_view, connecting: None, waking: None });
+        });
+        let uploaded: Vec<_> = out.textures_delta.set.keys().copied().collect();
+        out.textures_delta.clear();
+        uploaded
+    };
+
+    // Draw launcher once to populate logo + ambient stage textures, and load a game cover.
+    let initial = draw_launcher(&gui, &hosts, &mut launcher);
+    assert!(!initial.is_empty(), "launcher uploads initial stage and logo textures");
+    hosts.insert_test_cover(7, &gui.ctx);
+    assert!(matches!(hosts.list[0].art.get(&7), Some(hosts::Art::Ready(_))));
+    overlay.curtain_art = hosts.list[0].art.get(&7).cloned();
+
+    // Entering the KMS overlay plane renderer releases textures and switches back cleanly on exit.
+    let main_renderer = 0x1000usize as *mut SDL_Renderer;
+    let kms_renderer = 0x2000usize as *mut SDL_Renderer;
+    let mut gui_overlay = std::ptr::null_mut();
+    assert!(switch_overlay_target(&mut gui_overlay, main_renderer, kms_renderer, &mut gui, &mut overlay));
+    assert_eq!(gui_overlay, kms_renderer);
+    assert!(overlay.curtain_art.is_none());
+    reset_launcher_textures(&mut hosts, &mut launcher, &gui.ctx);
+    assert!(!hosts.list[0].art.contains_key(&7) && hosts.list[0].ambient.is_empty());
+
+    // Simulate cover/launcher textures drawn while on the overlay, then leaving via `overlay_back_to_main`.
+    hosts.insert_test_cover(7, &gui.ctx);
+    let _ = draw_launcher(&gui, &hosts, &mut launcher);
+    assert!(overlay_back_to_main(&mut gui_overlay, &mut gui, &mut hosts, &mut launcher));
+    assert!(gui_overlay.is_null());
+    assert!(!hosts.list[0].art.contains_key(&7) && hosts.list[0].ambient.is_empty());
+    assert!(hosts.has_cover_version(7), "cover version stays so launcher reloads from cache");
+    let after_leave = draw_launcher(&gui, &hosts, &mut launcher);
+    assert!(after_leave.iter().any(|id| !initial.contains(id)), "launcher allocates fresh logo/stage textures after leaving overlay");
+
+    // Switching back from KMS overlay to main renderer mid-stream also clears covers and launcher textures.
+    assert!(switch_overlay_target(&mut gui_overlay, main_renderer, kms_renderer, &mut gui, &mut overlay));
+    hosts.insert_test_cover(7, &gui.ctx);
+    assert!(switch_overlay_target(&mut gui_overlay, main_renderer, main_renderer, &mut gui, &mut overlay));
+    assert!(gui_overlay.is_null());
+    reset_launcher_textures(&mut hosts, &mut launcher, &gui.ctx);
+    assert!(!hosts.list[0].art.contains_key(&7) && hosts.list[0].ambient.is_empty());
+    let after_midstream_switch = draw_launcher(&gui, &hosts, &mut launcher);
+    assert!(after_midstream_switch.iter().any(|id| !after_leave.contains(id)));
+}

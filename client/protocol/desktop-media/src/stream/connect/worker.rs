@@ -268,7 +268,7 @@ impl Connecting {
                     self.stage = reconnecting_stage_text(attempt);
                     self.progress = Instant::now();
                 }
-                Notice::DecoderFailed(text) => {
+                Notice::DecoderFailed(text) | Notice::RenderDeviceLost(text) => {
                     decoder_failed.get_or_insert_with(|| text.clone());
                     keep.push(Notice::DecoderFailed(text));
                 }

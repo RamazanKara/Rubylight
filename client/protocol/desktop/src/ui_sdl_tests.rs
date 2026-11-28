@@ -6,7 +6,7 @@ use std::sync::Arc;
 use egui::{vec2, Id, Pos2, Rect, Vec2};
 use nightjar_core::http::{AppRole, ClientIdentity, Feature, LaunchRequest, ServerInfo};
 use nightjar_desktop_config::config::{HostDisplay, HostRecord, Profiles, Settings};
-use nightjar_desktop_config::shortcuts::{hotkey_bindings, set_hotkeys, Action};
+use nightjar_desktop_config::shortcuts::{hotkey_bindings, isolate_thread_hotkeys_for_test, set_hotkeys, Action};
 use nightjar_desktop_config::strings::tr;
 use nightjar_desktop_media::gamepad::Gamepads;
 use nightjar_desktop_media::shortcuts_runtime::use_layout;
@@ -267,6 +267,7 @@ fn animations_wait_while_the_window_is_away() {
 #[test]
 fn the_hotkey_dialog_records_the_keys_sdl_reports() {
     use sdl3_sys::everything::*;
+    isolate_thread_hotkeys_for_test();
     nightjar_desktop_media::shortcuts_runtime::register_hooks();
     let bound = |id: &str| hotkey_bindings().get(id).cloned();
     let mut l = launcher();
@@ -329,6 +330,7 @@ fn the_hotkey_dialog_records_the_keys_sdl_reports() {
 #[test]
 fn arrows_and_enter_alone_move_in_the_hotkey_dialog() {
     use sdl3_sys::everything::*;
+    isolate_thread_hotkeys_for_test();
     nightjar_desktop_media::shortcuts_runtime::register_hooks();
     let bound = |id: &str| hotkey_bindings().get(id).cloned();
     let mut l = launcher();

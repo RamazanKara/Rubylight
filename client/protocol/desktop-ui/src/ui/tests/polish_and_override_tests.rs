@@ -212,9 +212,12 @@ fn b_where_back_ends_asks_to_close_nightjar_with_focus_on_close_nightjar() {
         let rect = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
         f.placed.iter().find(|(_, at, _)| rect.is_some_and(|r| r.contains(at.center()))).map(|p| p.0.clone())
     };
-    // The keyboard's Escape does not ask: a keyboard has Alt+F4.
+    // Both keyboard Escape and controller B ask to close Nightjar on the root screen,
+    // and pressing Escape again dismisses the dialog without quitting.
     assert!(f.press(Key::Escape).is_empty());
-    assert!(f.no_dialog(), "Escape on the root stays harmless");
+    assert!(matches!(f.l.dialog, Dialog::ConfirmExit) && shows(&f, "Close Nightjar?"), "{:?}", f.drawn);
+    assert!(f.press(Key::Escape).iter().all(|c| !matches!(c, Command::Quit)));
+    assert!(f.no_dialog(), "a second Escape closes the question");
     pad_press(&mut f, Key::Escape);
     assert!(matches!(f.l.dialog, Dialog::ConfirmExit) && shows(&f, "Close Nightjar?"), "{:?}", f.drawn);
     assert_eq!(focused_text(&f).as_deref(), Some("Close Nightjar"));

@@ -58,6 +58,8 @@ pub enum Notice {
     /// The GPU PyroWave decoder broke, or a decoder kept failing with no picture; the stream
     /// ends with this message (nothing falls back).
     DecoderFailed(String),
+    /// A D3D11 device reset/removal stopped decoding on the renderer device; Windows recovers it.
+    RenderDeviceLost(String),
     MicrophoneFailed(String),
     /// The microphone runs, without the echo cancellation its setting asked for; the text says why.
     EchoCancelOff(String),

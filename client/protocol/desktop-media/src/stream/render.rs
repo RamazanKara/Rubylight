@@ -307,7 +307,7 @@ impl Streaming {
             (done == present::NoWait::Refused, failed, egl_done.is_some())
         };
         let device_lost = crate::render_device::after_present_lost(present_failed, &self.plan.device);
-        if device_lost { self.note_render_device_lost(crate::render_device::lost_reason().into()); } else if !refused { self.texture.mark_d3d11_flushed(); #[cfg(target_os = "linux")] if !egl_paced && !present_failed && (!skips || !self.no_wait_present) { phase::note_external_present(); } }
+        if device_lost { self.note_render_device_lost(crate::render_device::lost_reason().into()); } else if !refused && !present_failed { self.texture.mark_d3d11_flushed(); #[cfg(target_os = "linux")] if !egl_paced && !present_failed && (!skips || !self.no_wait_present) { phase::note_external_present(); } }
         #[cfg(not(target_os = "linux"))]
         let _ = egl_paced;
         self.flip_guard.last_flip_us = Some(issued_us);

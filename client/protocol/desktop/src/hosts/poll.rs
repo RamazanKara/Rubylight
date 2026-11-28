@@ -494,6 +494,26 @@ impl Hosts {
         }
         self.art_used.clear();
     }
+
+    #[cfg(test)]
+    pub(crate) fn insert_test_cover(&mut self, app: i32, ctx: &egui::Context) {
+        let id = self.list[0].id;
+        Arc::make_mut(&mut self.list[0].art_versions).insert(app, "v1".into());
+        self.sender.send(Event::Art {
+            id,
+            app,
+            version: "v1".into(),
+            image: Some(egui::ColorImage::filled([30, 40], egui::Color32::from_rgb(20, 200, 20))),
+            ambient: Some(egui::ColorImage::filled([16, 16], egui::Color32::from_rgb(10, 40, 20))),
+            sized: Some(1.0),
+        }).expect("art channel");
+        self.drain(ctx);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_cover_version(&self, app: i32) -> bool {
+        self.list[0].art_versions.contains_key(&app)
+    }
 }
 
 /// Whether a poll whose direct paths failed tries the punched path now.

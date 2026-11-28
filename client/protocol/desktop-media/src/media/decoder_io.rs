@@ -9,7 +9,7 @@ use nightjar_core::video::{FrameBytes, FRAME_PADDING};
 #[cfg(target_os = "linux")]
 use crate::stream::stage_times::Stages;
 
-use super::decoder::{Received, VideoDecoder, AGAIN};
+use super::decoder::{D3d11Removal, Received, VideoDecoder, AGAIN};
 use super::ffi::*;
 #[cfg(windows)]
 use super::frame::ExportedMeta;
@@ -237,6 +237,40 @@ impl VideoDecoder {
         }
     }
 
+    /// Returns whether D3D11 device removal/hang was observed on this decoder.
+    pub fn d3d11_device_removed(&self) -> D3d11Removal {
+        #[cfg(windows)]
+        {
+            self.d3d11_removed
+        }
+        #[cfg(not(windows))]
+        {
+            D3d11Removal::None
+        }
+    }
+
+    #[cfg(windows)]
+    fn refresh_d3d11_removal(&mut self) -> D3d11Removal {
+        if self.d3d11_removed == D3d11Removal::RendererLost {
+            return D3d11Removal::RendererLost;
+        }
+        let detected = if let Some(bridge) = &self.d3d11_bridge {
+            bridge.check_removed()
+        } else if let Some(device) = &self.d3d11_device {
+            if super::d3d11::device_removed_reason(device).is_some() {
+                D3d11Removal::RendererLost
+            } else {
+                D3d11Removal::None
+            }
+        } else {
+            D3d11Removal::None
+        };
+        if detected != D3d11Removal::None {
+            self.d3d11_removed = detected;
+        }
+        self.d3d11_removed
+    }
+
     /// Whether this decoder owns a dedicated Direct3D 11 video device separate from SDL3's
     /// renderer device (so rebuilding the decoder gives it a fresh decode device).
     pub fn owns_d3d11_device(&self) -> bool {
@@ -264,6 +298,10 @@ impl VideoDecoder {
         #[cfg(target_os = "linux")]
         let started = std::time::Instant::now();
         let status = self.send_packet(data, pts);
+        #[cfg(windows)]
+        if status < 0 && status != AGAIN {
+            let _ = self.refresh_d3d11_removal();
+        }
         #[cfg(target_os = "linux")]
         if let Some(stages) = self.stages.as_mut() {
             stages.add(0, started);
@@ -376,6 +414,8 @@ impl VideoDecoder {
                 return if status == AGAIN || status == -541478725 {
                     Received::None
                 } else {
+                    #[cfg(windows)]
+                    let _ = self.refresh_d3d11_removal();
                     Received::Error
                 };
             }
@@ -468,7 +508,14 @@ impl VideoDecoder {
                         frame.shared = Some(shared);
                         return Received::Frame(frame);
                     }
-                    Err(why) => { eprintln!("nightjar: D3D11 decode bridge export failed: {why}"); return Received::Error; }
+                    Err(why) => {
+                        let removed = bridge.check_removed();
+                        if removed == D3d11Removal::None || bridge.take_removal_log_once() {
+                            eprintln!("nightjar: D3D11 decode bridge export failed: {why}");
+                        }
+                        self.d3d11_removed = removed;
+                        return Received::Error;
+                    }
                 }
             }
             Received::Frame(frame)

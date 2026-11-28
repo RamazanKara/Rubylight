@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use nightjar_core::http::ClientIdentity;
 use nightjar_core::wake_relay::driver::{
@@ -30,6 +30,7 @@ pub(crate) use shared::{interface_of, left_already, on_this_network};
 
 const POLL_TICK: Duration = Duration::from_millis(500);
 const CONFLICT_RETRY: Duration = Duration::from_secs(2);
+const HOSTS_REFRESH: Duration = Duration::from_secs(15);
 
 fn has_saved_assignments(dir: &Path) -> bool {
     saved::load(dir).is_ok_and(|s| {
@@ -136,7 +137,9 @@ struct SharedState {
     shutdown: bool,
     identity: Option<Arc<ClientIdentity>>,
     reenroll_seq: u64,
+    seen_reenroll: u64,
     leave_seq: u64,
+    seen_leave: u64,
     status: WakeRelayView,
     leave_done: Option<Result<(), String>>,
 }
@@ -151,8 +154,6 @@ pub struct WakeRelayController {
     stop_flag: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
     backend: Arc<dyn WorkerBackend>,
-    seen_reenroll: u64,
-    seen_leave: u64,
 }
 
 impl WakeRelayController {
@@ -182,34 +183,37 @@ impl WakeRelayController {
             stop_flag: Arc::new(AtomicBool::new(false)),
             worker: None,
             backend,
-            seen_reenroll: 0,
-            seen_leave: 0,
         }
     }
 
     /// Synchronizes desired enabled/streaming/identity state and manages worker lifecycle.
     pub fn sync(&mut self, enabled: bool, streaming: bool, identity: Option<Arc<ClientIdentity>>) {
-        let should_run;
-        {
+        let (should_run, notify) = {
             let mut st = self.shared.lock().unwrap_or_else(|e| e.into_inner());
-            let changed = st.enabled != enabled
+            let leave_pending = st.leave_seq > st.seen_leave || st.status.busy;
+            let effective_enabled = enabled && !leave_pending;
+            let was_active = st.enabled
+                || st.status.running
+                || st.status.paused_for_stream
+                || st.status.conflict;
+            let changed = st.enabled != effective_enabled
                 || st.streaming != streaming
                 || st.identity.is_some() != identity.is_some();
-            st.enabled = enabled;
+            st.enabled = effective_enabled;
             st.streaming = streaming;
             st.identity = identity;
-            should_run =
-                !st.shutdown && (st.enabled || st.leave_seq > self.seen_leave || st.status.busy);
-            if !enabled && st.leave_seq == self.seen_leave && !st.status.busy {
+            let should_run = !st.shutdown && (st.enabled || leave_pending);
+            if !st.enabled && !leave_pending && was_active {
                 st.status.running = false;
                 st.status.paused_for_stream = false;
                 st.status.conflict = false;
                 st.status.error = None;
                 st.status.has_saved = has_saved_assignments(&self.store_dir);
             }
-            if changed {
-                self.notify_worker();
-            }
+            (should_run, changed)
+        };
+        if notify {
+            self.notify_worker();
         }
         if should_run && self.worker.as_ref().is_none_or(JoinHandle::is_finished) {
             if let Some(old) = self.worker.take() {
@@ -287,21 +291,11 @@ impl WakeRelayController {
         let waker = self.waker.clone();
         let backend = self.backend.clone();
         let stop_flag = self.stop_flag.clone();
-        let mut seen_reenroll = self.seen_reenroll;
-        let mut seen_leave = self.seen_leave;
         match std::thread::Builder::new()
             .name("wake-relay-gui".into())
             .spawn(move || {
                 run_worker_loop(
-                    &dir,
-                    read_only,
-                    &shared,
-                    &wake,
-                    &waker,
-                    &*backend,
-                    &stop_flag,
-                    &mut seen_reenroll,
-                    &mut seen_leave,
+                    &dir, read_only, &shared, &wake, &waker, &*backend, &stop_flag,
                 );
             }) {
             Ok(handle) => self.worker = Some(handle),
@@ -325,6 +319,7 @@ struct ActiveRelay {
     driver: Driver,
     peer: Option<Box<dyn RelayPeerHandle>>,
     _lock: RelayProcessLock,
+    last_hosts_sync: Option<Instant>,
 }
 
 fn update_view(shared: &Mutex<SharedState>, waker: &Waker, next: WakeRelayView) {
@@ -377,7 +372,6 @@ fn build_active_view(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn run_worker_loop(
     dir: &Path,
     read_only: bool,
@@ -386,13 +380,20 @@ fn run_worker_loop(
     waker: &Waker,
     backend: &dyn WorkerBackend,
     stop_flag: &AtomicBool,
-    seen_reenroll: &mut u64,
-    seen_leave: &mut u64,
 ) {
     let mut active: Option<ActiveRelay> = None;
     let mut last_peer_status = RelayStatus::default();
     loop {
-        let (enabled, streaming, shutdown, identity, reenroll_seq, leave_seq) = {
+        let (
+            enabled,
+            streaming,
+            shutdown,
+            identity,
+            reenroll_seq,
+            seen_reenroll,
+            leave_seq,
+            seen_leave,
+        ) = {
             let st = shared.lock().unwrap_or_else(|e| e.into_inner());
             (
                 st.enabled,
@@ -400,14 +401,15 @@ fn run_worker_loop(
                 st.shutdown,
                 st.identity.clone(),
                 st.reenroll_seq,
+                st.seen_reenroll,
                 st.leave_seq,
+                st.seen_leave,
             )
         };
         if shutdown || stop_flag.load(Ordering::Acquire) {
             break;
         }
-        if leave_seq > *seen_leave {
-            *seen_leave = leave_seq;
+        if leave_seq > seen_leave {
             if let Some(mut running) = active.take() {
                 if let Some(peer) = running.peer.take() {
                     peer.stop();
@@ -419,6 +421,8 @@ fn run_worker_loop(
             let outcome = perform_leave(dir, read_only, identity.as_ref(), backend);
             {
                 let mut st = shared.lock().unwrap_or_else(|e| e.into_inner());
+                st.seen_leave = leave_seq;
+                st.enabled = false;
                 st.leave_done = Some(outcome.clone());
                 st.status = WakeRelayView {
                     has_saved: has_saved_assignments(dir),
@@ -427,13 +431,16 @@ fn run_worker_loop(
                 };
             }
             (waker)();
-            break;
+            return;
         }
         if !enabled {
             break;
         }
-        if reenroll_seq > *seen_reenroll {
-            *seen_reenroll = reenroll_seq;
+        if reenroll_seq > seen_reenroll {
+            {
+                let mut st = shared.lock().unwrap_or_else(|e| e.into_inner());
+                st.seen_reenroll = reenroll_seq;
+            }
             if let Some(mut old) = active.take() {
                 if let Some(peer) = old.peer.take() {
                     peer.stop();
@@ -464,7 +471,7 @@ fn run_worker_loop(
             if relay.peer.is_none() {
                 if !backend.has_lan() {
                     let next = WakeRelayView {
-                        running: true,
+                        running: false,
                         error: Some(
                             tr("This computer has no active IPv4 network for magic packets.")
                                 .to_owned(),
@@ -483,7 +490,7 @@ fn run_worker_loop(
                     }
                     Err(e) => {
                         let next = WakeRelayView {
-                            running: true,
+                            running: false,
                             error: Some(trf("Could not start wake relay socket: {}", &[&e])),
                             has_saved: has_saved_assignments(dir),
                             ..WakeRelayView::default()
@@ -494,26 +501,35 @@ fn run_worker_loop(
                     }
                 }
             }
-            if let Some(identity) = identity.as_ref()
-                && !relay.driver.due(driver::unix_now()).is_empty()
-            {
-                let records = backend.paired_hosts(dir, read_only);
-                let listed: Vec<(String, String)> = records
-                    .iter()
-                    .map(|r| (r.unique_id.clone(), display_name(r)))
-                    .collect();
-                let _ = relay.driver.set_hosts(&listed);
-                for (id, asking) in relay.driver.due(driver::unix_now()) {
-                    let st = shared.lock().unwrap_or_else(|e| e.into_inner());
-                    if !st.enabled || st.streaming || st.shutdown || st.leave_seq > *seen_leave {
-                        break;
+            if let Some(identity) = identity.as_ref() {
+                let hosts_due = relay
+                    .last_hosts_sync
+                    .is_none_or(|synced| synced.elapsed() >= HOSTS_REFRESH);
+                let ask_due = !relay.driver.due(driver::unix_now()).is_empty();
+                if hosts_due || ask_due {
+                    let records = backend.paired_hosts(dir, read_only);
+                    let listed: Vec<(String, String)> = records
+                        .iter()
+                        .map(|r| (r.unique_id.clone(), display_name(r)))
+                        .collect();
+                    let _ = relay.driver.set_hosts(&listed);
+                    relay.last_hosts_sync = Some(Instant::now());
+                    for (id, asking) in relay.driver.due(driver::unix_now()) {
+                        let st = shared.lock().unwrap_or_else(|e| e.into_inner());
+                        if !st.enabled
+                            || st.streaming
+                            || st.shutdown
+                            || st.leave_seq > st.seen_leave
+                        {
+                            break;
+                        }
+                        drop(st);
+                        let Some(record) = records.iter().find(|r| r.unique_id == id) else {
+                            continue;
+                        };
+                        let outcome = backend.ask_host(identity, record, asking);
+                        let _ = relay.driver.on_result(&id, outcome, driver::unix_now());
                     }
-                    drop(st);
-                    let Some(record) = records.iter().find(|r| r.unique_id == id) else {
-                        continue;
-                    };
-                    let outcome = backend.ask_host(identity, record, asking);
-                    let _ = relay.driver.on_result(&id, outcome, driver::unix_now());
                 }
             }
             if relay.driver.take_changed() {
@@ -605,6 +621,7 @@ fn start_active(
         driver,
         peer: None,
         _lock: lock,
+        last_hosts_sync: None,
     });
     true
 }

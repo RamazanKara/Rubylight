@@ -518,7 +518,20 @@ Redacted logs, oldest line first; addresses, PC names, user folders, PINs and cr
                 self.sync_wake_relay();
             }
             Command::WakeRelayReenroll => self.wake_relay_worker.reenroll(),
-            Command::WakeRelayLeave => self.wake_relay_worker.request_leave(),
+            Command::WakeRelayLeave => {
+                self.launcher.settings.wake_relay = false;
+                self.launcher.edit_settings.wake_relay = false;
+                if let Err(e) = self.store.save_settings(&self.launcher.settings) {
+                    eprintln!("nightjar: saving settings failed: {e}");
+                }
+                self.wake_relay_worker.sync(
+                    false,
+                    self.streaming.is_some(),
+                    self.hosts.identity().cloned(),
+                );
+                self.wake_relay_worker.request_leave();
+                self.launcher.wake_relay = self.wake_relay_worker.status();
+            }
             Command::RetryLaunch => {
                 if let Some((host, app, resume, kind)) = self.failed_launch.take() {
                     self.launch(host, app, resume, kind, LaunchFrom::Launcher);

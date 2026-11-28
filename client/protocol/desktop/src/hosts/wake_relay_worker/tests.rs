@@ -30,8 +30,12 @@ impl RelayPeerHandle for MockPeerHandle {
 
 struct FakeBackend {
     lock_blocked: AtomicBool,
+    has_lan: AtomicBool,
     starts: AtomicUsize,
     leaves: AtomicUsize,
+    asked: AtomicUsize,
+    paired: Mutex<Vec<HostRecord>>,
+    enroll_outcome: Mutex<Option<Outcome>>,
     peer: Arc<MockPeer>,
 }
 
@@ -39,8 +43,12 @@ impl FakeBackend {
     fn new(lock_blocked: bool) -> Arc<Self> {
         Arc::new(Self {
             lock_blocked: AtomicBool::new(lock_blocked),
+            has_lan: AtomicBool::new(true),
             starts: AtomicUsize::new(0),
             leaves: AtomicUsize::new(0),
+            asked: AtomicUsize::new(0),
+            paired: Mutex::new(Vec::new()),
+            enroll_outcome: Mutex::new(None),
             peer: Arc::new(MockPeer {
                 enrollments: Mutex::new(Vec::new()),
                 stopped: AtomicUsize::new(0),
@@ -58,7 +66,7 @@ impl WorkerBackend for FakeBackend {
         }
     }
     fn has_lan(&self) -> bool {
-        true
+        self.has_lan.load(Ordering::Acquire)
     }
     fn start_peer(&self) -> io::Result<Box<dyn RelayPeerHandle>> {
         self.starts.fetch_add(1, Ordering::SeqCst);
@@ -71,7 +79,7 @@ impl WorkerBackend for FakeBackend {
         saved::save(dir, saved)
     }
     fn paired_hosts(&self, _dir: &Path, _read_only: bool) -> Vec<HostRecord> {
-        Vec::new()
+        self.paired.lock().unwrap().clone()
     }
     fn ask_host(
         &self,
@@ -79,7 +87,12 @@ impl WorkerBackend for FakeBackend {
         _record: &HostRecord,
         _asking: Ask,
     ) -> Outcome {
-        Outcome::Unreachable("offline".into())
+        self.asked.fetch_add(1, Ordering::SeqCst);
+        self.enroll_outcome
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| Outcome::Unreachable("offline".into()))
     }
     fn leave_hosts(
         &self,
@@ -157,8 +170,77 @@ fn worker_starts_pauses_while_streaming_resumes_and_leaves_cleanly() {
     wait_until(|| ctrl.take_leave_finished().is_some());
     assert_eq!(backend.leaves.load(Ordering::SeqCst), 1);
 
+    // Repeated sync frames after Leave completes must never re-run leave_hosts.
+    let again_id = Some(Arc::new(ClientIdentity::generate().expect("a key")));
+    for _ in 0..5 {
+        ctrl.sync(false, false, again_id.clone());
+    }
+    std::thread::sleep(Duration::from_millis(40));
+    assert!(ctrl.take_leave_finished().is_none());
+    assert_eq!(backend.leaves.load(Ordering::SeqCst), 1);
+
     ctrl.stop_and_join();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn initial_empty_saved_enrolls_paired_hosts_and_no_lan_stays_not_running() {
+    use nightjar_core::http::native_api::wake_relay::RelayAssignment;
+    use nightjar_desktop_config::config::HostRecord;
+
+    let dir = temp_dir("initial-enroll");
+    let id = Some(Arc::new(ClientIdentity::generate().expect("a key")));
+    let backend = FakeBackend::new(false);
+    let record = HostRecord {
+        name: "Gaming PC".into(),
+        address: "192.168.1.50".into(),
+        unique_id: "pc-uid-1".into(),
+        ..HostRecord::default()
+    };
+    *backend.paired.lock().unwrap() = vec![record];
+    *backend.enroll_outcome.lock().unwrap() = Some(Outcome::Assigned(Box::new(RelayAssignment {
+        target_id: "pc-uid-1".into(),
+        target_name: "Gaming PC".into(),
+        epoch: 1,
+        secret: "a".repeat(64),
+        macs: vec!["aa:bb:cc:dd:ee:ff".into()],
+        broadcasts: vec!["192.168.1.255".into()],
+        address: Some("192.168.1.50".into()),
+        http_port: 47989,
+        devices: vec!["c".repeat(64)],
+        refresh_seconds: 300,
+    })));
+
+    let waker: Waker = Arc::new(|| {});
+    let mut ctrl = WakeRelayController::with_backend(dir.clone(), false, waker, backend.clone());
+    ctrl.sync(true, false, id.clone());
+    wait_until(|| {
+        backend.asked.load(Ordering::SeqCst) >= 1
+            && !backend
+                .peer
+                .enrollments
+                .lock()
+                .unwrap()
+                .last()
+                .is_none_or(Vec::is_empty)
+    });
+    assert_eq!(backend.asked.load(Ordering::SeqCst), 1);
+
+    // Without active IPv4 LAN on peer start, running stays false alongside the error.
+    let dir_no_lan = temp_dir("no-lan");
+    let backend_no_lan = FakeBackend::new(false);
+    backend_no_lan.has_lan.store(false, Ordering::Release);
+    let waker2: Waker = Arc::new(|| {});
+    let mut ctrl2 =
+        WakeRelayController::with_backend(dir_no_lan.clone(), false, waker2, backend_no_lan);
+    ctrl2.sync(true, false, id);
+    wait_until(|| ctrl2.status().error.is_some());
+    assert!(!ctrl2.status().running);
+
+    ctrl2.stop_and_join();
+    ctrl.stop_and_join();
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&dir_no_lan);
 }
 
 #[test]

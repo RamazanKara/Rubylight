@@ -33,6 +33,8 @@ struct Flipped {
     scan: Option<race_probe::ScanReport>,
     /// The picture was not presented: the last one still waits for the display.
     refused: bool,
+    /// `SDL_RenderPresent` or the blank/EGL present returned false.
+    present_failed: bool,
     /// The render device was lost or reset during this present: the swap chain must not be read.
     device_lost: bool,
 }
@@ -273,7 +275,7 @@ impl Streaming {
                 self.swapchain_hdr_metadata = Some(metadata);
             }
         }
-        if self.check_render_device_lost() { if holds { self.direct_motion.presenting(None); } let now = session::now_us(); return Flipped { issued_us: now, returned_us: now, scan: None, refused: false, device_lost: true }; }
+        if self.check_render_device_lost() { if holds { self.direct_motion.presenting(None); } let now = session::now_us(); return Flipped { issued_us: now, returned_us: now, scan: None, refused: false, present_failed: false, device_lost: true }; }
         // With Frame Warp the hold came before its shift (`present`).
         if probe && self.frame_warp.is_none() { self.hold_for_turn(renderer); }
         let issued_us = session::now_us();
@@ -307,7 +309,7 @@ impl Streaming {
             (done == present::NoWait::Refused, failed, egl_done.is_some())
         };
         let device_lost = crate::render_device::after_present_lost(present_failed, &self.plan.device);
-        if device_lost { self.note_render_device_lost(crate::render_device::lost_reason().into()); } else if !refused { self.texture.mark_d3d11_flushed(); #[cfg(target_os = "linux")] if !egl_paced && !present_failed && (!skips || !self.no_wait_present) { phase::note_external_present(); } }
+        if device_lost { self.note_render_device_lost(crate::render_device::lost_reason().into()); } else if !refused && !present_failed { self.texture.mark_d3d11_flushed(); #[cfg(target_os = "linux")] if !egl_paced && !present_failed && (!skips || !self.no_wait_present) { phase::note_external_present(); } }
         #[cfg(not(target_os = "linux"))]
         let _ = egl_paced;
         self.flip_guard.last_flip_us = Some(issued_us);
@@ -326,7 +328,7 @@ impl Streaming {
             probe.after_present(renderer, beam_before, probe_tears, fps);
             probe.report(beam_before)
         });
-        Flipped { issued_us, returned_us, scan, refused, device_lost }
+        Flipped { issued_us, returned_us, scan, refused, present_failed, device_lost }
     }
 
     fn handle_upload_failure(&mut self, p: &present::Pending) {
@@ -564,7 +566,7 @@ impl Streaming {
             }
         };
         if flipped.device_lost { return true; }
-        if !flipped.refused && let Some(frame) = picture.as_ref().and_then(|p| p.decoded.picture.frame()) { frame.mark_d3d11_flushed(); }
+        if !flipped.refused && !flipped.present_failed && let Some(frame) = picture.as_ref().and_then(|p| p.decoded.picture.frame()) { frame.mark_d3d11_flushed(); }
         #[cfg(target_os = "linux")]
         if by_kms && !flipped.refused { self.kms_last_flip_us = Some(flipped.returned_us); }
         // The draw after the hold, which the hold's margin has to leave time for.
@@ -709,7 +711,7 @@ impl Streaming {
             self.needs_redraw = true;
             return None;
         }
-        Some(Flipped { issued_us, returned_us, scan: None, refused: false, device_lost: false })
+        Some(Flipped { issued_us, returned_us, scan: None, refused: false, present_failed: false, device_lost: false })
     }
 
     #[cfg(not(target_os = "linux"))]

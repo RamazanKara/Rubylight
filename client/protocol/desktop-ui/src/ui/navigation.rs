@@ -413,18 +413,17 @@ impl Launcher {
             .id()
     }
 
-    /// Back: Escape, the Back button or the controller's B button (`pad`).
-    pub(super) fn back(&mut self, commands: &mut Vec<Command>, pad: bool) {
+    /// Back: Escape, the Back button or the controller's B button (`_pad`).
+    pub(super) fn back(&mut self, commands: &mut Vec<Command>, _pad: bool) {
         match &self.dialog {
             Dialog::None => match self.screen {
-                // The end of the line: B asks to close Nightjar, so a controller alone can. A
-                // keyboard has Alt+F4 and Escape stays harmless.
-                Screen::Home => if pad { self.ask(Dialog::ConfirmExit) },
+                // The end of the line: Escape or B asks to close Nightjar.
+                Screen::Home => self.ask(Dialog::ConfirmExit),
                 Screen::Hosts => {
                     if !self.trail.is_empty() || self.root() == Screen::Home {
                         let root = self.root();
                         self.pop(root);
-                    } else if pad {
+                    } else {
                         self.ask(Dialog::ConfirmExit);
                     }
                 }

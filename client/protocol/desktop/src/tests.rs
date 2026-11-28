@@ -286,6 +286,7 @@ fn the_color_probe_runs_once_per_decoder() {
 
 #[test]
 fn a_stream_starts_with_what_became_of_4_4_4_and_10_bit_next_to_the_warning() {
+    shortcuts::isolate_thread_hotkeys_for_test();
     assert_eq!(start_toast(None, None, false), "Ctrl+Alt+Shift+Tab opens controls, Ctrl+Alt+Shift+Q disconnects, Ctrl+Alt+Shift+Z releases input");
     // It names the key the layout has there: the key labelled Y on QWERTZ.
     crate::shortcuts_runtime::use_layout(&[(sdl3_sys::everything::SDL_SCANCODE_Z, sdl3_sys::everything::SDLK_Y)]);
@@ -295,7 +296,6 @@ fn a_stream_starts_with_what_became_of_4_4_4_and_10_bit_next_to_the_warning() {
     shortcuts::record_hotkey("quit", &["CTRL".into(), "F9".into()]).unwrap();
     shortcuts::turn_off_hotkey("capture").unwrap();
     assert_eq!(start_toast(None, None, false), "Ctrl+Alt+Shift+Tab opens controls, Ctrl+F9 disconnects");
-    shortcuts::set_hotkeys(Default::default());
     assert_eq!(start_toast(None, Some("Streaming in YUV 4:4:4."), false), "Streaming in YUV 4:4:4.");
     assert_eq!(start_toast(Some("Wi-Fi name unavailable."), Some("Streaming in YUV 4:4:4."), false), "Wi-Fi name unavailable.\nStreaming in YUV 4:4:4.");
     assert_eq!(start_toast(Some("Wi-Fi name unavailable."), None, false), "Wi-Fi name unavailable.");

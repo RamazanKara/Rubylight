@@ -12,40 +12,40 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::ThreadId;
 
-use windows::core::{Interface, PCWSTR};
-use windows::Win32::Foundation::{CloseHandle, GENERIC_ALL, HANDLE, HMODULE};
+use windows::core::Interface;
+use windows::Win32::Foundation::HMODULE;
 use windows::Win32::Graphics::Direct3D::{
-    D3D11_SRV_DIMENSION_TEXTURE2DARRAY, D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_11_0,
-    D3D_FEATURE_LEVEL_11_1,
+    D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1,
 };
 use windows::Win32::Graphics::Direct3D10::ID3D10Multithread;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
-use windows::Win32::Graphics::Dxgi::{
-    IDXGIAdapter, IDXGIDevice, IDXGIResource1, DXGI_SHARED_RESOURCE_READ,
-    DXGI_SHARED_RESOURCE_WRITE,
-};
+use windows::Win32::Graphics::Dxgi::{IDXGIAdapter, IDXGIDevice};
 
 use super::ffi::{
     av_hwdevice_ctx_alloc, av_hwdevice_ctx_init, AVCodecContext, AVD3D11VADeviceContext,
     AVD3D11VAFramesContext, AVFrame, AVHWDeviceContext, AVHWDeviceType, AVHWFramesContext,
     AV_PIX_FMT_D3D11,
 };
-use super::{D3d11Surface, Pictures};
+use super::{D3d11Removal, D3d11Surface, Pictures};
+
+mod resources;
+mod sync;
+use resources::{
+    create_shared_fence_pair, create_shared_texture_pair, preflight_format_and_srv,
+    preflight_formats,
+};
+pub(super) use sync::device_removed_reason;
+use sync::{choose_reuse_slot, fence_completed_ready, is_device_removed_code, SlotChoice};
+
+pub(super) fn clone_device_ref(raw: *mut c_void) -> Option<ID3D11Device> {
+    // SAFETY: Caller passes null or a borrowed `ID3D11Device` pointer on this thread.
+    unsafe { ID3D11Device::from_raw_borrowed(&raw) }.cloned()
+}
 
 pub(crate) const HARD_SLOT_CAP: usize = 32;
 const SHARED_DEVICE_ENV: &str = "NIGHTJAR_D3D11_SHARED_DEVICE";
 static NEXT_BRIDGE_ID: AtomicU64 = AtomicU64::new(1);
-
-/// RAII wrapper around an NT shared handle so early error returns never leak kernel handles.
-struct OwnedHandle(HANDLE);
-
-impl Drop for OwnedHandle {
-    fn drop(&mut self) {
-        // SAFETY: Owned handle created by `CreateSharedHandle` and closed once here.
-        if !self.0.is_invalid() { let _ = unsafe { CloseHandle(self.0) }; }
-    }
-}
 
 /// RAII guard for `ID3D10Multithread::Enter` / `Leave`.
 struct MtGuard<'a>(&'a ID3D10Multithread);
@@ -165,6 +165,9 @@ pub(super) unsafe fn open_device_context(
     unsafe {
         let renderer_device =
             ID3D11Device::from_raw_borrowed(&device).ok_or("No D3D11 device.")?;
+        if let Some(reason) = device_removed_reason(renderer_device) {
+            return Err(format!("D3D11 renderer device removed ({reason})."));
+        }
         let bridge = if pictures.probe_only {
             None
         } else {
@@ -174,6 +177,9 @@ pub(super) unsafe fn open_device_context(
                     Some(bridge)
                 }
                 Err(why) => {
+                    if let Some(reason) = device_removed_reason(renderer_device) {
+                        return Err(format!("D3D11 renderer device removed ({reason})."));
+                    }
                     eprintln!("nightjar: D3D11VA could not open a separate video device ({why}); sharing the renderer's D3D11 device with multithread lock");
                     None
                 }
@@ -282,7 +288,11 @@ pub(super) unsafe fn with_lock(
 ) {
     if let Some(shared) = shared {
         if let Err(why) = shared.wait_on_renderer() {
-            eprintln!("nightjar: D3D11 decode bridge wait failed: {why}");
+            if shared.lease.bridge.check_removed() == D3d11Removal::None
+                || shared.lease.bridge.take_removal_log_once()
+            {
+                eprintln!("nightjar: D3D11 decode bridge wait failed: {why}");
+            }
             return;
         }
         f();
@@ -386,8 +396,12 @@ pub(crate) struct DecodeBridge {
 
     decode_counter: AtomicU64,
     reuse_counter: AtomicU64,
+    signaled_reuse: AtomicU64,
     flushed_reuse: AtomicU64,
     pending_flush: AtomicU64,
+    decode_removed: AtomicBool,
+    render_removed: AtomicBool,
+    removal_logged: AtomicBool,
     render_thread: OnceLock<ThreadId>,
 
     pool: Mutex<PoolState>,
@@ -400,129 +414,6 @@ fn shared_device_forced() -> bool {
     std::env::var(SHARED_DEVICE_ENV)
         .ok()
         .is_some_and(|v| v.trim() == "1")
-}
-
-fn create_shared_fence_pair(
-    decode_dev5: &ID3D11Device5,
-    render_dev5: &ID3D11Device5,
-    name: &str,
-) -> Result<(ID3D11Fence, ID3D11Fence), String> {
-    // SAFETY: Both `ID3D11Device5` instances are live; NT handle closes via `OwnedHandle`.
-    unsafe {
-        let mut dec_fence: Option<ID3D11Fence> = None;
-        decode_dev5
-            .CreateFence(0, D3D11_FENCE_FLAG_SHARED, &mut dec_fence)
-            .map_err(|e| format!("creating shared D3D11 {name} fence: {e}"))?;
-        let dec_fence = dec_fence.ok_or_else(|| format!("no D3D11 {name} fence returned"))?;
-        let handle = OwnedHandle(
-            dec_fence
-                .CreateSharedHandle(None, GENERIC_ALL.0, PCWSTR::null())
-                .map_err(|e| format!("exporting shared D3D11 {name} fence handle: {e}"))?,
-        );
-        let mut ren_fence: Option<ID3D11Fence> = None;
-        render_dev5
-            .OpenSharedFence(handle.0, &mut ren_fence)
-            .map_err(|e| format!("opening shared D3D11 {name} fence on renderer device: {e}"))?;
-        let ren_fence = ren_fence.ok_or_else(|| format!("no opened D3D11 {name} fence"))?;
-        Ok((dec_fence, ren_fence))
-    }
-}
-
-fn create_shared_texture_pair(
-    decode_device: &ID3D11Device,
-    render_device1: &ID3D11Device1,
-    format: DXGI_FORMAT,
-    width: u32,
-    height: u32,
-) -> Result<(ID3D11Texture2D, ID3D11Texture2D), String> {
-    let desc = D3D11_TEXTURE2D_DESC {
-        Width: width,
-        Height: height,
-        MipLevels: 1,
-        ArraySize: 1,
-        Format: format,
-        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-        Usage: D3D11_USAGE_DEFAULT,
-        BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
-        CPUAccessFlags: 0,
-        MiscFlags: (D3D11_RESOURCE_MISC_SHARED.0 | D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0) as u32,
-    };
-    // SAFETY: Both devices are live; NT handle closes immediately via `OwnedHandle`.
-    unsafe {
-        let mut decode_tex = None;
-        decode_device
-            .CreateTexture2D(&desc, None, Some(&mut decode_tex))
-            .map_err(|e| format!("creating shared {width}x{height} format {} texture: {e}", format.0))?;
-        let decode_tex = decode_tex.ok_or("CreateTexture2D returned no shared texture")?;
-        let resource: IDXGIResource1 = decode_tex
-            .cast()
-            .map_err(|e| format!("querying IDXGIResource1 on shared texture: {e}"))?;
-        let handle = OwnedHandle(
-            resource
-                .CreateSharedHandle(
-                    None,
-                    DXGI_SHARED_RESOURCE_READ.0 | DXGI_SHARED_RESOURCE_WRITE.0,
-                    PCWSTR::null(),
-                )
-                .map_err(|e| format!("exporting shared texture NT handle: {e}"))?,
-        );
-        let render_tex: ID3D11Texture2D = render_device1
-            .OpenSharedResource1(handle.0)
-            .map_err(|e| format!("opening shared texture on renderer device: {e}"))?;
-        Ok((decode_tex, render_tex))
-    }
-}
-
-fn preflight_formats(pictures: Pictures) -> &'static [DXGI_FORMAT] {
-    match (pictures.chroma444, pictures.ten_bit) {
-        (false, false) => &[DXGI_FORMAT_NV12],
-        (false, true) => &[DXGI_FORMAT_P010],
-        (true, false) => &[DXGI_FORMAT_AYUV],
-        (true, true) => &[DXGI_FORMAT_Y410, DXGI_FORMAT_Y416],
-    }
-}
-
-fn srv_formats_for(format: DXGI_FORMAT) -> &'static [DXGI_FORMAT] {
-    match format {
-        DXGI_FORMAT_NV12 => &[DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM],
-        DXGI_FORMAT_P010 => &[DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16G16_UNORM],
-        DXGI_FORMAT_AYUV => &[DXGI_FORMAT_R8G8B8A8_UNORM],
-        DXGI_FORMAT_Y410 => &[DXGI_FORMAT_R10G10B10A2_UNORM],
-        DXGI_FORMAT_Y416 => &[DXGI_FORMAT_R16G16B16A16_UNORM],
-        _ => &[],
-    }
-}
-
-/// Verifies creating an NT-handle shared texture pair and the presenter's slice SRVs on `render_device`.
-fn preflight_format_and_srv(
-    decode_device: &ID3D11Device,
-    render_device: &ID3D11Device,
-    render_device1: &ID3D11Device1,
-    format: DXGI_FORMAT,
-) -> Result<(), String> {
-    let (_dec, ren) = create_shared_texture_pair(decode_device, render_device1, format, 64, 64)?;
-    for &view_format in srv_formats_for(format) {
-        let mut view = None;
-        let desc = D3D11_SHADER_RESOURCE_VIEW_DESC {
-            Format: view_format,
-            ViewDimension: D3D11_SRV_DIMENSION_TEXTURE2DARRAY,
-            Anonymous: D3D11_SHADER_RESOURCE_VIEW_DESC_0 {
-                Texture2DArray: D3D11_TEX2D_ARRAY_SRV { MostDetailedMip: 0, MipLevels: 1, FirstArraySlice: 0, ArraySize: 1 },
-            },
-        };
-        // SAFETY: `ren` is a live shared texture created on `render_device` with `SHADER_RESOURCE`.
-        unsafe { render_device.CreateShaderResourceView(&ren, Some(&desc), Some(&mut view)) }
-            .map_err(|e| format!("creating SRV format {} on shared format {}: {e}", view_format.0, format.0))?;
-    }
-    Ok(())
-}
-
-/// Interprets `ID3D11Fence::GetCompletedValue()`, treating `u64::MAX` as D3D11 device removal.
-fn fence_completed_ready(completed: u64, target: u64) -> Result<bool, String> {
-    if completed == u64::MAX {
-        return Err("shared D3D11 fence reported device removal".into());
-    }
-    Ok(completed >= target)
 }
 
 impl DecodeBridge {
@@ -585,7 +476,9 @@ impl DecodeBridge {
             render_device: renderer_device.clone(), render_device1, render_context, render_context1,
             render_queue, decode_fence_ren, reuse_fence_ren,
             decode_counter: AtomicU64::new(0), reuse_counter: AtomicU64::new(0),
-            flushed_reuse: AtomicU64::new(0), pending_flush: AtomicU64::new(0),
+            signaled_reuse: AtomicU64::new(0), flushed_reuse: AtomicU64::new(0), pending_flush: AtomicU64::new(0),
+            decode_removed: AtomicBool::new(false), render_removed: AtomicBool::new(false),
+            removal_logged: AtomicBool::new(false),
             render_thread: OnceLock::new(), pool: Mutex::new(PoolState::default()), max_slots,
             #[cfg(test)] drop_flushes: AtomicU64::new(0),
         }))
@@ -594,8 +487,28 @@ impl DecodeBridge {
     pub(super) fn decode_device(&self) -> &ID3D11Device { &self.decode_device }
 
     pub(super) fn mark_renderer_flushed(&self) {
-        let current = self.reuse_counter.load(Ordering::Acquire);
+        let current = self.signaled_reuse.load(Ordering::Acquire);
         if current > 0 { self.flushed_reuse.fetch_max(current, Ordering::AcqRel); }
+    }
+
+    pub(super) fn is_device_removed(&self) -> bool {
+        self.decode_removed.load(Ordering::Acquire) || self.render_removed.load(Ordering::Acquire)
+    }
+
+    pub(super) fn check_removed(&self) -> D3d11Removal {
+        if !self.render_removed.load(Ordering::Acquire) && device_removed_reason(&self.render_device).is_some() {
+            self.render_removed.store(true, Ordering::Release);
+        }
+        if !self.decode_removed.load(Ordering::Acquire) && device_removed_reason(&self.decode_device).is_some() {
+            self.decode_removed.store(true, Ordering::Release);
+        }
+        if self.render_removed.load(Ordering::Acquire) { D3d11Removal::RendererLost }
+        else if self.decode_removed.load(Ordering::Acquire) { D3d11Removal::DecodeOnly }
+        else { D3d11Removal::None }
+    }
+
+    pub(super) fn take_removal_log_once(&self) -> bool {
+        !self.removal_logged.swap(true, Ordering::AcqRel)
     }
 
     /// Flushes any off-thread `SlotLease::drop` reuse signal deferred to the presenting thread.
@@ -606,19 +519,34 @@ impl DecodeBridge {
             // SAFETY: Called on the presenting thread that owns `render_context`.
             unsafe {
                 let completed = self.reuse_fence_ren.GetCompletedValue();
-                if completed != u64::MAX && completed < want { self.render_context.Flush(); }
+                if completed == u64::MAX {
+                    self.render_removed.store(true, Ordering::Release);
+                    return;
+                }
+                if completed < want { self.render_context.Flush(); }
             }
             self.flushed_reuse.fetch_max(want, Ordering::AcqRel);
         }
     }
 
     fn device_error(&self, what: &str, detail: impl std::fmt::Display) -> String {
-        // SAFETY: `GetDeviceRemovedReason` is thread-safe and only queried on failure paths.
-        unsafe {
-            if let Err(e) = self.decode_device.GetDeviceRemovedReason() { return format!("{what}: decode device removed ({e})"); }
-            if let Err(e) = self.render_device.GetDeviceRemovedReason() { return format!("{what}: renderer device removed ({e})"); }
+        if let Some(e) = device_removed_reason(&self.decode_device) {
+            self.decode_removed.store(true, Ordering::Release);
+            return format!("{what}: decode device removed ({e})");
+        }
+        if let Some(e) = device_removed_reason(&self.render_device) {
+            self.render_removed.store(true, Ordering::Release);
+            return format!("{what}: renderer device removed ({e})");
         }
         format!("{what}: {detail}")
+    }
+
+    fn note_fence_error(&self, decode_side: bool, what: &str, err: &windows::core::Error) -> String {
+        if is_device_removed_code(err.code().0) {
+            if decode_side { self.decode_removed.store(true, Ordering::Release); }
+            else { self.render_removed.store(true, Ordering::Release); }
+        }
+        self.device_error(what, err)
     }
 
     fn acquire_slot(&self, state: &mut PoolState, format: DXGI_FORMAT, width: u32, height: u32) -> Result<Arc<SharedSlot>, String> {
@@ -628,18 +556,23 @@ impl DecodeBridge {
         let pool = state.pool.as_mut().expect("initialized above");
         // SAFETY: Reading the completed value of a live monitored fence is thread-safe.
         let completed = unsafe { self.reuse_fence_dec.GetCompletedValue() };
-        if completed == u64::MAX { return Err(self.device_error("shared reuse fence reported device removal", "u64::MAX")); }
-        if let Some(slot) = pool.slots.iter().find(|s| !s.in_use.load(Ordering::Acquire) && s.reuse_value.load(Ordering::Acquire) <= completed) {
-            slot.in_use.store(true, Ordering::Release);
-            return Ok(slot.clone());
+        if completed == u64::MAX {
+            self.decode_removed.store(true, Ordering::Release);
+            return Err(self.device_error("shared reuse fence reported device removal", "u64::MAX"));
         }
-        if pool.slots.len() < self.max_slots { return self.alloc_slot(pool, format, width, height); }
-        if let Some(slot) = pool.slots.iter().filter(|s| !s.in_use.load(Ordering::Acquire)).min_by_key(|s| s.reuse_value.load(Ordering::Acquire)) {
-            slot.in_use.store(true, Ordering::Release);
-            return Ok(slot.clone());
+        let flushed = self.flushed_reuse.load(Ordering::Acquire);
+        let snapshot: Vec<_> = pool.slots.iter()
+            .map(|s| (s.in_use.load(Ordering::Acquire), s.reuse_value.load(Ordering::Acquire)))
+            .collect();
+        match choose_reuse_slot(&snapshot, completed, flushed, self.max_slots, HARD_SLOT_CAP) {
+            SlotChoice::Reuse(idx) => {
+                let slot = pool.slots[idx].clone();
+                slot.in_use.store(true, Ordering::Release);
+                Ok(slot)
+            }
+            SlotChoice::Alloc => self.alloc_slot(pool, format, width, height),
+            SlotChoice::Exhausted => Err("all shared D3D11 decode slots are held or pending renderer flush".into()),
         }
-        if pool.slots.len() < HARD_SLOT_CAP { return self.alloc_slot(pool, format, width, height); }
-        Err("all shared D3D11 decode slots are held".into())
     }
 
     fn alloc_slot(&self, pool: &mut Pool, format: DXGI_FORMAT, width: u32, height: u32) -> Result<Arc<SharedSlot>, String> {
@@ -655,6 +588,9 @@ impl DecodeBridge {
     /// Copies the decoded slice from `raw_frame` on the decode device into a shared NT-handle
     /// texture, signals the monitored decode fence and flushes the decode queue.
     pub(super) unsafe fn export(self: &Arc<Self>, raw_frame: &AVFrame) -> Result<SharedFrame, String> {
+        if self.is_device_removed() {
+            return Err(self.device_error("D3D11 decode bridge stopped", "device removed"));
+        }
         let source_raw = raw_frame.data[0].cast();
         // SAFETY: `raw_frame` is a live `AV_PIX_FMT_D3D11` frame belonging to this decode device.
         let source = unsafe { ID3D11Texture2D::from_raw_borrowed(&source_raw) }.ok_or("decoded D3D11 frame has no source texture")?;
@@ -684,12 +620,24 @@ impl DecodeBridge {
             unsafe {
                 if need_reuse > 0
                     && !fence_completed_ready(self.reuse_fence_dec.GetCompletedValue(), need_reuse)
-                        .map_err(|e| self.device_error("shared reuse fence", e))?
+                        .map_err(|e| {
+                            self.decode_removed.store(true, Ordering::Release);
+                            self.device_error("shared reuse fence", e)
+                        })?
                 {
-                    self.decode_queue.Wait(&self.reuse_fence_dec, need_reuse).map_err(|e| self.device_error("waiting on shared reuse fence", e))?;
+                    if let Some(reason) = device_removed_reason(&self.render_device) {
+                        self.render_removed.store(true, Ordering::Release);
+                        return Err(format!("waiting on shared reuse fence: renderer device removed ({reason})"));
+                    }
+                    if need_reuse > self.flushed_reuse.load(Ordering::Acquire) {
+                        return Err("shared reuse fence signal pending renderer flush".into());
+                    }
+                    self.decode_queue.Wait(&self.reuse_fence_dec, need_reuse)
+                        .map_err(|e| self.note_fence_error(true, "waiting on shared reuse fence", &e))?;
                 }
                 self.decode_context.CopySubresourceRegion(&lease.slot.decode_tex, 0, 0, 0, 0, source, slice, region.as_ref().map(ptr::from_ref));
-                self.decode_queue.Signal(&self.decode_fence_dec, decode_value).map_err(|e| self.device_error("signaling shared decode fence", e))?;
+                self.decode_queue.Signal(&self.decode_fence_dec, decode_value)
+                    .map_err(|e| self.note_fence_error(true, "signaling shared decode fence", &e))?;
                 self.decode_context.Flush();
             }
         }
@@ -707,12 +655,15 @@ impl Drop for SlotLease {
             // so `render_device` needs no `SetMultithreadProtected(true)` lock.
             unsafe {
                 let completed = self.bridge.reuse_fence_ren.GetCompletedValue();
-                if completed != u64::MAX && completed < val {
+                if completed == u64::MAX {
+                    self.bridge.render_removed.store(true, Ordering::Release);
+                } else if completed < val {
                     if self.bridge.render_thread.get() == Some(&std::thread::current().id()) {
                         self.bridge.render_context.Flush();
                         #[cfg(test)]
                         self.bridge.drop_flushes.fetch_add(1, Ordering::Relaxed);
-                        self.bridge.flushed_reuse.fetch_max(val, Ordering::AcqRel);
+                        let flushed = val.max(self.bridge.signaled_reuse.load(Ordering::Acquire));
+                        self.bridge.flushed_reuse.fetch_max(flushed, Ordering::AcqRel);
                     } else {
                         self.bridge.pending_flush.fetch_max(val, Ordering::AcqRel);
                     }
@@ -734,18 +685,24 @@ impl SharedFrame {
 
     pub(super) fn wait_on_renderer(&self) -> Result<(), String> {
         let bridge = &self.lease.bridge;
+        if bridge.is_device_removed() {
+            return Err(bridge.device_error("D3D11 decode bridge stopped", "device removed"));
+        }
         bridge.flush_pending_on_renderer();
         if self.lease.slot.waited_value.load(Ordering::Acquire) >= self.decode_value { return Ok(()); }
         // SAFETY: `GetCompletedValue` is thread-safe; `Wait` runs on the presenting thread.
         unsafe {
             if fence_completed_ready(bridge.decode_fence_ren.GetCompletedValue(), self.decode_value)
-                .map_err(|e| bridge.device_error("shared decode fence", e))?
+                .map_err(|e| {
+                    bridge.render_removed.store(true, Ordering::Release);
+                    bridge.device_error("shared decode fence", e)
+                })?
             {
                 self.lease.slot.waited_value.fetch_max(self.decode_value, Ordering::AcqRel);
                 return Ok(());
             }
             bridge.render_queue.Wait(&bridge.decode_fence_ren, self.decode_value)
-                .map_err(|e| bridge.device_error("queuing shared decode fence wait on renderer", e))?;
+                .map_err(|e| bridge.note_fence_error(false, "queuing shared decode fence wait on renderer", &e))?;
         }
         self.lease.slot.waited_value.fetch_max(self.decode_value, Ordering::AcqRel);
         Ok(())
@@ -753,11 +710,18 @@ impl SharedFrame {
 
     pub(super) fn signal_read_on_renderer(&self) {
         let bridge = &self.lease.bridge;
+        if bridge.is_device_removed() { return; }
         bridge.flush_pending_on_renderer();
         let val = bridge.reuse_counter.fetch_add(1, Ordering::AcqRel) + 1;
         // SAFETY: Runs on the presenting thread's immediate context after submitting work reading `render_tex`.
-        if unsafe { bridge.render_queue.Signal(&bridge.reuse_fence_ren, val) }.is_ok() {
-            self.lease.slot.reuse_value.fetch_max(val, Ordering::AcqRel);
+        match unsafe { bridge.render_queue.Signal(&bridge.reuse_fence_ren, val) } {
+            Ok(()) => {
+                bridge.signaled_reuse.fetch_max(val, Ordering::AcqRel);
+                self.lease.slot.reuse_value.fetch_max(val, Ordering::AcqRel);
+            }
+            Err(e) => {
+                let _ = bridge.note_fence_error(false, "signaling shared reuse fence", &e);
+            }
         }
     }
 

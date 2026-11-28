@@ -180,6 +180,12 @@ pub struct VideoDecoder {
     /// running a probe-only device, or falling back to SDL3's shared renderer device.
     #[cfg(windows)]
     pub(super) d3d11_bridge: Option<std::sync::Arc<d3d11::DecodeBridge>>,
+    /// Held D3D11 renderer/shared device when opened with `Hardware::D3d11`.
+    #[cfg(windows)]
+    pub(super) d3d11_device: Option<windows::Win32::Graphics::Direct3D11::ID3D11Device>,
+    /// Latched D3D11 device-removal status after a send/receive/export failure.
+    #[cfg(windows)]
+    pub(super) d3d11_removed: D3d11Removal,
     /// A hardware decoder's time per picture in `send`, in FFmpeg's `receive` and in handing the
     /// picture on (DMA-BUF export, Vulkan map, copy to memory), summed up in the log when it
     /// closes after a stream's worth of pictures. Linux only.
@@ -198,6 +204,17 @@ pub enum Received<F = Frame> {
     Frame(F),
     None,
     Error,
+}
+
+/// Whether a D3D11VA decode or bridge failure came from a lost/hung D3D11 device.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum D3d11Removal {
+    #[default]
+    None,
+    /// Only the dedicated D3D11VA decode device failed; the renderer device is still live.
+    DecodeOnly,
+    /// The renderer's D3D11 device (shared directly or paired with a bridge) was removed/reset.
+    RendererLost,
 }
 
 /// The packet timebase a decoder is opened with (`pkt_timebase`, num and den): microseconds for
@@ -383,6 +400,10 @@ impl VideoDecoder {
                 told: false,
                 #[cfg(windows)]
                 d3d11_bridge: None,
+                #[cfg(windows)]
+                d3d11_device: None,
+                #[cfg(windows)]
+                d3d11_removed: D3d11Removal::None,
                 #[cfg(target_os = "linux")]
                 stages: (hardware != Hardware::None).then(|| Box::new(Stages::new(DECODE_STAGES))),
             };
@@ -423,6 +444,7 @@ impl VideoDecoder {
                             let (bridge, bind) = d3d11::open_device_context(context, kind, device, pictures)?;
                             video._format.bind_textures = bind;
                             video.d3d11_bridge = bridge;
+                            video.d3d11_device = d3d11::clone_device_ref(device);
                         }
                         #[cfg(not(windows))]
                         {

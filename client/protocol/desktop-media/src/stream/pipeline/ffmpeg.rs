@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use nightjar_core::sdp::{VIDEO_FORMAT_MASK_10BIT, VIDEO_FORMAT_MASK_AV1, VIDEO_FORMAT_MASK_H265, VIDEO_FORMAT_MASK_YUV444};
 use nightjar_core::session::{self, DecodeStatus, VideoSetup};
 use nightjar_core::video::Frame;
-use crate::media::{self, Codec, Hardware, Picture, Received};
+use crate::media::{self, Codec, D3d11Removal, Hardware, Picture, Received};
 use super::{lock, say_cuda_fallback, Decoded, Decoder, GpuDevice};
 
 /// The times of a frame sent to the FFmpeg decoder, for its picture.
@@ -47,6 +47,9 @@ pub(super) trait PictureDecoder {
     fn send(&mut self, data: &[u8], pts: i64) -> i32;
     fn receive(&mut self) -> Received<Self::Picture>;
     fn asynchronous(&self) -> bool;
+    fn d3d11_device_removed(&self) -> D3d11Removal {
+        D3d11Removal::None
+    }
 }
 
 pub(super) trait DecodedPicture {
@@ -64,6 +67,9 @@ impl PictureDecoder for media::VideoDecoder {
     }
     fn asynchronous(&self) -> bool {
         media::VideoDecoder::asynchronous(self)
+    }
+    fn d3d11_device_removed(&self) -> D3d11Removal {
+        media::VideoDecoder::d3d11_device_removed(self)
     }
 }
 
@@ -89,6 +95,8 @@ pub(super) struct FedFrame {
     pub(super) corrupt: u32,
     /// This frame's own picture came out.
     pub(super) own: bool,
+    /// D3D11 device removal/hang detected on failure.
+    pub(super) device_removed: D3d11Removal,
 }
 
 /// How often an asynchronous decoder is asked again for the picture of the frame just sent.
@@ -133,6 +141,7 @@ pub(super) fn feed<D: PictureDecoder>(
                 Received::None => return,
                 Received::Error => {
                     fed.failed = true;
+                    fed.device_removed = decoder.d3d11_device_removed();
                     return;
                 }
             }
@@ -150,6 +159,7 @@ pub(super) fn feed<D: PictureDecoder>(
     }
     if status < 0 {
         fed.refused = true;
+        fed.device_removed = decoder.d3d11_device_removed();
         return fed;
     }
     receive(decoder, &mut fed, &|fed| fed.own);
@@ -640,11 +650,13 @@ impl Decoder {
         }
         let status = frame_status(&fed, asynchronous, self.pictured);
         self.pictured |= fed.pictures > 0;
+        self.last_d3d11_removal = fed.device_removed;
         // The submitted frame decoded damaged, failed, or made no picture: on synchronous
         // key-frame-recovery streams, drop FFmpeg's stale DPB references now rather than holding
         // them until the requested IDR arrives (RFI streams keep references; V4L2 M2M driver
         // queues outlive `avcodec_flush_buffers`, `flushes_on_decode_error`).
         if status == DecodeStatus::NeedIdr
+            && fed.device_removed == D3d11Removal::None
             && !asynchronous
             && flushes_on_decode_error(&setup, decoder.hardware)
         {

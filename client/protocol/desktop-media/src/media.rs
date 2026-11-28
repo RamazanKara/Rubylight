@@ -39,7 +39,7 @@ pub use d3d11::ProbeVideoDevice;
 pub(crate) use d3d11::DecodeBridge;
 #[cfg(test)]
 pub use decoder::v4l2_pts_round_trip;
-pub use decoder::{packet_timebase, Received, VideoDecoder, AGAIN};
+pub use decoder::{packet_timebase, D3d11Removal, Received, VideoDecoder, AGAIN};
 #[cfg(windows)]
 pub use frame::{D3d11Surface, DolbyVision};
 pub use frame::{Frame, Picture};

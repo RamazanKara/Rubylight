@@ -587,3 +587,34 @@ fn gpu_mode_without_a_device_never_builds_a_cpu_decoder() {
     #[cfg(target_os = "linux")]
     assert!(matches!(notices.as_slice(), [Notice::DecoderFailed(text)] if text.contains("libpyrowave-shared.so not found")), "the reason is the missing library");
 }
+
+#[test]
+fn d3d11_decode_device_removal_skips_retry_storm_and_rebuilds_or_falls_back_immediately() {
+    let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_H264, width: 128, height: 128, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
+    let (mut decoder, shared) = decoder();
+    decoder.setup(&setup).unwrap();
+    decoder.hardware = Hardware::D3d11(std::ptr::null_mut());
+    decoder.decoder.as_mut().unwrap().hardware = Hardware::D3d11(std::ptr::null_mut());
+
+    decoder.after_frame_checked(false, true, media::D3d11Removal::DecodeOnly, 0);
+    assert!(decoder.d3d11_rebuilt, "marked rebuilt immediately without Escalation::Wait");
+    assert_eq!(decoder.decoder.as_ref().unwrap().hardware, Hardware::None);
+    assert!(matches!(notices(&shared).as_slice(), [Notice::DecoderFallback(_)]));
+
+    decoder.hardware = Hardware::D3d11(std::ptr::null_mut());
+    decoder.decoder.as_mut().unwrap().hardware = Hardware::D3d11(std::ptr::null_mut());
+    decoder.after_frame_checked(false, true, media::D3d11Removal::DecodeOnly, 16_000);
+    assert_eq!(decoder.decoder.as_ref().unwrap().hardware, Hardware::None);
+    assert!(decoder.refused.contains(&(Hardware::D3d11(std::ptr::null_mut()), setup.format)));
+}
+
+#[test]
+fn d3d11_renderer_lost_drops_decoder_immediately_and_requests_renderer_recovery() {
+    let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_H264, width: 128, height: 128, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
+    let (mut decoder, shared) = decoder();
+    decoder.setup(&setup).unwrap();
+    decoder.after_frame_checked(false, true, media::D3d11Removal::RendererLost, 0);
+    assert!(decoder.decoder.is_none(), "releases bridge and D3D11 device refs immediately");
+    assert!(decoder.failing.given_up);
+    assert!(matches!(notices(&shared).as_slice(), [Notice::RenderDeviceLost(_)]));
+}

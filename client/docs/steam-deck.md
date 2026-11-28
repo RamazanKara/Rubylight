@@ -57,6 +57,8 @@ In Game Mode, when gamescope's frame queue holds a V-Sync stream back after a ga
 
 Steam keeps the Steam button in Game Mode, so the Hold Guide shortcut does not reach Nightjar there; Start+Back opens the Control Center instead, and the first seconds of each stream say so. The trackpads move the pointer, and the pointer hides again as soon as the controller is used. The Quick Access menu (…) still opens Steam's own overlay.
 
+Gyroscope and accelerometer motion controls work automatically in Game Mode when **Motion controls** is enabled in Settings, even while Steam exposes the Deck through Steam Virtual Gamepad. To use the physical Deck's back grips and trackpads directly through SDL instead (with Steam Input disabled for Nightjar), put `SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD=0 SDL_GAMECONTROLLER_IGNORE_DEVICES=""` in Steam's **Launch Options** before `%command%`.
+
 ## HDR
 
 With HDR turned on in the Steam Deck OLED's display settings (or gamescope started with `--hdr-enabled` on another handheld), Nightjar presents HDR through gamescope: an HDR stream as HDR10 (PQ) where gamescope offers it, else scRGB. The log names the renderer and the choice (`nightjar: renderer "gpu": swapchain offers ...`). Without HDR output, an HDR stream plays in SDR and its first seconds say so.

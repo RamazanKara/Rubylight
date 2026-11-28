@@ -56,6 +56,8 @@ pub struct Pad {
     /// Active physical controller touchpad contacts `(touchpad, finger)` sent to the host,
     /// cancelled on menu open, release or controller disconnect.
     pub(super) touchpad_contacts: Vec<(u8, u32)>,
+    /// Direct read-only Steam Deck hidraw IMU reader when SDL exposes no sensors on Game Mode pads.
+    pub(super) deck_imu: Option<super::steam_deck_imu::DeckImu>,
 }
 
 /// A Guide press while holding it opens the stream menu. The press is kept from the PC until it is
@@ -154,6 +156,10 @@ impl Pad {
 
     pub(super) fn report(&self) -> Report {
         Report { buttons: self.buttons, lt: self.lt, rt: self.rt, ls: self.ls, rs: self.rs }
+    }
+
+    pub(super) fn has_deck_imu(&self) -> bool {
+        self.deck_imu.is_some()
     }
 
     pub(super) fn cancel_touchpad_contacts(&mut self, queue: &mut nightjar_core::input::InputQueue) {

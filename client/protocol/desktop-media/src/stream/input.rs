@@ -135,6 +135,11 @@ impl Streaming {
         }
     }
 
+    /// Syncs direct Steam Deck IMU emission with stream input rules and Quick Suspend state.
+    pub fn sync_deck_imu(&self, window: *mut SDL_Window, pads: &Gamepads) {
+        pads.set_deck_imu_sending(self.direct_rules(window).pads && !self.quick_suspend.paused());
+    }
+
     /// Handles one SDL event while streaming.
     pub fn handle(
         &mut self,

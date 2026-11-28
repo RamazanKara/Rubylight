@@ -266,7 +266,10 @@ impl Streaming {
                 controller,
                 motion_type,
                 report_rate_hz,
-            } => pads.set_motion(controller, motion_type, report_rate_hz),
+            } => {
+                let input = self.session.input_handle();
+                pads.set_motion(controller, motion_type, report_rate_hz, Some(&input));
+            }
             ControlEvent::HostTiming(records) => {
                 if let Some(csv) = &self.timing_csv {
                     csv.reports(&records);
@@ -304,6 +307,7 @@ impl Streaming {
                 self.quick_suspend_state(report);
                 if !was_paused && self.quick_suspend.paused() {
                     pads.stop_rumble();
+                    pads.set_deck_imu_sending(false);
                 }
             }
             ControlEvent::StreamDvrState(state) => self.dvr_state(state),

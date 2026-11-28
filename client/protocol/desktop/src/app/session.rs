@@ -488,6 +488,7 @@ impl App {
                 streaming.needs_redraw = true;
             }
         }
+        streaming.sync_deck_imu(window, &self.pads);
         let gui = &mut self.gui;
         // The input filter sends controller input while the present waits (direct_motion.rs).
         let pads = streaming.direct_motion.lend(std::mem::take(&mut self.pads));

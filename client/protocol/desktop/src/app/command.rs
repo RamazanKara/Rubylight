@@ -266,10 +266,7 @@ impl App {
                 if !self.launcher.controller_key.is_empty() {
                     let key = &self.launcher.controller_key;
                     let mapping = &self.launcher.controller_mapping;
-                    for pad in &mut self.pads.pads {
-                        if &pad.key == key { pad.mapping = mapping.clone(); }
-                    }
-                    self.pads.mappings.insert(key.clone(), mapping.clone());
+                    self.pads.apply_pad_mapping(key, mapping);
                     if let Err(e) = self.store.save_controller_mappings(&self.pads.mappings) {
                         self.launcher.message(tr("Could not save controller mapping"), e.to_string());
                     }

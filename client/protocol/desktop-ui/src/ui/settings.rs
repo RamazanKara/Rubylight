@@ -200,6 +200,7 @@ pub(super) struct SectionsCtx<'a, 'h> {
     pub(super) probe_device: usize,
     pub(super) gpu_mode: bool,
     pub(super) ten_bit: bool,
+    pub(super) auto_renderer: bool,
     pub(super) gpu_decoder_error: Option<String>,
     pub(super) fullscreen_modes: &'a [FullscreenMode],
     pub(super) hdr_display: bool,
@@ -211,11 +212,17 @@ pub(super) struct SectionsCtx<'a, 'h> {
     pub(super) style: crate::glyphs::Style,
 }
 
-pub(super) fn run_gpu_probe(ui: &Ui, probe_device: usize, gpu_mode: bool, ten_bit: bool) -> Option<String> {
+pub(super) fn run_gpu_probe(
+    ui: &Ui,
+    probe_device: usize,
+    gpu_mode: bool,
+    ten_bit: bool,
+    auto_renderer: bool,
+) -> Option<String> {
     if !gpu_mode {
         return None;
     }
-    let probe = (crate::platform_hooks::hooks().pyrowave_probe)(probe_device, ten_bit);
+    let probe = (crate::platform_hooks::hooks().pyrowave_probe)(probe_device, ten_bit, auto_renderer);
     if probe.is_none() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
     }
@@ -612,9 +619,13 @@ impl Launcher {
             // open. PyroWave is not offered while it fails, and the reason is shown with the
             // decoder setting in Debug.
             let probe_device = self.gpu_device.unwrap_or(0);
-            let (gpu_mode, ten_bit) = (s.pyrowave_decoder == crate::config::PyroWaveDecoder::Gpu, s.hdr);
+            let (gpu_mode, ten_bit, auto_renderer) = (
+                s.pyrowave_decoder == crate::config::PyroWaveDecoder::Gpu,
+                s.hdr,
+                s.renderer == crate::config::Renderer::Auto,
+            );
             let gpu_decoder_error = if s.codec.is_pyrowave() {
-                run_gpu_probe(ui, probe_device, gpu_mode, ten_bit)
+                run_gpu_probe(ui, probe_device, gpu_mode, ten_bit, auto_renderer)
             } else {
                 None
             };
@@ -646,6 +657,7 @@ impl Launcher {
                 probe_device,
                 gpu_mode,
                 ten_bit,
+                auto_renderer,
                 gpu_decoder_error,
                 fullscreen_modes: &self.fullscreen_modes,
                 hdr_display: self.hdr_display,

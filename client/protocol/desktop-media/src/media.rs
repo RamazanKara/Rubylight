@@ -103,8 +103,8 @@ pub const FRAME_YUV444P: c_int = 6;
 pub const FRAME_YUV420P10: c_int = 7;
 pub const FRAME_YUV444P10: c_int = 8;
 /// A VAAPI surface exported as DMA-BUFs for the presenter to import (`crate::dmabuf`), Linux only.
-// Linux and macOS (unix): DMA-BUF picture kind constant.
-#[cfg(unix)]
+// Linux and macOS (unix): DMA-BUF picture kind constant (also tested on all platforms).
+#[cfg(any(unix, test))]
 pub const FRAME_DMABUF: c_int = 9;
 /// A Vulkan video picture on the GPU renderer's own device (`crate::vulkan_video`), Linux only:
 /// two planes, 4:2:0 or (`FRAME_VULKAN444`) 4:4:4, 8- or 10-bit (`ten_bit`). The presenter copies
@@ -179,8 +179,8 @@ impl PlanarLayout {
     /// The 4:2:0 layout an NV12 or P010 picture in memory is drawn in by the plane shader: the
     /// upload splits its interleaved chroma into two planes and moves P010's high-bit samples to
     /// the low bits (`planes_gpu`), so it reads as `FRAME_YUV420P` or `FRAME_YUV420P10`.
-    // Linux and macOS (unix): semi-planar CPU-memory upload layout.
-    #[cfg(unix)]
+    // Linux and macOS (unix): semi-planar CPU-memory upload layout (also tested on all platforms).
+    #[cfg(any(unix, test))]
     pub fn of_semi_planar(info: &FrameInfo) -> Option<Self> {
         let ten_bit = match info.kind {
             FRAME_NV12 => false,

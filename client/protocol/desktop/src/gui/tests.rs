@@ -550,3 +550,22 @@ fn ime_preedit_and_commit_flow_through_gui_events() {
     assert!(gui.handle(&text_ev, scale));
     assert_eq!(gui.events, vec![Event::Text("a".into())]);
 }
+
+#[test]
+fn numpad_digits_map_to_egui_digit_keys() {
+    let pairs = [
+        (SDLK_KP_0, Key::Num0),
+        (SDLK_KP_1, Key::Num1),
+        (SDLK_KP_2, Key::Num2),
+        (SDLK_KP_3, Key::Num3),
+        (SDLK_KP_4, Key::Num4),
+        (SDLK_KP_5, Key::Num5),
+        (SDLK_KP_6, Key::Num6),
+        (SDLK_KP_7, Key::Num7),
+        (SDLK_KP_8, Key::Num8),
+        (SDLK_KP_9, Key::Num9),
+    ];
+    for (sdl_key, egui_key) in pairs {
+        assert_eq!(key_of(sdl_key), Some(egui_key), "keypad {}", sdl_key.0);
+    }
+}

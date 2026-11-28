@@ -118,11 +118,11 @@ impl Hosts {
             if let Some(fallback) = fallback.filter(|_| !real) {
                 return fallback.fill(id, app, version, scale, bytes);
             }
-            let (image, ambient, sized) = match decoded {
+            let (image, ambient, prepared, sized) = match decoded {
                 Some(image) => bake_art_and_ambient(image, scale),
-                None => (None, None, None),
+                None => (None, None, None, None),
             };
-            Some(Event::Art { id, app, version, image, ambient, sized })
+            Some(Event::Art { id, app, version, image, ambient, prepared, sized })
         });
     }
 
@@ -307,18 +307,34 @@ pub(super) fn art_image(bytes: Option<Vec<u8>>) -> Option<egui::ColorImage> {
     bytes.filter(|b| !nightjar_core::http::is_placeholder_box_art(b)).and_then(|b| decode_image(&b))
 }
 
-/// A cover and its ambient, both off the UI thread: the first draw only uploads two finished images.
-/// The ambient is baked from the cover as its file has it; the cover is then made no larger than a
-/// window of `scale` pixels per point needs ([`cover_sized`]), and the last value says for which.
-pub(super) fn art_and_ambient(bytes: Option<Vec<u8>>, scale: f32) -> (Option<egui::ColorImage>, Option<egui::ColorImage>, Option<f32>) {
-    let Some(image) = art_image(bytes) else { return (None, None, None) };
+/// Worker-prepared cover image, Night ambient backdrop, precomputed hero wash/thumbnail, and
+/// resize scale factor (`None` when kept at source dimensions).
+pub(super) type BakedArt = (
+    Option<egui::ColorImage>,
+    Option<egui::ColorImage>,
+    Option<crate::ambient::PreparedCover>,
+    Option<f32>,
+);
+
+/// A cover, its ambient, and its precomputed hero wash/thumbnail, all off the UI thread: the first
+/// draw only uploads finished textures without cloning or blurring on the UI thread.
+pub(super) fn art_and_ambient(bytes: Option<Vec<u8>>, scale: f32) -> BakedArt {
+    let Some(image) = art_image(bytes) else { return (None, None, None, None) };
     bake_art_and_ambient(image, scale)
 }
 
-fn bake_art_and_ambient(image: egui::ColorImage, scale: f32) -> (Option<egui::ColorImage>, Option<egui::ColorImage>, Option<f32>) {
+pub(super) fn bake_art_and_ambient(image: egui::ColorImage, scale: f32) -> BakedArt {
     let ambient = crate::ambient::bake(&image);
+    let prepared = crate::ambient::PreparedCover::from_cover(&image);
     let (image, sized) = cover_sized(image, scale);
-    (Some(image), Some(ambient), sized)
+    (Some(image), Some(ambient), Some(prepared), sized)
+}
+
+/// Converts an already-decoded [`image::DynamicImage`] to [`egui::ColorImage`] without re-decoding.
+pub(super) fn color_image(decoded: image::DynamicImage) -> egui::ColorImage {
+    let image = decoded.to_rgba8();
+    let size = [image.width() as usize, image.height() as usize];
+    egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw())
 }
 
 /// The size a cover of `size` pixels is kept at for a window of `scale` pixels per point, or None
@@ -352,7 +368,5 @@ pub(super) fn cover_sized(image: egui::ColorImage, scale: f32) -> (egui::ColorIm
 }
 
 pub(super) fn decode_image(bytes: &[u8]) -> Option<egui::ColorImage> {
-    let image = image::load_from_memory(bytes).ok()?.to_rgba8();
-    let size = [image.width() as usize, image.height() as usize];
-    Some(egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw()))
+    image::load_from_memory(bytes).ok().map(color_image)
 }

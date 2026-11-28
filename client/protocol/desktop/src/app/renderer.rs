@@ -262,7 +262,8 @@ impl App {
         }
         let shaders = settings.codec.is_pyrowave() || settings.experimental_packed_444
             || settings.prefer_yuv444 || settings.upscaling.is_shader() || settings.upscaling == config::Upscaling::Ai
-            || (settings.decoder == DecoderPreference::Software && (settings.hdr || settings.sdr_10bit));
+            || (settings.decoder == DecoderPreference::Software && (settings.hdr || settings.sdr_10bit))
+            || (settings.hdr && stream::hlg_requested());
         let wanted = (sdl::renderer_name(self.renderer) == "gpu") != shaders
             || sdl::swapchain_takes_hdr(self.renderer) != settings.hdr;
         if wanted {

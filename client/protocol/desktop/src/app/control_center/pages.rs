@@ -17,6 +17,7 @@ pub(super) struct Host<'a> {
     pub(super) s: &'a mut Streaming,
     pub(super) pads: &'a mut Gamepads,
     pub(super) shortcuts: &'a mut shortcuts::Shortcuts,
+    pub(super) controller_audio: &'a mut overlay::ControllerAudioCache,
     pub(super) session_page_requested: &'a mut bool,
     pub(super) pending_exit: &'a mut Option<session_page::HostExit>,
     /// The page to show from the next frame on.
@@ -27,6 +28,8 @@ pub(super) struct Host<'a> {
     pub(super) shortcuts_changed: bool,
     /// The bitrate slider was drawn this frame.
     pub(super) slider_drawn: bool,
+    /// The controller audio fold body ran this frame.
+    pub(super) audio_fold_drawn: bool,
 }
 
 impl Host<'_> {
@@ -293,7 +296,13 @@ impl Host<'_> {
     /// (`nightjar_policy::stream_menu::TILES`): one row or group for each.
     fn row(&mut self, ui: &mut egui::Ui, id: &str) {
         use glyphs::Icon;
-        let (ctx, s, pads) = (self.ctx, &mut *self.s, &mut *self.pads);
+        let (ctx, s, pads, controller_audio, audio_fold_drawn) = (
+            self.ctx,
+            &mut *self.s,
+            &mut *self.pads,
+            &mut *self.controller_audio,
+            &mut self.audio_fold_drawn,
+        );
         match id {
             // A list is too wide to stand beside its label in the dock: it goes under it.
             "picture" => {
@@ -343,8 +352,8 @@ impl Host<'_> {
             "image_clipboard_receive" => if menu_style::action(ui, Icon::Image, tr("Copy PC image here"), None).clicked() { s.clipboard_image(false); },
             "controller_audio" => {
                 menu_style::fold(ui, "controller-audio", Icon::Controller, tr("DualSense USB audio and waveform haptics"), |ui| {
-                    let outputs = controller_audio::outputs();
-                    let inputs = controller_audio::inputs();
+                    *audio_fold_drawn = true;
+                    let (outputs, inputs) = controller_audio.devices();
                     let mut selections = Vec::new();
                     let mut input_selections = Vec::new();
                     for pad in &mut pads.pads {
@@ -354,7 +363,7 @@ impl Host<'_> {
                         let label = current.and_then(|id| outputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
                         Combo::from_id_salt(("controller-audio", pad.index)).selected_text(trf("Controller {}: {}", &[&(pad.index + 1), &label])).show_ui(ui, |ui| {
                             ui.selectable_value(&mut selected, None, tr("Off"));
-                            for (id, name) in &outputs { ui.selectable_value(&mut selected, Some(*id), name); }
+                            for (id, name) in outputs { ui.selectable_value(&mut selected, Some(*id), name); }
                         });
                         if selected != current { selections.push((pad.index, selected)); }
                         if let Some(audio) = &mut pad.audio {
@@ -363,7 +372,7 @@ impl Host<'_> {
                             ui.add_enabled_ui(s.microphone_available(), |ui| {
                                 Combo::from_id_salt(("controller-microphone", pad.index)).selected_text(trf("Microphone: {}", &[&label])).show_ui(ui, |ui| {
                                     ui.selectable_value(&mut input, None, tr("Off"));
-                                    for (id, name) in &inputs { ui.selectable_value(&mut input, Some(*id), name); }
+                                    for (id, name) in inputs { ui.selectable_value(&mut input, Some(*id), name); }
                                 });
                             });
                             if input != audio.input { input_selections.push((pad.index, input)); }

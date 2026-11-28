@@ -31,13 +31,13 @@ impl CoverFallback {
     /// worker after it, in that order, so the PC's empty answer never lands over it.
     pub(super) fn fill(self, id: u64, app: i32, version: String, scale: f32, pc: Option<Vec<u8>>) -> Option<Event> {
         if let Some(kept) = self.info.kept_cover(&self.game) {
-            let (image, ambient, sized) = super::covers::art_and_ambient(Some(kept), scale);
+            let (image, ambient, prepared, sized) = super::covers::art_and_ambient(Some(kept), scale);
             if image.is_some() {
-                return Some(Event::Art { id, app, version, image, ambient, sized });
+                return Some(Event::Art { id, app, version, image, ambient, prepared, sized });
             }
         }
-        let (image, ambient, sized) = super::covers::art_and_ambient(pc, scale);
-        if self.events.send(Event::Art { id, app, version: version.clone(), image, ambient, sized }).is_ok() {
+        let (image, ambient, prepared, sized) = super::covers::art_and_ambient(pc, scale);
+        if self.events.send(Event::Art { id, app, version: version.clone(), image, ambient, prepared, sized }).is_ok() {
             (self.waker)();
         }
         let _ = self.worker.send(CoverJob { id, app, version, game: self.game, scale });
@@ -60,12 +60,13 @@ impl Hosts {
         let worker = info.clone();
         let started = std::thread::Builder::new().name("nightjar-game-art".into()).spawn(move || {
             for CoverJob { id, app, version, game, scale } in jobs {
-                let Some(bytes) = worker.cover(&game) else { continue };
-                let (image, ambient, sized) = super::covers::art_and_ambient(Some(bytes), scale);
+                let Some(decoded) = worker.cover(&game) else { continue };
+                let (image, ambient, prepared, sized) =
+                    super::covers::bake_art_and_ambient(super::covers::color_image(decoded), scale);
                 if image.is_none() {
                     continue;
                 }
-                if events.send(Event::Art { id, app, version, image, ambient, sized }).is_err() {
+                if events.send(Event::Art { id, app, version, image, ambient, prepared, sized }).is_err() {
                     return;
                 }
                 waker();

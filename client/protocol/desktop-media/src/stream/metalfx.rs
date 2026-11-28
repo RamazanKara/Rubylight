@@ -90,6 +90,15 @@ impl Spatial {
             } else {
                 ptr::null_mut()
             };
+            if shared_queue.is_null() {
+                static WARNED: std::sync::Once = std::sync::Once::new();
+                WARNED.call_once(|| {
+                    eprintln!(
+                        "nightjar: MetalFX: SDL Metal renderer did not expose {}; falling back to a private command queue (synchronous wait per frame)",
+                        PROP_RENDERER_METAL_COMMAND_QUEUE_POINTER.to_string_lossy()
+                    );
+                });
+            }
             let context = nj_metalfx_new(
                 SDL_GetRenderMetalLayer(renderer),
                 shared_queue,
@@ -305,5 +314,14 @@ mod tests {
         assert_eq!(named(|c| c.output = (1280, 720)), Some("no upscale needed"));
         assert_eq!(named(|c| c.output = (2880, 1000)), Some("no upscale needed"));
         assert_eq!(named(|c| c.output = (20000, 11250)), Some("output larger than 16384 pixels"));
+    }
+
+    #[test]
+    fn vendored_sdl3_metal_patch_exposes_command_queue_property() {
+        let patch = include_str!("../../../vendor/sdl3-src/patches/metal-command-queue.patch");
+        let prop = PROP_RENDERER_METAL_COMMAND_QUEUE_POINTER.to_str().unwrap();
+        assert!(patch.contains("src/render/metal/SDL_render_metal.m"));
+        assert!(patch.contains(&format!("\"{prop}\"")), "patch must expose {prop}");
+        assert!(patch.contains("data.mtlcmdqueue"));
     }
 }

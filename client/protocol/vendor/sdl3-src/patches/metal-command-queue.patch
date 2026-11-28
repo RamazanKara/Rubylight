@@ -1,0 +1,12 @@
+--- a/src/render/metal/SDL_render_metal.m
++++ b/src/render/metal/SDL_render_metal.m
+@@ -2451,6 +2451,9 @@
+ #endif
+ 
+         SDL_SetNumberProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_MAX_TEXTURE_SIZE_NUMBER, maxtexsize);
++        /* Nightjar: expose the Metal renderer's shared MTLCommandQueue so MetalFX encodes
++           asynchronously on the same queue without a per-frame CPU wait (DSK-03). */
++        SDL_SetPointerProperty(SDL_GetRendererProperties(renderer), "SDL.renderer.metal.command_queue", (__bridge void *)data.mtlcmdqueue);
+ 
+         return true;
+     }

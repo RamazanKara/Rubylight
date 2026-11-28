@@ -469,12 +469,15 @@ impl PinLock {
         ui.input(|i| {
             for event in &i.events {
                 if let egui::Event::Key { key, pressed: true, modifiers, .. } = event {
-                    if modifiers.any() {
+                    // Reject shortcut modifiers, but allow Shift so layouts whose number row
+                    // requires Shift (AZERTY, Czech, Belgian) can type PIN digits.
+                    if modifiers.ctrl || modifiers.alt || modifiers.command || modifiers.mac_cmd {
                         continue;
                     }
                     let digit = key.name().parse::<u8>().ok().filter(|d| *d <= 9);
                     match (key, digit) {
                         (_, Some(d)) => typed.push(PadKey::Digit(d)),
+                        _ if modifiers.shift => {}
                         (Key::Backspace, _) => typed.push(PadKey::Delete),
                         (Key::Enter, _) if focused.is_none() => typed.push(PadKey::Confirm),
                         (Key::Escape, _) if can_cancel => typed.push(PadKey::Cancel),

@@ -287,7 +287,7 @@ fn hlg_reference_white_is_drawn_at_203_nits_from_p010_and_nv12() {
             let (mut luma, mut chroma) = (luma.clone(), chroma.clone());
             let mut info = picture(kind, &mut luma, &mut chroma, (width * bytes) as i32);
             (info.width, info.height) = (width as i32, height as i32);
-            assert!(super::super::present::hlg_through_planes(&info));
+            assert!(super::super::present::hlg_through_planes(&info, true));
             let layout = PlanarLayout::of_semi_planar(&info).unwrap();
             let parameters = super::super::present::planar_parameters(&info, layout, true, 1.0, headroom);
             let mut pass = PlanesPass::for_frames(renderer, layout).unwrap();

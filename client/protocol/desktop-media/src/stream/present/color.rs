@@ -73,14 +73,21 @@ pub(in crate::stream) fn planar_hlg(info: &FrameInfo, hdr: bool, white_level: f3
     (hdr && info.color_trc == TRC_HLG).then(|| crate::stream::hlg::hlg_display(headroom, 80.0 * white_level))
 }
 
-/// Whether a picture SDL would show (NV12 or P010 from memory, or an imported VAAPI surface) goes
-/// to the plane shader instead: SDL reads P010 as PQ and knows no HLG, so an HLG one is drawn as a
-/// 4:2:0 planar picture with the shader's HLG flag. SDR and PQ pictures keep SDL's upload or
-/// import as they are.
-// Both Linux and macOS route HLG hardware surfaces through the plane shader.
-#[cfg(unix)]
-pub(in crate::stream) fn hlg_through_planes(info: &FrameInfo) -> bool {
-    info.color_trc == TRC_HLG && matches!(info.kind, media::FRAME_NV12 | media::FRAME_P010 | media::FRAME_DMABUF)
+/// Whether a picture SDL would show (NV12 or P010 from memory, an imported VAAPI surface, or a
+/// VideoToolbox surface) goes to the plane shader instead: SDL reads P010 as PQ and knows no HLG,
+/// so an HLG picture is drawn as a 4:2:0 semi-planar picture with the shader's HLG flag whenever
+/// SDL's `"gpu"` renderer is active. On non-GPU renderers (`"metal"`, `"opengl"`), returns `false`
+/// so upload falls back safely instead of failing every frame inside `PlanesPass`. SDR and PQ
+/// pictures keep SDL's upload or import as they are.
+// Linux and macOS (unix) route HLG hardware surfaces through the plane shader when GPU renderer is active; tested everywhere.
+#[cfg(any(unix, test))]
+pub(in crate::stream) fn hlg_through_planes(info: &FrameInfo, gpu_renderer: bool) -> bool {
+    gpu_renderer
+        && info.color_trc == TRC_HLG
+        && matches!(
+            info.kind,
+            media::FRAME_NV12 | media::FRAME_P010 | media::FRAME_DMABUF | media::FRAME_VIDEOTOOLBOX
+        )
 }
 
 /// FFmpeg's colour description as an SDL colorspace.

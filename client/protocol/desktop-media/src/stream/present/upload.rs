@@ -472,7 +472,7 @@ impl VideoTexture {
             return self.upload_vulkan(renderer, source.frame(), &info, layout, white_level);
         }
         #[cfg(unix)]
-        if hlg_through_planes(&info) {
+        if hlg_through_planes(&info, crate::sdl::renderer_is(renderer, "gpu")) {
             return self.upload_hlg(renderer, source.frame(), &info, white_level);
         }
         let space = colorspace(&info);
@@ -628,14 +628,15 @@ impl VideoTexture {
         self.upload_nv(renderer, &mapped.info(), space, white_level)
     }
 
-    /// Draws an HLG NV12 or P010 picture with the plane shader (`hlg_through_planes`). A VAAPI
-    /// surface is mapped to memory for it, this picture alone: the decoder keeps exporting, so a
-    /// PQ or SDR picture after it is imported again.
+    /// Draws an HLG NV12, P010, VAAPI, or VideoToolbox picture with the plane shader
+    /// (`hlg_through_planes`). Hardware surfaces are mapped to memory for this picture alone so a
+    /// PQ or SDR picture after it keeps zero-copy import.
     #[cfg(unix)]
     fn upload_hlg(&mut self, renderer: *mut SDL_Renderer, frame: &media::Frame, info: &FrameInfo, white_level: f32) -> bool {
-        let mapped = if info.kind == media::FRAME_DMABUF {
+        let mapped = if matches!(info.kind, media::FRAME_DMABUF | media::FRAME_VIDEOTOOLBOX) {
             let Some(mapped) = frame.map_to_memory() else {
-                self.fail(format!("mapping a {}x{} VAAPI picture to memory failed", info.width, info.height), "the picture could not be read".into());
+                let what = if info.kind == media::FRAME_VIDEOTOOLBOX { "VideoToolbox" } else { "VAAPI" };
+                self.fail(format!("mapping a {}x{} {what} picture to memory failed", info.width, info.height), "the picture could not be read".into());
                 return false;
             };
             Some(mapped)

@@ -138,8 +138,8 @@ fn gamepad_activity_ignores_stick_jitter_and_passive_sensors() {
         SDL_EVENT_JOYSTICK_UPDATE_COMPLETE,
     ] {
         let ev = make_event(idle_kind);
-        assert!(!launcher_event_wakes_frame(&ev, false, [false; 4]), "idle launcher ignores {}", idle_kind.0);
-        assert!(launcher_event_wakes_frame(&ev, true, [false; 4]), "controller test wakes on {}", idle_kind.0);
+        assert!(!launcher_event_wakes_frame(&ev, false, false), "idle launcher ignores {}", idle_kind.0);
+        assert!(launcher_event_wakes_frame(&ev, true, false), "controller test wakes on {}", idle_kind.0);
     }
     for wake_kind in [
         SDL_EVENT_GAMEPAD_ADDED,
@@ -148,20 +148,20 @@ fn gamepad_activity_ignores_stick_jitter_and_passive_sensors() {
         SDL_EVENT_GAMEPAD_BUTTON_UP,
         SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN,
     ] {
-        assert!(launcher_event_wakes_frame(&make_event(wake_kind), false, [false; 4]), "launcher wakes on {}", wake_kind.0);
+        assert!(launcher_event_wakes_frame(&make_event(wake_kind), false, false), "launcher wakes on {}", wake_kind.0);
     }
 
     let mut jitter = make_event(SDL_EVENT_GAMEPAD_AXIS_MOTION);
     jitter.gaxis.axis = SDL_GAMEPAD_AXIS_LEFTX.0 as u8;
     jitter.gaxis.value = 300;
-    assert!(!launcher_event_wakes_frame(&jitter, false, [false; 4]));
+    assert!(!launcher_event_wakes_frame(&jitter, false, false));
     jitter.gaxis.value = 16000;
-    assert!(!launcher_event_wakes_frame(&jitter, false, [false; 4]));
-    assert!(launcher_event_wakes_frame(&jitter, false, [true, false, false, false]));
+    assert!(!launcher_event_wakes_frame(&jitter, false, false));
+    assert!(launcher_event_wakes_frame(&jitter, false, true));
     jitter.gaxis.value = 16001;
-    assert!(launcher_event_wakes_frame(&jitter, false, [false; 4]));
+    assert!(launcher_event_wakes_frame(&jitter, false, false));
     jitter.gaxis.axis = SDL_GAMEPAD_AXIS_RIGHTX.0 as u8;
-    assert!(!launcher_event_wakes_frame(&jitter, false, [false; 4]), "right stick does not navigate launcher");
+    assert!(!launcher_event_wakes_frame(&jitter, false, false), "right stick does not navigate launcher");
 
     // Stream wait ignores joystick update-complete, passive sensor noise, and resting stick drift.
     assert!(!stream_event_wakes_wait(SDL_EVENT_JOYSTICK_UPDATE_COMPLETE, false, true));
@@ -335,4 +335,32 @@ fn unreadable_list_names_removed_pc_or_unready_key() {
         launch::unreadable_list(&hosts, id + 99),
         crate::strings::tr("This PC is no longer in your list.")
     );
+}
+
+#[test]
+fn stick_nav_handles_rapid_opposite_flips_multiple_pads_and_unplug() {
+    let mut nav = launcher::StickNav::default();
+    assert!(!nav.any_held());
+
+    // Deflect left on pad 1 -> engages -1, stays held above release hysteresis.
+    assert_eq!(nav.update(1, 0, -30_000), (0, -1));
+    assert!(nav.any_held());
+    assert_eq!(nav.update(1, 0, -15_000), (-1, -1), "hysteresis holds deflection above 12000");
+
+    // Rapid opposite flip (-30000 -> +30000 without intermediate center) transitions directly to +1.
+    assert_eq!(nav.update(1, 0, 30_000), (-1, 1), "opposite flip transitions immediately");
+    assert_eq!(nav.update(1, 0, 15_000), (1, 1));
+    // Crossing slightly negative below engage threshold releases to 0 instead of keeping +1.
+    assert_eq!(nav.update(1, 0, -15_000), (1, 0));
+    assert!(!nav.any_held());
+
+    // Independent pads never wedge or block each other.
+    assert_eq!(nav.update(1, 1, 28_000), (0, 1));
+    assert_eq!(nav.update(2, 1, 28_000), (0, 1), "pad 2 still emits while pad 1 is held");
+
+    // Unplugging a tilted pad removes its held entry cleanly.
+    nav.remove_pad(1);
+    assert!(nav.any_held(), "pad 2 still held");
+    nav.remove_pad(2);
+    assert!(!nav.any_held(), "all removed pads cleared");
 }

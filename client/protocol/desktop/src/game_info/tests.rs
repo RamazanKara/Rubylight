@@ -71,9 +71,11 @@ fn without_keys_nothing_is_asked_and_nothing_is_kept() {
 fn a_cover_and_facts_are_looked_up_once_and_then_read_from_disk() {
     let root = dir("cover");
     let expected = tiny_png();
+    let expected_rgba = image::load_from_memory(&expected).unwrap().to_rgba8();
     let http = fixture(services);
     let info = GameInfo::new(&root, keys(), Box::new(http.clone()));
-    assert_eq!(info.cover(&HADES()).as_deref(), Some(expected.as_slice()));
+    let fetched = info.cover(&HADES()).expect("decoded cover");
+    assert_eq!(fetched.to_rgba8(), expected_rgba);
     let record = info.kept("steam:1145360").unwrap();
     assert_eq!(record.facts.as_ref().unwrap().genres, ["Roguelike"]);
     let asked = http.asked.lock().unwrap().len();
@@ -82,7 +84,9 @@ fn a_cover_and_facts_are_looked_up_once_and_then_read_from_disk() {
     // A new run reads the record and the image from disk: no request at all.
     let again = fixture(|_| panic!("asked again"));
     let info = GameInfo::new(&root, keys(), Box::new(again.clone()));
-    assert_eq!(info.cover(&HADES()).as_deref(), Some(expected.as_slice()));
+    let cached = info.cover(&HADES()).expect("cached decoded cover");
+    assert_eq!(cached.to_rgba8(), expected_rgba);
+    assert_eq!(info.kept_cover(&HADES()).as_deref(), Some(expected.as_slice()));
     assert_eq!(info.record(&HADES(), false).unwrap().facts.unwrap().normally, Some(86400));
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -151,8 +155,9 @@ fn undecodable_or_truncated_images_are_not_cached_and_corrupt_cache_is_replaced(
     std::fs::create_dir_all(img_path.parent().unwrap()).unwrap();
     std::fs::write(&img_path, b"corrupt-cache").unwrap();
     let expected = tiny_png();
+    let expected_rgba = image::load_from_memory(&expected).unwrap().to_rgba8();
     let healed = GameInfo::new(&root, keys(), Box::new(fixture(|_| ok_bytes(&tiny_png()))));
-    assert_eq!(healed.image(url).as_deref(), Some(expected.as_slice()));
+    assert_eq!(healed.image(url).expect("decoded image").to_rgba8(), expected_rgba);
     assert_eq!(std::fs::read(&img_path).unwrap(), expected);
     let _ = std::fs::remove_dir_all(&root);
 }

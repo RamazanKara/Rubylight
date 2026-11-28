@@ -19,8 +19,8 @@ pub(super) fn draw_video_sections(
     let custom_size_on = &mut *ctx.custom_size_on;
     let custom_fps_on = &mut *ctx.custom_fps_on;
     let probe_device = ctx.probe_device;
-    let (gpu_mode, ten_bit) = (ctx.gpu_mode, ctx.ten_bit);
-    let gpu_probe = move |ui: &Ui| run_gpu_probe(ui, probe_device, gpu_mode, ten_bit);
+    let (gpu_mode, ten_bit, auto_renderer) = (ctx.gpu_mode, ctx.ten_bit, ctx.auto_renderer);
+    let gpu_probe = move |ui: &Ui| run_gpu_probe(ui, probe_device, gpu_mode, ten_bit, auto_renderer);
     let screen = ctx.screen;
     if !ctx.layered && (open == en("Recommended") || rows.searching()) {
         rows.section(ui, en("Recommended"));

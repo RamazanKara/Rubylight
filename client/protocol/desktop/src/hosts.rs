@@ -544,7 +544,7 @@ impl Hosts {
         };
         let record = &mut host.record;
         match address {
-            None => record.pinned_address = None,
+            None => record.set_pinned_endpoint(None, http_port(record.http_port)),
             Some(address) => {
                 if record.address != address {
                     let Some(at) = record.other_addresses.iter().position(|a| a == address) else {
@@ -553,7 +553,7 @@ impl Hosts {
                     let old = std::mem::replace(&mut record.address, record.other_addresses.remove(at));
                     record.other_addresses.push(old);
                 }
-                record.pinned_address = Some(address.to_owned());
+                record.set_pinned_endpoint(Some(address), http_port(record.http_port));
             }
         }
         true

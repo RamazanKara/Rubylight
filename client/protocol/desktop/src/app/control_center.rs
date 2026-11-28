@@ -152,12 +152,14 @@ pub(crate) fn show(ctx: &egui::Context, window: *mut SDL_Window, s: &mut Streami
         s: &mut *s,
         pads: &mut *pads,
         shortcuts: &mut *shortcuts,
+        controller_audio: &mut overlay.controller_audio,
         session_page_requested: &mut overlay.session_page_requested,
         pending_exit: &mut overlay.pending_exit,
         next: None,
         select: None,
         shortcuts_changed: false,
         slider_drawn: false,
+        audio_fold_drawn: false,
     };
     let menu_focus = &mut overlay.menu_focus;
     let mut leave = None;
@@ -182,7 +184,16 @@ pub(crate) fn show(ctx: &egui::Context, window: *mut SDL_Window, s: &mut Streami
             };
         },
     );
-    let (mut next, select, shortcuts_changed, slider_drawn) = (host.next.take(), host.select, host.shortcuts_changed, host.slider_drawn);
+    let (mut next, select, shortcuts_changed, slider_drawn, audio_fold_drawn) = (
+        host.next.take(),
+        host.select,
+        host.shortcuts_changed,
+        host.slider_drawn,
+        host.audio_fold_drawn,
+    );
+    if !audio_fold_drawn {
+        overlay.controller_audio.on_fold_closed();
+    }
     if !slider_drawn {
         // The slider left the screen with a change still waiting: it goes out now.
         s.settle_bitrate_slider(nightjar_desktop_ui::stream_overlay_widgets::take_pending_bitrate_slider(ctx));
@@ -244,5 +255,75 @@ mod tests {
         assert_eq!(triggers.pull(true, 32767), Some(true), "a digital trigger's next pull");
         assert_eq!(triggers.pull(false, 0), None);
         assert_eq!(triggers.pull(false, 17000), Some(false));
+    }
+
+    #[test]
+    fn controller_audio_cache_refreshes_only_on_open_hotplug_or_reopen() {
+        use super::overlay::ControllerAudioCache;
+        use sdl3_sys::everything::SDL_AudioDeviceID;
+
+        let mut cache = ControllerAudioCache::default();
+        let mut out_calls = 0usize;
+        let mut in_calls = 0usize;
+
+        // Opening the fold enumerates once.
+        let (outs, ins) = cache.devices_with(
+            || {
+                out_calls += 1;
+                vec![(SDL_AudioDeviceID(1), "DualSense Out".into())]
+            },
+            || {
+                in_calls += 1;
+                vec![(SDL_AudioDeviceID(2), "DualSense Mic".into())]
+            },
+        );
+        assert_eq!((out_calls, in_calls), (1, 1));
+        assert_eq!(outs.len(), 1);
+        assert_eq!(ins.len(), 1);
+
+        // Staying open across subsequent frames must NOT re-enumerate.
+        for _ in 0..10 {
+            let (outs, ins) = cache.devices_with(
+                || {
+                    out_calls += 1;
+                    vec![]
+                },
+                || {
+                    in_calls += 1;
+                    vec![]
+                },
+            );
+            assert_eq!((outs.len(), ins.len()), (1, 1));
+        }
+        assert_eq!((out_calls, in_calls), (1, 1));
+
+        // Audio hotplug event invalidates the cache so the next frame refreshes once.
+        cache.invalidate();
+        let (outs, _) = cache.devices_with(
+            || {
+                out_calls += 1;
+                vec![(SDL_AudioDeviceID(3), "DualSense Edge".into())]
+            },
+            || {
+                in_calls += 1;
+                vec![]
+            },
+        );
+        assert_eq!((out_calls, in_calls), (2, 2));
+        assert_eq!(outs[0].1, "DualSense Edge");
+
+        // Closing and reopening the fold refreshes once again.
+        cache.on_fold_closed();
+        let _ = cache.devices_with(
+            || {
+                out_calls += 1;
+                vec![]
+            },
+            || {
+                in_calls += 1;
+                vec![]
+            },
+        );
+        assert_eq!((out_calls, in_calls), (3, 3));
     }
 }

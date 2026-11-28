@@ -50,6 +50,10 @@ impl NavRepeat {
         self.holds.retain(|h| !(h.pad == pad && same_source(h.input, input)));
     }
 
+    pub fn remove_pad(&mut self, pad: u32) {
+        self.holds.retain(|h| h.pad != pad);
+    }
+
     pub fn clear(&mut self) {
         self.holds.clear();
     }

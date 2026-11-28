@@ -278,6 +278,67 @@ impl HostRecord {
         nightjar_policy::hosts::sync_slots_from_shared(&shared, &mut slots);
         self.set_slots(&slots);
     }
+
+    /// Updates the typed primary endpoint slot (`ipv6`, `manual`, or `local`) directly so DHCP
+    /// lease changes or mDNS promotions never leave stale addresses in `hosts.json` or WoL.
+    pub fn set_primary_endpoint(&mut self, address: &str, port: u16) {
+        let port = if port == 0 {
+            nightjar_policy::hosts::DEFAULT_HTTP_PORT
+        } else {
+            port
+        };
+        let slot = nightjar_policy::hosts::EndpointSlot::new(address, port);
+        if address
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_ipv6())
+        {
+            self.ipv6_endpoint = slot;
+        } else if self.manual && self.local_endpoint.is_none() {
+            self.manual_endpoint = slot;
+        } else {
+            self.local_endpoint = slot;
+        }
+    }
+
+    /// Updates `remote_address` and `remote_endpoint` together so WAN IP changes stay synced.
+    pub fn set_remote_endpoint(&mut self, address: String, port: u16) {
+        let port = if port == 0 {
+            nightjar_policy::hosts::DEFAULT_HTTP_PORT
+        } else {
+            port
+        };
+        self.remote_endpoint = nightjar_policy::hosts::EndpointSlot::new(&address, port);
+        self.remote_address = Some(address);
+    }
+
+    /// Updates `pinned_address` and `pinned_endpoint` together (`None` clears both).
+    pub fn set_pinned_endpoint(&mut self, address: Option<&str>, default_port: u16) {
+        match address {
+            None => {
+                self.pinned_address = None;
+                self.pinned_endpoint = None;
+            }
+            Some(addr) => {
+                let default_port = if default_port == 0 {
+                    nightjar_policy::hosts::DEFAULT_HTTP_PORT
+                } else {
+                    default_port
+                };
+                let port = [
+                    &self.local_endpoint,
+                    &self.manual_endpoint,
+                    &self.ipv6_endpoint,
+                    &self.remote_endpoint,
+                ]
+                .into_iter()
+                .flatten()
+                .find(|s| s.address == addr)
+                .map_or(default_port, |s| s.port);
+                self.pinned_address = Some(addr.to_owned());
+                self.pinned_endpoint = nightjar_policy::hosts::EndpointSlot::new(addr, port);
+            }
+        }
+    }
 }
 
 /// The layer a stream setting's value comes from, from the top: the game, the PC, the profile in

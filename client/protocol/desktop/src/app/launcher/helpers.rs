@@ -12,6 +12,53 @@ pub(crate) enum FolderPick {
     Upload { host: u64, at: folders_page::Place },
 }
 
+/// Per-gamepad signed left-stick deflection (`-1`, `0`, `+1`) for `[LEFTX, LEFTY]` UI navigation.
+/// Tracking signed direction per `SDL_JoystickID` guarantees rapid opposite flips (`-30000` ->
+/// `+30000`) emit immediately, independent pads never block one another, and unplugging a tilted
+/// pad clears its entry cleanly (`remove_pad`).
+#[derive(Default)]
+pub(crate) struct StickNav {
+    held: std::collections::HashMap<u32, [i8; 2]>,
+}
+
+impl StickNav {
+    const ENGAGE: i32 = 24_000;
+    const RELEASE: i32 = 12_000;
+
+    /// Updates `slot` (`0` = X, `1` = Y) for `pad` and returns `(previous_sign, new_sign)`.
+    pub(crate) fn update(&mut self, pad: u32, slot: usize, value: i16) -> (i8, i8) {
+        let prev = self.held.get(&pad).map_or(0, |axes| axes[slot]);
+        let v = i32::from(value);
+        let next = if v > Self::ENGAGE {
+            1
+        } else if v < -Self::ENGAGE {
+            -1
+        } else if prev > 0 && v > Self::RELEASE {
+            1
+        } else if prev < 0 && v < -Self::RELEASE {
+            -1
+        } else {
+            0
+        };
+        if next != prev {
+            let entry = self.held.entry(pad).or_insert([0, 0]);
+            entry[slot] = next;
+            if *entry == [0, 0] {
+                self.held.remove(&pad);
+            }
+        }
+        (prev, next)
+    }
+
+    pub(crate) fn remove_pad(&mut self, pad: u32) {
+        self.held.remove(&pad);
+    }
+
+    pub(crate) fn any_held(&self) -> bool {
+        self.held.values().any(|&[x, y]| x != 0 || y != 0)
+    }
+}
+
 /// The launcher's target window mode from the Window and Windowed launcher settings.
 pub(crate) fn effective_launcher_window_mode(window_mode: WindowMode, windowed_launcher: bool) -> WindowMode {
     if windowed_launcher { WindowMode::Windowed } else { window_mode }

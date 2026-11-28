@@ -424,3 +424,29 @@ fn in_order_pacing_is_the_pacers_keep_every_picture_at_v_sync() {
     }
     assert!(!in_order_pacing(FramePacing::Smoothness, true, true), "the PC's frame times take the newest picture");
 }
+
+#[test]
+fn set_min_interval_us_propagates_to_present_clock() {
+    let mut pacer = Pacer::new(PacingMode::HostTimes, 16_667);
+    assert_eq!(pacer.clock.settings.min_interval_us, 16_667);
+    // Warm up past 250 ms at 30 fps so HostTimes is settled with no backlog.
+    let mut host = 0u64;
+    let push = |pacer: &mut Pacer, host_us: u64| {
+        let mut picture = decoded(1_000_000 + host_us);
+        picture.rtp = (host_us * 9 / 100) as u32;
+        pacer.accept(picture);
+        crate::stream::pipeline::lock(&pacer.pending).pop_back().unwrap().present_us
+    };
+    for _ in 0..20 {
+        host += 33_333;
+        push(&mut pacer, host);
+    }
+    // Switching from 60 Hz to 240 Hz updates both pacer.min_interval_us and pacer.clock.
+    pacer.set_min_interval_us(4_167);
+    assert_eq!(pacer.clock.settings.min_interval_us, 4_167);
+    host += 33_333;
+    let first = push(&mut pacer, host);
+    host += 1_000;
+    let second = push(&mut pacer, host);
+    assert_eq!(second - first, 4_167, "HostTimes uses updated 240 Hz floor, not initial 60 Hz");
+}

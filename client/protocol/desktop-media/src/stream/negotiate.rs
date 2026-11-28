@@ -381,6 +381,14 @@ pub(super) fn asked_hdr_format(picked: u8) -> u8 {
     format
 }
 
+/// Whether `NIGHTJAR_HDR_FORMAT` explicitly asks the host for HLG (used on macOS to select SDL's
+/// `"gpu"` renderer so HLG pictures route through `PlanesPass` with BT.2100 HLG OOTF).
+pub fn hlg_requested() -> bool {
+    hint_env("NIGHTJAR_HDR_FORMAT")
+        .and_then(|bit| u8::try_from(bit).ok())
+        == Some(rubylight_protocol::hdr::HLG)
+}
+
 fn refusal_text(refusal: &color::Refusal) -> String {
     use color::Refusal;
     match refusal {

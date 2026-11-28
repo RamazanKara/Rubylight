@@ -326,6 +326,11 @@ impl PresentClock {
         self.delay_us
     }
 
+    /// Updates the display's shortest refresh interval (µs) after a display or mode change.
+    pub fn set_min_interval_us(&mut self, min_interval_us: i64) {
+        self.settings.min_interval_us = min_interval_us;
+    }
+
     /// Host microseconds of an RTP timestamp, unwrapped against the previous one.
     fn host_us(&mut self, rtp: u32) -> i64 {
         let ticks = match self.unwrap {

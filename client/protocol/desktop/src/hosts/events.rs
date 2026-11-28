@@ -170,8 +170,9 @@ impl Hosts {
                     let Some(Art::Ready(texture)) = Arc::make_mut(&mut host.art).get_mut(&app) else {
                         unreachable!()
                     };
-                    let sharp = ctx.load_texture(format!("art-{id}-{app}"), image.clone(), egui::TextureOptions::LINEAR);
-                    crate::ambient::register_cover(ctx, Some(sharp.id()), amb_id, &image);
+                    let old_art_id = texture.id();
+                    let sharp = ctx.load_texture(format!("art-{id}-{app}"), image, egui::TextureOptions::LINEAR);
+                    crate::ambient::rebind_art(ctx, old_art_id, sharp.id(), amb_id);
                     *texture = sharp;
                     match sized {
                         Some(sized) => {
@@ -185,7 +186,7 @@ impl Hosts {
                     self.art_landed = true;
                 }
                 Event::GameInfo(record) => self.game_info_landed(*record),
-                Event::Art { id, app, version, image, ambient, sized } => {
+                Event::Art { id, app, version, image, ambient, prepared, sized } => {
                     let frame = self.art_frame;
                     let mut landed = None;
                     // No cover never replaces one of the same version that landed first (a
@@ -208,8 +209,10 @@ impl Hosts {
                         };
                         let art = match image {
                             Some(image) => {
-                                let texture = ctx.load_texture(format!("art-{id}-{app}"), image.clone(), egui::TextureOptions::LINEAR);
-                                crate::ambient::register_cover(ctx, Some(texture.id()), amb_id, &image);
+                                let texture = ctx.load_texture(format!("art-{id}-{app}"), image, egui::TextureOptions::LINEAR);
+                                if let Some(prepared) = prepared {
+                                    crate::ambient::register_prepared(ctx, Some(texture.id()), amb_id, prepared);
+                                }
                                 landed = Some(texture.id());
                                 Art::Ready(texture)
                             }
@@ -519,8 +522,15 @@ impl Hosts {
                         kept.other_addresses.push(a);
                     }
                 }
+                if kept.local_endpoint.is_none() { kept.local_endpoint = dropped.local_endpoint; }
+                if kept.manual_endpoint.is_none() { kept.manual_endpoint = dropped.manual_endpoint; }
+                if kept.ipv6_endpoint.is_none() { kept.ipv6_endpoint = dropped.ipv6_endpoint; }
                 if kept.remote_address.is_none() {
                     kept.remote_address = dropped.remote_address;
+                    if kept.remote_endpoint.is_none() { kept.remote_endpoint = dropped.remote_endpoint; }
+                }
+                if kept.pinned_endpoint.is_none() && kept.pinned_address.is_some() {
+                    kept.pinned_endpoint = dropped.pinned_endpoint;
                 }
                 let gone = self.list.remove(drop).id;
                 self.record_merge(gone, keep_id);
@@ -603,7 +613,8 @@ impl Hosts {
                 // The PC's own ExternalIP replaces a STUN answer (Moonlight V+ PC's NvComputer).
                 if let Some(external) = info.external_ip.as_deref().and_then(public_ipv4)
                     && host.record.remote_address.as_deref() != Some(external.as_str()) {
-                        host.record.remote_address = Some(external);
+                        let port = http_port(host.record.http_port);
+                        host.record.set_remote_endpoint(external, port);
                         changed = true;
                     }
                 // The host forgot this client: drop the pin so the user can pair again. Only the
@@ -665,7 +676,10 @@ impl Hosts {
             let record = &mut host.record;
             if record.pinned_address.is_none() && record.remote_address.as_ref() == Some(&record.address)
                 && let Some(at) = record.other_addresses.iter().position(|a| texts.contains(a)) {
-                    record.address = record.other_addresses.remove(at);
+                    let promoted = record.other_addresses.remove(at);
+                    let port = http_port(record.http_port);
+                    record.set_primary_endpoint(&promoted, port);
+                    record.address = promoted;
                     return true;
                 }
             return false;
@@ -695,7 +709,8 @@ impl Hosts {
         if host.record.remote_address.as_deref() == Some(address.as_str()) {
             return false;
         }
-        host.record.remote_address = Some(address);
+        let port = http_port(host.record.http_port);
+        host.record.set_remote_endpoint(address, port);
         host.record.sync_slots_from_shared();
         crate::logfile::add_secrets(&host.record);
         true
@@ -715,5 +730,7 @@ fn move_to(record: &mut HostRecord, address: &str) -> bool {
     if !record.other_addresses.contains(&old) && record.remote_address.as_ref() != Some(&old) {
         record.other_addresses.push(old);
     }
+    let port = http_port(record.http_port);
+    record.set_primary_endpoint(address, port);
     true
 }

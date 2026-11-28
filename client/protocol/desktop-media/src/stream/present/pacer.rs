@@ -468,9 +468,9 @@ impl Pacer {
     }
 
     /// Updates the display's shortest refresh interval (µs) after a display change.
-    #[allow(dead_code)]
     pub fn set_min_interval_us(&mut self, min_interval_us: i64) {
         self.min_interval_us = min_interval_us;
+        self.clock.set_min_interval_us(min_interval_us);
     }
 
     /// Maximum age of a queued in-order picture before a newer due one replaces it (`take_due`).

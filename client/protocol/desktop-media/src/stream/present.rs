@@ -34,8 +34,8 @@ mod video_only;
 
 pub use color::hdr_negotiated;
 pub(super) use color::{interleaved_flags, planar_hlg, planar_parameters, vulkan_flags};
-// Both Linux and macOS route HLG hardware surfaces through the plane shader.
-#[cfg(unix)]
+// Both Linux and macOS route HLG hardware surfaces through the plane shader (tested everywhere).
+#[cfg(any(unix, test))]
 pub(super) use color::hlg_through_planes;
 use color::*;
 pub use geometry::{draws_one_to_one, viewport, whole_pixel_shift};

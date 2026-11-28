@@ -53,13 +53,14 @@ fn end_pass(ctx: &egui::Context) {
 
 #[test]
 fn a_cover_arrives_with_its_ambient_already_baked() {
-    let (image, ambient, sized) = art_and_ambient(Some(png([200, 20, 20])), 1.0);
+    let (image, ambient, prepared, sized) = art_and_ambient(Some(png([200, 20, 20])), 1.0);
     assert_eq!(image.expect("the cover").size, [30, 40]);
+    assert!(prepared.is_some(), "hero wash and thumbnail are prepared off the UI thread");
     assert_eq!(sized, None, "a small cover is never made larger");
     let ambient = ambient.expect("baked with the cover, off the UI thread");
     assert_eq!(ambient, crate::ambient::bake(&decode_image(&png([200, 20, 20])).expect("the cover")));
-    assert_eq!(art_and_ambient(None, 1.0), (None, None, None), "no cover, no ambient");
-    assert_eq!(art_and_ambient(Some(b"not an image".to_vec()), 1.0), (None, None, None));
+    assert_eq!(art_and_ambient(None, 1.0), (None, None, None, None), "no cover, no ambient");
+    assert_eq!(art_and_ambient(Some(b"not an image".to_vec()), 1.0), (None, None, None, None));
 }
 
 /// The game page draws a cover 420 by 630 points and nothing draws one larger, so that many
@@ -91,8 +92,9 @@ fn a_cover_is_kept_no_larger_than_the_window_needs() {
 fn a_cover_made_smaller_keeps_its_picture_and_its_ambient() {
     let bytes = png_of([900, 1350], [200, 20, 20]);
     let full = decode_image(&bytes).expect("the cover");
-    let (image, ambient, sized) = art_and_ambient(Some(bytes), 1.0);
+    let (image, ambient, prepared, sized) = art_and_ambient(Some(bytes), 1.0);
     let image = image.expect("the cover");
+    assert!(prepared.is_some());
     assert_eq!(image.size, [630, 945]);
     assert_eq!(sized, Some(1.0), "the pixels per point it is good for");
     assert!(image.pixels.iter().all(|&pixel| pixel == egui::Color32::from_rgb(200, 20, 20)), "one colour stays that colour");
@@ -123,14 +125,16 @@ fn the_ambient_lands_with_its_cover_and_goes_with_it() {
     let id = hosts.list[0].id;
     Arc::make_mut(&mut hosts.list[0].art_versions).insert(7, "v1".into());
     let art = |version: &str, color: Option<[u8; 3]>| {
-        let (image, ambient, sized) = art_and_ambient(color.map(png), 1.0);
-        Event::Art { id, app: 7, version: version.into(), image, ambient, sized }
+        let (image, ambient, prepared, sized) = art_and_ambient(color.map(png), 1.0);
+        Event::Art { id, app: 7, version: version.into(), image, ambient, prepared, sized }
     };
     hosts.sender.send(art("v1", Some([20, 200, 20]))).expect("the channel");
     hosts.drain(&ctx);
     assert!(hosts.list[0].ambient.contains_key(&7));
     assert!(hosts.list[0].ambient_glow[&7].a() > 0, "its glow lands with it");
-    assert!(matches!(hosts.list[0].art.get(&7), Some(Art::Ready(_))));
+    let Some(Art::Ready(art_tex)) = hosts.list[0].art.get(&7) else { panic!("expected Ready art") };
+    let amb_id = hosts.list[0].ambient.get(&7).map(egui::TextureHandle::id);
+    assert!(crate::ambient::hero_for(&ctx, art_tex.id(), amb_id, None, false).is_some(), "prepared hero wash registered with cover");
 
     hosts.sender.send(art("old", None)).expect("the channel");
     hosts.drain(&ctx);
@@ -160,8 +164,8 @@ fn a_new_renderer_drops_the_covers_so_they_load_again() {
     let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
     let id = hosts.list[0].id;
     Arc::make_mut(&mut hosts.list[0].art_versions).insert(7, "v1".into());
-    let (image, ambient, sized) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
-    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized }).expect("the channel");
+    let (image, ambient, prepared, sized) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
+    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, prepared, sized }).expect("the channel");
     hosts.drain(&ctx);
     Arc::make_mut(&mut hosts.list[0].art).insert(8, Art::Missing);
     Arc::make_mut(&mut hosts.list[0].art).insert(9, Art::Loading);
@@ -188,7 +192,7 @@ fn a_cover_whose_download_failed_is_asked_for_again_after_a_wait() {
         assert_eq!(hosts.list[0].begin_art(app, "v1").as_deref(), Some("v1"));
     }
     hosts.sender.send(Event::ArtFailed { id, app: 7, version: "v1".into() }).expect("the channel");
-    hosts.sender.send(Event::Art { id, app: 8, version: "v1".into(), image: None, ambient: None, sized: None }).expect("the channel");
+    hosts.sender.send(Event::Art { id, app: 8, version: "v1".into(), image: None, ambient: None, prepared: None, sized: None }).expect("the channel");
     hosts.drain(&ctx);
     let pc = &hosts.list[0];
     assert!(matches!(pc.art.get(&7), Some(Art::Missing)), "the title shows meanwhile");
@@ -201,8 +205,8 @@ fn a_cover_whose_download_failed_is_asked_for_again_after_a_wait() {
     assert!(!hosts.list[0].art_wanted(8, "v1"));
     assert_eq!(hosts.list[0].begin_art(7, "v1").as_deref(), Some("v1"));
     assert!(matches!(hosts.list[0].art.get(&7), Some(Art::Loading)) && !hosts.list[0].art_retry.contains_key(&7));
-    let (image, ambient, sized) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
-    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized }).expect("the channel");
+    let (image, ambient, prepared, sized) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
+    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, prepared, sized }).expect("the channel");
     hosts.drain(&ctx);
     assert!(matches!(hosts.list[0].art.get(&7), Some(Art::Ready(_))));
     end_pass(&ctx);
@@ -217,8 +221,8 @@ fn covers_shown_in(name: &str, shown: &[&[i32]]) -> (Hosts, egui::Context, Store
     let id = hosts.list[0].id;
     for app in 1..=4 {
         Arc::make_mut(&mut hosts.list[0].art_versions).insert(app, "v1".into());
-        let (image, ambient, sized) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
-        hosts.sender.send(Event::Art { id, app, version: "v1".into(), image, ambient, sized }).expect("the channel");
+        let (image, ambient, prepared, sized) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
+        hosts.sender.send(Event::Art { id, app, version: "v1".into(), image, ambient, prepared, sized }).expect("the channel");
     }
     hosts.drain(&ctx);
     for frame in shown {
@@ -285,8 +289,8 @@ fn a_cover_that_just_landed_is_not_the_first_to_go() {
     let (mut hosts, ctx, store, dir) = covers_shown_in("landed", &[&[1, 2, 3, 4], &[3, 4]]);
     let id = hosts.list[0].id;
     Arc::make_mut(&mut hosts.list[0].art_versions).insert(5, "v1".into());
-    let (image, ambient, sized) = art_and_ambient(Some(png([20, 20, 200])), 1.0);
-    hosts.sender.send(Event::Art { id, app: 5, version: "v1".into(), image, ambient, sized }).expect("the channel");
+    let (image, ambient, prepared, sized) = art_and_ambient(Some(png([20, 20, 200])), 1.0);
+    hosts.sender.send(Event::Art { id, app: 5, version: "v1".into(), image, ambient, prepared, sized }).expect("the channel");
     hosts.drain(&ctx);
     // The frame after draws nothing at all.
     hosts.covers_shown(&ctx, &store);
@@ -365,8 +369,8 @@ fn a_cover_made_smaller_is_loaded_sharper_when_the_window_shows_more_pixels() {
     Arc::make_mut(&mut hosts.list[0].art_versions).insert(7, "v1".into());
     hosts.covers_shown(&ctx, &store);
     assert_eq!(hosts.art_scale, 1.0);
-    let (image, ambient, sized) = art_and_ambient(Some(bytes), hosts.art_scale);
-    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized }).expect("the channel");
+    let (image, ambient, prepared, sized) = art_and_ambient(Some(bytes), hosts.art_scale);
+    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, prepared, sized }).expect("the channel");
     hosts.drain(&ctx);
     hosts.covers_shown(&ctx, &store);
     assert_eq!(cover_pixels(&hosts.list[0], 7), Some([630, 945]));
@@ -415,8 +419,8 @@ fn a_sharper_cover_lands_only_on_the_cover_it_was_read_for() {
         let image = decode_image(&png_of([60, 80], [20, 20, 200])).expect("the cover");
         Event::ArtSharper { id, app: 7, version: version.into(), image, sized: None }
     };
-    let (image, ambient, _) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
-    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized: Some(1.0) }).expect("the channel");
+    let (image, ambient, prepared, _) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
+    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, prepared, sized: Some(1.0) }).expect("the channel");
     hosts.sender.send(sharper("v0")).expect("the channel");
     hosts.drain(&ctx);
     assert_eq!(cover_pixels(&hosts.list[0], 7), Some([30, 40]), "the PC has another cover by now");
@@ -452,8 +456,8 @@ fn a_late_sharper_cover_for_an_older_scale_does_not_make_the_cover_blurrier() {
         let image = decode_image(&png_of(size, [20, 20, 200])).expect("the cover");
         Event::ArtSharper { id, app: 7, version: "v1".into(), image, sized }
     };
-    let (image, ambient, _) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
-    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized: Some(1.0) }).expect("the channel");
+    let (image, ambient, prepared, _) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
+    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, prepared, sized: Some(1.0) }).expect("the channel");
     hosts.drain(&ctx);
     // 125 % then 150 % asked for before either landed: the 150 % read is the one `art_sized` names.
     Arc::make_mut(&mut hosts.list[0].art_sized).insert(7, 1.5);
@@ -464,8 +468,8 @@ fn a_late_sharper_cover_for_an_older_scale_does_not_make_the_cover_blurrier() {
     assert_eq!(hosts.list[0].art_sized.get(&7), Some(&1.5));
 
     // Loaded again whole (given up for room and fetched): no smaller read replaces it.
-    let (image, ambient, _) = art_and_ambient(Some(png_of([60, 80], [20, 200, 20])), 1.0);
-    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized: None }).expect("the channel");
+    let (image, ambient, prepared, _) = art_and_ambient(Some(png_of([60, 80], [20, 200, 20])), 1.0);
+    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, prepared, sized: None }).expect("the channel");
     hosts.sender.send(sharper([45, 60], Some(1.5))).expect("the channel");
     hosts.drain(&ctx);
     assert_eq!(cover_pixels(&hosts.list[0], 7), Some([60, 80]), "all of its file stays");
@@ -486,8 +490,8 @@ fn a_cover_whose_file_is_gone_keeps_showing_when_the_window_shows_more_pixels() 
     let file = cover_file(&store, 7, &bytes);
     Arc::make_mut(&mut hosts.list[0].art_versions).insert(7, "v1".into());
     hosts.covers_shown(&ctx, &store);
-    let (image, ambient, sized) = art_and_ambient(Some(bytes), hosts.art_scale);
-    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized }).expect("the channel");
+    let (image, ambient, prepared, sized) = art_and_ambient(Some(bytes), hosts.art_scale);
+    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, prepared, sized }).expect("the channel");
     hosts.drain(&ctx);
     hosts.covers_shown(&ctx, &store);
     assert_eq!(cover_pixels(&hosts.list[0], 7), Some([630, 945]));

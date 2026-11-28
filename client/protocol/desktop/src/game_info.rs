@@ -194,12 +194,15 @@ impl GameInfo {
         Some(record)
     }
 
-    /// The bytes of the image at `url` (a record's), from its file, else fetched and kept.
-    pub fn image(&self, url: &str) -> Option<Vec<u8>> {
+    /// The decoded image at `url` (a record's), from its file, else fetched, validated once, and
+    /// kept on disk.
+    pub fn image(&self, url: &str) -> Option<image::DynamicImage> {
         let path = self.dir.join("img").join(cache::image_file(url));
         if let Ok(bytes) = std::fs::read(&path) {
-            if (bytes.len() as u64) < crate::update_net::EXCHANGE_LIMIT && image::load_from_memory(&bytes).is_ok() {
-                return Some(bytes);
+            if (bytes.len() as u64) < crate::update_net::EXCHANGE_LIMIT
+                && let Ok(decoded) = image::load_from_memory(&bytes)
+            {
+                return Some(decoded);
             }
             let _ = std::fs::remove_file(&path);
         }
@@ -208,10 +211,14 @@ impl GameInfo {
             eprintln!("nightjar: game info: an image did not load (HTTP {})", answer.status);
             return None;
         }
-        if (answer.body.len() as u64) >= crate::update_net::EXCHANGE_LIMIT || image::load_from_memory(&answer.body).is_err() {
+        if (answer.body.len() as u64) >= crate::update_net::EXCHANGE_LIMIT {
             eprintln!("nightjar: game info: an image could not be decoded");
             return None;
         }
+        let Ok(decoded) = image::load_from_memory(&answer.body) else {
+            eprintln!("nightjar: game info: an image could not be decoded");
+            return None;
+        };
         let _ = std::fs::create_dir_all(path.parent()?);
         let part = path.with_extension("part");
         if std::fs::write(&part, &answer.body).is_ok()
@@ -219,12 +226,12 @@ impl GameInfo {
         {
             let _ = std::fs::remove_file(&part);
         }
-        Some(answer.body)
+        Some(decoded)
     }
 
-    /// SteamGridDB's cover for `game`, for one the PC has none for. None without its key, or
-    /// when there is none.
-    pub fn cover(&self, game: &Game) -> Option<Vec<u8>> {
+    /// SteamGridDB's decoded cover for `game`, for one the PC has none for. None without its key,
+    /// or when there is none.
+    pub fn cover(&self, game: &Game) -> Option<image::DynamicImage> {
         if !self.keys().art() {
             return None;
         }

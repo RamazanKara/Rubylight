@@ -189,3 +189,57 @@ fn bluetooth_haptics_zeroes_and_suppresses_sdl_rumble_while_active() {
     }
     crate::dualsense_bt_audio::settle(Duration::from_secs(2));
 }
+
+#[test]
+fn bt_audio_open_failure_and_refused_probe_are_recorded_and_not_retried() {
+    let _sdl = crate::sdl::TEST_LOCK.lock().unwrap();
+    // SAFETY: SDL calls on this test's thread, which holds the SDL test lock.
+    unsafe {
+        assert!(SDL_Init(SDL_INIT_GAMEPAD), "{}", crate::sdl::error());
+        let mut desc: SDL_VirtualJoystickDesc = std::mem::zeroed();
+        desc.version = std::mem::size_of::<SDL_VirtualJoystickDesc>() as u32;
+        desc.r#type = SDL_JOYSTICK_TYPE_GAMEPAD.0 as u16;
+        desc.vendor_id = 0x054c;
+        desc.product_id = 0x0ce6;
+        desc.naxes = SDL_GAMEPAD_AXIS_COUNT.0 as u16;
+        desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT.0 as u16;
+        desc.name = c"DualSense BT test pad".as_ptr();
+        let id = SDL_AttachVirtualJoystick(&desc);
+        assert!(id.0 != 0, "{}", crate::sdl::error());
+
+        let mut pads = Gamepads::default();
+        pads.added(id).unwrap();
+        // Force BT capability check if SDL virtual joystick exposes USB/unknown connection.
+        // Test both synchronous open failure and async probe failure via `reap_bt_audio`.
+        if pads.pads[0].supports_bt_audio() {
+            let mut attempts = 0usize;
+            pads.open_bt_audio_with(|_| {
+                attempts += 1;
+                Err("no HID device".into())
+            });
+            assert_eq!(attempts, 1);
+            assert!(pads.bt_audio_failed(id), "open failure must be recorded in bt_audio_failed");
+            pads.open_bt_audio_with(|_| {
+                attempts += 1;
+                Err("should not retry".into())
+            });
+            assert_eq!(attempts, 1, "failed pad must not be retried on subsequent auto_audio calls");
+            pads.bt_audio_failed.clear();
+        }
+
+        // Async probe failure on worker thread is reaped and recorded in bt_audio_failed.
+        pads.pads[0].bt_audio = Some(BtAudio::start(Refusing(false)).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while pads.pads[0].bt_audio.as_ref().is_some_and(BtAudio::alive) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(pads.reap_bt_audio(), "refused async probe is reaped");
+        assert!(pads.pads[0].bt_audio.is_none());
+        assert!(pads.bt_audio_failed(id), "reaped probe failure is recorded");
+
+        pads.removed(id);
+        SDL_DetachVirtualJoystick(id);
+        SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+    }
+    crate::dualsense_bt_audio::settle(Duration::from_secs(2));
+}

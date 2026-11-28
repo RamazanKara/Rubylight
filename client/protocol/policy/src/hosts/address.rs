@@ -132,9 +132,7 @@ pub fn sync_shared_from_slots(shared: &mut SharedHostFields, slots: &HostSlots) 
     shared.other_addresses = other_addrs;
     shared.other_http_ports = other_ports;
 
-    if let Some(pinned) = &slots.pinned {
-        shared.pinned_address = Some(pinned.address.clone());
-    }
+    shared.pinned_address = slots.pinned.as_ref().map(|p| p.address.clone());
 }
 
 /// Populates missing typed [`HostSlots`] from legacy flat [`SharedHostFields`].
@@ -251,5 +249,35 @@ impl PinnedAddress {
 
     pub fn format(slot: &EndpointSlot) -> String {
         format!("{} {}", slot.address, slot.port)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_shared_from_slots_clears_pinned_address_when_slot_is_none() {
+        let mut shared = SharedHostFields {
+            address: "192.168.1.10".into(),
+            http_port: DEFAULT_HTTP_PORT,
+            pinned_address: Some("192.168.1.10".into()),
+            ..SharedHostFields::default()
+        };
+        let mut slots = HostSlots {
+            local: EndpointSlot::new("192.168.1.10", DEFAULT_HTTP_PORT),
+            pinned: None,
+            ..HostSlots::default()
+        };
+        sync_shared_from_slots(&mut shared, &slots);
+        assert_eq!(shared.pinned_address, None, "unpinning slot must clear shared.pinned_address");
+
+        slots.pinned = EndpointSlot::new("10.0.0.5", 48000);
+        sync_shared_from_slots(&mut shared, &slots);
+        assert_eq!(shared.pinned_address.as_deref(), Some("10.0.0.5"));
+
+        slots.pinned = None;
+        sync_shared_from_slots(&mut shared, &slots);
+        assert_eq!(shared.pinned_address, None);
     }
 }

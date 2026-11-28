@@ -278,8 +278,12 @@ pub(crate) fn register_hooks() {
     pin_clock::register();
     shortcuts_runtime::register_hooks();
     platform_hooks::register(platform_hooks::PlatformHooks {
-        pyrowave_probe: |device, ten_bit| {
-            let result = stream::pyrowave_mode::settings_probe(device as *mut std::ffi::c_void, ten_bit);
+        pyrowave_probe: |device, ten_bit, auto_renderer| {
+            let result = stream::pyrowave_mode::settings_probe_with_auto(
+                device as *mut std::ffi::c_void,
+                ten_bit,
+                auto_renderer,
+            );
             if let Some(Err(ref reason)) = result {
                 log_pyrowave_probe_error(ten_bit, reason);
             }

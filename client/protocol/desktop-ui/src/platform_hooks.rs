@@ -36,7 +36,7 @@ pub enum MenuNavButton {
 /// Callbacks provided by `nightjar-desktop` at startup for hardware/platform queries in Settings.
 #[derive(Clone, Copy)]
 pub struct PlatformHooks {
-    pub pyrowave_probe: fn(usize, bool) -> Option<Result<(), String>>,
+    pub pyrowave_probe: fn(usize, bool, bool) -> Option<Result<(), String>>,
     /// Returns `None` while the GPU probe is still in progress, `Some(true)` if AI enhancement is
     /// supported, `Some(false)` if unavailable.
     pub enhance_probe: fn(usize) -> Option<bool>,
@@ -54,7 +54,7 @@ pub struct PlatformHooks {
 impl Default for PlatformHooks {
     fn default() -> Self {
         Self {
-            pyrowave_probe: |_, _| Some(Err("not available in UI tests".to_owned())),
+            pyrowave_probe: |_, _, _| Some(Err("not available in UI tests".to_owned())),
             enhance_probe: |_| Some(false),
             clear_scan_sync: || {},
             metalfx_supported: || false,
@@ -80,7 +80,7 @@ pub fn register(hooks: PlatformHooks) {
 
 pub fn hooks() -> &'static PlatformHooks {
     static DEFAULT: PlatformHooks = PlatformHooks {
-        pyrowave_probe: |_, _| {
+        pyrowave_probe: |_, _, _| {
             PYROWAVE_PROBE_STARTED_FOR_TEST.with(|f| f.set(true));
             None
         },

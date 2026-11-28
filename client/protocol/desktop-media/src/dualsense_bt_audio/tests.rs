@@ -167,7 +167,12 @@ fn play(audio: &BtAudio, reports: &Receiver<Vec<u8>>, until: Duration) -> Vec<Ve
 #[test]
 fn the_worker_probes_plays_and_stops_after_a_second_of_refused_writes() {
     let (sent, reports) = channel();
-    assert!(BtAudio::start(Recorder::new(sent.clone(), |_| true)).is_err(), "probe refused");
+    let refused = BtAudio::start(Recorder::new(sent.clone(), |_| true)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while refused.alive() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!refused.alive(), "refused probe stops the worker");
     let audio = BtAudio::start(Recorder::new(sent, |n| n >= 3)).unwrap();
     let probe = reports.recv().unwrap();
     assert_eq!((probe.len(), probe[0], probe[76]), (REPORT_BYTES, 0x36, 0x93));
@@ -181,6 +186,20 @@ fn the_worker_probes_plays_and_stops_after_a_second_of_refused_writes() {
     }
     assert!(!audio.alive(), "refused writes stop the worker");
     assert!(started.elapsed() >= GIVE_UP, "only after a second of them");
+}
+
+#[test]
+fn start_runs_probe_on_worker_thread_without_blocking_caller() {
+    let (sent, reports) = channel();
+    let mut slow = Recorder::new(sent, |_| false);
+    slow.delay = Duration::from_millis(250);
+    let at = Instant::now();
+    let audio = BtAudio::start(slow).unwrap();
+    assert!(at.elapsed() < Duration::from_millis(100), "start blocked caller for {:?}", at.elapsed());
+    let probe = reports.recv_timeout(Duration::from_secs(2)).expect("worker sent probe");
+    assert_eq!((probe.len(), probe[0], probe[76]), (REPORT_BYTES, 0x36, 0x93));
+    drop(audio);
+    settle(Duration::from_secs(2));
 }
 
 #[test]

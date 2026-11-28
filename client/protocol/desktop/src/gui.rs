@@ -167,6 +167,16 @@ fn key_of(code: SDL_Keycode) -> Option<Key> {
         SDLK_EQUALS => Key::Equals,
         SDLK_PLUS | SDLK_KP_PLUS => Key::Plus,
         SDLK_MINUS | SDLK_KP_MINUS => Key::Minus,
+        SDLK_KP_0 => Key::Num0,
+        SDLK_KP_1 => Key::Num1,
+        SDLK_KP_2 => Key::Num2,
+        SDLK_KP_3 => Key::Num3,
+        SDLK_KP_4 => Key::Num4,
+        SDLK_KP_5 => Key::Num5,
+        SDLK_KP_6 => Key::Num6,
+        SDLK_KP_7 => Key::Num7,
+        SDLK_KP_8 => Key::Num8,
+        SDLK_KP_9 => Key::Num9,
         // Shift and the key with ? on it (SDL's key codes follow the layout and Shift).
         SDLK_QUESTION => Key::Questionmark,
         _ => {

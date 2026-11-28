@@ -5,6 +5,60 @@
 
 use super::*;
 
+pub(crate) type AudioDeviceEntry = (SDL_AudioDeviceID, String);
+
+/// Cached DualSense USB audio device lists for the Control Center fold so expanding it never
+/// enumerates OS audio endpoints on every rendered video frame.
+pub(crate) struct ControllerAudioCache {
+    outputs: Vec<AudioDeviceEntry>,
+    inputs: Vec<AudioDeviceEntry>,
+    dirty: bool,
+    open_last_frame: bool,
+}
+
+impl Default for ControllerAudioCache {
+    fn default() -> Self {
+        Self {
+            outputs: Vec::new(),
+            inputs: Vec::new(),
+            dirty: true,
+            open_last_frame: false,
+        }
+    }
+}
+
+impl ControllerAudioCache {
+    /// Marks cached audio endpoints stale after an SDL audio hotplug event.
+    pub(crate) fn invalidate(&mut self) {
+        self.dirty = true;
+    }
+
+    /// Marks the fold closed so the next open refreshes the cached lists once.
+    pub(crate) fn on_fold_closed(&mut self) {
+        self.open_last_frame = false;
+    }
+
+    /// Returns cached `(outputs, inputs)`, refreshing only when the fold transitions from closed
+    /// to open or after [`Self::invalidate`].
+    pub(crate) fn devices(&mut self) -> (&[AudioDeviceEntry], &[AudioDeviceEntry]) {
+        self.devices_with(controller_audio::outputs, controller_audio::inputs)
+    }
+
+    pub(crate) fn devices_with(
+        &mut self,
+        fetch_outputs: impl FnOnce() -> Vec<AudioDeviceEntry>,
+        fetch_inputs: impl FnOnce() -> Vec<AudioDeviceEntry>,
+    ) -> (&[AudioDeviceEntry], &[AudioDeviceEntry]) {
+        if self.dirty || !self.open_last_frame {
+            self.outputs = fetch_outputs();
+            self.inputs = fetch_inputs();
+            self.dirty = false;
+        }
+        self.open_last_frame = true;
+        (&self.outputs, &self.inputs)
+    }
+}
+
 /// UI-owned in-stream menu/overlay state lifted off [`stream::Streaming`].
 #[derive(Default)]
 pub(crate) struct StreamOverlay {
@@ -13,6 +67,7 @@ pub(crate) struct StreamOverlay {
     /// What was in the hand last while the Control Center was open: its hints name that device.
     pub(crate) input: input_source::InputSource,
     pub(crate) triggers: control_center::Triggers,
+    pub(crate) controller_audio: ControllerAudioCache,
     pub(crate) menu_focus: Option<egui::Id>,
     pub(crate) session_page: Option<session_page::Page>,
     pub(crate) session_link: String,
@@ -47,6 +102,7 @@ impl StreamOverlay {
             self.session_page_requested = false;
             self.menu_page = stream_menu::Page::Grid;
             self.menu_hotkey = None;
+            self.controller_audio.on_fold_closed();
             // Closed: the next frame the Control Center draws is an opening, back where it was left.
             self.center.closed();
         }

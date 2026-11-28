@@ -354,7 +354,7 @@ pub(crate) fn stream_event_wakes_wait(
 pub(crate) fn launcher_event_wakes_frame(
     event: &SDL_Event,
     controller_test: bool,
-    stick_held: [bool; 4],
+    stick_held: bool,
 ) -> bool {
     if controller_test {
         return true;
@@ -382,7 +382,7 @@ pub(crate) fn launcher_event_wakes_frame(
                     SDL_GAMEPAD_AXIS_LEFTX | SDL_GAMEPAD_AXIS_LEFTY
                 );
                 nav_axis
-                    && (stick_held.iter().any(|&held| held)
+                    && (stick_held
                         || event.gaxis.value.unsigned_abs() > LAUNCHER_AXIS_WAKE_THRESHOLD)
             }
             _ => true,
@@ -581,7 +581,7 @@ impl App {
     fn poll_launcher_event(&mut self, event: &SDL_Event) -> bool {
         let controller_test =
             self.launcher.screen == Screen::Controllers && self.launcher.controller_test;
-        let woke = launcher_event_wakes_frame(event, controller_test, self.stick_held);
+        let woke = launcher_event_wakes_frame(event, controller_test, self.stick_nav.any_held());
         self.latency_input(event);
         self.handle_launcher_event(event);
         woke

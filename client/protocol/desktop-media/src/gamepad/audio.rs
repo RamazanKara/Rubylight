@@ -26,21 +26,39 @@ impl Gamepads {
         self.bt_audio_failed.contains(&id)
     }
 
-    pub fn auto_audio(&mut self) {
-        let failed = &self.bt_audio_failed;
-        for pad in self
-            .pads
-            .iter_mut()
-            .filter(|p| p.bt_audio.is_none() && !failed.contains(&p.id) && p.supports_bt_audio())
-        {
-            match crate::dualsense_bt_audio::BtAudio::open(pad.handle) {
+    pub(super) fn open_bt_audio_with(
+        &mut self,
+        mut open: impl FnMut(
+            *mut sdl3_sys::everything::SDL_Gamepad,
+        ) -> Result<crate::dualsense_bt_audio::BtAudio, String>,
+    ) {
+        let Self {
+            pads,
+            bt_audio_failed,
+            ..
+        } = self;
+        for pad in pads.iter_mut() {
+            if pad.bt_audio.is_some()
+                || bt_audio_failed.contains(&pad.id)
+                || !pad.supports_bt_audio()
+            {
+                continue;
+            }
+            match open(pad.handle) {
                 Ok(audio) => {
                     pad.bt_audio = Some(audio);
                     pad.announced = false;
                 }
-                Err(error) => eprintln!("nightjar: controller speaker over Bluetooth: {error}"),
+                Err(error) => {
+                    eprintln!("nightjar: controller speaker over Bluetooth: {error}");
+                    bt_audio_failed.push(pad.id);
+                }
             }
         }
+    }
+
+    pub fn auto_audio(&mut self) {
+        self.open_bt_audio_with(crate::dualsense_bt_audio::BtAudio::open);
         let outputs = crate::controller_audio::outputs();
         let pads: Vec<_> = self
             .pads

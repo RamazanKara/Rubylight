@@ -189,9 +189,8 @@ impl App {
                     | SDL_EVENT_GAMEPAD_BUTTON_UP
                     | SDL_EVENT_GAMEPAD_AXIS_MOTION
             ) {
-                let before = self.stick_held;
-                self.navigate(event);
-                if (kind != SDL_EVENT_GAMEPAD_AXIS_MOTION || self.stick_held != before)
+                let changed = self.navigate(event);
+                if (kind != SDL_EVENT_GAMEPAD_AXIS_MOTION || changed)
                     && let Some((s, _)) = self.streaming.as_mut()
                 {
                     s.needs_redraw = true;

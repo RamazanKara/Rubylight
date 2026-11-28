@@ -7,12 +7,14 @@ use nightjar_desktop_media::shortcuts_runtime::ButtonSdlExt;
 mod helpers;
 pub(crate) use helpers::{
     animations_seen, effective_launcher_window_mode, pointer_input, window_shown, FolderPick,
+    StickNav,
 };
 use helpers::decodes_on_device;
 
 impl App {
     /// Gamepad buttons and the left stick become arrow keys, Enter and Escape for egui.
-    pub(crate) fn navigate(&mut self, event: &SDL_Event) {
+    /// Returns `true` when navigation emitted a key or updated held stick state.
+    pub(crate) fn navigate(&mut self, event: &SDL_Event) -> bool {
         // SAFETY: union members read by event type.
         unsafe {
             match SDL_EventType(event.r#type) {
@@ -50,30 +52,35 @@ impl App {
                         if matches!(key, egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight) {
                             self.nav_repeat.hold(event.gbutton.which.0, nav_repeat::Input::Button(event.gbutton.button), key, Instant::now());
                         }
+                        return true;
                     }
+                    false
                 }
                 SDL_EVENT_GAMEPAD_BUTTON_UP => {
                     self.nav_repeat.release(event.gbutton.which.0, nav_repeat::Input::Button(event.gbutton.button));
+                    true
                 }
                 SDL_EVENT_GAMEPAD_AXIS_MOTION => {
                     let a = event.gaxis;
                     let (slot, key_neg, key_pos) = match SDL_GamepadAxis(i32::from(a.axis)) {
                         SDL_GAMEPAD_AXIS_LEFTX => (0, egui::Key::ArrowLeft, egui::Key::ArrowRight),
                         SDL_GAMEPAD_AXIS_LEFTY => (1, egui::Key::ArrowUp, egui::Key::ArrowDown),
-                        _ => return,
+                        _ => return false,
                     };
-                    let held = i32::from(a.value).abs() > 24000;
-                    if held && !self.stick_held[slot] {
-                        let key = if a.value < 0 { key_neg } else { key_pos };
+                    let (prev, next) = self.stick_nav.update(a.which.0, slot, a.value);
+                    if prev == next {
+                        return false;
+                    }
+                    if next != 0 {
+                        let key = if next < 0 { key_neg } else { key_pos };
                         self.push_nav(key);
-                        self.nav_repeat.hold(a.which.0, nav_repeat::Input::Axis(a.axis, a.value > 0), key, Instant::now());
+                        self.nav_repeat.hold(a.which.0, nav_repeat::Input::Axis(a.axis, next > 0), key, Instant::now());
+                    } else {
+                        self.nav_repeat.release(a.which.0, nav_repeat::Input::Axis(a.axis, prev > 0));
                     }
-                    self.stick_held[slot] = i32::from(a.value).abs() > 12000 && (held || self.stick_held[slot]);
-                    if !self.stick_held[slot] {
-                        self.nav_repeat.release(a.which.0, nav_repeat::Input::Axis(a.axis, a.value > 0));
-                    }
+                    true
                 }
-                _ => {}
+                _ => false,
             }
         }
     }
@@ -124,6 +131,8 @@ impl App {
                     }
                 }
                 SDL_EVENT_GAMEPAD_REMOVED => {
+                    self.stick_nav.remove_pad(event.gdevice.which.0);
+                    self.nav_repeat.remove_pad(event.gdevice.which.0);
                     self.pads.removed(event.gdevice.which);
                 }
                 SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_BUTTON_UP | SDL_EVENT_GAMEPAD_AXIS_MOTION => {

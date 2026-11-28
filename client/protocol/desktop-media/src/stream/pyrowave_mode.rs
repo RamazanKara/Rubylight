@@ -162,6 +162,17 @@ pub fn gpu_probe(device: *mut std::ffi::c_void, ten_bit: bool) -> Result<(), Str
     unsafe { super::planes_gpu::PlanesPass::compiles(device.cast(), ten_bit) }
 }
 
+/// Settings probe on Linux when `Renderer::Auto` is active on an OpenGL launcher: probes
+/// `pyrowave_sdk::probe` directly so PyroWave stays visible in Settings → Video codec, deferring
+/// `PlanesPass::compiles` until `switch_for_stream` creates the SDL GPU renderer.
+#[cfg(target_os = "linux")]
+fn gpu_probe_deferred(device: *mut std::ffi::c_void, ten_bit: bool) -> Result<(), String> {
+    if device.is_null() {
+        return super::pyrowave_sdk::probe(ten_bit);
+    }
+    gpu_probe(device, ten_bit)
+}
+
 /// The `gpu` mode's requirements on a Mac: the bundled Vulkan driver, a device of the decoder's own
 /// on it and the SDK decoder there (`pyrowave_sdk::probe`); the planes the decoder reads back are
 /// drawn with the Metal plane shader the processor's software pictures use already, which is built
@@ -177,10 +188,13 @@ pub fn gpu_probe(device: *mut std::ffi::c_void, ten_bit: bool) -> Result<(), Str
     unsafe { super::planes_gpu::PlanesPass::compiles(device.cast(), ten_bit) }
 }
 
-/// The settings probes' results by format, None while one runs, and the threads that run them.
+type ProbeEntry = ((bool, bool), Option<Result<(), String>>);
+
+/// The settings probes' results by `(ten_bit, deferred_gpu)`, None while one runs, and the
+/// threads that run them.
 #[derive(Default)]
 struct Probes {
-    results: Vec<(bool, Option<Result<(), String>>)>,
+    results: Vec<ProbeEntry>,
     running: Vec<std::thread::JoinHandle<()>>,
 }
 
@@ -191,16 +205,39 @@ fn settings_probe_state() -> &'static ProbeState {
     &STATE
 }
 
+/// Whether a settings probe on a null device should defer `PlanesPass::compiles` until
+/// `switch_for_stream` switches Linux's OpenGL launcher to the SDL GPU renderer.
+pub fn defer_gpu_probe(device: *mut std::ffi::c_void, auto_renderer: bool) -> bool {
+    cfg!(target_os = "linux") && auto_renderer && device.is_null()
+}
+
 /// `gpu_probe` for settings screens, on the renderer's device (so its adapter's LUID) and the plane
 /// format the stream would use (`ten_bit` is the HDR setting). It loads the DLL and builds a Vulkan
 /// device, so it runs once per format on a thread of its own and the result is remembered. None
 /// while it runs. `device` is the renderer's, which outlives the probe: a new renderer (Linux) waits
 /// for it first ([`settings_probe_reset`]).
 pub fn settings_probe(device: *mut std::ffi::c_void, ten_bit: bool) -> Option<Result<(), String>> {
+    settings_probe_with_auto(device, ten_bit, false)
+}
+
+/// [`settings_probe`] with `auto_renderer`: when `true` on Linux and `device` is null (OpenGL
+/// launcher with `Renderer::Auto`), probes `pyrowave_sdk::probe(ten_bit)` directly and defers the
+/// plane-shader compile check until `switch_for_stream` creates the GPU renderer.
+pub fn settings_probe_with_auto(
+    device: *mut std::ffi::c_void,
+    ten_bit: bool,
+    auto_renderer: bool,
+) -> Option<Result<(), String>> {
+    let deferred = defer_gpu_probe(device, auto_renderer);
+    #[cfg(target_os = "linux")]
+    let probe: fn(*mut std::ffi::c_void, bool) -> Result<(), String> =
+        if deferred { gpu_probe_deferred } else { gpu_probe };
+    #[cfg(not(target_os = "linux"))]
+    let probe: fn(*mut std::ffi::c_void, bool) -> Result<(), String> = gpu_probe;
     // Hold a reference on the D3D11 device for the probe thread's lifetime on Windows so a
     // driver reset or renderer remake cannot free it underneath the probe.
     let hold = crate::media::DeviceRef::of_device(device);
-    probe_in(settings_probe_state(), device, hold, ten_bit, gpu_probe)
+    probe_in(settings_probe_state(), device, hold, (ten_bit, deferred), probe)
 }
 
 /// Before the renderer goes (Linux's switch to the GPU renderer or back): waits for a probe still
@@ -213,9 +250,10 @@ fn probe_in(
     state: &'static ProbeState,
     device: *mut std::ffi::c_void,
     hold: crate::media::DeviceRef,
-    ten_bit: bool,
+    key: (bool, bool),
     probe: fn(*mut std::ffi::c_void, bool) -> Result<(), String>,
 ) -> Option<Result<(), String>> {
+    let ten_bit = key.0;
     struct Raw(*mut std::ffi::c_void);
     #[cfg(windows)]
     // SAFETY: D3D11 devices are free-threaded and `hold` (`DeviceRef`) keeps the COM reference
@@ -231,17 +269,17 @@ fn probe_in(
     // used from the probe thread.
     unsafe impl Send for Raw {}
     let mut probes = state.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((_, done)) = probes.results.iter().find(|(key, _)| *key == ten_bit) {
+    if let Some((_, done)) = probes.results.iter().find(|(k, _)| *k == key) {
         return done.clone();
     }
-    probes.results.push((ten_bit, None));
+    probes.results.push((key, None));
     let device = Raw(device);
     match std::thread::Builder::new().name("pyrowave-probe".into()).spawn(move || {
         let _hold = hold;
         let device = device;
         let result = probe(device.0, ten_bit);
         let mut probes = state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(entry) = probes.results.iter_mut().find(|(key, _)| *key == ten_bit) { entry.1 = Some(result); }
+        if let Some(entry) = probes.results.iter_mut().find(|(k, _)| *k == key) { entry.1 = Some(result); }
     }) {
         Ok(thread) => {
             probes.running.retain(|running| !running.is_finished());
@@ -250,7 +288,7 @@ fn probe_in(
         }
         Err(error) => {
             let result = Err(format!("could not start PyroWave settings probe: {error}"));
-            if let Some(entry) = probes.results.iter_mut().find(|(key, _)| *key == ten_bit) {
+            if let Some(entry) = probes.results.iter_mut().find(|(k, _)| *k == key) {
                 entry.1 = Some(result.clone());
             }
             Some(result)
@@ -273,7 +311,7 @@ fn reset_in(state: &'static ProbeState) {
 /// need the probe must not start it).
 #[cfg(test)]
 pub fn settings_probe_started(ten_bit: bool) -> bool {
-    settings_probe_state().lock().unwrap_or_else(|e| e.into_inner()).results.iter().any(|(key, _)| *key == ten_bit)
+    settings_probe_state().lock().unwrap_or_else(|e| e.into_inner()).results.iter().any(|((k, _), _)| *k == ten_bit)
 }
 
 #[cfg(test)]
@@ -293,19 +331,54 @@ mod tests {
             if device.is_null() { Err("needs the SDL GPU renderer".into()) } else { Ok(()) }
         }
         let opengl = std::ptr::null_mut();
-        assert_eq!(probe_in(&STATE, opengl, crate::media::DeviceRef::default(), false, slow), None, "it runs on its own thread");
+        assert_eq!(probe_in(&STATE, opengl, crate::media::DeviceRef::default(), (false, false), slow), None, "it runs on its own thread");
         reset_in(&STATE);
         assert_eq!(*DEVICES.lock().unwrap(), [0], "the reset waited for it");
         assert!(STATE.lock().unwrap().results.is_empty(), "and forgot what it found");
         let gpu = 0x60 as *mut std::ffi::c_void;
-        assert_eq!(probe_in(&STATE, gpu, crate::media::DeviceRef::default(), false, slow), None, "probed again, on the new device");
+        assert_eq!(probe_in(&STATE, gpu, crate::media::DeviceRef::default(), (false, false), slow), None, "probed again, on the new device");
         reset_in(&STATE);
         assert_eq!(*DEVICES.lock().unwrap(), [0, 0x60]);
-        assert_eq!(probe_in(&STATE, gpu, crate::media::DeviceRef::default(), false, slow), None);
+        assert_eq!(probe_in(&STATE, gpu, crate::media::DeviceRef::default(), (false, false), slow), None);
         while STATE.lock().unwrap().results[0].1.is_none() {
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        assert_eq!(probe_in(&STATE, gpu, crate::media::DeviceRef::default(), false, slow), Some(Ok(())), "kept until the renderer changes");
+        assert_eq!(probe_in(&STATE, gpu, crate::media::DeviceRef::default(), (false, false), slow), Some(Ok(())), "kept until the renderer changes");
+        reset_in(&STATE);
+    }
+
+    #[test]
+    fn deferred_and_strict_null_device_probes_do_not_poison_each_other() {
+        static STATE: ProbeState = std::sync::Mutex::new(Probes { results: Vec::new(), running: Vec::new() });
+        fn strict_null(device: *mut std::ffi::c_void, _: bool) -> Result<(), String> {
+            if device.is_null() { Err("PyroWave GPU decoding needs the SDL GPU renderer".into()) } else { Ok(()) }
+        }
+        fn deferred_null(_: *mut std::ffi::c_void, _: bool) -> Result<(), String> {
+            Ok(())
+        }
+        assert_eq!(
+            defer_gpu_probe(std::ptr::null_mut(), true),
+            cfg!(target_os = "linux"),
+            "only Linux OpenGL launcher with Renderer::Auto defers shader compilation"
+        );
+        assert!(!defer_gpu_probe(std::ptr::null_mut(), false));
+        assert!(!defer_gpu_probe(0x60 as *mut std::ffi::c_void, true));
+
+        // Strict OpenGL failure under (false, false) must not cache-hit when Auto probes under (false, true).
+        let _ = probe_in(&STATE, std::ptr::null_mut(), crate::media::DeviceRef::default(), (false, false), strict_null);
+        while STATE.lock().unwrap().results.iter().find(|(k, _)| *k == (false, false)).and_then(|e| e.1.as_ref()).is_none() {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(probe_in(&STATE, std::ptr::null_mut(), crate::media::DeviceRef::default(), (false, false), strict_null).unwrap().is_err());
+
+        let _ = probe_in(&STATE, std::ptr::null_mut(), crate::media::DeviceRef::default(), (false, true), deferred_null);
+        while STATE.lock().unwrap().results.iter().find(|(k, _)| *k == (false, true)).and_then(|e| e.1.as_ref()).is_none() {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(
+            probe_in(&STATE, std::ptr::null_mut(), crate::media::DeviceRef::default(), (false, true), deferred_null),
+            Some(Ok(()))
+        );
         reset_in(&STATE);
     }
 
@@ -345,7 +418,7 @@ mod tests {
         let device = device.unwrap();
         let raw = device.as_raw();
         let hold = crate::media::DeviceRef::of_device(raw);
-        assert_eq!(probe_in(&STATE, raw, hold, false, hold_and_check), None);
+        assert_eq!(probe_in(&STATE, raw, hold, (false, false), hold_and_check), None);
         while !STARTED.load(std::sync::atomic::Ordering::Acquire) {
             std::thread::sleep(std::time::Duration::from_millis(2));
         }

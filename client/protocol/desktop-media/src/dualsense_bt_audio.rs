@@ -360,8 +360,8 @@ pub trait Output: Send + 'static {
 /// A HID handle of its own on the controller, closed with it.
 struct Hid(*mut SDL_hid_device);
 
-// SAFETY: the handle is used by one thread at a time: opened and probed on the UI thread, then
-// only the worker writes and closes it.
+// SAFETY: the handle is used by one thread at a time: opened on the UI thread, then only the
+// worker probes, writes and closes it.
 unsafe impl Send for Hid {}
 
 impl Output for Hid {
@@ -405,14 +405,12 @@ impl BtAudio {
         Self::start(Hid(hid))
     }
 
-    /// Probes `output` with a silent report, then runs the worker on it.
-    pub fn start(mut output: impl Output) -> Result<Self, String> {
+    /// Starts the worker on `output`, probing it with a silent report on the worker thread so
+    /// the caller's render/UI thread never blocks on a slow Bluetooth HID write.
+    pub fn start(output: impl Output) -> Result<Self, String> {
         let mix = Arc::new(Mutex::new(Mix::default()));
         let mut player = Player::new(mix.clone())?;
         let probe = player.silence().ok_or("speaker encoder gave no packet")?;
-        if !output.write(&probe) {
-            return Err("the controller took no audio report".into());
-        }
         let stop = Arc::new(AtomicBool::new(false));
         RUNNING.fetch_add(1, Ordering::AcqRel);
         let worker = std::thread::Builder::new()
@@ -421,7 +419,7 @@ impl BtAudio {
                 let stop = stop.clone();
                 move || {
                     // The HID handle closes as `run` returns, before the count drops.
-                    run(output, player, &stop);
+                    run(output, player, probe, &stop);
                     RUNNING.fetch_sub(1, Ordering::AcqRel);
                 }
             })
@@ -470,9 +468,16 @@ impl Drop for BtAudio {
     }
 }
 
-/// One report per [`PERIOD`] while there is sound, until `stop` or writes failing for
-/// [`GIVE_UP`].
-fn run(mut output: impl Output, mut player: Player, stop: &AtomicBool) {
+/// Probes `output` with a silent report, then sends one report per [`PERIOD`] while there is
+/// sound, until `stop` or writes failing for [`GIVE_UP`].
+fn run(mut output: impl Output, mut player: Player, probe: [u8; REPORT_BYTES], stop: &AtomicBool) {
+    if stop.load(Ordering::Acquire) {
+        return;
+    }
+    if !output.write(&probe) {
+        eprintln!("nightjar: controller speaker over Bluetooth: the controller took no audio report");
+        return;
+    }
     let mut next = Instant::now();
     // Since when, and how many, writes failed in a row.
     let mut failing: Option<(Instant, u32)> = None;

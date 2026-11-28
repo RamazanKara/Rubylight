@@ -115,3 +115,50 @@ fn removing_the_pin_asks_for_it_first() {
     assert!(!lock.store.has_pin() && lock.store.mode() == Mode::Off);
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn pad_ui_accepts_shifted_digits_and_rejects_ctrl_alt_command() {
+    let (mut lock, dir) = lock("shift-digits");
+    lock.store.set_pin(b"1234").unwrap();
+    lock.store.set_mode(Mode::App);
+    lock.pad = Some(Pad::new(Purpose::App, lock.store.as_ref()));
+
+    let ctx = egui::Context::default();
+    crate::theme::own_palette();
+    crate::theme::apply(&ctx);
+
+    let key_ev = |key: egui::Key, modifiers: egui::Modifiers| egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers,
+    };
+
+    // Ctrl/Alt/Command modified digits must be ignored; Shift+digits (AZERTY/Czech) must be accepted.
+    let raw = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0))),
+        events: vec![
+            key_ev(egui::Key::Num9, egui::Modifiers::CTRL),
+            key_ev(egui::Key::Num8, egui::Modifiers::ALT),
+            key_ev(egui::Key::Num7, egui::Modifiers::COMMAND),
+            key_ev(egui::Key::Num1, egui::Modifiers::SHIFT),
+            key_ev(egui::Key::Num2, egui::Modifiers::SHIFT),
+            key_ev(egui::Key::Num3, egui::Modifiers::NONE),
+            key_ev(egui::Key::Num4, egui::Modifiers::SHIFT),
+        ],
+        ..Default::default()
+    };
+    let mut commands = Vec::new();
+    let mut out = ctx.run_ui(raw, |ui| {
+        lock.pad_ui(ui, &mut commands);
+    });
+    out.textures_delta.clear();
+
+    let done = finish(&mut lock);
+    assert!(
+        !lock.app_locked() && matches!(done[..], [Command::PinPassed]),
+        "Shift+digits should unlock the PIN pad while Ctrl/Alt/Cmd digits are ignored"
+    );
+    std::fs::remove_dir_all(dir).ok();
+}

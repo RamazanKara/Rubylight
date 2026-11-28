@@ -653,3 +653,59 @@ fn game_info_keys_removed_clears_cached_facts_and_retries_failed_entries() {
     assert!(hosts.facts.is_empty());
     assert!(hosts.facts_asked.is_empty());
 }
+
+#[test]
+fn pin_move_external_ip_and_stun_keep_typed_endpoints_in_sync() {
+    use nightjar_policy::hosts::EndpointSlot;
+
+    let mut record = HostRecord {
+        unique_id: "uid-sync".into(),
+        name: "SyncEndpointHost".into(),
+        address: "10.220.41.10".into(),
+        http_port: 47989,
+        other_addresses: vec!["10.220.41.20".into()],
+        remote_address: Some("8.8.8.8".into()),
+        local_endpoint: EndpointSlot::new("10.220.41.10", 47989),
+        remote_endpoint: EndpointSlot::new("8.8.8.8", 47989),
+        ..HostRecord::default()
+    };
+    let mut hosts = Hosts::without_discovery(vec![record.clone()], Arc::new(|| {}));
+    let id = hosts.list[0].id;
+
+    // Pinning and unpinning updates and clears pinned_endpoint alongside pinned_address.
+    assert!(hosts.pin_address(id, Some("10.220.41.20")));
+    assert_eq!(hosts.list[0].record.pinned_address.as_deref(), Some("10.220.41.20"));
+    assert_eq!(hosts.list[0].record.pinned_endpoint, EndpointSlot::new("10.220.41.20", 47989));
+    assert!(hosts.pin_address(id, None));
+    assert_eq!(hosts.list[0].record.pinned_address, None);
+    assert_eq!(hosts.list[0].record.pinned_endpoint, None);
+    // Re-syncing shared fields from slots must keep pinned_address cleared.
+    record = hosts.list[0].record.clone();
+    record.pinned_address = Some("10.220.41.20".into());
+    record.sync_shared_from_slots();
+    assert_eq!(record.pinned_address, None);
+
+    // STUN remote update overwrites stale remote_endpoint directly.
+    send(&mut hosts, Event::Remote { id, result: Ok(Some(Ipv4Addr::new(1, 1, 1, 1))) });
+    assert_eq!(hosts.list[0].record.remote_address.as_deref(), Some("1.1.1.1"));
+    assert_eq!(hosts.list[0].record.remote_endpoint, EndpointSlot::new("1.1.1.1", 47989));
+
+    // ServerInfo move_to + external_ip overwrite stale local_endpoint and remote_endpoint.
+    let mut info = native_info_of("uid-sync", true);
+    info.hostname = "SyncEndpointHost".into();
+    info.external_ip = Some("9.9.9.9".into());
+    send(
+        &mut hosts,
+        Event::Info {
+            id,
+            seq: 1,
+            address: "10.220.41.55".into(),
+            path: InfoPath::Plain,
+            result: Ok(Box::new(info)),
+        },
+    );
+    assert_eq!(hosts.list[0].record.address, "10.220.41.55");
+    assert_eq!(hosts.list[0].record.local_endpoint, EndpointSlot::new("10.220.41.55", 47989));
+    assert_eq!(hosts.list[0].record.remote_address.as_deref(), Some("9.9.9.9"));
+    assert_eq!(hosts.list[0].record.remote_endpoint, EndpointSlot::new("9.9.9.9", 47989));
+}

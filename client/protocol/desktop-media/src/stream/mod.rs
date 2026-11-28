@@ -107,6 +107,7 @@ pub mod ui_pq;
 #[cfg(all(test, unix))]
 mod vulkan_tests_unix;
 mod negotiate;
+pub use negotiate::hlg_requested;
 pub(crate) mod connect;
 pub mod decoder_cache;
 mod stats;

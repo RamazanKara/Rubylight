@@ -144,7 +144,7 @@ struct App {
     wake_event: u32,
     screenshot_dir: PathBuf,
     screenshot_requested: bool,
-    stick_held: [bool; 4],
+    stick_nav: app::StickNav,
     nav_repeat: nav_repeat::NavRepeat,
     /// Under gamescope, hidden while a controller is in use outside streams.
     pointer: handheld::Pointer,
@@ -634,7 +634,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         wake_event,
         screenshot_dir,
         screenshot_requested: false,
-        stick_held: [false; 4],
+        stick_nav: app::StickNav::default(),
         nav_repeat: nav_repeat::NavRepeat::default(),
         pointer: handheld::Pointer::new(handheld::gamescope()),
         hdr_note: false,

@@ -67,6 +67,9 @@ pub enum Event {
         version: String,
         image: Option<egui::ColorImage>,
         ambient: Option<egui::ColorImage>,
+        /// Worker-computed `HERO_SIZE` thumbnail & blurred hero wash so the UI thread never clones
+        /// or blurs the cover on registration.
+        prepared: Option<crate::ambient::PreparedCover>,
         /// The pixels per point `image` was made smaller for, None when it is at its own size.
         sized: Option<f32>,
     },

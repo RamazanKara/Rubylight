@@ -558,6 +558,15 @@ impl App {
         self.track_visibility(event);
         // SAFETY: reading the event type.
         let kind = SDL_EventType(unsafe { event.r#type });
+        if kind == SDL_EVENT_GAMEPAD_REMOVED {
+            // SAFETY: union member matches `SDL_EVENT_GAMEPAD_REMOVED`.
+            let pad_id = unsafe { event.gdevice.which.0 };
+            self.stick_nav.remove_pad(pad_id);
+            self.nav_repeat.remove_pad(pad_id);
+        }
+        if matches!(kind, SDL_EVENT_AUDIO_DEVICE_ADDED | SDL_EVENT_AUDIO_DEVICE_REMOVED) {
+            self.overlay.controller_audio.invalidate();
+        }
         if kind == SDL_EVENT_GAMEPAD_REMOVED || self.stream_controllers_allowed() {
             self.note_gamepad_activity(event);
         }

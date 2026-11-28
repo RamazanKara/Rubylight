@@ -288,22 +288,23 @@ fn a_vulkan_picture_is_drawn_as_the_planar_picture_of_its_depth_and_chroma() {
     assert_eq!(flags(&sdr10, false), 8 | 16 | 256, "two-plane pictures keep 256");
 }
 
-/// Linux hardware decoders (VAAPI, NVDEC, V4L2) hand SDL NV12 and P010 pictures, and SDL read
-/// an HLG P010 picture as PQ. An HLG one goes to the plane shader with the HLG flag; SDR and
-/// PQ ones keep SDL's path (no copy, no added latency).
-// Both Linux and macOS use the Vulkan/Metal plane pass.
-#[cfg(unix)]
+/// Hardware decoders (VAAPI, NVDEC, V4L2, VideoToolbox) hand SDL NV12, P010, DMA-BUF, or
+/// VideoToolbox pictures, and SDL reads an HLG P010 picture as PQ. When the SDL `"gpu"` renderer
+/// is active, an HLG picture routes to the plane shader with the HLG flag; on non-GPU renderers
+/// (`"metal"`, `"opengl"`) it falls back safely instead of failing inside `PlanesPass`. SDR and
+/// PQ pictures always keep SDL's zero-copy path.
 #[test]
-fn an_hlg_hardware_picture_is_drawn_as_hlg_on_linux_never_as_pq() {
+fn an_hlg_hardware_picture_routes_through_planes_only_on_gpu_renderer() {
     let info = |kind, color_trc| FrameInfo { kind, width: 64, height: 32, ten_bit: i32::from(kind == media::FRAME_P010), color_trc, ..frame(1, 9, 1) };
-    for kind in [media::FRAME_NV12, media::FRAME_P010, media::FRAME_DMABUF] {
-        assert!(hlg_through_planes(&info(kind, TRC_HLG)), "kind {kind}");
-        assert!(!hlg_through_planes(&info(kind, TRC_PQ)), "PQ kind {kind} stays SDL's");
-        assert!(!hlg_through_planes(&info(kind, 1)), "SDR kind {kind} stays SDL's");
+    for kind in [media::FRAME_NV12, media::FRAME_P010, media::FRAME_DMABUF, media::FRAME_VIDEOTOOLBOX] {
+        assert!(hlg_through_planes(&info(kind, TRC_HLG), true), "kind {kind} on gpu renderer");
+        assert!(!hlg_through_planes(&info(kind, TRC_HLG), false), "kind {kind} must fall back safely on metal/opengl");
+        assert!(!hlg_through_planes(&info(kind, TRC_PQ), true), "PQ kind {kind} stays SDL's");
+        assert!(!hlg_through_planes(&info(kind, 1), true), "SDR kind {kind} stays SDL's");
     }
     // Planar pictures already take the plane shader; the others have no NV12 planes.
     for kind in [media::FRAME_YUV420P, media::FRAME_YUV420P10, media::FRAME_WAVELET] {
-        assert!(!hlg_through_planes(&info(kind, TRC_HLG)), "kind {kind}");
+        assert!(!hlg_through_planes(&info(kind, TRC_HLG), true), "kind {kind}");
     }
     // A P010 picture reads as 10-bit 4:2:0 with its samples moved to the low bits (64), and
     // shown as HDR it gets the HLG flag (128), never PQ.
@@ -313,7 +314,18 @@ fn an_hlg_hardware_picture_is_drawn_as_hlg_on_linux_never_as_pq() {
     assert_eq!(planar_parameters(&p010, layout, true, 2.5, 4.0)[6], 2 | 8 | 16 | 64 | 128);
     let nv12 = info(media::FRAME_NV12, TRC_HLG);
     assert_eq!(planar_parameters(&nv12, media::PlanarLayout::of_semi_planar(&nv12).unwrap(), true, 2.5, 4.0)[6], 2 | 8 | 128);
-    assert!(media::PlanarLayout::of_semi_planar(&info(media::FRAME_DMABUF, TRC_HLG)).is_none(), "a surface is mapped first");
+    assert!(media::PlanarLayout::of_semi_planar(&info(media::FRAME_DMABUF, TRC_HLG)).is_none(), "VAAPI surface is mapped first");
+    assert!(media::PlanarLayout::of_semi_planar(&info(media::FRAME_VIDEOTOOLBOX, TRC_HLG)).is_none(), "VideoToolbox surface is mapped first");
+}
+
+#[test]
+fn vendored_sdl3_metal_patch_exposes_command_queue_property_and_is_wired_for_macos() {
+    let patch = include_str!("../../../../../vendor/sdl3-src/patches/metal-command-queue.patch");
+    assert!(patch.contains("src/render/metal/SDL_render_metal.m"));
+    assert!(patch.contains("\"SDL.renderer.metal.command_queue\""));
+    assert!(patch.contains("data.mtlcmdqueue"));
+    let deps = include_str!("../../../../macos-deps.sh");
+    assert!(deps.contains("metal-command-queue.patch"), "macos-deps.sh must apply the Metal queue patch");
 }
 
 /// The report: an HDR stream showed "Cannot show d3d11 pictures". Needs a Direct3D 11 display.

@@ -706,3 +706,42 @@ fn clock_offset_rejects_overflowing_wire_timestamps_without_panicking() {
     assert_eq!(off.add(&jump, huge + 500), Some(500));
     assert_eq!(off.offset_at(huge as i64 + 500), Some(huge as i64 + 250 - 1_000));
 }
+
+#[test]
+fn set_min_interval_us_updates_frame_spacing_floor() {
+    // Start on a 60 Hz panel (16_667 us), move to a 240 Hz panel (4_167 us), and move back.
+    let mut clock = PresentClock::new(Settings {
+        min_interval_us: 16_667,
+        ..Settings::default()
+    });
+    // Warm up past 250 ms at 30 fps (33_333 us apart) so the clock is settled with no backlog.
+    let mut host_us = 0u64;
+    for _ in 0..20 {
+        host_us += 33_333;
+        clock.schedule((host_us * 9 / 100) as u32, 1_000_000 + host_us);
+    }
+
+    // Two closely spaced frames (1_000 us apart) are spaced by the 60 Hz floor (16_667 us).
+    host_us += 33_333;
+    let p1 = clock.schedule((host_us * 9 / 100) as u32, 1_000_000 + host_us);
+    host_us += 1_000;
+    let p2 = clock.schedule((host_us * 9 / 100) as u32, 1_000_000 + host_us);
+    assert_eq!(p2.present_us - p1.present_us, 16_667, "60 Hz floor spaces close frames by 16_667 us");
+
+    // Move to a 240 Hz display: the spacing floor drops immediately to 4_167 us.
+    clock.set_min_interval_us(4_167);
+    assert_eq!(clock.settings.min_interval_us, 4_167);
+    host_us += 33_333;
+    let p3 = clock.schedule((host_us * 9 / 100) as u32, 1_000_000 + host_us);
+    host_us += 1_000;
+    let p4 = clock.schedule((host_us * 9 / 100) as u32, 1_000_000 + host_us);
+    assert_eq!(p4.present_us - p3.present_us, 4_167, "240 Hz floor spaces close frames by 4_167 us");
+
+    // Move back to 60 Hz: the spacing floor rises immediately back to 16_667 us.
+    clock.set_min_interval_us(16_667);
+    host_us += 33_333;
+    let p5 = clock.schedule((host_us * 9 / 100) as u32, 1_000_000 + host_us);
+    host_us += 1_000;
+    let p6 = clock.schedule((host_us * 9 / 100) as u32, 1_000_000 + host_us);
+    assert_eq!(p6.present_us - p5.present_us, 16_667, "restored 60 Hz floor spaces by 16_667 us");
+}

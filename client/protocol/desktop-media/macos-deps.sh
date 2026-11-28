@@ -12,9 +12,11 @@ case "$arch" in
 esac
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # Nightjar's changes to FFmpeg on macOS (VideoToolbox into Metal-compatible buffers, Nightjar issue
-# 141); a changed patch selects a new prefix, as a changed script does.
+# 141) and SDL3's Metal renderer (exposing its shared MTLCommandQueue for MetalFX); any changed
+# patch selects a new prefix, as a changed script does.
 ffmpeg_patches=("$here"/ffmpeg-patches/macos/*.patch)
-stamp=$(cat "$0" "${ffmpeg_patches[@]}" | shasum -a 256 | cut -c1-12)
+sdl_patches=("$here"/../vendor/sdl3-src/patches/metal-command-queue.patch)
+stamp=$(cat "$0" "${ffmpeg_patches[@]}" "${sdl_patches[@]}" | shasum -a 256 | cut -c1-12)
 dav1d_asm=()
 ffmpeg_asm=()
 if [[ "$arch" == x86_64 ]] && ! command -v nasm >/dev/null; then
@@ -47,6 +49,10 @@ fetch() {
   tar -xf "$file" -C "$work/$name" --strip-components=1
 }
 fetch SDL https://github.com/libsdl-org/SDL/releases/download/release-3.4.20/SDL3-3.4.20.tar.gz f3bb06f55bed9557227a700af2ea62e49497ebdf58037732a731a5fb3ef8581f
+for change in "${sdl_patches[@]}"; do
+  patch -d "$work/SDL" -p1 -f <"$change" >&2
+  echo "macos-deps: SDL patch applied: ${change##*/}" >&2
+done
 fetch ffmpeg https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz 8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
 for change in "${ffmpeg_patches[@]}"; do
   patch -d "$work/ffmpeg" -p1 -f <"$change" >&2

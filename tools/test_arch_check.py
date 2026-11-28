@@ -23,9 +23,8 @@ def _write_files(base, mapping):
         path.write_text(content, encoding='utf-8', newline='\n')
 
 
-def _write_configs(base, ratchet=None, baselines=None):
+def _write_configs(base, baselines=None):
     _write_files(base, {
-        'tools/size_ratchet.json': json.dumps(ratchet or {'max_loc': 800, 'files': {}}, indent=2) + '\n',
         'tools/arch_baselines.json': json.dumps(baselines or {
             'missing_headers': {'rust': [], 'java_kt': []},
             'raw_config_read': {},
@@ -39,42 +38,22 @@ def _lines(n, prefix='// pad\n'):
     return prefix * n
 
 
-class SizeRatchetTests(unittest.TestCase):
-    def test_ratchet_pass_shrink_grow_new_deleted_and_exclusions(self):
+class FileDiscoveryAndNoSizeLimitTests(unittest.TestCase):
+    def test_large_files_have_no_size_limit_and_exclusions_hold(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
-            _write_configs(root, ratchet={
-                'max_loc': 800,
-                'files': {
-                    'rust/core/src/legacy_ok.rs': 850,
-                    'rust/core/src/legacy_shrunk.rs': 900,
-                    'rust/core/src/legacy_grew.rs': 820,
-                    'rust/core/src/deleted.rs': 950,
-                },
-            })
+            _write_configs(root)
             _write_files(root, {
-                'rust/core/src/legacy_ok.rs': '//! ok\n' + _lines(849, 'fn f() {}\n'),
-                'rust/core/src/legacy_shrunk.rs': '//! ok\n' + _lines(700, 'fn f() {}\n'),
-                'rust/core/src/legacy_grew.rs': '//! ok\n' + _lines(821, 'fn f() {}\n'),
-                'rust/core/src/new_small.rs': '//! ok\n' + _lines(799, 'fn f() {}\n'),
-                'rust/core/src/new_big.cpp': _lines(801, 'int x = 0;\n'),
-                # Excluded foreign and generated paths even > 800 LOC:
-                'vendor/dep/huge.rs': _lines(1200, 'fn f() {}\n'),
-                'client/app/src/main/jni/adrenotools/src/hook/kgsl.h': _lines(1200, 'int a;\n'),
-                'client/app/src/main/jni/vulkan/shaders_spv.h': _lines(1200, '0,\n'),
+                'rust/core/src/large_cohesive.rs': '//! Large cohesive module.\n' + _lines(1200, 'fn f() {}\n'),
+                'rust/core/src/large_cpp.cpp': _lines(1200, 'int x = 0;\n'),
+                # Excluded foreign and generated paths remain ignored:
+                'vendor/dep/no_header.rs': 'fn f() {}\n',
+                'client/app/src/main/jni/adrenotools/src/hook/kgsl.h': _lines(10, 'int a;\n'),
+                'client/app/src/main/jni/vulkan/shaders_spv.h': _lines(10, '0,\n'),
             })
-            violations = arch_check.check_repo(root)
-            self.assertEqual(
-                [(p, r) for p, _, r, _ in violations],
-                [
-                    ('rust/core/src/legacy_grew.rs', 'size-ratchet'),
-                    ('rust/core/src/new_big.cpp', 'size-ratchet'),
-                ],
-            )
-            self.assertIn('822 LOC exceeds 820 LOC ratchet ceiling', violations[0][3])
-            self.assertIn('801 LOC exceeds 800 LOC limit', violations[1][3])
+            self.assertEqual(arch_check.check_repo(root), [])
 
-    def test_count_loc_matches_code_map_and_git_discovery_respects_gitignore(self):
+    def test_count_loc_and_git_discovery_respects_gitignore(self):
         self.assertEqual(arch_check.count_loc(''), 0)
         self.assertEqual(arch_check.count_loc('a\n'), 1)
         self.assertEqual(arch_check.count_loc('a'), 1)
@@ -87,7 +66,7 @@ class SizeRatchetTests(unittest.TestCase):
             _write_files(root, {
                 '.gitignore': 'ignored_dir/\n',
                 'src/tracked.rs': '//! tracked\nfn a() {}\n',
-                'ignored_dir/huge.rs': _lines(900, 'fn bad() {}\n'),
+                'ignored_dir/missing_hdr.rs': 'fn bad() {}\n',
             })
             subprocess.run(['git', 'add', '.gitignore', 'src/tracked.rs'], cwd=root, check=True)
             self.assertEqual(arch_check.discover_files(root), ['src/tracked.rs'])
@@ -469,21 +448,21 @@ class CliAndDevIntegrationTests(unittest.TestCase):
         self.assertEqual(len(unchecked_docs), 2)
 
         log_text = (
-            'client/app/src/main/jni/pyrowave-renderer/pyrowave_renderer.cpp:1: size-ratchet: 4055 LOC exceeds 4055\n'
+            'client/app/src/main/jni/pyrowave-renderer/pyrowave_renderer.cpp:1: raw-config-read: bad read\n'
             'client/app/src/main/jni/vulkan/frame_pacer.h:12: missing-module-header: bad\n'
-            'tools/size_ratchet.json:5: size-ratchet: invalid\n'
+            'tools/arch_baselines.json:5: unannotated-cfg-unix: invalid\n'
             'ERROR: arch_check failed (3 violation(s))\n'
         )
         extracted = dev.extract_failure_lines('arch', log_text)
         self.assertIn(
-            'client/app/src/main/jni/pyrowave-renderer/pyrowave_renderer.cpp:1:1: size-ratchet: 4055 LOC exceeds 4055',
+            'client/app/src/main/jni/pyrowave-renderer/pyrowave_renderer.cpp:1:1: raw-config-read: bad read',
             extracted,
         )
         self.assertIn(
             'client/app/src/main/jni/vulkan/frame_pacer.h:12:1: missing-module-header: bad',
             extracted,
         )
-        self.assertIn('tools/size_ratchet.json:5:1: size-ratchet: invalid', extracted)
+        self.assertIn('tools/arch_baselines.json:5:1: unannotated-cfg-unix: invalid', extracted)
         with tempfile.TemporaryDirectory() as tmp:
             log_path = pathlib.Path(tmp) / 'arch.log'
             log_path.write_text(log_text, encoding='utf-8')

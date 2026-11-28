@@ -1,13 +1,13 @@
 ---
 name: visual-ux-review
 description: >-
-  Use in Phase 6 (Visual UX & Accessibility lens) and Waves 0, 4, and 5 to render
-  and visually inspect screenshots of EVERY user-facing Rubylight 7.0 and Nightjar 7.0
-  surface (Console, /play, /guest, Couch Menu, Installer, Tray, Nightjar Phone/Handheld/TV/Desktop,
-  Websites, READMEs) across themes, viewports, and German/CJK stress using Read.
+  Use whenever changing or reviewing user-facing Rubylight or Nightjar UI
+  (Console, /play, /guest, Couch Menu, Installer, Tray, Nightjar Phone/Handheld/TV/Desktop,
+  Websites, READMEs) to render and visually inspect screenshots across themes,
+  viewports, and German/CJK stress using Read.
 ---
 
-# Visual UX & Accessibility Review Protocol (7.0 Console-Quality Redesign)
+# Visual UX & Accessibility Review Protocol
 
 Never approve a visual, UI, demo, site, or README change from code inspection alone — render screenshots and inspect EVERY image directly with `Read`.
 
@@ -36,7 +36,7 @@ Never approve a visual, UI, demo, site, or README change from code inspection al
 - **Desktop (`client/protocol/desktop-ui/src/shot.rs` + `ui/tests.rs`)**: `1280×800` Desktop, `1280×720` Handheld, 4K scaling (`#144`/`#146`), Night/Day/OLED/HC, German & Japanese.
 - **Android (`client/scripts/demo/capture-stills.ps1`, `client/scripts/emulator-smoke.py`)**: Phone (`393dp-font-1`, `412dp-font-1`, `393dp-font-1.3`, `393dp-font-2`, `393dp-font-2-landscape`, Reverse Landscape `#152` + Safe Area / manual centering `#190`), Handheld, Android TV (`1920×1080`), Modern Virtual Controller Studio (`#151`), and Console Control Center open/close blur verification (`#61`).
 
-### C. Websites & READMEs (Wave 5)
+### C. Websites & READMEs
 - **Rubylight site (`site/`)**: `python site/build.py` -> inspect rendered `_site/` pages at **360, 768, 1440 px** in **Light and Dark** mode.
 - **Nightjar site (`client/site/` + `de/`)**: `node client/site/preview.mjs` + `node client/site/check-links.mjs` -> inspect all 8 HTML pages at **360, 768, 1440 px** in **Light and Dark** mode, asserting `< 6 MB` non-video assets.
 - **READMEs**: `client/scripts/demo/readme-preview.ps1` (1440 px and 393 px GitHub markdown render).

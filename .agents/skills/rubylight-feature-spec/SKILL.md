@@ -1,49 +1,34 @@
 ---
 name: rubylight-feature-spec
 description: >-
-  Use when writing, critiquing (Phase 1.5), or verifying post-refactoring paths (Phase 2)
-  for any Rubylight or Nightjar feature design spec before writing production code.
+  Use when writing or reviewing a Rubylight or Nightjar feature design spec
+  before implementing non-trivial architectural or protocol changes.
 ---
 
-# Rubylight Feature Spec Procedure (Post-Refactoring Split-Crate Layout)
+# Rubylight Feature Spec Procedure
 
-Follow `docs/encoder-focus-design.md` as the engineering depth bar and never start Phase 3 coding until Phases 1.5 and 2 pass. Always pair this skill with `origin/main`'s official narrow workflow skills in `.agents/skills/` when applicable:
-- `.agents/skills/add-control-message/SKILL.md` (new control messages + `tools/scaffold.py control-message`)
-- `.agents/skills/add-native-endpoint/SKILL.md` (additive v1 Native API routes + `tools/scaffold.py native-endpoint`)
-- `.agents/skills/add-setting/SKILL.md` (declarative `settings.toml` catalogs + `tools/i18n.py`)
-- `.agents/skills/check-nvenc/SKILL.md` (NVIDIA NVENC / CUDA / NGX header & fake-driver audits)
-- `.agents/skills/isolated-e2e/SKILL.md` (isolated host streaming / soak / HW runners)
-- `.agents/skills/release-prep/SKILL.md` (version bump, fragments, signing, and release review)
+Follow `docs/encoder-focus-design.md` as the engineering depth bar and pair with narrow workflow skills in `.agents/skills/` when applicable (`add-control-message`, `add-native-endpoint`, `add-setting`, `check-nvenc`, `isolated-e2e`, `release-prep`).
 
 ## Required Spec Sections
 
-Every spec under `docs/designs/<NN>-<slug>.md` must contain:
+Every spec under `docs/designs/<NN>-<slug>.md` should cover:
 
 1. **Summary & User Experience**: Plain-language user value, zero internal jargon, zero "Experimental" labels, zero mod names (GPL-3.0 §7(e)).
 2. **Protocol / Native API / Capability Contract**:
    - Preserve `PROTOCOL_VERSION` and stock Moonlight compatibility (clients asking for nothing new see nothing new — `tests/host/tests/reconnect_tests/extension_tests.rs`).
-   - Gate all client extras via `HostCapabilities` (`client/protocol/policy/src/http/capabilities.rs` + Java `HostCapabilities.java`) — never host brand or version string.
-   - Reserve every control ID, input magic, serverinfo field, launch param, and native feature string in `docs/designs/00-protocol-reservations.md` first (`client/protocol/core/src/ids.rs`, `client/protocol/native-api/src/`).
-3. **Architecture & <=800-LOC Module Plan (Post-Refactoring Split Crates)**:
+   - Gate all client extras via `HostCapabilities` (`client/protocol/policy/src/http/capabilities.rs` + Java `HostCapabilities.java`), never host brand or version string.
+   - Reserve control IDs, input magics, serverinfo fields, launch params, and native feature strings in `docs/designs/00-protocol-reservations.md` first (`client/protocol/core/src/ids.rs`, `client/protocol/native-api/src/`).
+3. **Architecture & Layering**:
    - Keep pure decisions in `rust/core/{crypto,config,media-policy,input-policy,session}/` (`butterpollo-*`) and `client/protocol/policy/` (`nightjar-policy`); Windows/GPU calls in `rust/windows/{abi,graphics,display,io}/` (`butterpollo-win-*`); host wiring in `rust/host/{stream,webrtc,web}/` (`butterpollo-{stream,webrtc,web}`); desktop split across `client/protocol/desktop-{config,ui,media}/` + thin `client/protocol/desktop/`.
-   - Respect `tools/arch_check.py`: every new file <= 800 LOC with a leading `//!` (Rust) or `/**` (Java/Kotlin) module doc header.
-   - `tools/size_ratchet.json` now contains ONLY **18** grandfathered files (the 14 `client/protocol/desktop-config/src/strings/*.rs` locale tables at 1,750 LOC + 4 narrow host/service/driver files). Route all new 7.0 Desktop strings exclusively to `client/protocol/desktop-config/src/strings_70/<code>.rs` and never grow any ratcheted file.
-   - Never add raw `Config` reads in `rust/host/stream/src/stream(.rs|/**)` outside `stream/config.rs`.
-   - Use loopback (`127.0.0.1`/`[::1]`) and IP-helper tables in unit tests and port probes (never wildcard `0.0.0.0`/`[::]` listens that trigger Windows Defender Firewall prompts).
+   - Respect `tools/arch_check.py`: start every new Rust module with `//!` and every new Java/Kotlin file with `/**`; keep modules cohesive without artificial line-count splitting; never add raw `Config` reads in `rust/host/stream/src/stream(.rs|/**)` outside `stream/config.rs`; annotate `cfg(unix)` OS intent in desktop crates.
+   - Use loopback (`127.0.0.1`/`[::1]`) and IP-helper tables in unit tests and port probes (no wildcard `0.0.0.0`/`[::]` listens).
    - Keep AMD AMF, NVIDIA NVENC (verified against `rust/windows/abi/include/nvEncodeAPI.h` & samples, never claimed as run on hardware), Windows 10, physical displays, WGC, Desktop Duplication, and D3D11 working.
 4. **State Machine, Reconnect Matrix & Crash-Restore Journal**:
-   - Define every state transition, reconnect/resume/roam/second-device case, and lock order.
-   - Any mutation to host PC state (displays, DPI, audio routes, frame limiter, process suspend state, files) MUST be journaled before applying and restored on every exit, crash included (`RecoveryJournalV2`).
-5. **Settings & 10/10 Craft Plan**:
+   - Define state transitions, reconnect/resume/roam/second-device cases, and lock order.
+   - Journal any mutation to host PC state (displays, DPI, audio routes, frame limiter, process suspend state, files) before applying and restore on every exit, crash included (`RecoveryJournalV2`).
+5. **Settings & Craft**:
    - Declare host settings in `rust/core/config/settings.toml` (`python tools/generated_docs.py`) and client settings in `client/protocol/policy/settings.toml` (`python client/scripts/generate-settings.py`).
-   - Fewer-settings rule: prefer safe measured defaults; opt-in/default-off for anything unmeasured; plain-English errors; dynamic input glyphs; zero stream-time blur; zero latency added to the default path.
-6. **Disjoint Implementer Slices**:
-   - Partition Phase 3 edits into strictly non-overlapping file lists so parallel workers never collide.
-7. **Verification & Measurement Plan**:
-   - Narrowest core/policy unit tests, loopback/interop tests (`tests/host/`, `tests/interop/`), visual checks, and idle-gated serialized HW criteria.
-
-## Phase 1.5 (Spec Critic) & Phase 2 (Live Path Verification)
-
-1. Run a fresh read-only critic over the spec against `AGENTS.md`, `client/AGENTS.md`, `tools/arch_check.py`, and `tools/size_ratchet.json`.
-2. Before Phase 3 coding, verify every target path against live `docs/code-map.md`, `client/docs/code-map.md`, and `tools/size_ratchet.json`, and check whether any sub-task already landed on `main` (skip already-shipped fixes cleanly without regressing them).
-3. Update `docs/code-map.md` and `client/docs/code-map.md` in the same change whenever modules are added or moved.
+   - Prefer safe measured defaults over extra settings; plain-English errors; dynamic input glyphs; zero stream-time blur; zero latency added to the default path.
+6. **Disjoint Slices & Verification Plan**:
+   - Partition parallel work into non-overlapping file lists, and name the narrowest unit, interop, visual, and hardware checks that prove the change.
+   - Before coding, verify target paths against live `docs/code-map.md` and `client/docs/code-map.md`, skip already-landed items, and update the code maps when modules are added or moved.

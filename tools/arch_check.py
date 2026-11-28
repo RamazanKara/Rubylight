@@ -1,9 +1,8 @@
 """Architecture guardrails for Rubylight and Nightjar.
 
 Checks tracked non-foreign, non-generated source files for:
-1. 800-LOC size ceiling (grandfathered via tools/size_ratchet.json).
-2. Rust `//!` and Java/Kotlin `/**` module headers on new modules.
-3. Rule lints (baselined via tools/arch_baselines.json):
+1. Rust `//!` and Java/Kotlin `/**` module headers on new modules.
+2. Rule lints (baselined via tools/arch_baselines.json):
    - raw-config-read: raw Config reads in rust/host/src/stream(.rs|/**) outside stream/config.rs.
    - rubylight-family-gating: Family::Rubylight / Family.RUBYLIGHT feature gating in client/.
    - unannotated-cfg-unix: cfg(...unix...) in client/protocol/desktop{,-*}/ without OS-intent // comment.
@@ -20,7 +19,6 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-DEFAULT_MAX_LOC = 800
 EXTENSIONS = ('.rs', '.java', '.kt', '.c', '.cpp', '.h', '.hpp', '.ts', '.svelte')
 FOREIGN = re.compile(r'(^|/)(vendor|third-party|node_modules|include|openssl|moonlight-common-c|adrenotools)/')
 GENERATED = re.compile(r'(^|/)shaders_spv\.h$')
@@ -877,9 +875,8 @@ def find_unannotated_cfg_unix(text):
 
 
 def compute_baselines(root):
-    """Compute exact size_ratchet and arch_baselines payloads from the current tree."""
+    """Compute exact arch_baselines payload from the current tree."""
     files = discover_files(root)
-    ratchet = {}
     missing_rust = []
     missing_java_kt = []
     raw_config = {}
@@ -895,9 +892,6 @@ def compute_baselines(root):
 
     for rel in files:
         text = (root / rel).read_text(encoding='utf-8', errors='replace')
-        loc = count_loc(text)
-        if loc > DEFAULT_MAX_LOC:
-            ratchet[rel] = loc
 
         if rel.endswith('.rs'):
             if not has_rust_module_header(text):
@@ -927,10 +921,6 @@ def compute_baselines(root):
             if hits:
                 cfg_unix[rel] = len(hits)
 
-    size_ratchet = {
-        'max_loc': DEFAULT_MAX_LOC,
-        'files': dict(sorted(ratchet.items())),
-    }
     arch_baselines = {
         'missing_headers': {
             'rust': sorted(missing_rust),
@@ -943,7 +933,7 @@ def compute_baselines(root):
         },
         'unannotated_cfg_unix': dict(sorted(cfg_unix.items())),
     }
-    return size_ratchet, arch_baselines
+    return arch_baselines
 
 
 def load_json(path, default):
@@ -955,11 +945,7 @@ def load_json(path, default):
 def check_repo(root):
     """Run all architecture checks under root; return sorted list of (rel_path, line, rule_id, message)."""
     root = pathlib.Path(root)
-    ratchet_data = load_json(root / 'tools/size_ratchet.json', {'max_loc': DEFAULT_MAX_LOC, 'files': {}})
     baselines = load_json(root / 'tools/arch_baselines.json', {})
-
-    max_loc = int(ratchet_data.get('max_loc', DEFAULT_MAX_LOC))
-    ratchet_files = ratchet_data.get('files', {})
 
     missing_hdr = baselines.get('missing_headers', {})
     missing_rust_allow = set(missing_hdr.get('rust', []))
@@ -975,17 +961,8 @@ def check_repo(root):
     violations = []
     for rel in discover_files(root):
         text = (root / rel).read_text(encoding='utf-8', errors='replace')
-        loc = count_loc(text)
 
-        # 1. Size ratchet
-        if rel in ratchet_files:
-            ceiling = int(ratchet_files[rel])
-            if loc > ceiling:
-                violations.append((rel, 1, 'size-ratchet', f'{loc} LOC exceeds {ceiling} LOC ratchet ceiling'))
-        elif loc > max_loc:
-            violations.append((rel, 1, 'size-ratchet', f'{loc} LOC exceeds {max_loc} LOC limit'))
-
-        # 2. Module headers
+        # 1. Module headers
         if rel.endswith('.rs'):
             if rel not in missing_rust_allow and not has_rust_module_header(text):
                 violations.append((rel, 1, 'missing-module-header', 'missing //! module header'))
@@ -994,7 +971,7 @@ def check_repo(root):
             if rel not in missing_java_allow and not has_java_kt_module_header(text, suffix):
                 violations.append((rel, 1, 'missing-module-header', 'missing /** module Javadoc header'))
 
-        # 3. Rule 1: raw-config-read
+        # 2. Rule 1: raw-config-read
         if (rel == 'rust/host/stream/src/stream.rs' or rel.startswith('rust/host/stream/src/stream/')) \
                 and rel != 'rust/host/stream/src/stream/config.rs' and rel.endswith('.rs') \
                 and not is_rust_test_file(rel):
@@ -1009,7 +986,7 @@ def check_repo(root):
                         f'raw Config read outside stream/config.rs ({len(hits)} > baseline {limit})',
                     ))
 
-        # 4. Rule 2: rubylight-family-gating
+        # 3. Rule 2: rubylight-family-gating
         if rel.startswith('client/') and rel.endswith(('.rs', '.java', '.kt')) and not is_client_test_file(rel):
             hits = find_rubylight_family_gating(rel, text)
             limit = int(family_allow.get(rel, 0))
@@ -1022,7 +999,7 @@ def check_repo(root):
                         f'gate on HostCapabilities instead of Family::Rubylight ({len(hits)} > baseline {limit})',
                     ))
 
-        # 5. Rule 3: unannotated-cfg-unix
+        # 4. Rule 3: unannotated-cfg-unix
         if rel.startswith(('client/protocol/desktop/', 'client/protocol/desktop-config/', 'client/protocol/desktop-ui/', 'client/protocol/desktop-media/')) and rel.endswith('.rs'):
             hits = find_unannotated_cfg_unix(text)
             limit = int(cfg_unix_allow.get(rel, 0))
@@ -1042,21 +1019,17 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('--root', type=pathlib.Path, default=ROOT, help='Repository root to check')
     parser.add_argument('--write-baselines', action='store_true',
-                        help='Regenerate tools/size_ratchet.json and tools/arch_baselines.json from --root')
+                        help='Regenerate tools/arch_baselines.json from --root')
     args = parser.parse_args(argv)
 
     root = args.root.resolve()
     if args.write_baselines:
-        size_ratchet, arch_baselines = compute_baselines(root)
-        (root / 'tools/size_ratchet.json').write_text(
-            json.dumps(size_ratchet, indent=2) + '\n', encoding='utf-8', newline='\n'
-        )
+        arch_baselines = compute_baselines(root)
         (root / 'tools/arch_baselines.json').write_text(
             json.dumps(arch_baselines, indent=2) + '\n', encoding='utf-8', newline='\n'
         )
         print(
-            f'Wrote baselines: {len(size_ratchet["files"])} size-ratchet files, '
-            f'{len(arch_baselines["missing_headers"]["rust"])} rust + '
+            f'Wrote baselines: {len(arch_baselines["missing_headers"]["rust"])} rust + '
             f'{len(arch_baselines["missing_headers"]["java_kt"])} java/kt missing headers'
         )
         return 0

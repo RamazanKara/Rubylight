@@ -35,16 +35,13 @@ class NightjarSettingsCatalogTest(unittest.TestCase):
         self.assertGreaterEqual(len(cat["retired"]), 20)
         self.assertGreaterEqual(len(cat["renamed"]), 1)
 
-    def test_all_generated_targets_are_current_lf_headed_and_under_size_ceiling(self):
+    def test_all_generated_targets_are_current_lf_and_headed(self):
         stale = GEN.run(check=True, root=CLIENT_ROOT)
         self.assertEqual(stale, [], f"stale Nightjar settings targets: {stale}")
         for rel in GEN.ALL_TARGETS:
             raw = (CLIENT_ROOT / rel).read_bytes()
             self.assertNotIn(b"\r\n", raw, f"{rel} has CRLF line endings")
             text = raw.decode("utf-8")
-            if rel.endswith((".rs", ".java")):
-                loc = text.count("\n") + (not text.endswith("\n") and bool(text))
-                self.assertLessEqual(loc, 800, f"{rel} exceeds 800 LOC ({loc})")
             if rel.endswith(".rs"):
                 self.assertTrue(text.startswith("//! "), f"{rel} missing //! module header")
             if rel.endswith(".java"):

@@ -1,6 +1,6 @@
 """Dry-run-capable boilerplate generators matching Rubylight and Nightjar repo conventions.
 
-Generates LF-only files with `//!` module headers and <=800 LOC compliance (`tools/arch_check.py`):
+Generates LF-only files with `//!` module headers (`tools/arch_check.py`):
   - control-message: `no_std` wire module in `client/protocol/core/src/<name>.rs` (checks `ids.rs`)
   - native-endpoint: additive v1 types, LF fixture, Axum handler, and nvhttp_parity test
   - setting:         host settings.toml [[setting]] entry, checklist, i18n spec and note

@@ -31,7 +31,7 @@ HOST_REL = pathlib.PurePosixPath('rust/assets/locale')
 HOST_LOCALE_RS = pathlib.PurePosixPath('rust/host/stream/src/locale.rs')
 DESKTOP_REL = pathlib.PurePosixPath('client/protocol/desktop-config/src/strings')
 DESKTOP_70_REL = pathlib.PurePosixPath('client/protocol/desktop-config/src/strings_70')
-# A language's tables: the frozen one (size-ratcheted, never grows) first, then 7.0's.
+# A language's tables: the base table first, then the 7.0 additions table.
 DESKTOP_TABLE_DIRS = (DESKTOP_REL, DESKTOP_70_REL)
 DESKTOP_TESTS_RS = DESKTOP_REL / 'tests.rs'
 ANDROID_REL = pathlib.PurePosixPath('client/app/src/main/res')

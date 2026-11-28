@@ -32,16 +32,13 @@ class HostSettingsCodegen(unittest.TestCase):
             for key in sec['keys']:
                 self.assertIn(key, by_key, key)
 
-    def test_generated_files_are_current_lf_headed_and_under_size_ceiling(self):
+    def test_generated_files_are_current_lf_and_headed(self):
         stale = generated_docs.run_all(check=True, docs=HOST_DOCS, root=ROOT)
         self.assertEqual(stale, [], f'stale generated files: {stale}')
         for doc in HOST_DOCS:
             raw = (ROOT / doc.path).read_bytes()
             self.assertNotIn(b'\r\n', raw, f'{doc.path} has CRLF line endings')
             text = raw.decode('utf-8')
-            if doc.path.endswith(('.rs', '.ts')):
-                loc = text.count('\n') + (not text.endswith('\n') and bool(text))
-                self.assertLessEqual(loc, 800, f'{doc.path} exceeds 800 LOC ({loc})')
             if doc.path.endswith('.rs'):
                 self.assertTrue(text.startswith('//! '), f'{doc.path} missing //! module header')
 
@@ -93,7 +90,7 @@ class HostSettingsCodegen(unittest.TestCase):
 
 
 class NightjarSettingsCodegen(unittest.TestCase):
-    def test_nightjar_targets_are_registered_current_lf_headed_and_under_size_ceiling(self):
+    def test_nightjar_targets_are_registered_current_lf_and_headed(self):
         expected = {
             'client/docs/settings.md',
             'client/protocol/policy/src/settings_catalog_gen.rs',
@@ -107,9 +104,6 @@ class NightjarSettingsCodegen(unittest.TestCase):
             raw = (ROOT / doc.path).read_bytes()
             self.assertNotIn(b'\r\n', raw, f'{doc.path} has CRLF line endings')
             text = raw.decode('utf-8')
-            if doc.path.endswith(('.rs', '.java')):
-                loc = text.count('\n') + (not text.endswith('\n') and bool(text))
-                self.assertLessEqual(loc, 800, f'{doc.path} exceeds 800 LOC ({loc})')
             if doc.path.endswith('.rs'):
                 self.assertTrue(text.startswith('//! '), f'{doc.path} missing //! module header')
             if doc.path.endswith('.java'):

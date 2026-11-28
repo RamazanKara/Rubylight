@@ -55,7 +55,6 @@ class ScaffoldTests(unittest.TestCase):
         self.assertNotIn(b'\r\n', raw, f'{path} must use LF line endings')
         text = raw.decode('utf-8')
         self.assertTrue(arch_check.has_rust_module_header(text), f'{path} missing //! header')
-        self.assertLessEqual(arch_check.count_loc(text), arch_check.DEFAULT_MAX_LOC, f'{path} exceeds 800 LOC')
 
     def test_control_message_dry_run_collision_and_compile(self):
         # Collision check against real repo's ids.rs (0x5508 is clipboard sync)

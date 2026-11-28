@@ -504,6 +504,55 @@ fn a_switch_and_a_list_choice_have_the_designed_size() {
     assert_eq!(choice.height(), 40.0);
 }
 
+/// Opening a list with a controller (A, which egui gets as Enter) lands focus on its first option,
+/// not on the button with an empty slot above the options, so no press down is needed first.
+#[test]
+fn a_controller_opening_a_list_focuses_its_first_option() {
+    let ctx = egui::Context::default();
+    let options = ["First", "Second", "Third"];
+    let mut selected = 0usize;
+    // Draws the list in a persistent context so its open state and focus carry between frames;
+    // returns the list button's id and its first option's id (once the option is drawn).
+    let mut frame = |events: Vec<egui::Event>| -> (egui::Id, Option<egui::Id>) {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(600.0, 800.0))),
+            events,
+            focused: true,
+            ..Default::default()
+        };
+        let (mut button, mut first) = (egui::Id::NULL, None);
+        let mut output = ctx.run_ui(input, |ui| {
+            let shown = Combo::from_id_salt("choice").selected_text(options[selected]).show_ui(ui, |ui| {
+                for (i, option) in options.iter().enumerate() {
+                    let response = ui.selectable_value(&mut selected, i, *option);
+                    if i == 0 {
+                        first = Some(response.id);
+                    }
+                }
+            });
+            button = shown.response.id;
+        });
+        output.textures_delta.clear();
+        (button, first)
+    };
+    let tap = |key: Key| {
+        let event = |pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE };
+        vec![event(true), event(false)]
+    };
+    // The list's button is the only control, so Tab lands on it.
+    frame(vec![]);
+    let (button, _) = frame(tap(Key::Tab));
+    frame(vec![]);
+    assert_eq!(ctx.memory(|m| m.focused()), Some(button), "the list's button has focus");
+    // A (Enter) opens the list and its first option is drawn.
+    let (_, first) = frame(tap(Key::Enter));
+    assert!(egui::ComboBox::is_open(&ctx, button), "the list opened");
+    assert!(first.is_some(), "the first option was drawn");
+    // The next frame finds the focus on the first option, not left on the button.
+    frame(vec![]);
+    assert_eq!(ctx.memory(|m| m.focused()), first, "the first option has focus, not an empty slot above it");
+}
+
 #[test]
 fn home_wifi_ssid_controls_reflect_platform_support_and_keep_remove() {
     let mut f = settings_with(Settings::default());

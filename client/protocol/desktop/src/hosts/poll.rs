@@ -188,6 +188,7 @@ pub enum Event {
     HubSync {
         id: u64,
         epoch: u64,
+        seq: u64,
         engine: Box<nightjar_policy::hub_sync::SyncEngine>,
         cover_etags: std::collections::BTreeMap<u32, String>,
         updated_covers: Vec<u32>,

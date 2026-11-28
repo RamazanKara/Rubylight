@@ -346,39 +346,56 @@ impl Hosts {
                     self.load_apps(id);
                     out.push(Event::Action { id, result });
                 }
-                Event::HubSync { id, epoch, engine, cover_etags, updated_covers } => {
-                    if let Some(host) = self.get_mut(id).filter(|h| h.native_epoch == epoch && h.record.server_certificate.is_some()) {
+                Event::HubSync { id, epoch, seq, engine, cover_etags, updated_covers } => {
+                    let mut resync = false;
+                    let mut conflict_out = None;
+                    if let Some(host) = self.get_mut(id) {
                         host.hub_inflight = false;
-                        let conflict_appeared = host.hub_engine.conflict.is_none() && engine.conflict.is_some();
-                        host.hub_engine = *engine;
-                        host.hub_cover_etags = cover_etags;
-                        host.refresh_native_hub_view();
-                        if !updated_covers.is_empty() {
-                            let art = Arc::make_mut(&mut host.art);
-                            let versions = Arc::make_mut(&mut host.art_versions);
-                            let ambient = Arc::make_mut(&mut host.ambient);
-                            let glow = Arc::make_mut(&mut host.ambient_glow);
-                            let sized = Arc::make_mut(&mut host.art_sized);
-                            let retry = Arc::make_mut(&mut host.art_retry);
-                            for app in &updated_covers {
-                                let app = *app as i32;
-                                art.remove(&app);
-                                versions.remove(&app);
-                                ambient.remove(&app);
-                                glow.remove(&app);
-                                sized.remove(&app);
-                                retry.remove(&app);
+                        resync = std::mem::take(&mut host.hub_resync_pending);
+                        if host.native_epoch == epoch
+                            && host.hub_seq == seq
+                            && host.record.server_certificate.is_some()
+                        {
+                            let conflict_appeared = host.hub_engine.conflict.is_none() && engine.conflict.is_some();
+                            host.hub_engine = *engine;
+                            host.hub_cover_etags = cover_etags;
+                            host.refresh_native_hub_view();
+                            if !updated_covers.is_empty() {
+                                let art = Arc::make_mut(&mut host.art);
+                                let versions = Arc::make_mut(&mut host.art_versions);
+                                let ambient = Arc::make_mut(&mut host.ambient);
+                                let glow = Arc::make_mut(&mut host.ambient_glow);
+                                let sized = Arc::make_mut(&mut host.art_sized);
+                                let retry = Arc::make_mut(&mut host.art_retry);
+                                for app in &updated_covers {
+                                    let app = *app as i32;
+                                    art.remove(&app);
+                                    versions.remove(&app);
+                                    ambient.remove(&app);
+                                    glow.remove(&app);
+                                    sized.remove(&app);
+                                    retry.remove(&app);
+                                }
                             }
+                            if conflict_appeared {
+                                conflict_out = Some(Event::HubSync {
+                                    id,
+                                    epoch,
+                                    seq,
+                                    engine: Box::new(host.hub_engine.clone()),
+                                    cover_etags: Default::default(),
+                                    updated_covers,
+                                });
+                            }
+                        } else if host.native_epoch == epoch && host.record.server_certificate.is_some() {
+                            resync = true;
                         }
-                        if conflict_appeared {
-                            out.push(Event::HubSync {
-                                id,
-                                epoch,
-                                engine: Box::new(host.hub_engine.clone()),
-                                cover_etags: Default::default(),
-                                updated_covers,
-                            });
-                        }
+                    }
+                    if let Some(ev) = conflict_out {
+                        out.push(ev);
+                    }
+                    if resync {
+                        self.sync_hub(id);
                     }
                 }
                 Event::Unpaired { id, result } => {

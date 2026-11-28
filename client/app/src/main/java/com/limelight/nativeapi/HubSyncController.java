@@ -17,7 +17,9 @@ import com.limelight.utils.CacheHelper;
 import org.json.JSONException;
 
 import java.io.File;
+import java.security.cert.CertificateEncodingException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -108,9 +110,11 @@ public final class HubSyncController {
     private static final ConcurrentHashMap<String, HostState> STATES = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Object> HOST_LOCKS = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, AtomicLong> FORGET_EPOCHS = new ConcurrentHashMap<>();
-    private static final Set<String> SYNC_INFLIGHT = ConcurrentHashMap.newKeySet();
+    private static final ConcurrentHashMap<String, Object> SYNC_INFLIGHT = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Long> LAST_SYNC_MS = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, PendingTrigger> AWAITING_CAPS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Integer> LAST_CERT_HASH = new ConcurrentHashMap<>();
+    private static final Set<String> CLEANED_UNPAIRED = ConcurrentHashMap.newKeySet();
     private static final ExecutorService EXECUTOR =
             Executors.newSingleThreadExecutor(r -> new Thread(r, "HubSync"));
 
@@ -216,6 +220,35 @@ public final class HubSyncController {
         EXECUTOR.execute(() -> resolveConflict(appCtx, hostUuid, choice, backend));
     }
 
+    /** Processes a host-manager event snapshot: cleans up unpair/cert changes and syncs online PCs. */
+    public static void onPumpSnapshot(Context context, ComputerDetails details, ClientFactory clients) {
+        if (context == null || details == null || details.uuid == null || details.caps == null) return;
+        final String uuid = details.uuid;
+        int certHash = 0;
+        if (details.serverCert != null) {
+            try {
+                certHash = Arrays.hashCode(details.serverCert.getEncoded());
+            } catch (CertificateEncodingException ignored) {}
+        }
+        Integer prevCert = LAST_CERT_HASH.get(uuid);
+        boolean certReplaced = prevCert != null && prevCert != 0 && certHash != 0 && certHash != prevCert;
+        boolean unpaired = details.pairState == PairingManager.PairState.NOT_PAIRED
+                || (details.state == ComputerDetails.State.ONLINE && details.serverCert == null);
+        if (unpaired || certReplaced) {
+            if (certHash == 0) LAST_CERT_HASH.remove(uuid);
+            else LAST_CERT_HASH.put(uuid, certHash);
+            if (CLEANED_UNPAIRED.add(uuid) || certReplaced) {
+                forget(context, uuid);
+            }
+            return;
+        }
+        if (certHash != 0) LAST_CERT_HASH.put(uuid, certHash);
+        if (details.pairState == PairingManager.PairState.PAIRED) CLEANED_UNPAIRED.remove(uuid);
+        if (details.state == ComputerDetails.State.ONLINE) {
+            onHostOnline(context, details, clients);
+        }
+    }
+
     /** Called by {@link com.limelight.computers.ComputerManagerService} whenever a PC polls online. */
     public static void onHostOnline(Context context, ComputerDetails details, ClientFactory clients) {
         if (context == null || details == null || details.uuid == null || details.caps == null || clients == null) {
@@ -224,11 +257,19 @@ public final class HubSyncController {
         if (details.pairState == PairingManager.PairState.NOT_PAIRED) return;
         final Context appCtx = context.getApplicationContext();
         final String uuid = details.uuid;
+        CLEANED_UNPAIRED.remove(uuid);
         if (!hasHubSync(details)) {
             if (KnownCapabilities.of(uuid) == null && details.caps.has(HostCapabilities.Feature.NATIVE_API)) {
                 AWAITING_CAPS.put(uuid, new PendingTrigger(appCtx, new ComputerDetails(details), clients));
+                if (KnownCapabilities.of(uuid) != null) {
+                    AWAITING_CAPS.remove(uuid);
+                    if (!hasHubSync(details)) return;
+                } else {
+                    return;
+                }
+            } else {
+                return;
             }
-            return;
         }
         AWAITING_CAPS.remove(uuid);
         HostState cached = STATES.get(uuid);
@@ -236,7 +277,8 @@ public final class HubSyncController {
         long now = System.currentTimeMillis();
         Long last = LAST_SYNC_MS.get(uuid);
         if (!pendingWork && last != null && (now - last) < SYNC_COOLDOWN_MS) return;
-        if (!SYNC_INFLIGHT.add(uuid)) return;
+        final Object token = new Object();
+        if (SYNC_INFLIGHT.putIfAbsent(uuid, token) != null) return;
         LAST_SYNC_MS.put(uuid, now);
         final ComputerDetails snapshot = new ComputerDetails(details);
         EXECUTOR.execute(() -> {
@@ -246,7 +288,7 @@ public final class HubSyncController {
                     syncOnce(appCtx, uuid, nativeBackend(client), loadKnownApps(appCtx, snapshot));
                 }
             } finally {
-                SYNC_INFLIGHT.remove(uuid);
+                SYNC_INFLIGHT.remove(uuid, token);
             }
         });
     }
@@ -258,15 +300,17 @@ public final class HubSyncController {
         }
     }
 
-    /** Removes persisted Hub Sync state when a PC is deleted/forgotten. */
+    /** Removes persisted Hub Sync state and cached capabilities when a PC is deleted or unpaired. */
     public static void forget(Context context, String hostUuid) {
         if (hostUuid == null) return;
+        KnownCapabilities.forget(hostUuid);
         synchronized (lockFor(hostUuid)) {
             epochCounter(hostUuid).incrementAndGet();
             STATES.remove(hostUuid);
             AWAITING_CAPS.remove(hostUuid);
             SYNC_INFLIGHT.remove(hostUuid);
             LAST_SYNC_MS.remove(hostUuid);
+            LAST_CERT_HASH.remove(hostUuid);
             if (context != null) HubSyncStore.deleteHostDir(context.getFilesDir(), hostUuid);
         }
     }
@@ -453,12 +497,19 @@ public final class HubSyncController {
         String ifMatch = Long.toString(op.optLong("base_revision", 0L));
         try {
             if ("delete".equals(kind)) {
-                Json.Obj reply = backend.deleteProfile(id, ifMatch);
-                if ("ok".equals(reply.optString("status"))) {
-                    return new ReplayStep(StepKind.OK, null, null, null, id, null, null);
+                try {
+                    Json.Obj reply = backend.deleteProfile(id, ifMatch);
+                    if ("ok".equals(reply.optString("status"))) {
+                        return new ReplayStep(StepKind.OK, null, null, null, id, null, null);
+                    }
+                    return new ReplayStep(StepKind.OFFLINE, null, null, null, null, null,
+                            "Unexpected delete response: " + reply.optString("status"));
+                } catch (NativeApiException e) {
+                    if (isNotFoundError(e)) {
+                        return new ReplayStep(StepKind.OK, null, null, null, id, null, null);
+                    }
+                    return classifyReplayException(e);
                 }
-                return new ReplayStep(StepKind.OFFLINE, null, null, null, null, null,
-                        "Unexpected delete response: " + reply.optString("status"));
             }
             Json.Obj write = op.getObject("write");
             Json.Obj reply = backend.putProfile(id, ifMatch, write);
@@ -564,12 +615,20 @@ public final class HubSyncController {
                 File tmp = new File(dest.getParentFile(), dest.getName() + ".hubtmp");
                 Json.Obj reply = backend.fetchCoverToFile(appId, localEtags.get(appId), tmp);
                 if ("ok".equals(reply.optString("status"))) {
-                    if (tmp.isFile() && !tmp.renameTo(dest)) {
-                        dest.delete();
-                        if (!tmp.renameTo(dest)) tmp.delete();
+                    boolean renamed = false;
+                    if (tmp.isFile()) {
+                        if (tmp.renameTo(dest)) {
+                            renamed = true;
+                        } else {
+                            dest.delete();
+                            renamed = tmp.renameTo(dest);
+                            if (!renamed) tmp.delete();
+                        }
                     }
-                    String cleanEtag = HubSyncStore.normalizeEtag(reply.optString("etag", null));
-                    if (!cleanEtag.isEmpty()) downloaded.put(appId, cleanEtag);
+                    if (renamed) {
+                        String cleanEtag = HubSyncStore.normalizeEtag(reply.optString("etag", null));
+                        if (!cleanEtag.isEmpty()) downloaded.put(appId, cleanEtag);
+                    }
                 } else if (tmp.exists()) {
                     tmp.delete();
                 }
@@ -586,6 +645,10 @@ public final class HubSyncController {
                 || "permission_required".equals(code)
                 || "not_paired".equals(code)
                 || "host_control_required".equals(code);
+    }
+
+    private static boolean isNotFoundError(NativeApiException e) {
+        return e.getHttpStatus() == 404 || "not_found".equals(e.getCode());
     }
 
     private static boolean isPermanentWriteError(NativeApiException e) {

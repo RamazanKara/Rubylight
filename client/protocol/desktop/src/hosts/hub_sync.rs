@@ -3,6 +3,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use nightjar_core::http::native_api::error::ErrorCode;
@@ -87,11 +89,19 @@ impl Hosts {
             .info
             .as_ref()
             .is_some_and(|info| info.capabilities.has(Feature::HubSync));
-        if !supported || host.record.server_certificate.is_none() || host.hub_inflight {
+        if !supported || host.record.server_certificate.is_none() {
+            return;
+        }
+        if host.hub_inflight {
+            host.hub_resync_pending = true;
             return;
         }
         host.hub_inflight = true;
+        host.hub_resync_pending = false;
         let epoch = host.native_epoch;
+        let seq = host.hub_seq;
+        let persist_epoch = Arc::clone(&host.hub_persist_epoch);
+        let expected_epoch = persist_epoch.load(Ordering::Acquire);
         let record = host.connect_record();
         let addr = host.connect_address().to_owned();
         let unique_id = host.record.unique_id.clone();
@@ -105,6 +115,7 @@ impl Hosts {
                 return Some(Event::HubSync {
                     id,
                     epoch,
+                    seq,
                     engine: Box::new(engine),
                     cover_etags: etags,
                     updated_covers: Vec::new(),
@@ -118,10 +129,13 @@ impl Hosts {
                 &unique_id,
                 &cover_versions,
                 now_unix_ms(),
+                &persist_epoch,
+                expected_epoch,
             );
             Some(Event::HubSync {
                 id,
                 epoch,
+                seq,
                 engine: Box::new(engine),
                 cover_etags: etags,
                 updated_covers,
@@ -140,6 +154,8 @@ impl Hosts {
         let Some(host) = self.get_mut(id) else {
             return;
         };
+        host.hub_seq = host.hub_seq.wrapping_add(1);
+        host.hub_persist_epoch.fetch_add(1, Ordering::AcqRel);
         host.hub_engine.queue_put(profile_id, write, now);
         host.hub_engine.status = SyncStatus::ReconcilingOutbox;
         if let Some(ref dir) = store_dir
@@ -159,6 +175,8 @@ impl Hosts {
         let Some(host) = self.get_mut(id) else {
             return;
         };
+        host.hub_seq = host.hub_seq.wrapping_add(1);
+        host.hub_persist_epoch.fetch_add(1, Ordering::AcqRel);
         host.hub_engine.queue_delete(profile_id, now);
         host.hub_engine.status = SyncStatus::ReconcilingOutbox;
         if let Some(ref dir) = store_dir
@@ -177,6 +195,8 @@ impl Hosts {
         let Some(host) = self.get_mut(id) else {
             return;
         };
+        host.hub_seq = host.hub_seq.wrapping_add(1);
+        host.hub_persist_epoch.fetch_add(1, Ordering::AcqRel);
         let policy_choice = match choice {
             HubConflictChoice::KeepMine => ConflictChoice::KeepMine,
             HubConflictChoice::UseHost => ConflictChoice::UseHost,
@@ -210,6 +230,7 @@ impl Hosts {
 }
 
 /// Runs one blocking Hub Sync pass: conditional snapshot, outbox replay + 3-way merge, ETag covers.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn sync_hub_cycle(
     client: &HostClient,
     engine: &mut SyncEngine,
@@ -218,6 +239,8 @@ pub(crate) fn sync_hub_cycle(
     unique_id: &str,
     cover_versions: &HashMap<u32, String>,
     _now_ms: u64,
+    persist_epoch: &AtomicU64,
+    expected_epoch: u64,
 ) -> Vec<u32> {
     let mut updated_covers = Vec::new();
     match client.hub_snapshot(engine.snapshot_etag.as_deref(), false) {
@@ -229,12 +252,26 @@ pub(crate) fn sync_hub_cycle(
         }
         Err(err) if is_permission_error(&err) => {
             engine.on_forbidden(err.to_string());
-            persist_engine(store_dir, unique_id, engine, cover_etags);
+            persist_engine(
+                store_dir,
+                unique_id,
+                engine,
+                cover_etags,
+                persist_epoch,
+                expected_epoch,
+            );
             return updated_covers;
         }
         Err(err) => {
             engine.on_offline(Some(err.to_string()));
-            persist_engine(store_dir, unique_id, engine, cover_etags);
+            persist_engine(
+                store_dir,
+                unique_id,
+                engine,
+                cover_etags,
+                persist_epoch,
+                expected_epoch,
+            );
             return updated_covers;
         }
     }
@@ -269,6 +306,9 @@ pub(crate) fn sync_hub_cycle(
             .map(|c| (c.app_id, c.etag.clone()))
             .collect();
         for (app_id, _expected_etag) in missing {
+            if persist_epoch.load(Ordering::Acquire) != expected_epoch {
+                return updated_covers;
+            }
             let local_etag = cover_etags.get(&app_id).map(String::as_str);
             match client.hub_cover(app_id, local_etag) {
                 Ok(HubCoverResult::Image { etag, bytes, .. }) => {
@@ -276,7 +316,10 @@ pub(crate) fn sync_hub_cycle(
                         .get(&app_id)
                         .map(String::as_str)
                         .unwrap_or("");
-                    let written = if let Some(dir) = store_dir.filter(|_| !unique_id.is_empty()) {
+                    let written = if let Some(dir) = store_dir.filter(|_| {
+                        !unique_id.is_empty()
+                            && persist_epoch.load(Ordering::Acquire) == expected_epoch
+                    }) {
                         hub_cache::save_cover_to_art(dir, unique_id, app_id, version, &bytes)
                             .unwrap_or(false)
                     } else {
@@ -298,8 +341,29 @@ pub(crate) fn sync_hub_cycle(
         }
     }
 
-    persist_engine(store_dir, unique_id, engine, cover_etags);
+    persist_engine(
+        store_dir,
+        unique_id,
+        engine,
+        cover_etags,
+        persist_epoch,
+        expected_epoch,
+    );
     updated_covers
+}
+
+fn refresh_snapshot_for_conflict(client: &HostClient, engine: &mut SyncEngine) -> bool {
+    match client.hub_snapshot(None, false) {
+        Ok(HubSnapshotResult::Modified { snapshot, etag }) => {
+            engine.apply_snapshot_200(snapshot, etag);
+            true
+        }
+        Ok(HubSnapshotResult::NotModified) => true,
+        Err(err) => {
+            classify_replay_error(engine, &err);
+            false
+        }
+    }
 }
 
 fn replay_put(
@@ -315,10 +379,8 @@ fn replay_put(
             true
         }
         Ok(HubPutResult::Conflict { .. }) => {
-            if let Ok(HubSnapshotResult::Modified { snapshot, etag }) =
-                client.hub_snapshot(None, false)
-            {
-                engine.apply_snapshot_200(snapshot, etag);
+            if !refresh_snapshot_for_conflict(client, engine) {
+                return false;
             }
             let remote = engine
                 .snapshot
@@ -337,10 +399,8 @@ fn replay_put(
                         return true;
                     }
                     Ok(HubPutResult::Conflict { .. }) => {
-                        if let Ok(HubSnapshotResult::Modified { snapshot, etag }) =
-                            client.hub_snapshot(None, false)
-                        {
-                            engine.apply_snapshot_200(snapshot, etag);
+                        if !refresh_snapshot_for_conflict(client, engine) {
+                            return false;
                         }
                         let fresh_remote = engine
                             .snapshot
@@ -381,11 +441,14 @@ fn replay_delete(
             engine.on_delete_succeeded(id, res.snapshot_revision);
             true
         }
+        Err(ref err) if is_not_found_error(err) => {
+            let rev = engine.snapshot.as_ref().map_or(0, |s| s.snapshot_revision);
+            engine.on_delete_succeeded(id, rev);
+            true
+        }
         Ok(HubDeleteResult::Conflict { .. }) => {
-            if let Ok(HubSnapshotResult::Modified { snapshot, etag }) =
-                client.hub_snapshot(None, false)
-            {
-                engine.apply_snapshot_200(snapshot, etag);
+            if !refresh_snapshot_for_conflict(client, engine) {
+                return false;
             }
             let remote = engine
                 .snapshot
@@ -400,6 +463,11 @@ fn replay_delete(
                 match client.delete_hub_profile(id, &new_rev.to_string()) {
                     Ok(HubDeleteResult::Deleted(res)) => {
                         engine.on_delete_succeeded(id, res.snapshot_revision);
+                        return true;
+                    }
+                    Err(ref err) if is_not_found_error(err) => {
+                        let rev = engine.snapshot.as_ref().map_or(0, |s| s.snapshot_revision);
+                        engine.on_delete_succeeded(id, rev);
                         return true;
                     }
                     Ok(HubDeleteResult::Conflict { .. }) => {
@@ -418,6 +486,14 @@ fn replay_delete(
             classify_replay_error(engine, &err);
             false
         }
+    }
+}
+
+fn is_not_found_error(err: &HttpError) -> bool {
+    match err {
+        HttpError::Api { status: 404, .. } => true,
+        HttpError::Api { error, .. } => error.code == ErrorCode::NotFound,
+        _ => false,
     }
 }
 
@@ -464,7 +540,12 @@ fn persist_engine(
     unique_id: &str,
     engine: &SyncEngine,
     cover_etags: &BTreeMap<u32, String>,
+    persist_epoch: &AtomicU64,
+    expected_epoch: u64,
 ) {
+    if persist_epoch.load(Ordering::Acquire) != expected_epoch {
+        return;
+    }
     if let Some(dir) = store_dir.filter(|_| !unique_id.is_empty()) {
         let _ = hub_cache::save_snapshot(dir, unique_id, engine.snapshot.as_ref());
         let _ = hub_cache::save_outbox(dir, unique_id, &engine.outbox);
@@ -590,6 +671,63 @@ mod tests {
                 .outbox
                 .is_empty()
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persist_epoch_and_seq_guard_against_stale_inflight_writes() {
+        let dir = std::env::temp_dir().join(format!("nightjar-hosts-epoch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = Store::at(dir.clone()).unwrap();
+        let mut record = crate::config::HostRecord {
+            unique_id: "host-epoch-hub".into(),
+            name: "PC".into(),
+            address: "127.0.0.1".into(),
+            ..Default::default()
+        };
+        record.server_certificate =
+            Some("-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n".into());
+        let mut hosts = Hosts::without_discovery(vec![record], std::sync::Arc::new(|| {}));
+        hosts.load_cached_hubs(&store);
+        let host_id = hosts.list[0].id;
+        let stale_seq = hosts.list[0].hub_seq;
+        let persist_epoch = Arc::clone(&hosts.list[0].hub_persist_epoch);
+        let expected = persist_epoch.load(Ordering::Acquire);
+
+        // Concurrent unpair bumps hub_persist_epoch and clears cache: stale persist must be a no-op.
+        hosts.forget_pairing(host_id);
+        let mut stale_engine = SyncEngine::from_cached(None, Vec::new());
+        stale_engine.queue_put(
+            "stale".into(),
+            ProfileWrite {
+                scope: ProfileScope::Device,
+                name: "Stale".into(),
+                ..Default::default()
+            },
+            1,
+        );
+        persist_engine(
+            Some(store.dir()),
+            "host-epoch-hub",
+            &stale_engine,
+            &BTreeMap::new(),
+            &persist_epoch,
+            expected,
+        );
+        assert!(
+            hub_cache::load_host_cache(store.dir(), "host-epoch-hub")
+                .outbox
+                .is_empty()
+        );
+        assert_ne!(stale_seq, hosts.list[0].hub_seq);
+
+        assert!(is_not_found_error(&HttpError::Api {
+            status: 404,
+            error: Box::new(nightjar_core::http::native_api::error::ApiError::new(
+                ErrorCode::NotFound,
+                "Missing",
+            )),
+        }));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

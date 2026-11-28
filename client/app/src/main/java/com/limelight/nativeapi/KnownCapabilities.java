@@ -43,6 +43,13 @@ public final class KnownCapabilities {
         return hostUuid == null ? null : byHost.get(hostUuid);
     }
 
+    /** Clears cached native capabilities when a host is forgotten or unpaired. */
+    public static void forget(String hostUuid) {
+        if (hostUuid != null) {
+            byHost.remove(hostUuid);
+        }
+    }
+
     @VisibleForTesting
     public static void clear() {
         byHost.clear();

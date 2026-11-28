@@ -329,6 +329,9 @@ impl Hosts {
             hub_engine: nightjar_policy::hub_sync::SyncEngine::default(),
             hub_cover_etags: std::collections::BTreeMap::new(),
             hub_inflight: false,
+            hub_resync_pending: false,
+            hub_seq: 0,
+            hub_persist_epoch: Arc::new(std::sync::atomic::AtomicU64::new(1)),
             classic_apps: None,
             classic: None,
             native_epoch: 0,
@@ -568,8 +571,11 @@ impl Hosts {
     }
 
     pub fn remove(&mut self, id: u64) {
-        if let Some(dir) = self.store_dir.as_deref() {
-            for host in self.list.iter().filter(|h| h.id == id && !h.record.unique_id.is_empty()) {
+        for host in self.list.iter().filter(|h| h.id == id) {
+            host.hub_persist_epoch.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            if let Some(dir) = self.store_dir.as_deref()
+                && !host.record.unique_id.is_empty()
+            {
                 hub_cache::clear_host_cache(dir, &host.record.unique_id);
             }
         }

@@ -284,5 +284,39 @@ public class HubSyncControllerTest {
         assertNotNull(readWhileSyncing);
         releaseNetwork.countDown();
         bg.join(5000);
+
+        // DELETE 404 not_found pops queued delete outbox cleanly instead of wedging as OFFLINE_DEGRADED.
+        HubSyncController.HostState delState = HubSyncController.stateFor(app, HOST_UUID);
+        delState.outbox.add(Json.obj().put("op", "delete").put("id", "gone").put("base_revision", 2L));
+        HubSyncStore.saveToDisk(app.getFilesDir(), HOST_UUID, delState);
+        HubSyncController.HubBackend notFoundDel = new HubSyncController.HubBackend() {
+            @Override
+            public Json.Obj fetchSnapshot(String ifNoneMatch, boolean allDevices) {
+                return Json.obj().put("status", "ok").put("etag", "\"rev:2\"")
+                        .put("snapshot", Json.obj().put("snapshot_revision", 2L)
+                                .put("profiles", Json.arr().add(Json.obj().put("id", "gone").put("revision", 2L)))
+                                .put("covers", Json.arr()));
+            }
+
+            @Override public Json.Obj putProfile(String id, String ifMatch, Json.Obj w) { return Json.obj(); }
+
+            @Override
+            public Json.Obj deleteProfile(String id, String ifMatch) throws NativeApiException {
+                throw new NativeApiException(NativeApiException.Kind.API, "Already deleted", 404, "not_found", null, 0L);
+            }
+
+            @Override public Json.Obj fetchCoverToFile(int appId, String ifNoneMatch, File destFile) { return Json.obj(); }
+            @Override public Json.Obj mergeThreeWay(Json.Obj b, Json.Obj l, Json.Obj r) { return Json.obj(); }
+            @Override public Json.Arr coversToFetch(Json.Arr rc, Json.Obj le) { return Json.arr(); }
+        };
+        HubSyncController.HostState afterDel = HubSyncController.syncOnce(app, HOST_UUID, notFoundDel, Collections.emptyMap());
+        assertEquals(HubSyncController.SyncStatus.SYNCED, afterDel.status);
+        assertTrue(afterDel.outbox.isEmpty());
+
+        // Unpair via onPumpSnapshot clears persisted Hub state and KnownCapabilities.
+        pc.pairState = PairingManager.PairState.NOT_PAIRED;
+        HubSyncController.onPumpSnapshot(app, pc, factory);
+        assertFalse(HubSyncController.hasHubSync(pc));
+        assertTrue(HubSyncController.stateFor(app, HOST_UUID).snapshot == null);
     }
 }

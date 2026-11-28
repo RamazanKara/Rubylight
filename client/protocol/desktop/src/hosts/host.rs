@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -57,6 +58,9 @@ pub struct Host {
     pub(super) hub_engine: nightjar_policy::hub_sync::SyncEngine,
     pub(super) hub_cover_etags: BTreeMap<u32, String>,
     pub(super) hub_inflight: bool,
+    pub(super) hub_resync_pending: bool,
+    pub(super) hub_seq: u64,
+    pub(super) hub_persist_epoch: Arc<AtomicU64>,
     /// The last app list of a PC without the native library, as saved for Home (live or from an
     /// earlier run), and the same as a library with the running app marked ([`Host::library`]).
     pub classic_apps: Option<Arc<crate::config::ClassicApps>>,
@@ -106,6 +110,9 @@ impl Host {
         self.hub_engine = nightjar_policy::hub_sync::SyncEngine::default();
         self.hub_cover_etags.clear();
         self.hub_inflight = false;
+        self.hub_resync_pending = false;
+        self.hub_seq = self.hub_seq.wrapping_add(1);
+        self.hub_persist_epoch.fetch_add(1, Ordering::AcqRel);
         self.native.hub = Default::default();
     }
 

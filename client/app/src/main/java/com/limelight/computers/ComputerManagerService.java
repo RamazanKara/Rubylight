@@ -140,7 +140,7 @@ public class ComputerManagerService extends Service {
             }
             if (shouldClearCert) {
                 details.serverCert = null;
-                if (details.uuid != null) InternetPlay.forget(this, details.uuid);
+                if (details.uuid != null) { InternetPlay.forget(this, details.uuid); com.limelight.nativeapi.HubSyncController.forget(this, details.uuid); }
             }
             return ok;
         } catch (Json.SyntaxException e) {
@@ -360,7 +360,7 @@ public class ComputerManagerService extends Service {
     public void forgetCertificate(String uuid) {
         if (uuid == null) return;
         if (hostManagerHandle != 0) NightjarHostsJni.hostManagerForgetCertificate(hostManagerHandle, uuid);
-        if (getBaseContext() != null) InternetPlay.forget(this, uuid);
+        if (getBaseContext() != null) { InternetPlay.forget(this, uuid); com.limelight.nativeapi.HubSyncController.forget(this, uuid); }
     }
 
     public void renameComputer(String uuid, String alias) {
@@ -493,7 +493,8 @@ public class ComputerManagerService extends Service {
                 if (snap.optBoolean("needs_vpn_stun", false) && details.uuid != null) {
                     scheduleVpnStun(details.uuid, details.externalPort);
                 }
-                if (details.state == ComputerDetails.State.ONLINE) { wakeTargets.polled(details); com.limelight.nativeapi.HubSyncController.onHostOnline(this, details, this::nativeClient); }
+                if (details.state == ComputerDetails.State.ONLINE) wakeTargets.polled(details);
+                com.limelight.nativeapi.HubSyncController.onPumpSnapshot(this, details, this::nativeClient);
                 ComputerManagerListener currentListener = listener;
                 if (currentListener != null && !destroyed) currentListener.notifyComputerUpdated(details);
             } catch (Json.SyntaxException ignored) {

@@ -196,7 +196,8 @@ impl Streaming {
         // A controller forwarded over USB pauses here and comes back once that stops.
         if pads.arbitration_due() {
             let audio = self.controller_audio_available();
-            let failed = if self.sends_controllers() { self.session.input(|q| pads.arbitrate(Some(q), audio)) } else { pads.arbitrate(None, audio) };
+            let input = self.sends_controllers().then(|| self.session.input_handle());
+            let failed = pads.arbitrate_handle(input.as_ref(), audio);
             for why in failed { self.show_toast(why.message()); }
         }
         self.route_microphones(pads);
@@ -266,7 +267,10 @@ impl Streaming {
                 controller,
                 motion_type,
                 report_rate_hz,
-            } => pads.set_motion(controller, motion_type, report_rate_hz),
+            } => {
+                let input = self.session.input_handle();
+                pads.set_motion(controller, motion_type, report_rate_hz, Some(&input));
+            }
             ControlEvent::HostTiming(records) => {
                 if let Some(csv) = &self.timing_csv {
                     csv.reports(&records);
@@ -304,6 +308,7 @@ impl Streaming {
                 self.quick_suspend_state(report);
                 if !was_paused && self.quick_suspend.paused() {
                     pads.stop_rumble();
+                    pads.set_deck_imu_sending(false);
                 }
             }
             ControlEvent::StreamDvrState(state) => self.dvr_state(state),

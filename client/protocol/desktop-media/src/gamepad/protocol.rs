@@ -168,7 +168,13 @@ impl Gamepads {
 
     /// The host wants motion data from gamepad `index` (rate 0 stops it), from every controller
     /// sent as it.
-    pub fn set_motion(&self, index: u16, kind: u8, rate_hz: u16) {
+    pub fn set_motion(
+        &mut self,
+        index: u16,
+        kind: u8,
+        rate_hz: u16,
+        input: Option<&nightjar_core::session::InputHandle>,
+    ) {
         if !self.motion {
             return;
         }
@@ -177,10 +183,19 @@ impl Gamepads {
             motion_type::GYRO => (SDL_SENSOR_GYRO, 1usize, "gyro"),
             _ => return,
         };
-        for pad in self.sent_as(index) {
+        for pad in self
+            .pads
+            .iter_mut()
+            .filter(|pad| u16::from(pad.sent_as) == index)
+        {
             // A pad pinned as Xbox told the host it has no motion sensors.
             let on = rate_hz != 0 && !pad.mapping.drops_motion_and_touchpad();
             let wanted_rate = if on { rate_hz } else { 0 };
+            if let Some(deck_imu) = &mut pad.deck_imu {
+                deck_imu.set_rate(kind, wanted_rate, input);
+                pad.motion_rates[slot].set(wanted_rate);
+                continue;
+            }
             // SAFETY: an open gamepad.
             unsafe {
                 let already = SDL_GamepadSensorEnabled(pad.handle, sensor);
@@ -219,6 +234,9 @@ impl Gamepads {
                 audio.reset(pad.handle);
             }
             pad.bt_audio = None;
+            if let Some(deck_imu) = &mut pad.deck_imu {
+                deck_imu.stop();
+            }
             // SAFETY: open gamepads.
             unsafe {
                 SDL_RumbleGamepad(pad.handle, 0, 0, 0);
@@ -364,10 +382,10 @@ pub(super) fn describe(pad: &Pad) -> (u8, u32, u16) {
         if touchpads > 1 {
             caps |= capability::DUAL_TOUCHPAD;
         }
-        if SDL_GamepadHasSensor(pad.handle, SDL_SENSOR_ACCEL) {
+        if SDL_GamepadHasSensor(pad.handle, SDL_SENSOR_ACCEL) || pad.has_deck_imu() {
             caps |= capability::ACCEL;
         }
-        if SDL_GamepadHasSensor(pad.handle, SDL_SENSOR_GYRO) {
+        if SDL_GamepadHasSensor(pad.handle, SDL_SENSOR_GYRO) || pad.has_deck_imu() {
             caps |= capability::GYRO;
         }
         let mut percent = -1;
@@ -447,7 +465,14 @@ fn should_apply_motion_rate(
 
 #[cfg(test)]
 mod tests {
-    use super::{should_apply_motion_rate, should_cycle_sensor};
+    use super::super::steam_deck_imu::DeckImu;
+    use super::{describe, should_apply_motion_rate, should_cycle_sensor};
+    use crate::config::Settings;
+    use crate::gamepad::Gamepads;
+    use crate::gamepad_types::{CTYPE_PS, CTYPE_XBOX, Mapping};
+    use nightjar_core::input::packets::{capability, motion_type};
+    use sdl3_sys::everything::*;
+    use std::path::PathBuf;
 
     #[test]
     fn re_enabling_an_already_enabled_sensor_cycles_off_then_on() {
@@ -479,5 +504,75 @@ mod tests {
             !should_apply_motion_rate(0, 0, false, false),
             "repeated disable skipped"
         );
+    }
+
+    #[test]
+    fn deck_imu_advertises_motion_respects_xbox_pin_and_keeps_device_on_reset() {
+        let _sdl = crate::sdl::TEST_LOCK.lock().unwrap();
+        // SAFETY: SDL calls on this test's thread; the descriptor outlives the attach.
+        unsafe {
+            assert!(SDL_Init(SDL_INIT_GAMEPAD), "{}", crate::sdl::error());
+            let mut desc: SDL_VirtualJoystickDesc = std::mem::zeroed();
+            desc.version = std::mem::size_of::<SDL_VirtualJoystickDesc>() as u32;
+            desc.r#type = SDL_JOYSTICK_TYPE_GAMEPAD.0 as u16;
+            desc.naxes = SDL_GAMEPAD_AXIS_COUNT.0 as u16;
+            desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT.0 as u16;
+            desc.button_mask = (1u32 << SDL_GAMEPAD_BUTTON_COUNT.0) - 1;
+            desc.axis_mask = (1u32 << SDL_GAMEPAD_AXIS_COUNT.0) - 1;
+            desc.name = c"Steam Virtual Gamepad".as_ptr();
+            let id = SDL_AttachVirtualJoystick(&desc);
+            assert!(id.0 != 0, "{}", crate::sdl::error());
+
+            let mut pads = Gamepads::default();
+            pads.configure(&Settings::default());
+            pads.added(id).unwrap();
+            pads.pads[0].deck_imu = Some(DeckImu::new(PathBuf::from("test-deck-hidraw")));
+            pads.refresh_deck_imu();
+
+            let (_, _, caps) = describe(&pads.pads[0]);
+            assert_ne!(caps & capability::ACCEL, 0);
+            assert_ne!(caps & capability::GYRO, 0);
+
+            let motion_caps = capability::ACCEL | capability::GYRO;
+            let with_motion = pads.launch_controllers(&Settings::default());
+            let parsed_caps: u16 = with_motion.split(':').nth(2).unwrap().parse().unwrap();
+            assert_eq!(parsed_caps & motion_caps, motion_caps);
+
+            let no_motion = pads.launch_controllers(&Settings {
+                controller_motion: false,
+                ..Settings::default()
+            });
+            let parsed_no_motion: u16 = no_motion.split(':').nth(2).unwrap().parse().unwrap();
+            assert_eq!(parsed_no_motion & motion_caps, 0);
+
+            let key = pads.pads[0].key.clone();
+            pads.apply_pad_mapping(
+                &key,
+                &Mapping { connect_as: CTYPE_PS, ..Mapping::default() },
+            );
+            assert_eq!(describe(&pads.pads[0]).2 & motion_caps, motion_caps);
+
+            pads.set_motion(0, motion_type::ACCEL, 125, None);
+            pads.set_motion(0, motion_type::GYRO, 250, None);
+            assert_eq!(pads.pads[0].motion_rates[0].get(), 125);
+            assert_eq!(pads.pads[0].motion_rates[1].get(), 250);
+
+            pads.apply_pad_mapping(
+                &key,
+                &Mapping { connect_as: CTYPE_XBOX, ..Mapping::default() },
+            );
+            assert_eq!(describe(&pads.pads[0]).2 & motion_caps, 0);
+            pads.set_motion(0, motion_type::GYRO, 250, None);
+            assert_eq!(pads.pads[0].motion_rates[1].get(), 0);
+
+            pads.reset();
+            assert!(pads.pads[0].has_deck_imu(), "device path kept across stream reset");
+            assert_eq!(pads.pads[0].motion_rates[0].get(), 0);
+            assert_eq!(pads.pads[0].motion_rates[1].get(), 0);
+
+            pads.close_all();
+            SDL_DetachVirtualJoystick(id);
+            SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+        }
     }
 }

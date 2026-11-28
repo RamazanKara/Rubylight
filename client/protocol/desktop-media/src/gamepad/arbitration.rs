@@ -3,10 +3,27 @@
 //! forwarding stops.
 
 use nightjar_core::input::InputQueue;
+use nightjar_core::session::InputHandle;
 use sdl3_sys::everything::*;
 
 use super::{Gamepads, NotOpened};
 use crate::usb_arbitration::{self, PadIdentity};
+
+enum QueueSink<'a> {
+    None,
+    Direct(&'a mut InputQueue),
+    Handle(&'a InputHandle),
+}
+
+impl QueueSink<'_> {
+    fn with(&mut self, f: impl FnOnce(&mut InputQueue)) {
+        match self {
+            Self::None => {}
+            Self::Direct(queue) => f(queue),
+            Self::Handle(handle) => handle.input(f),
+        }
+    }
+}
 
 /// What SDL tells of a gamepad before it is opened: vendor, product and the busid behind its
 /// path; `seen`, when it was opened here.
@@ -72,7 +89,17 @@ impl Gamepads {
     /// one's release and removal and the reopened ones' arrival; with `audio` (a stream that
     /// plays controller audio) a reopened controller gets its audio back first, as one plugged
     /// in does. What could not be reopened, for the user.
-    pub fn arbitrate(&mut self, mut queue: Option<&mut InputQueue>, audio: bool) -> Vec<NotOpened> {
+    pub fn arbitrate(&mut self, queue: Option<&mut InputQueue>, audio: bool) -> Vec<NotOpened> {
+        self.arbitrate_inner(queue.map_or(QueueSink::None, QueueSink::Direct), audio)
+    }
+
+    /// Same as [`Self::arbitrate`], locking `input` only around queue writes so closing a pad or
+    /// joining its Steam Deck IMU worker never runs while the session's `InputQueue` mutex is held.
+    pub fn arbitrate_handle(&mut self, input: Option<&InputHandle>, audio: bool) -> Vec<NotOpened> {
+        self.arbitrate_inner(input.map_or(QueueSink::None, QueueSink::Handle), audio)
+    }
+
+    fn arbitrate_inner(&mut self, mut sink: QueueSink<'_>, audio: bool) -> Vec<NotOpened> {
         let generation = self.arbitration.generation();
         if generation == self.arbitrated { return Vec::new(); }
         self.arbitrated = generation;
@@ -82,8 +109,11 @@ impl Gamepads {
         for id in plan.pause {
             let Some((_, identity)) = open.iter().find(|(p, _)| *p == id).cloned() else { continue };
             eprintln!("nightjar: controller {}: forwarded over USB to the PC; paused here", id.0);
-            let slot = self.removed_with(id, queue.as_deref_mut());
-            if let (Some(slot), Some(queue)) = (slot, queue.as_deref_mut()) { self.send_removed(slot, queue); }
+            sink.with(|q| self.release_mouse(id, q));
+            let slot = self.removed(id);
+            if let Some(slot) = slot {
+                sink.with(|q| self.send_removed(slot, q));
+            }
             self.paused.push((id, identity));
         }
         let mut failed = Vec::new();
@@ -97,7 +127,7 @@ impl Gamepads {
         }
         // Pausing dropped its USB audio (`removed`): it comes back before the arrival goes.
         if resumed && audio { self.auto_audio(); }
-        if let Some(queue) = queue { self.announce_new(queue); }
+        sink.with(|q| self.announce_new(q));
         self.arbitration.applied(generation);
         failed
     }

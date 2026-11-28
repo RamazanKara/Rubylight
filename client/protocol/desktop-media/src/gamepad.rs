@@ -21,6 +21,7 @@ mod arbitration;
 mod audio;
 mod pad;
 mod protocol;
+mod steam_deck_imu;
 
 pub use pad::Pad;
 
@@ -234,6 +235,7 @@ impl Gamepads {
             guide: Guide::Up,
             guide_bit: 1 << SDL_GAMEPAD_BUTTON_GUIDE.0,
             touchpad_contacts: Vec::new(),
+            deck_imu: None,
         });
         self.note_opened(id);
         self.assign_slots();
@@ -250,6 +252,10 @@ impl Gamepads {
     /// Closes a removed gamepad during a stream, releasing any simulated mouse buttons and
     /// cancelling active DualSense/DualShock touchpad contacts on `queue` before dropping `Pad`
     /// (including in `OnePlayer` mode where `active_mask` keeps slot 0 active).
+    ///
+    /// Callers holding a live `Session::input` lock must call [`Self::release_mouse`] inside the
+    /// lock and [`Self::removed`] outside it so joining the Steam Deck IMU worker cannot deadlock
+    /// on the input queue mutex.
     pub fn removed_with(&mut self, id: SDL_JoystickID, queue: Option<&mut InputQueue>) -> Option<u8> {
         self.paused.retain(|(paused, _)| *paused != id);
         self.opened_at.retain(|(opened, _)| *opened != id);
@@ -264,6 +270,7 @@ impl Gamepads {
         let slot = pad.slot();
         if let Some(audio) = &pad.audio { audio.reset(pad.handle); }
         drop(pad.audio);
+        pad.deck_imu = None;
         // SAFETY: a gamepad we opened.
         unsafe { SDL_CloseGamepad(pad.handle) };
         self.assign_slots();
@@ -307,6 +314,7 @@ impl Gamepads {
                 pad.sent_as = 0;
                 pad.refused = false;
             }
+            self.refresh_deck_imu();
             return;
         }
         // The slots in-limit controllers already hold; the rest are free for a refused pad.
@@ -329,6 +337,7 @@ impl Gamepads {
             pad.sent_as = pad.index;
             pad.refused = false;
         }
+        self.refresh_deck_imu();
     }
 
     /// Sets the controller slots this stream's host takes at its start
@@ -399,6 +408,7 @@ impl Gamepads {
     }
 
     pub fn release(&mut self, queue: &mut InputQueue) {
+        self.set_deck_imu_sending(false);
         let mask = self.active_mask();
         for pad in &mut self.pads {
             pad.mouse.release(queue);
@@ -780,18 +790,3 @@ mod tests;
 mod chords_tests;
 #[cfg(test)]
 mod slots_tests;
-
-#[cfg(test)]
-#[test]
-fn sdl_button_indices_match_sdl3() {
-    use crate::gamepad_types::sdl_button_index as idx;
-    assert_eq!(idx::SOUTH as i32, SDL_GAMEPAD_BUTTON_SOUTH.0);
-    assert_eq!(idx::EAST as i32, SDL_GAMEPAD_BUTTON_EAST.0);
-    assert_eq!(idx::WEST as i32, SDL_GAMEPAD_BUTTON_WEST.0);
-    assert_eq!(idx::NORTH as i32, SDL_GAMEPAD_BUTTON_NORTH.0);
-    assert_eq!(idx::BACK as i32, SDL_GAMEPAD_BUTTON_BACK.0);
-    assert_eq!(idx::GUIDE as i32, SDL_GAMEPAD_BUTTON_GUIDE.0);
-    assert_eq!(idx::START as i32, SDL_GAMEPAD_BUTTON_START.0);
-    assert_eq!(idx::LEFT_SHOULDER as i32, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0);
-    assert_eq!(idx::RIGHT_SHOULDER as i32, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER.0);
-}

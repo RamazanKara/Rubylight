@@ -245,3 +245,17 @@ fn a_mapping_saved_before_gyro_settings_loads_with_the_gyro_unchanged() {
     assert_eq!((old.gyro_axes, old.gyro_yaw, old.gyro_pitch), ([1, 2, 3], 100, 100));
     assert!(old.valid());
 }
+
+#[test]
+fn sdl_button_indices_match_sdl3() {
+    use crate::gamepad_types::sdl_button_index as idx;
+    assert_eq!(idx::SOUTH as i32, SDL_GAMEPAD_BUTTON_SOUTH.0);
+    assert_eq!(idx::EAST as i32, SDL_GAMEPAD_BUTTON_EAST.0);
+    assert_eq!(idx::WEST as i32, SDL_GAMEPAD_BUTTON_WEST.0);
+    assert_eq!(idx::NORTH as i32, SDL_GAMEPAD_BUTTON_NORTH.0);
+    assert_eq!(idx::BACK as i32, SDL_GAMEPAD_BUTTON_BACK.0);
+    assert_eq!(idx::GUIDE as i32, SDL_GAMEPAD_BUTTON_GUIDE.0);
+    assert_eq!(idx::START as i32, SDL_GAMEPAD_BUTTON_START.0);
+    assert_eq!(idx::LEFT_SHOULDER as i32, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0);
+    assert_eq!(idx::RIGHT_SHOULDER as i32, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER.0);
+}

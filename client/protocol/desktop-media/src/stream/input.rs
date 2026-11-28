@@ -135,6 +135,11 @@ impl Streaming {
         }
     }
 
+    /// Syncs direct Steam Deck IMU emission with stream input rules and Quick Suspend state.
+    pub fn sync_deck_imu(&self, window: *mut SDL_Window, pads: &Gamepads) {
+        pads.set_deck_imu_sending(self.direct_rules(window).pads && !self.quick_suspend.paused());
+    }
+
     /// Handles one SDL event while streaming.
     pub fn handle(
         &mut self,
@@ -280,10 +285,10 @@ impl Streaming {
                     }
                 }
                 SDL_EVENT_GAMEPAD_REMOVED => {
-                    let mut removed = None;
-                    self.session.input(|q| {
-                        removed = pads.removed_with(event.gdevice.which, Some(q));
-                    });
+                    // Release simulated mouse/touchpad state under the input lock, then close the
+                    // gamepad outside it so joining the Deck IMU worker cannot deadlock on `input`.
+                    self.session.input(|q| pads.release_mouse(event.gdevice.which, q));
+                    let removed = pads.removed(event.gdevice.which);
                     if let Some(index) = removed
                         && self.sends_controllers() {
                             // A controller the host had refused may have taken the freed slot:

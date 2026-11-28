@@ -457,3 +457,79 @@ fn due_flushes_deferred_virtual_and_injected_left_releases_on_their_own_routes()
     assert_eq!(calls(), [described(&[Injector::button(1, false)])]);
     assert_eq!(held_count(1), None);
 }
+
+#[test]
+fn failed_virtual_mouse_press_stops_batch_without_sticking_trailing_keys() {
+    let mut injector = recording();
+    let held_key = |vk| HELD.lock().unwrap().get(&(true, vk)).copied();
+    let held_vbtn = |btn: u8| {
+        HELD.lock()
+            .unwrap()
+            .get(&(false, u32::from(btn) | VIRTUAL_BUTTON_FLAG))
+            .copied()
+    };
+    let stage_virtual_button = |inj: &mut Injector, btn: u8, down: bool| {
+        let held_id = u32::from(btn) | VIRTUAL_BUTTON_FLAG;
+        if down {
+            HELD.lock().unwrap().insert((false, held_id), 1);
+            inj.virtual_buttons.insert(btn);
+            inj.pending
+                .push_routed(Injector::button(btn, true), MouseRoute::Virtual);
+            let end = inj.pending.inputs.len();
+            inj.pending.events.push((
+                end,
+                Some(Press {
+                    keyboard: false,
+                    id: held_id,
+                    source: 0,
+                    flags: 0,
+                    counted: true,
+                    repeat: None,
+                }),
+            ));
+        } else {
+            inj.pending
+                .push_routed(Injector::button(btn, false), MouseRoute::Virtual);
+            let end = inj.pending.inputs.len();
+            inj.pending.events.push((end, None));
+        }
+    };
+
+    // Case 1: [VirtualMouseButton(down), Keyboard(0x5a, down)] — virtual mouse is not
+    // plugged in, so `!applied` must stop immediately without sending key 0x5a via SendInput.
+    stage_virtual_button(&mut injector, 4, true);
+    let errors = injector.apply_all(&[key(0x5a, true)]);
+    assert_eq!(errors.len(), 2);
+    assert!(
+        calls().is_empty(),
+        "trailing key must not be injected after a failed virtual mouse button press"
+    );
+    assert!(injector.buttons.is_empty() && injector.virtual_buttons.is_empty());
+    assert!(injector.keys.is_empty() && injector.key_sources.is_empty());
+    assert_eq!(held_vbtn(4), None);
+    assert_eq!(held_key(0x5a), None);
+
+    // Case 2: [Relative(5, -3), VirtualMouseButton(down), Keyboard(0x59, down)] —
+    // only the prefix before the failed virtual mouse entry is sent via SendInput;
+    // the trailing keyboard press is neither sent nor left held.
+    let prefix = Injector::mouse(5, -3, 0, MOUSEEVENTF_MOVE);
+    injector.pending.push_auto(prefix);
+    injector.pending.events.push((1, None));
+    stage_virtual_button(&mut injector, 4, true);
+    let errors = injector.apply_all(&[key(0x59, true)]);
+    assert_eq!(errors.len(), 2);
+    assert_eq!(calls(), [described(&[prefix])]);
+    assert!(!injector.keys.contains(&0x59));
+    assert!(injector.buttons.is_empty() && injector.virtual_buttons.is_empty());
+    assert_eq!(held_key(0x59), None);
+    assert_eq!(held_vbtn(4), None);
+
+    // Case 3: Virtual mouse button UP succeeds even when detached, so a trailing key proceeds.
+    stage_virtual_button(&mut injector, 4, false);
+    assert!(injector.apply_all(&[key(0x5b, true)]).is_empty());
+    assert_eq!(calls(), [described(&[injector.key_scan(0x5b, true, 0)])]);
+    assert!(injector.keys.contains(&0x5b));
+    injector.release_all();
+    assert_eq!(calls(), [described(&[injector.key_scan(0x5b, false, 0)])]);
+    assert_eq!(held_key(0x5b), None);
+}

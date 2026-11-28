@@ -52,7 +52,16 @@ struct Reply {
     generation: u64,
     key: String,
     tuning: Option<Tuning>,
-    elapsed: Duration,
+}
+/// Retry delay after a failed DRS lookup; a successful lookup is kept for the
+/// foreground executable until the foreground executable changes, avoiding
+/// periodic full DRS reloads during streaming.
+fn retry_delay(failures: u32) -> Duration {
+    Duration::from_secs(match failures {
+        0 | 1 => 15,
+        2 => 30,
+        _ => 60,
+    })
 }
 pub struct Profiles {
     requests: mpsc::SyncSender<(u64, String)>,
@@ -60,24 +69,25 @@ pub struct Profiles {
     key: String,
     generation: u64,
     pending: bool,
-    next: Instant,
+    next: Option<Instant>,
     failures: u32,
     tuning: Tuning,
 }
 impl Profiles {
     pub fn new() -> Self {
+        Self::with_lookup(lookup)
+    }
+    fn with_lookup(mut read: impl FnMut(&str) -> Option<Tuning> + Send + 'static) -> Self {
         let (requests, receiver) = mpsc::sync_channel::<(u64, String)>(1);
         let reply = Arc::new(Mutex::new(None));
         let output = reply.clone();
         std::thread::spawn(move || {
             while let Ok((generation, key)) = receiver.recv() {
-                let start = Instant::now();
-                let tuning = lookup(&key);
+                let tuning = read(&key);
                 *output.lock().unwrap() = Some(Reply {
                     generation,
                     key,
                     tuning,
-                    elapsed: start.elapsed(),
                 });
             }
         });
@@ -87,12 +97,15 @@ impl Profiles {
             key: String::new(),
             generation: 0,
             pending: false,
-            next: Instant::now(),
+            next: None,
             failures: 0,
             tuning: Tuning::new(),
         }
     }
     pub fn poll(&mut self, key: Option<&str>) -> &Tuning {
+        self.poll_at(key, Instant::now())
+    }
+    fn poll_at(&mut self, key: Option<&str>, now: Instant) -> &Tuning {
         let key = key.unwrap_or("");
         if key != self.key {
             self.key = key.into();
@@ -100,31 +113,25 @@ impl Profiles {
             self.tuning.clear();
             self.pending = false;
             self.failures = 0;
-            self.next = Instant::now();
+            self.next = (!key.is_empty()).then_some(now);
         }
         if let Some(reply) = self.reply.lock().unwrap().take()
             && reply.generation == self.generation
             && reply.key == self.key
         {
             self.pending = false;
-            if reply.tuning.is_none() || reply.elapsed > Duration::from_millis(100) {
-                self.failures += 1;
-            } else {
-                self.failures = 0;
-            }
             if let Some(tuning) = reply.tuning {
+                self.failures = 0;
                 self.tuning = tuning;
+                self.next = None;
+            } else {
+                self.failures = self.failures.saturating_add(1);
+                self.next = Some(now + retry_delay(self.failures));
             }
-            self.next = Instant::now()
-                + Duration::from_secs(match self.failures {
-                    0 => 5,
-                    1 => 15,
-                    _ => 30,
-                });
         }
         if !key.is_empty()
             && !self.pending
-            && Instant::now() >= self.next
+            && self.next.is_some_and(|due| now >= due)
             && self
                 .requests
                 .try_send((self.generation, key.into()))
@@ -172,5 +179,82 @@ mod tests {
         assert_eq!(app.get("rtx_hdr_contrast"), Some(&27));
         assert!(!app.contains_key("rtx_hdr_middle_gray"));
         assert!(values(&mut store(&[]), false).is_empty());
+    }
+
+    #[test]
+    fn profiles_queries_on_executable_change_without_periodic_reload_churn() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let fail_next = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let c = calls.clone();
+        let f = fail_next.clone();
+        let mut profiles = Profiles::with_lookup(move |exe| {
+            c.fetch_add(1, Ordering::SeqCst);
+            if f.swap(false, Ordering::SeqCst) {
+                return None;
+            }
+            Some(BTreeMap::from([(
+                "rtx_hdr_contrast".to_owned(),
+                if exe.ends_with("b.exe") { 40 } else { 20 },
+            )]))
+        });
+        let wait_reply = |profiles: &mut Profiles, key: Option<&str>, at: Instant| {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                let tuning = profiles.poll_at(key, at).clone();
+                if !profiles.pending || Instant::now() >= deadline {
+                    return tuning;
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        };
+        let t0 = Instant::now();
+        assert!(profiles.poll_at(None, t0).is_empty());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+        // First foreground game triggers one lookup and keeps its tuning without 5 s reload churn.
+        let tuning = wait_reply(&mut profiles, Some(r"C:\Games\a.exe"), t0);
+        assert_eq!(tuning.get("rtx_hdr_contrast"), Some(&20));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        for secs in [5, 15, 60, 3600] {
+            let kept = profiles.poll_at(Some(r"C:\Games\a.exe"), t0 + Duration::from_secs(secs));
+            assert_eq!(kept.get("rtx_hdr_contrast"), Some(&20));
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // Switching games re-queries immediately.
+        let tuning = wait_reply(
+            &mut profiles,
+            Some(r"C:\Games\b.exe"),
+            t0 + Duration::from_secs(10),
+        );
+        assert_eq!(tuning.get("rtx_hdr_contrast"), Some(&40));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+        // Leaving and returning to the game re-queries (e.g. after NVIDIA App overlay edits).
+        assert!(
+            profiles
+                .poll_at(None, t0 + Duration::from_secs(11))
+                .is_empty()
+        );
+        let tuning = wait_reply(
+            &mut profiles,
+            Some(r"C:\Games\b.exe"),
+            t0 + Duration::from_secs(12),
+        );
+        assert_eq!(tuning.get("rtx_hdr_contrast"), Some(&40));
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+
+        // A failed lookup backs off before retrying rather than spinning.
+        fail_next.store(true, Ordering::SeqCst);
+        let t1 = t0 + Duration::from_secs(20);
+        let empty = wait_reply(&mut profiles, Some(r"C:\Games\c.exe"), t1);
+        assert!(empty.is_empty());
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
+        profiles.poll_at(Some(r"C:\Games\c.exe"), t1 + Duration::from_secs(5));
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
+        let recovered = wait_reply(&mut profiles, Some(r"C:\Games\c.exe"), t1 + retry_delay(1));
+        assert_eq!(recovered.get("rtx_hdr_contrast"), Some(&20));
+        assert_eq!(calls.load(Ordering::SeqCst), 5);
     }
 }

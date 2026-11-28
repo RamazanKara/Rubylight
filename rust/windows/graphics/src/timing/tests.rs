@@ -263,3 +263,45 @@ fn capture_can_interrupt_a_later_static_repeat_deadline() -> Result<()> {
     worker.join().unwrap();
     Ok(())
 }
+#[test]
+fn disable_power_throttling_falls_back_to_execution_speed_on_win10() {
+    // Win11+: combined flag call succeeds in one shot.
+    let mut masks = Vec::new();
+    let applied = disable_power_throttling_with(|state| {
+        assert_eq!(state.Version, PROCESS_POWER_THROTTLING_CURRENT_VERSION);
+        assert_eq!(state.StateMask, 0);
+        masks.push(state.ControlMask);
+        Ok::<(), &'static str>(())
+    })
+    .unwrap();
+    let combined =
+        PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+    assert_eq!(applied, combined);
+    assert_eq!(masks, [combined]);
+
+    // Windows 10: rejects IGNORE_TIMER_RESOLUTION (0x4); retries EXECUTION_SPEED (0x1) alone.
+    let mut masks = Vec::new();
+    let applied = disable_power_throttling_with(|state| {
+        assert_eq!(state.Version, PROCESS_POWER_THROTTLING_CURRENT_VERSION);
+        assert_eq!(state.StateMask, 0);
+        masks.push(state.ControlMask);
+        if state.ControlMask & PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION != 0 {
+            Err("ERROR_INVALID_PARAMETER")
+        } else {
+            Ok(())
+        }
+    })
+    .unwrap();
+    assert_eq!(applied, PROCESS_POWER_THROTTLING_EXECUTION_SPEED);
+    assert_eq!(masks, [combined, PROCESS_POWER_THROTTLING_EXECUTION_SPEED]);
+
+    // Both rejected: surfaces the error after both attempts.
+    let mut attempts = 0;
+    let err = disable_power_throttling_with(|_| {
+        attempts += 1;
+        Err("unsupported")
+    })
+    .unwrap_err();
+    assert_eq!(err, "unsupported");
+    assert_eq!(attempts, 2);
+}

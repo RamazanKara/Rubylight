@@ -368,26 +368,44 @@ pub fn qpc_ms() -> f64 {
         0.
     }
 }
-/// Windows 11 otherwise ignores timer requests from a process without a
-/// visible window, and may run it on efficiency cores: the host, and the
-/// capture helper in the user's session.
-pub fn disable_power_throttling() {
-    let state = PROCESS_POWER_THROTTLING_STATE {
+fn disable_power_throttling_with<E>(
+    mut apply: impl FnMut(&PROCESS_POWER_THROTTLING_STATE) -> std::result::Result<(), E>,
+) -> std::result::Result<u32, E> {
+    let combined = PROCESS_POWER_THROTTLING_STATE {
         Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
         ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED
             | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
         StateMask: 0,
     };
-    // SAFETY: `state` is an initialised local that outlives the call, the size passed is its size,
-    // and GetCurrentProcess returns a pseudo handle.
-    if let Err(error) = unsafe {
-        SetProcessInformation(
-            GetCurrentProcess(),
-            ProcessPowerThrottling,
-            (&state as *const PROCESS_POWER_THROTTLING_STATE).cast(),
-            std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
-        )
-    } {
+    if apply(&combined).is_ok() {
+        return Ok(combined.ControlMask);
+    }
+    // Windows 10 rejects Win11's IGNORE_TIMER_RESOLUTION bit with ERROR_INVALID_PARAMETER;
+    // retry EXECUTION_SPEED alone so Win10 hosts still opt out of EcoQoS CPU throttling.
+    let speed_only = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+        StateMask: 0,
+    };
+    apply(&speed_only)?;
+    Ok(speed_only.ControlMask)
+}
+/// Windows 11 otherwise ignores timer requests from a process without a
+/// visible window, and may run it on efficiency cores: the host, and the
+/// capture helper in the user's session.
+pub fn disable_power_throttling() {
+    if let Err(error) = disable_power_throttling_with(|state| {
+        // SAFETY: `state` is an initialised local that outlives the call, the size passed is its
+        // size, and GetCurrentProcess returns a pseudo handle.
+        unsafe {
+            SetProcessInformation(
+                GetCurrentProcess(),
+                ProcessPowerThrottling,
+                (state as *const PROCESS_POWER_THROTTLING_STATE).cast(),
+                std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+            )
+        }
+    }) {
         tracing::debug!(%error, "power throttling opt-out unavailable");
     }
 }

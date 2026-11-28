@@ -1,5 +1,5 @@
-//! NVENC session and encoder teardown, including D3D12 EOS flushing,
-//! output-fence completion waits, and safe retention on timeout or destroy error.
+//! NVENC session and encoder teardown, including D3D12/async EOS flushing,
+//! completion waits, and safe retention on timeout or destroy error.
 
 use super::{Encoder, Session, Slot, check_raw};
 use anyhow::Result;
@@ -10,12 +10,15 @@ use std::{
     ptr,
     time::{Duration, Instant},
 };
-use windows::Win32::{Foundation::WAIT_FAILED, System::Threading::WaitForSingleObject};
+use windows::Win32::{
+    Foundation::{WAIT_FAILED, WAIT_OBJECT_0},
+    System::Threading::WaitForSingleObject,
+};
 
-/// How long teardown waits for a D3D12 NVENC session's output fence to reach
-/// its last accepted submission before unregistering resources or retaining
-/// them on a hung GPU.
-const D3D12_CLOSE_WAIT: Duration = Duration::from_secs(2);
+/// How long teardown waits for a D3D12 NVENC session's output fence or an
+/// async NVENC session's EOS completion event before unregistering resources
+/// or retaining them on a hung GPU/driver.
+const CLOSE_WAIT: Duration = Duration::from_secs(2);
 
 pub(super) fn cleanup_slot(
     functions: &NV_ENCODE_API_FUNCTION_LIST,
@@ -168,10 +171,10 @@ impl Session {
     /// it after (`guard` refuses), and dropping it does nothing more.
     /// Returns `false` if driver resources had to be retained until host exit.
     pub(super) fn close(&mut self) -> bool {
-        self.close_with_wait(D3D12_CLOSE_WAIT)
+        self.close_with_wait(CLOSE_WAIT)
     }
 
-    pub(super) fn close_with_wait(&mut self, d3d12_wait: Duration) -> bool {
+    pub(super) fn close_with_wait(&mut self, wait: Duration) -> bool {
         if self.raw.is_null() {
             return true;
         }
@@ -187,23 +190,25 @@ impl Session {
         // always send EOS even after all pending frames have been collected so
         // internal driver GPU work flushes before resources are unregistered.
         // Asynchronous sessions require a registered `completionEvent` on every
-        // `nvEncEncodePicture`, including EOS.
+        // `nvEncEncodePicture`, including EOS, and must wait for that event to
+        // signal before unregistering events or destroying resources.
         let mut eos_event_registered = false;
+        let mut eos_idle = true;
         if self.initialized && (self.initialize.enableEncodeAsync == 0 || !self.pending.is_empty())
         {
+            let mut eos_wait_handle = None;
             let completion_event = if self.initialize.enableEncodeAsync != 0 {
-                if let Some(event) = self
-                    .slots
-                    .iter()
-                    .enumerate()
-                    .find(|(index, slot)| {
-                        slot.event_registered
-                            && slot.event.is_some()
-                            && !self.pending.iter().any(|pending| pending.slot == *index)
-                    })
-                    .and_then(|(_, slot)| slot.event.as_ref())
-                {
-                    let _ = event.reset();
+                if let Some(event) = self.slots.iter().enumerate().find_map(|(index, slot)| {
+                    if !slot.event_registered
+                        || self.pending.iter().any(|pending| pending.slot == index)
+                    {
+                        return None;
+                    }
+                    let event = slot.event.as_ref()?;
+                    event.reset().ok()?;
+                    Some(event)
+                }) {
+                    eos_wait_handle = Some(event.raw());
                     event.raw().0
                 } else {
                     if self.drain_event.is_none() {
@@ -212,17 +217,18 @@ impl Session {
                     if let (Some(event), Some(register)) = (
                         self.drain_event.as_ref(),
                         self.functions.nvEncRegisterAsyncEvent,
-                    ) {
-                        let _ = event.reset();
+                    ) && event.reset().is_ok()
+                    {
                         let mut params = NV_ENC_EVENT_PARAMS {
                             version: self.api.event(),
                             completionEvent: event.raw().0,
                             ..Default::default()
                         };
                         // SAFETY: `self.raw` is a live async session and `self.drain_event` stays
-                        // open until unregistered below or retained on failure.
+                        // open until unregistered below or retained on timeout/failure.
                         if unsafe { register(self.raw, &mut params) } == super::SUCCESS {
                             eos_event_registered = true;
+                            eos_wait_handle = Some(event.raw());
                             event.raw().0
                         } else {
                             ptr::null_mut()
@@ -234,18 +240,53 @@ impl Session {
             } else {
                 ptr::null_mut()
             };
-            let mut eos = NV_ENC_PIC_PARAMS {
-                version: self.api.picture(),
-                encodePicFlags: _NV_ENC_PIC_FLAGS_NV_ENC_PIC_FLAG_EOS,
-                completionEvent: completion_event,
-                ..Default::default()
+            let eos_submitted = if self.initialize.enableEncodeAsync == 0
+                || !completion_event.is_null()
+            {
+                let mut eos = NV_ENC_PIC_PARAMS {
+                    version: self.api.picture(),
+                    encodePicFlags: _NV_ENC_PIC_FLAGS_NV_ENC_PIC_FLAG_EOS,
+                    completionEvent: completion_event,
+                    ..Default::default()
+                };
+                // SAFETY: `self.raw` is the non-null open session and `eos` is versioned.
+                let status =
+                    unsafe { (self.functions.nvEncEncodePicture.unwrap())(self.raw, &mut eos) };
+                if status != super::SUCCESS {
+                    tracing::debug!(
+                        status,
+                        "NVENC teardown EOS submission returned non-success status"
+                    );
+                }
+                status == super::SUCCESS
+            } else {
+                tracing::warn!(
+                    "NVENC async teardown could not obtain a registered EOS completion event; draining pending frames without EOS"
+                );
+                false
             };
-            // SAFETY: `self.raw` is the non-null open session and `eos` is versioned.
-            let _ = unsafe { (self.functions.nvEncEncodePicture.unwrap())(self.raw, &mut eos) };
             if !self.pending.is_empty() {
                 let _ = self.drain();
             }
-            if eos_event_registered
+            if eos_submitted && let Some(handle) = eos_wait_handle {
+                let millis = if wait.is_zero() {
+                    0
+                } else {
+                    wait.as_millis().clamp(1, u32::MAX as u128) as u32
+                };
+                // SAFETY: `handle` is a live manual-reset Win32 event owned by `self.slots` or
+                // `self.drain_event`, still open until unregistered below or retained on timeout.
+                let waited = unsafe { WaitForSingleObject(handle, millis) };
+                if waited != WAIT_OBJECT_0 {
+                    eos_idle = false;
+                    tracing::warn!(
+                        wait_result = waited.0,
+                        "NVENC async EOS completion event did not signal before teardown"
+                    );
+                }
+            }
+            if eos_idle
+                && eos_event_registered
                 && self.pending.is_empty()
                 && let (Some(event), Some(unregister)) = (
                     self.drain_event.as_ref(),
@@ -257,12 +298,18 @@ impl Session {
                     completionEvent: event.raw().0,
                     ..Default::default()
                 };
-                // SAFETY: `params.completionEvent` was registered above and drain finished cleanly.
-                let _ = unsafe { unregister(self.raw, &mut params) };
+                // SAFETY: `params.completionEvent` was registered above, drain finished cleanly,
+                // and any accepted EOS completion event has signaled.
+                if unsafe { unregister(self.raw, &mut params) } != super::SUCCESS {
+                    eos_idle = false;
+                    tracing::warn!(
+                        "NVENC async EOS completion event unregister failed; retaining event handle"
+                    );
+                }
             }
         }
-        let d3d12_idle = self.wait_d3d12_idle(d3d12_wait);
-        if d3d12_idle {
+        let d3d12_idle = self.wait_d3d12_idle(wait);
+        if d3d12_idle && eos_idle {
             for (index, slot) in self.slots.iter_mut().enumerate() {
                 // A failed drain does not establish completion. Let session
                 // destruction stop the native worker before releasing its input,
@@ -279,14 +326,19 @@ impl Session {
         // cleared below.
         let status = unsafe { (self.functions.nvEncDestroyEncoder.unwrap())(self.raw) };
         let destroy_error = self.check(status, "destroy session").err();
-        let clean = destroy_error.is_none() && d3d12_idle;
+        let clean = destroy_error.is_none() && d3d12_idle && eos_idle;
         if !clean {
-            // A failed native destroy or unfinished D3D12 output fence leaves
-            // driver GPU work's lifetime unknown. Preserve the resources,
+            // A failed native destroy, unfinished D3D12 output fence, or
+            // unsignaled async EOS completion event leaves driver work's
+            // lifetime unknown. Preserve the resources, completion events,
             // fence, wait event, context and driver DLL until host exit instead
-            // of freeing them behind a still-running encoder.
+            // of freeing or closing handles behind a still-running encoder.
             if let Some(error) = destroy_error {
                 tracing::error!(%error, "NVENC cleanup failed; driver resources retained until host exit");
+            } else if !eos_idle {
+                tracing::error!(
+                    "NVENC async EOS did not finish before teardown; retaining session resources and completion events until host exit"
+                );
             } else {
                 tracing::error!(
                     "NVENC D3D12 output fence did not finish before teardown; retaining session resources until host exit"

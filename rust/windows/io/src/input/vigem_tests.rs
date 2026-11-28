@@ -55,8 +55,15 @@ fn a_slot_is_emptied_before_a_new_target_is_plugged() -> Result<()> {
         },
     );
     // The old target's unplug fails on the invalid handle, which must not stop
-    // the replacement: the detached bus then refuses the plug itself.
+    // the replacement: the detached bus then refuses the plug itself, and
+    // Target::drop must not retry the same failed unplug a second time.
+    UNPLUG_ATTEMPTS.with(|count| count.set(0));
     let error = client.plug(0, VIGEM_X360).unwrap_err();
+    assert_eq!(
+        UNPLUG_ATTEMPTS.with(std::cell::Cell::get),
+        1,
+        "Client::plug must zero previous.serial on failed unplug so Target::drop does not double-stall"
+    );
     assert!(
         format!("{error:#}").contains("could not plug ViGEm target"),
         "{error:#}"
@@ -65,6 +72,78 @@ fn a_slot_is_emptied_before_a_new_target_is_plugged() -> Result<()> {
         !client.targets.contains_key(&0),
         "the failed plug left the old target in the way"
     );
+    Ok(())
+}
+
+#[test]
+fn abandon_io_forgets_on_spawn_failure_after_retry_and_cleans_on_retry_or_reaper() -> Result<()> {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    struct Tracked(Arc<AtomicBool>);
+    impl Drop for Tracked {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    // 1. Spawn fails and retry CancelIoEx still sees an in-flight IRP: both buffer and
+    // stale event handle must be forgotten (not freed/closed behind the kernel).
+    let mut ev = event()?;
+    let stale_raw = handle(&ev);
+    let dropped = Arc::new(AtomicBool::new(false));
+    let retried = Arc::new(AtomicBool::new(false));
+    let r = retried.clone();
+    abandon_io_with(
+        Tracked(dropped.clone()),
+        &mut ev,
+        |_, stale| {
+            assert_eq!(stale, stale_raw);
+            r.store(true, Ordering::SeqCst);
+            false
+        },
+        |_| Err(std::io::Error::other("thread limit")),
+    );
+    assert!(retried.load(Ordering::SeqCst));
+    assert_ne!(handle(&ev), stale_raw, "caller must receive a fresh event");
+    assert!(
+        !dropped.load(Ordering::SeqCst),
+        "in-flight pending IO must not be dropped when cancel-thread spawn fails"
+    );
+    // SAFETY: `stale_raw` was intentionally leaked, so it remains a valid unsignaled handle.
+    assert_eq!(unsafe { WaitForSingleObject(stale_raw, 0) }, WAIT_TIMEOUT);
+
+    // 2. Spawn fails, but retry CancelIoEx finishes the IRP: pending IO cleans up without leaking.
+    let mut ev = event()?;
+    let dropped = Arc::new(AtomicBool::new(false));
+    abandon_io_with(
+        Tracked(dropped.clone()),
+        &mut ev,
+        |_, _| true,
+        |_| Err(std::io::Error::other("thread limit")),
+    );
+    assert!(dropped.load(Ordering::SeqCst));
+
+    // 3. Spawn succeeds: reaper thread holds pending IO until stale event signals, then drops it.
+    let mut ev = event()?;
+    let stale_raw = handle(&ev);
+    let dropped = Arc::new(AtomicBool::new(false));
+    let mut worker = None;
+    abandon_io_with(
+        Tracked(dropped.clone()),
+        &mut ev,
+        |_, _| panic!("retry should not run when spawn succeeds"),
+        |task| {
+            worker = Some(std::thread::spawn(task));
+            Ok(())
+        },
+    );
+    assert!(!dropped.load(Ordering::SeqCst));
+    // SAFETY: `stale_raw` is owned by `worker`, which is waiting on it now.
+    unsafe { SetEvent(stale_raw)? };
+    worker.unwrap().join().unwrap();
+    assert!(dropped.load(Ordering::SeqCst));
     Ok(())
 }
 

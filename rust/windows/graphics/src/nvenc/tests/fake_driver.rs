@@ -260,6 +260,12 @@ unsafe extern "C" fn unregister(_: *mut c_void, resource: NV_ENC_REGISTERED_PTR)
         return _NVENCSTATUS_NV_ENC_ERR_GENERIC;
     }
     state(|d| {
+        if let Some(signaled) = &d.eos_signaled {
+            assert!(
+                signaled.load(std::sync::atomic::Ordering::Acquire),
+                "unregister input ran before async EOS completionEvent signaled"
+            );
+        }
         assert!(!d.mapped.contains(&(resource as usize)));
         assert!(d.resources.remove(&(resource as usize)).is_some());
         d.calls.push("unregister input");
@@ -311,6 +317,12 @@ unsafe extern "C" fn output(
 }
 unsafe extern "C" fn destroy_output(_: *mut c_void, output: NV_ENC_OUTPUT_PTR) -> NVENCSTATUS {
     state(|d| {
+        if let Some(signaled) = &d.eos_signaled {
+            assert!(
+                signaled.load(std::sync::atomic::Ordering::Acquire),
+                "destroy output ran before async EOS completionEvent signaled"
+            );
+        }
         let buffer = d.outputs.remove(&(output as usize)).unwrap();
         assert!(!buffer.locked);
         d.calls.push("destroy output");
@@ -340,6 +352,12 @@ unsafe extern "C" fn unregister_event(
     // SAFETY: `raw` is a live handle that `open` boxed and `destroy` has not freed.
     assert_eq!(p.version, unsafe { handle(raw) }.event());
     state(|d| {
+        if let Some(signaled) = &d.eos_signaled {
+            assert!(
+                signaled.load(std::sync::atomic::Ordering::Acquire),
+                "unregister event ran before async EOS completionEvent signaled"
+            );
+        }
         assert!(d.events.remove(&(p.completionEvent as usize)));
         d.calls.push("unregister event");
     });
@@ -353,11 +371,40 @@ unsafe extern "C" fn encode(raw: *mut c_void, parameters: *mut NV_ENC_PIC_PARAMS
     if p.encodePicFlags & _NV_ENC_PIC_FLAGS_NV_ENC_PIC_FLAG_EOS != 0 {
         // SAFETY: The parameters are plain old data; this copy outlives the call.
         let eos = unsafe { std::ptr::read(p) };
-        state(|d| {
+        return state(|d| {
             d.eos_pictures.push(eos);
             d.calls.push("eos");
+            let status = d.eos_status.unwrap_or(SUCCESS);
+            if status == SUCCESS && !p.completionEvent.is_null() {
+                assert!(d.events.contains(&(p.completionEvent as usize)));
+                if !d.hold_eos_event {
+                    let event_raw = p.completionEvent as usize;
+                    let delay = d.eos_delay_ms;
+                    let signaled = d.eos_signaled.clone();
+                    if delay > 0 {
+                        std::thread::spawn(move || {
+                            std::thread::sleep(Duration::from_millis(delay));
+                            if let Some(flag) = signaled {
+                                flag.store(true, std::sync::atomic::Ordering::Release);
+                            }
+                            // SAFETY: Teardown waits for this live event before closing it.
+                            unsafe {
+                                let _ = SetEvent(HANDLE(event_raw as *mut c_void));
+                            }
+                        });
+                    } else {
+                        if let Some(flag) = signaled {
+                            flag.store(true, std::sync::atomic::Ordering::Release);
+                        }
+                        // SAFETY: `completionEvent` is a live registered event (asserted above).
+                        unsafe {
+                            SetEvent(HANDLE(p.completionEvent)).unwrap();
+                        }
+                    }
+                }
+            }
+            status
         });
-        return SUCCESS;
     }
     // SAFETY: `raw` is a live handle that `open` boxed and `destroy` has not freed.
     let api = unsafe { handle(raw) };

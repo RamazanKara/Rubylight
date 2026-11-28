@@ -105,6 +105,10 @@ struct Driver {
     /// Each EOS submission's parameters, as passed.
     eos_pictures: Vec<NV_ENC_PIC_PARAMS>,
     hold_event: bool,
+    hold_eos_event: bool,
+    eos_status: Option<NVENCSTATUS>,
+    eos_delay_ms: u64,
+    eos_signaled: Option<Arc<std::sync::atomic::AtomicBool>>,
     reconfigure_count: usize,
     lock_do_not_wait: Vec<u32>,
     cuda_streams: Vec<(usize, usize)>,

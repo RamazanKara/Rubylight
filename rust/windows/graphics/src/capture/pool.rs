@@ -8,10 +8,7 @@ use anyhow::{Context, Result, bail};
 #[cfg(test)]
 use std::time::Duration;
 use std::time::Instant;
-use windows::{
-    Win32::Graphics::{Direct3D11::*, Dxgi::Common::*},
-    core::Interface,
-};
+use windows::Win32::Graphics::{Direct3D11::*, Dxgi::Common::*};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pixel {
@@ -261,12 +258,6 @@ pub(crate) struct GpuPool {
     pub(super) render_target: bool,
     /// Shared D3D11->D3D12 fence signalling D3D11 copies into `shared` textures.
     pub(super) d3d11_signal: Option<Option<crate::compute::D3d11Signal>>,
-    /// Sources this pool copied from, with their descriptions: a texture's
-    /// description never changes, and holding a reference pins each source,
-    /// so its address cannot be reused by another texture while the entry
-    /// lives. Each copy reads its description from here instead of calling
-    /// GetDesc on the source every frame.
-    pub(super) sources: Vec<(ID3D11Texture2D, D3D11_TEXTURE2D_DESC)>,
 }
 impl Default for GpuPool {
     fn default() -> Self {
@@ -278,14 +269,9 @@ impl Default for GpuPool {
             shared: false,
             render_target: false,
             d3d11_signal: None,
-            sources: Vec::new(),
         }
     }
 }
-/// How many source descriptions a pool remembers, one entry per texture a
-/// backend copies from: a few frame-pool buffers, ring slots or duplicated
-/// surfaces. The oldest is forgotten when more arrive.
-const SOURCE_CACHE: usize = 8;
 pub(super) const GPU_SNAPSHOT_CAPACITY: usize = 8;
 
 pub(super) fn snapshot_capacity<T>(textures: &[std::sync::Arc<T>]) -> bool {
@@ -342,6 +328,16 @@ impl GpuPool {
         height: u32,
         format: DXGI_FORMAT,
     ) -> Result<Option<std::sync::Arc<ID3D11Texture2D>>> {
+        self.acquire_texture_on(&gpu.device, width, height, format)
+    }
+
+    fn acquire_texture_on(
+        &mut self,
+        device: &ID3D11Device,
+        width: u32,
+        height: u32,
+        format: DXGI_FORMAT,
+    ) -> Result<Option<std::sync::Arc<ID3D11Texture2D>>> {
         let shape = Some((width, height, format));
         if self.shape != shape {
             if let Some(handoff) = &mut self.compute {
@@ -393,10 +389,9 @@ impl GpuPool {
             },
         };
         let mut texture = None;
-        // SAFETY: `gpu.device` is live and `desc` describes a valid single-sample 2D texture.
+        // SAFETY: `device` is live and `desc` describes a valid single-sample 2D texture.
         unsafe {
-            gpu.device
-                .CreateTexture2D(&desc, None, Some(&mut texture))?;
+            device.CreateTexture2D(&desc, None, Some(&mut texture))?;
         }
         let texture = std::sync::Arc::new(texture.unwrap());
         self.textures.push(texture.clone());
@@ -432,24 +427,11 @@ impl GpuPool {
         crop: Option<Crop>,
     ) -> Result<Option<GpuImage>> {
         // SAFETY: `source` and the pool's textures are live on `gpu.device` with matching size and
-        // format, and that device's context is multithread-protected.
+        // format, and that device's context is multithread-protected. `GetDesc` is read directly
+        // without retaining any strong COM reference to capture-owned surfaces past this call.
         unsafe {
-            let desc = match self
-                .sources
-                .iter()
-                .find(|(texture, _)| texture.as_raw() == source.as_raw())
-            {
-                Some((_, cached)) => *cached,
-                None => {
-                    let mut desc = D3D11_TEXTURE2D_DESC::default();
-                    source.GetDesc(&mut desc);
-                    if self.sources.len() >= SOURCE_CACHE {
-                        self.sources.remove(0);
-                    }
-                    self.sources.push((source.clone(), desc));
-                    desc
-                }
-            };
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            source.GetDesc(&mut desc);
             let pixel = Pixel::try_from_dxgi(desc.Format).ok_or_else(|| {
                 anyhow::anyhow!("unsupported GPU capture format {:?}", desc.Format)
             })?;
@@ -464,15 +446,6 @@ impl GpuPool {
             let (width, height) = crop.map_or((desc.Width, desc.Height), |crop| {
                 (crop.width(), crop.height())
             });
-            // Every pooled texture has the shape it was made with, so a new
-            // size or format replaces them all, without a GetDesc each frame.
-            if self.shape != Some((width, height, desc.Format)) {
-                // The old shape's frame-pool, ring or helper textures need
-                // not stay pinned by the description cache.
-                let current = source.as_raw();
-                self.sources
-                    .retain(|(texture, _)| texture.as_raw() == current);
-            }
             let Some(texture) = self.acquire_texture(gpu, width, height, desc.Format)? else {
                 // Capture retains only the newest native update while consumers
                 // own every snapshot, instead of growing a frame queue.
@@ -505,21 +478,7 @@ impl GpuPool {
                     return self.copy(gpu, source, crop);
                 }
                 None => {
-                    if let Some(crop) = crop {
-                        let box_ = crop.d3d11();
-                        gpu.context.CopySubresourceRegion(
-                            texture.as_ref(),
-                            0,
-                            0,
-                            0,
-                            0,
-                            source,
-                            0,
-                            Some(&box_),
-                        );
-                    } else {
-                        gpu.context.CopyResource(texture.as_ref(), source);
-                    }
+                    copy_d3d11_surface(&gpu.context, texture.as_ref(), source, crop);
                     if self.shared {
                         if let Some(ready) = self.signal_shared_d3d11(gpu) {
                             Some(ready)
@@ -547,6 +506,36 @@ impl GpuPool {
                 ready,
             )))
         }
+    }
+
+    #[cfg(test)]
+    fn copy_d3d11_on(
+        &mut self,
+        device: &ID3D11Device,
+        context: &ID3D11DeviceContext,
+        source: &ID3D11Texture2D,
+        crop: Option<Crop>,
+    ) -> Result<Option<(std::sync::Arc<ID3D11Texture2D>, u32, u32, Pixel)>> {
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        // SAFETY: `source` is a live D3D11 texture on `device`.
+        unsafe { source.GetDesc(&mut desc) };
+        let pixel = Pixel::try_from_dxgi(desc.Format)
+            .ok_or_else(|| anyhow::anyhow!("unsupported GPU capture format {:?}", desc.Format))?;
+        let crop = crop.filter(|crop| {
+            crop.width() > 0
+                && crop.height() > 0
+                && crop.right <= desc.Width
+                && crop.bottom <= desc.Height
+        });
+        let (width, height) = crop.map_or((desc.Width, desc.Height), |crop| {
+            (crop.width(), crop.height())
+        });
+        let Some(texture) = self.acquire_texture_on(device, width, height, desc.Format)? else {
+            return Ok(None);
+        };
+        // SAFETY: `source` and `texture` live on `device` with compatible dimensions and format.
+        unsafe { copy_d3d11_surface(context, texture.as_ref(), source, crop) };
+        Ok(Some((texture, width, height, pixel)))
     }
 
     fn downgrade_shared_d3d11(&mut self) {
@@ -714,81 +703,27 @@ impl GpuImage {
     }
 }
 
-#[cfg(test)]
-mod shared_signal_tests {
-    use super::resolve_shared_signal;
-
-    #[test]
-    fn shared_d3d11_signal_recreates_once_and_downgrades_when_unavailable() {
-        // Steady-state existing signal succeeds without recreating.
-        let mut slot = Some(1u32);
-        let mut created = 0u32;
-        let ready = resolve_shared_signal(
-            &mut slot,
-            |id| Ok::<u32, &'static str>(*id * 10),
-            || {
-                created += 1;
-                Some(2)
-            },
-        );
-        assert_eq!(ready, Some(10));
-        assert_eq!(created, 0);
-
-        // Retired compute queue: existing signal errors once -> recreated signal succeeds.
-        let mut slot = Some(1u32);
-        let mut created = 0u32;
-        let ready = resolve_shared_signal(
-            &mut slot,
-            |id| {
-                if *id == 1 {
-                    Err("shared compute queue is retired")
-                } else {
-                    Ok(*id * 10)
-                }
-            },
-            || {
-                created += 1;
-                Some(2)
-            },
-        );
-        assert_eq!(ready, Some(20));
-        assert_eq!(created, 1);
-        assert_eq!(slot, Some(2));
-
-        // Recreation unavailable: returns None (caller must downgrade off SHARED_NTHANDLE
-        // instead of emitting an unsynchronized shared texture with `ready: None`).
-        let mut slot = Some(1u32);
-        let ready = resolve_shared_signal(&mut slot, |_| Err::<u32, _>("retired"), || None);
-        assert_eq!(ready, None);
-        assert_eq!(slot, None);
-    }
-
-    #[test]
-    fn shared_d3d11_downgrade_sets_capture_compute_warning() {
-        use std::sync::{Arc, Mutex};
-        #[derive(Default)]
-        struct Sink(Mutex<Vec<(String, String)>>);
-        impl butterpollo_media_policy::WarningSink for Sink {
-            fn set(&self, key: &str, text: &str) {
-                self.0
-                    .lock()
-                    .unwrap()
-                    .push((key.to_string(), text.to_string()));
-            }
-            fn clear(&self, _key: &str) {}
+/// Copies `source` (or its `crop` subrectangle) into `destination` on `context`.
+///
+/// # Safety
+/// `destination` and `source` must belong to `context`'s D3D11 device with matching format
+/// and bounds covering `crop` (or identical dimensions when `crop` is `None`).
+unsafe fn copy_d3d11_surface(
+    context: &ID3D11DeviceContext,
+    destination: &ID3D11Texture2D,
+    source: &ID3D11Texture2D,
+    crop: Option<Crop>,
+) {
+    // SAFETY: Guaranteed by caller.
+    unsafe {
+        if let Some(crop) = crop {
+            let box_ = crop.d3d11();
+            context.CopySubresourceRegion(destination, 0, 0, 0, 0, source, 0, Some(&box_));
+        } else {
+            context.CopyResource(destination, source);
         }
-        let sink = Arc::new(Sink::default());
-        let mut pool = super::GpuPool {
-            warnings: sink.clone(),
-            shared: true,
-            ..Default::default()
-        };
-        pool.downgrade_shared_d3d11();
-        assert!(!pool.shared);
-        assert!(pool.d3d11_signal.is_none());
-        let recorded = sink.0.lock().unwrap();
-        assert_eq!(recorded.len(), 1);
-        assert_eq!(recorded[0].0, "capture_compute");
-        assert!(recorded[0].1.contains("Shared D3D11 fence unavailable"));
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -730,3 +730,53 @@ fn empty_property_values_do_not_break_profile_parsing() {
     assert_eq!(parsed["LimitDenominator"], None);
     assert_eq!(parsed["SyncLimiter"], Some(2));
 }
+
+#[test]
+fn apply_accepts_canonicalized_zero_and_equivalent_rational_limits() -> Result<()> {
+    type Spec = [Option<Option<u32>>; 3];
+    let to_map = |spec: Spec| -> BTreeMap<String, Option<u32>> {
+        KEYS.into_iter()
+            .zip(spec)
+            .filter_map(|(k, v)| v.map(|val| (k.to_string(), val)))
+            .collect()
+    };
+    let check = |w: Spec, s: Spec| -> Result<()> {
+        let dir = profile_fixture("[Framerate]\nLimit=120\nLimitDenominator=1\n")?;
+        let (wanted, saved) = (to_map(w), to_map(s));
+        apply_with(dir.path(), &wanted, Some(false), true, |req| {
+            write_profile(&req.root, &saved)?;
+            Ok(reply(&saved))
+        })?;
+        Ok(())
+    };
+    let s = |v| Some(Some(v));
+    let n = Some(None);
+    // RTSS 7.3.7 canonicalizes Limit=0 (any denominator), equivalent fractions, and denom 0 as 1.
+    for (w, sv) in [
+        ([s(0), s(1000), s(0)], [s(0), s(1), s(0)]),
+        ([s(0), s(1000), None], [s(0), n, None]),
+        ([s(2997), s(25), s(1)], [s(11988), s(100), s(1)]),
+        ([s(60), s(0), None], [s(60), s(1), None]),
+        ([None, s(1), None], [s(0), s(1000), None]),
+    ] {
+        check(w, sv)?;
+    }
+    // Non-equivalent caps or changed SyncLimiter still fail post-save verification.
+    for (w, sv, key) in [
+        (
+            [s(2997), s(25), None],
+            [s(2997), s(1), None],
+            "LimitDenominator",
+        ),
+        (
+            [None, s(1), None],
+            [s(90), s(1000), None],
+            "LimitDenominator",
+        ),
+        ([s(60), None, s(1)], [s(60), None, s(0)], "SyncLimiter"),
+    ] {
+        let err = check(w, sv).unwrap_err();
+        assert!(err.to_string().contains(key), "{err}");
+    }
+    Ok(())
+}

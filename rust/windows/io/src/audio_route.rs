@@ -69,6 +69,9 @@ struct Active {
     directory: PathBuf,
     sink: String,
     virtual_sink: bool,
+    /// Whether this active route owns `audio-recovery.json` (false for `capture_only` routes,
+    /// which never mutate defaults or overwrite a pending crash-recovery journal).
+    owns_journal: bool,
     users: usize,
     /// The channels each stream asked for; the sink gets the most.
     channels: BTreeMap<u64, usize>,
@@ -275,6 +278,36 @@ impl AudioPreparation<Route> for Arc<Route> {
         self.clone()
     }
 }
+fn acquire_capture_only(
+    active: &mut Option<Active>,
+    config: &Config,
+    directory: &Path,
+    channels: usize,
+    available: &[Endpoint],
+) -> Result<Route> {
+    let configured = config.get("audio_sink", "");
+    let selected =
+        find(available, configured).context("configured capture-only audio sink is unavailable")?;
+    let id = NEXT_ROUTE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut channel_requests = BTreeMap::new();
+    channel_requests.insert(id, channels);
+    *active = Some(Active {
+        directory: directory.into(),
+        sink: selected.id.clone(),
+        virtual_sink: selected.virtual_sink,
+        owns_journal: false,
+        users: 1,
+        channels: channel_requests,
+    });
+    Ok(Route {
+        sink: selected.id.clone(),
+        directory: directory.into(),
+        keep_default: config.boolean("keep_sink_default", true),
+        capture_only: true,
+        virtual_sink: selected.virtual_sink,
+        id,
+    })
+}
 impl Route {
     /// A route that owns no device and restores nothing when dropped. Only
     /// for tests of how long the host keeps a route (the `test-route`
@@ -313,12 +346,15 @@ impl Route {
                 sink: shared.sink.clone(),
                 directory: directory.into(),
                 keep_default: config.boolean("keep_sink_default", true),
-                capture_only,
+                capture_only: capture_only || !shared.owns_journal,
                 virtual_sink: shared.virtual_sink,
                 id: NEXT_ROUTE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             });
         }
         let mut available = endpoints()?;
+        if capture_only {
+            return acquire_capture_only(&mut active, config, directory, channels, &available);
+        }
         // Taken before any driver installation, which can move the defaults.
         // Recording roles already on a host endpoint keep the user's choice.
         let pending = pending(directory);
@@ -497,6 +533,7 @@ impl Route {
             directory: directory.into(),
             sink: selected.id.clone(),
             virtual_sink: managed_virtual,
+            owns_journal: true,
             users: 1,
             channels: channel_requests,
         });
@@ -610,27 +647,37 @@ fn set_channels_with(
     }
     Ok(applied)
 }
+fn release_active(
+    active: &mut Option<Active>,
+    id: u64,
+    restore_fn: impl FnOnce(&Path) -> Result<()>,
+    mark_audio: impl FnOnce(bool) -> Result<()>,
+) {
+    let Some(shared) = active.as_mut() else {
+        return;
+    };
+    shared.users -= 1;
+    // The sink keeps its layout for the streams still on it.
+    shared.channels.remove(&id);
+    if shared.users != 0 {
+        return;
+    }
+    if shared.owns_journal {
+        if let Err(error) = restore_fn(&shared.directory) {
+            tracing::error!(%error, "audio defaults will be restored by crash recovery");
+        } else {
+            let _ = mark_audio(false);
+        }
+    }
+    active.take();
+}
 impl Drop for Route {
     fn drop(&mut self) {
         if self.id == DETACHED {
             return;
         }
         let mut active = ACTIVE.lock().unwrap();
-        let Some(shared) = active.as_mut() else {
-            return;
-        };
-        shared.users -= 1;
-        // The sink keeps its layout for the streams still on it.
-        shared.channels.remove(&self.id);
-        if shared.users != 0 {
-            return;
-        }
-        if let Err(error) = restore(&shared.directory) {
-            tracing::error!(%error, "audio defaults will be restored by crash recovery");
-        } else {
-            let _ = hooks::mark_audio(false);
-        }
-        active.take();
+        release_active(&mut active, self.id, restore, hooks::mark_audio);
     }
 }
 

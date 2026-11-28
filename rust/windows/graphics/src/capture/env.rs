@@ -85,7 +85,6 @@ pub(super) fn switch_on_device_with_vdd(
     })();
     Some(opened.map(|mut capture| {
         capture.owned = std::mem::take(&mut current.owned);
-        capture.owned.sources.clear();
         capture.owned.warnings = warnings;
         Capture::Wgc(Box::new(capture))
     }))

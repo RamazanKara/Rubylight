@@ -141,9 +141,10 @@ impl Injector {
             } else {
                 virtual_hid::apply(&ops[..len]) || (self.inject)(std::slice::from_ref(input)) == 1
             };
-            if applied {
-                sent += 1;
+            if !applied {
+                return sent;
             }
+            sent += 1;
             start = i + 1;
         }
         if start < inputs.len() {

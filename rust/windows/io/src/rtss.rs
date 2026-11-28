@@ -569,6 +569,20 @@ fn property(key: &str) -> Option<&'static CStr> {
 fn default_value(key: &str) -> u32 {
     u32::from(key == "LimitDenominator")
 }
+/// Whether two `(Limit, LimitDenominator)` pairs represent the same RTSS cap:
+/// `Limit = 0` is uncapped for any denominator, `LimitDenominator = 0` acts as `1`,
+/// and equivalent fractions (e.g. `2997/25` and `11988/100`) match.
+pub(crate) fn equivalent_cap(
+    have_limit: u32,
+    have_denominator: u32,
+    want_limit: u32,
+    want_denominator: u32,
+) -> bool {
+    let have_by = u64::from(have_denominator.max(1));
+    let want_by = u64::from(want_denominator.max(1));
+    (have_limit == 0 && want_limit == 0)
+        || u64::from(have_limit) * want_by == u64::from(want_limit) * have_by
+}
 /// Whether `path` points to a local disk path (without touching UNC shares or devices).
 pub(crate) fn is_local_path(path: &Path) -> bool {
     !trust::has_non_disk_prefix(path) && trust::disk_drive_letter(path).is_some()
@@ -696,9 +710,28 @@ fn apply_with(
     })?;
     // SaveProfile rewrote the file that restoration and crash recovery read.
     let saved = properties(&read(root)?)?;
+    let saved_value = |key: &str| {
+        saved
+            .get(key)
+            .copied()
+            .flatten()
+            .unwrap_or_else(|| default_value(key))
+    };
+    let same_cap = || {
+        let have_limit = saved_value("Limit");
+        let have_denominator = saved_value("LimitDenominator");
+        let want_limit = set.get("Limit").copied().unwrap_or(have_limit);
+        let want_denominator = set
+            .get("LimitDenominator")
+            .copied()
+            .unwrap_or(have_denominator);
+        equivalent_cap(have_limit, have_denominator, want_limit, want_denominator)
+    };
     for (key, value) in &set {
+        let actual = saved_value(key);
         ensure!(
-            saved[key].unwrap_or_else(|| default_value(key)) == *value,
+            actual == *value
+                || (matches!(key.as_str(), "Limit" | "LimitDenominator") && same_cap()),
             "RTSS saved a different {key} than the requested {value}"
         );
     }

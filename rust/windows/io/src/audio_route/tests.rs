@@ -342,6 +342,7 @@ fn surround_fallback_drops_714_to_71_and_rechecks_cleanly() -> Result<()> {
         directory: dir.path().to_path_buf(),
         sink: "{virtual}".into(),
         virtual_sink: true,
+        owns_journal: true,
         users: 1,
         channels: BTreeMap::from([(1, 8)]),
     });
@@ -410,6 +411,7 @@ fn failed_surround_preserves_journal_format_and_shared_channels_for_teardown() -
         directory: dir.path().to_path_buf(),
         sink: "{virtual}".into(),
         virtual_sink: true,
+        owns_journal: true,
         users: 1,
         channels: BTreeMap::from([(1, 2)]),
     });
@@ -504,6 +506,7 @@ fn set_channels_refuses_to_alter_unclaimed_sink_format() -> Result<()> {
         directory: dir.path().to_path_buf(),
         sink: "{virtual}".into(),
         virtual_sink: true,
+        owns_journal: true,
         users: 1,
         channels: BTreeMap::from([(1, 2)]),
     });
@@ -516,5 +519,107 @@ fn set_channels_refuses_to_alter_unclaimed_sink_format() -> Result<()> {
     assert_eq!(policy.format("{virtual}")?, stereo_orig);
     let saved: Journal = serde_json::from_slice(&std::fs::read(path(dir.path()))?)?;
     assert!(saved.format.is_none());
+    Ok(())
+}
+
+#[test]
+fn capture_only_route_preserves_pending_recovery_journal_and_skips_restore_on_drop() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let pending = Journal {
+        before: [
+            Some("{speakers}".into()),
+            Some("{speakers}".into()),
+            Some("{headset}".into()),
+        ],
+        applied: "{virtual}".into(),
+        format: Some(FormatChange {
+            id: "{virtual}".into(),
+            before: vec![1, 2],
+            applied: vec![3, 4],
+        }),
+        capture_before: [Some("{mic}".into()), None, None],
+    };
+    save(dir.path(), &pending)?;
+    let before_bytes = std::fs::read(path(dir.path()))?;
+
+    let config = Config::parse("audio_sink={sink}\naudio_sink_capture_only=true\n")?;
+    let endpoints = [Endpoint {
+        id: "{sink}".into(),
+        name: "Capture Sink".into(),
+        description: "Capture Sink".into(),
+        adapter: "Realtek".into(),
+        default: false,
+        virtual_sink: false,
+    }];
+    // Acquire under `capture_only`: must not overwrite `audio-recovery.json` and marks
+    // `owns_journal = false`.
+    let route = {
+        let mut active = ACTIVE.lock().unwrap();
+        let route = acquire_capture_only(&mut active, &config, dir.path(), 2, &endpoints)?;
+        assert!(!active.as_ref().unwrap().owns_journal);
+        route
+    };
+    assert!(route.capture_only);
+    assert_eq!(std::fs::read(path(dir.path()))?, before_bytes);
+
+    // Dropping the real Route must clear `ACTIVE` without restoring defaults or clearing
+    // the pending crash-recovery journal.
+    drop(route);
+    assert!(ACTIVE.lock().unwrap().is_none());
+    assert_eq!(std::fs::read(path(dir.path()))?, before_bytes);
+
+    // Verify `release_active` directly: non-owner skips restore & mark_audio(false);
+    // owner runs both once the last user leaves.
+    let mut non_owner = Some(Active {
+        directory: dir.path().into(),
+        sink: "{sink}".into(),
+        virtual_sink: false,
+        owns_journal: false,
+        users: 1,
+        channels: BTreeMap::from([(1, 2)]),
+    });
+    let mut restored = 0usize;
+    let mut marked = Vec::new();
+    release_active(
+        &mut non_owner,
+        1,
+        |_| {
+            restored += 1;
+            Ok(())
+        },
+        |on| {
+            marked.push(on);
+            Ok(())
+        },
+    );
+    assert!(non_owner.is_none());
+    assert_eq!(restored, 0);
+    assert!(marked.is_empty());
+
+    let mut owner = Some(Active {
+        directory: dir.path().into(),
+        sink: "{virtual}".into(),
+        virtual_sink: true,
+        owns_journal: true,
+        users: 2,
+        channels: BTreeMap::from([(1, 2), (2, 6)]),
+    });
+    release_active(&mut owner, 1, |_| unreachable!(), |_| unreachable!());
+    assert_eq!(owner.as_ref().unwrap().users, 1);
+    release_active(
+        &mut owner,
+        2,
+        |_| {
+            restored += 1;
+            Ok(())
+        },
+        |on| {
+            marked.push(on);
+            Ok(())
+        },
+    );
+    assert!(owner.is_none());
+    assert_eq!(restored, 1);
+    assert_eq!(marked, [false]);
     Ok(())
 }

@@ -431,3 +431,113 @@ fn async_teardown_sends_eos_with_registered_completion_event() -> Result<()> {
     assert_clean();
     Ok(())
 }
+
+#[test]
+fn async_teardown_waits_for_eos_completion_event_before_unregistering() -> Result<()> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    // Exercise both the dedicated `drain_event` path (all slots pending) and the idle-slot
+    // event path (a second slot's registered event carries EOS).
+    for idle_slot in [false, true] {
+        reset();
+        let signaled = Arc::new(AtomicBool::new(false));
+        state(|d| {
+            d.asynchronous = true;
+            d.eos_delay_ms = 20;
+            d.eos_signaled = Some(signaled.clone());
+        });
+        let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+        let slot0 = input(&mut encoder, 77)?;
+        if idle_slot {
+            let _slot1 = input(&mut encoder, 78)?;
+        }
+        encoder.submit(slot0, None, true, Instant::now())?;
+        assert!(
+            encoder.close_with_wait(Duration::from_secs(1)),
+            "idle_slot={idle_slot}"
+        );
+        assert!(
+            signaled.load(Ordering::Acquire),
+            "teardown must wait for EOS completionEvent to signal (idle_slot={idle_slot})"
+        );
+        state(|d| {
+            let eos = d.calls.iter().position(|c| *c == "eos").unwrap();
+            let unregister = d
+                .calls
+                .iter()
+                .position(|c| *c == "unregister event")
+                .unwrap();
+            let destroy = d
+                .calls
+                .iter()
+                .position(|c| *c == "destroy session")
+                .unwrap();
+            assert!(eos < unregister && unregister < destroy);
+        });
+        assert_clean();
+    }
+    Ok(())
+}
+
+#[test]
+fn async_teardown_retains_events_and_slots_on_eos_timeout() -> Result<()> {
+    use windows::Win32::{Foundation::WAIT_TIMEOUT, System::Threading::WaitForSingleObject};
+    for idle_slot in [false, true] {
+        reset();
+        state(|d| {
+            d.asynchronous = true;
+            d.hold_eos_event = true;
+        });
+        let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+        let slot0 = input(&mut encoder, 91)?;
+        if idle_slot {
+            let _slot1 = input(&mut encoder, 92)?;
+        }
+        encoder.submit(slot0, None, true, Instant::now())?;
+        assert!(
+            !encoder.close_with_wait(Duration::from_millis(15)),
+            "timed-out async EOS must report unclean close (idle_slot={idle_slot})"
+        );
+        let eos_handle = state(|d| {
+            assert!(
+                !d.calls.iter().any(|c| matches!(
+                    *c,
+                    "unregister event" | "destroy output" | "unregister input"
+                )),
+                "must not unregister/destroy resources after EOS wait timed out"
+            );
+            assert!(d.calls.contains(&"destroy session"));
+            HANDLE(d.eos_pictures.last().unwrap().completionEvent)
+        });
+        drop(encoder);
+        // SAFETY: `eos_handle` must have been retained rather than closed via CloseHandle, so a
+        // zero-timeout wait reports WAIT_TIMEOUT instead of WAIT_FAILED (invalid handle).
+        assert_eq!(
+            unsafe { WaitForSingleObject(eos_handle, 0) },
+            WAIT_TIMEOUT,
+            "timed-out EOS event handle must stay open until process exit (idle_slot={idle_slot})"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn async_teardown_skips_eos_wait_when_driver_rejects_eos() -> Result<()> {
+    reset();
+    state(|d| {
+        d.asynchronous = true;
+        d.hold_eos_event = true;
+        d.eos_status = Some(_NVENCSTATUS_NV_ENC_ERR_GENERIC);
+    });
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    let slot = input(&mut encoder, 95)?;
+    encoder.submit(slot, None, true, Instant::now())?;
+    let started = Instant::now();
+    assert!(encoder.close_with_wait(Duration::from_secs(2)));
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "rejected EOS must not stall for the full wait budget"
+    );
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}

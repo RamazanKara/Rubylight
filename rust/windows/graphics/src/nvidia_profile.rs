@@ -227,11 +227,15 @@ type FindApplication =
     unsafe extern "C" fn(Handle, *mut u16, *mut Handle, *mut Application1) -> i32;
 type DriverVersion = unsafe extern "C" fn(*mut u32, *mut [u8; 64]) -> i32;
 
-/// NVAPI's DRS entry points, from `nvapi64.dll`'s query interface.
-pub(crate) struct NvApi {
+/// Process-wide NVAPI runtime: `nvapi64.dll` is loaded and initialized once
+/// and kept for the life of the process (never unloading mid-process, matching
+/// `adlx_system`). Every DRS session runs while holding `RUNTIME`'s mutex so
+/// threads never race process-global NVAPI state.
+struct NvApiRuntime {
     _library: libloading::Library,
-    unload: Status0,
     error_message: Option<ErrorMessage>,
+    create_session: CreateSession,
+    load_settings: SessionCall,
     destroy_session: SessionCall,
     save_settings: SessionCall,
     find_profile: FindProfile,
@@ -245,19 +249,38 @@ pub(crate) struct NvApi {
     /// For RTX HDR's driver profile tuning.
     find_application: Option<FindApplication>,
     driver_version: Option<DriverVersion>,
-    session: Handle,
 }
 
-impl NvApi {
-    /// Loads NVAPI and the driver settings. `None` when the PC has no NVIDIA
-    /// driver or GPU.
-    pub(crate) fn open() -> Result<Option<Self>> {
+// SAFETY: Every function pointer belongs to `_library`, which stays loaded once
+// installed in `RUNTIME`, and callers access the runtime only under `RUNTIME`'s mutex.
+unsafe impl Send for NvApiRuntime {}
+
+static RUNTIME: std::sync::Mutex<Option<NvApiRuntime>> = std::sync::Mutex::new(None);
+
+/// Acquires `slot`'s mutex, initializing the singleton with `init` once and keeping
+/// it alive for the process lifetime. `Ok(None)` and `Err` leave `slot` uninitialized.
+fn acquire_singleton<'a, R>(
+    slot: &'a std::sync::Mutex<Option<R>>,
+    init: impl FnOnce() -> Result<Option<R>>,
+) -> Result<Option<std::sync::MutexGuard<'a, Option<R>>>> {
+    let mut guard = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.is_none() {
+        let Some(runtime) = init()? else {
+            return Ok(None);
+        };
+        *guard = Some(runtime);
+    }
+    Ok(Some(guard))
+}
+
+impl NvApiRuntime {
+    fn init() -> Result<Option<Self>> {
         let Ok(library) = crate::nvenc::system_library("nvapi64.dll") else {
             return Ok(None);
         };
         // SAFETY: The interface IDs are NVAPI's documented ones (nvapi_interface.h) and each
         // pointer is cast to that function's documented C signature. `library` moves into the
-        // returned value, so the pointers stay loaded while it lives.
+        // returned runtime and is kept loaded for the life of the process.
         unsafe {
             let query = *library
                 .get::<QueryInterface>(b"nvapi_QueryInterface\0")
@@ -273,11 +296,10 @@ impl NvApi {
                 Ok(unsafe { std::mem::transmute_copy::<*mut c_void, T>(&pointer) })
             }
             let initialize: Status0 = resolve(query, 0x0150_E828, "NvAPI_Initialize")?;
-            let unload: Status0 = resolve(query, 0xD22B_DD7E, "NvAPI_Unload")?;
             let error_message: Option<ErrorMessage> =
                 resolve(query, 0x6C2D_048C, "NvAPI_GetErrorMessage").ok();
-            // Every entry point is resolved before NVAPI initialises, so a
-            // missing one never leaves it initialised without an unload.
+            // Every entry point is resolved before NVAPI initializes, so a
+            // missing one never leaves NVAPI initialized on error.
             let destroy_session = resolve(query, 0xDAD9_CFF8, "NvAPI_DRS_DestroySession")?;
             let save_settings = resolve(query, 0xFCBC_7E14, "NvAPI_DRS_SaveSettings")?;
             let find_profile = resolve(query, 0x7E4A_9A0B, "NvAPI_DRS_FindProfileByName")?;
@@ -295,16 +317,19 @@ impl NvApi {
                 resolve(query, 0x2926_AAAD, "NvAPI_SYS_GetDriverAndBranchVersion").ok();
             let find_application: Option<FindApplication> =
                 resolve(query, 0xEEE5_66B2, "NvAPI_DRS_FindApplicationByName").ok();
-            let create: CreateSession = resolve(query, 0x0694_D52E, "NvAPI_DRS_CreateSession")?;
-            let load: SessionCall = resolve(query, 0x375D_BD6B, "NvAPI_DRS_LoadSettings")?;
+            let create_session: CreateSession =
+                resolve(query, 0x0694_D52E, "NvAPI_DRS_CreateSession")?;
+            let load_settings: SessionCall = resolve(query, 0x375D_BD6B, "NvAPI_DRS_LoadSettings")?;
             match initialize() {
                 OK => {}
                 NVIDIA_DEVICE_NOT_FOUND | LIBRARY_NOT_FOUND => return Ok(None),
                 status => bail!("NvAPI_Initialize failed with status {status}"),
             }
-            let mut api = Self {
-                unload,
+            Ok(Some(Self {
+                _library: library,
                 error_message,
+                create_session,
+                load_settings,
                 destroy_session,
                 save_settings,
                 find_profile,
@@ -317,16 +342,47 @@ impl NvApi {
                 global_profile,
                 find_application,
                 driver_version,
-                session: std::ptr::null_mut(),
-                _library: library,
-            };
-            let mut session = std::ptr::null_mut();
-            let status = create(&mut session);
+            }))
+        }
+    }
+}
+
+/// Exclusive DRS session backed by the process-wide NVAPI singleton.
+pub(crate) struct NvApi {
+    guard: std::sync::MutexGuard<'static, Option<NvApiRuntime>>,
+    session: Handle,
+}
+
+impl NvApi {
+    fn runtime(&self) -> &NvApiRuntime {
+        self.guard
+            .as_ref()
+            .expect("NvApi::open initializes RUNTIME")
+    }
+
+    /// Acquires the process-wide NVAPI lock (initializing NVAPI once on first use)
+    /// and opens a fresh DRS session. `None` when the PC has no NVIDIA driver or GPU.
+    pub(crate) fn open() -> Result<Option<Self>> {
+        let Some(guard) = acquire_singleton(&RUNTIME, NvApiRuntime::init)? else {
+            return Ok(None);
+        };
+        let mut api = Self {
+            guard,
+            session: std::ptr::null_mut(),
+        };
+        let mut session = std::ptr::null_mut();
+        // SAFETY: `RUNTIME` is initialized and exclusively locked by `api.guard`;
+        // `session` is a live out-parameter and Drop destroys it before releasing the lock.
+        unsafe {
+            let status = (api.runtime().create_session)(&mut session);
             api.session = session;
             api.check(status, "NvAPI_DRS_CreateSession")?;
-            api.check(load(api.session), "NvAPI_DRS_LoadSettings")?;
-            Ok(Some(api))
+            api.check(
+                (api.runtime().load_settings)(api.session),
+                "NvAPI_DRS_LoadSettings",
+            )?;
         }
+        Ok(Some(api))
     }
 
     fn check(&self, status: i32, operation: &str) -> Result<()> {
@@ -335,6 +391,7 @@ impl NvApi {
         }
         let mut text = [0u8; 64];
         let message = self
+            .runtime()
             .error_message
             // SAFETY: `text` is NVAPI's 64-byte short string, which it NUL-terminates.
             .filter(|get| unsafe { get(status, text.as_mut_ptr()) } == OK)
@@ -347,6 +404,7 @@ impl NvApi {
     /// The profile the NVIDIA Control Panel's Global Settings tab edits.
     pub(crate) fn global_profile(&self) -> Result<Handle> {
         let get = self
+            .runtime()
             .global_profile
             .ok_or_else(|| anyhow!("the NVIDIA driver has no global profile entry point"))?;
         let mut profile = std::ptr::null_mut();
@@ -361,6 +419,7 @@ impl NvApi {
     /// name), `None` when no profile names it.
     pub(crate) fn application_profile(&self, executable: &str) -> Result<Option<Handle>> {
         let find = self
+            .runtime()
             .find_application
             .ok_or_else(|| anyhow!("the NVIDIA driver has no application lookup"))?;
         let mut name = unicode(executable);
@@ -382,7 +441,7 @@ impl NvApi {
 
     /// The driver version as NVIDIA numbers it, 571.86 as 57186.
     pub(crate) fn driver_version(&self) -> Option<u32> {
-        let get = self.driver_version?;
+        let get = self.runtime().driver_version?;
         let mut version = 0u32;
         let mut branch = [0u8; 64];
         // SAFETY: Both are live out-parameters; `branch` is NVAPI's 64-byte short string.
@@ -392,13 +451,11 @@ impl NvApi {
 
 impl Drop for NvApi {
     fn drop(&mut self) {
-        // SAFETY: `session` came from NvAPI_DRS_CreateSession on this loaded NVAPI, and NVAPI
-        // is unloaded after it, once.
-        unsafe {
-            if !self.session.is_null() {
-                (self.destroy_session)(self.session);
-            }
-            (self.unload)();
+        if !self.session.is_null() {
+            // SAFETY: `session` came from `NvAPI_DRS_CreateSession` on this live singleton,
+            // and `self.guard` still holds the process-wide NVAPI mutex.
+            unsafe { (self.runtime().destroy_session)(self.session) };
+            self.session = std::ptr::null_mut();
         }
     }
 }
@@ -409,7 +466,9 @@ impl Drs for NvApi {
         let mut name = unicode(name);
         let mut profile = std::ptr::null_mut();
         // SAFETY: `name` is a full NvAPI_UnicodeString and `profile` a live out-parameter.
-        match unsafe { (self.find_profile)(self.session, name.as_mut_ptr(), &mut profile) } {
+        match unsafe {
+            (self.runtime().find_profile)(self.session, name.as_mut_ptr(), &mut profile)
+        } {
             OK => Ok(Some(profile)),
             PROFILE_NOT_FOUND => Ok(None),
             status => self
@@ -423,7 +482,8 @@ impl Drs for NvApi {
         info.name = unicode(name);
         let mut profile = std::ptr::null_mut();
         // SAFETY: `info` is a versioned NVDRS_PROFILE_V1 and `profile` a live out-parameter.
-        let status = unsafe { (self.create_profile)(self.session, &mut *info, &mut profile) };
+        let status =
+            unsafe { (self.runtime().create_profile)(self.session, &mut *info, &mut profile) };
         self.check(status, "NvAPI_DRS_CreateProfile")?;
         Ok(profile)
     }
@@ -433,8 +493,9 @@ impl Drs for NvApi {
         info.version = version::<Application1>(1);
         // SAFETY: `profile` came from this session, `name` is a full NvAPI_UnicodeString and
         // `info` a versioned NVDRS_APPLICATION_V1.
-        let status =
-            unsafe { (self.get_application)(self.session, profile, name.as_mut_ptr(), &mut *info) };
+        let status = unsafe {
+            (self.runtime().get_application)(self.session, profile, name.as_mut_ptr(), &mut *info)
+        };
         match status {
             OK => Ok(true),
             EXECUTABLE_NOT_FOUND => Ok(false),
@@ -450,14 +511,16 @@ impl Drs for NvApi {
         info.friendly_name = unicode(name);
         // SAFETY: `profile` came from this session and `info` is a versioned
         // NVDRS_APPLICATION_V1.
-        let status = unsafe { (self.create_application)(self.session, profile, &mut *info) };
+        let status =
+            unsafe { (self.runtime().create_application)(self.session, profile, &mut *info) };
         self.check(status, "NvAPI_DRS_CreateApplication")
     }
     fn setting(&mut self, profile: Handle, id: u32) -> Result<Option<Value>> {
         let mut setting = zeroed::<Setting1>();
         setting.version = version::<Setting1>(1);
         // SAFETY: `profile` came from this session and `setting` is a versioned NVDRS_SETTING_V1.
-        let status = unsafe { (self.get_setting)(self.session, profile, id, &mut *setting) };
+        let status =
+            unsafe { (self.runtime().get_setting)(self.session, profile, id, &mut *setting) };
         match status {
             OK => Ok(Some(Value {
                 value: setting.current[0],
@@ -476,19 +539,19 @@ impl Drs for NvApi {
         setting.current[0] = value;
         // SAFETY: `profile` came from this session and `setting` is a versioned DWORD
         // NVDRS_SETTING_V1.
-        let status = unsafe { (self.set_setting)(self.session, profile, &mut *setting) };
+        let status = unsafe { (self.runtime().set_setting)(self.session, profile, &mut *setting) };
         self.check(status, "NvAPI_DRS_SetSetting")
     }
     fn delete_setting(&mut self, profile: Handle, id: u32) -> Result<()> {
         // SAFETY: `profile` came from this session.
-        match unsafe { (self.delete_setting)(self.session, profile, id) } {
+        match unsafe { (self.runtime().delete_setting)(self.session, profile, id) } {
             SETTING_NOT_FOUND => Ok(()),
             status => self.check(status, "NvAPI_DRS_DeleteProfileSetting"),
         }
     }
     fn save(&mut self) -> Result<()> {
         // SAFETY: `session` is this loaded NVAPI's open DRS session.
-        let status = unsafe { (self.save_settings)(self.session) };
+        let status = unsafe { (self.runtime().save_settings)(self.session) };
         self.check(status, "NvAPI_DRS_SaveSettings")
     }
 }
@@ -674,5 +737,59 @@ mod tests {
         if crate::nvenc::system_library("nvapi64.dll").is_err() {
             assert!(NvApi::open().unwrap().is_none());
         }
+    }
+
+    #[test]
+    fn nvapi_singleton_initializes_once_serializes_threads_and_never_unloads() {
+        use std::sync::{
+            Barrier, Mutex,
+            atomic::{AtomicUsize, Ordering},
+        };
+        // Never look up or call NvAPI unload mid-process (same invariant as `adlx_system`).
+        let source = include_str!("nvidia_profile.rs");
+        assert!(!source.contains(&["NvAPI_", "Unload"].concat()));
+        assert!(!source.contains(&["0xD22B_", "DD7E"].concat()));
+
+        struct FakeRuntime(&'static AtomicUsize);
+        impl Drop for FakeRuntime {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+        let slot: Mutex<Option<FakeRuntime>> = Mutex::new(None);
+        let inits = AtomicUsize::new(0);
+        let active = AtomicUsize::new(0);
+        let max_active = AtomicUsize::new(0);
+        let barrier = Barrier::new(4);
+
+        // Missing driver / error leaves the singleton uninitialized for later retry.
+        assert!(acquire_singleton(&slot, || Ok(None)).unwrap().is_none());
+        assert!(acquire_singleton(&slot, || bail!("transient")).is_err());
+
+        std::thread::scope(|s| {
+            for _ in 0..4 {
+                s.spawn(|| {
+                    barrier.wait();
+                    for _ in 0..8 {
+                        let guard = acquire_singleton(&slot, || {
+                            inits.fetch_add(1, Ordering::SeqCst);
+                            Ok(Some(FakeRuntime(&DROPS)))
+                        })
+                        .unwrap()
+                        .unwrap();
+                        let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        max_active.fetch_max(now, Ordering::SeqCst);
+                        std::thread::yield_now();
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        drop(guard);
+                    }
+                });
+            }
+        });
+        assert_eq!(inits.load(Ordering::SeqCst), 1);
+        assert_eq!(max_active.load(Ordering::SeqCst), 1);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 0);
+        std::mem::forget(slot);
     }
 }

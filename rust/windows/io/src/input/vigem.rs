@@ -87,6 +87,44 @@ struct PendingIo(OVERLAPPED, #[allow(dead_code)] Vec<u8>);
 // on the associated event finishes.
 unsafe impl Send for PendingIo {}
 
+/// Hands an in-flight timed-out overlapped IO buffer and replaced event handle
+/// to a reaper thread; if spawning fails (or replacing the event fails), retries
+/// `cancel_and_wait` synchronously and leaks any still-in-flight `pending`/`stale`
+/// rather than freeing memory or closing a handle the kernel IRP still references.
+fn abandon_io_with<P: Send + 'static>(
+    pending: P,
+    event: &mut OwnedHandle,
+    cancel_and_wait: impl FnOnce(&P, HANDLE) -> bool,
+    spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> std::io::Result<()>,
+) {
+    if let Ok(fresh) = self::event() {
+        let stale = std::mem::replace(event, fresh);
+        let slot = std::sync::Arc::new(std::sync::Mutex::new(Some((pending, stale))));
+        let worker_slot = slot.clone();
+        let spawned = spawn(Box::new(move || {
+            if let Some((pending, stale)) = worker_slot.lock().unwrap().take() {
+                // SAFETY: `stale` is owned by this thread until dropped below after completion.
+                let _ = unsafe { WaitForSingleObject(handle(&stale), INFINITE) };
+                drop(pending);
+                drop(stale);
+            }
+        }));
+        if let Err(error) = spawned
+            && let Some((pending, stale)) = slot.lock().unwrap().take()
+            && !cancel_and_wait(&pending, handle(&stale))
+        {
+            tracing::warn!(
+                %error,
+                "could not spawn ViGEm cancel thread; retaining in-flight IO buffer and event"
+            );
+            std::mem::forget(pending);
+            std::mem::forget(stale);
+        }
+    } else if !cancel_and_wait(&pending, handle(event)) {
+        std::mem::forget(pending);
+    }
+}
+
 fn control(bus: HANDLE, code: u32, data: Vec<u8>) -> Result<()> {
     let mut ev = event()?;
     control_with(bus, &mut ev, code, data, CONTROL_TIMEOUT_MS)
@@ -110,7 +148,8 @@ fn control_with(
     let mut transferred = 0;
     // SAFETY: `pending` lives on the heap for the entire IRP; if cancellation does not finish
     // within `CANCEL_WAIT_MS`, ownership of both `pending` and the replaced event handle moves to
-    // a detached waiter thread rather than blocking the caller or freeing in-flight kernel buffers.
+    // a detached waiter thread (or is leaked after a retry if spawn fails) rather than blocking
+    // the caller or freeing in-flight kernel buffers.
     unsafe {
         let started = DeviceIoControl(
             bus,
@@ -135,18 +174,20 @@ fn control_with(
                 }
                 bail!("ViGEmBus request {code:#x} timed out");
             }
-            if let Ok(fresh) = self::event() {
-                let stale = std::mem::replace(event, fresh);
-                let _ = std::thread::Builder::new()
-                    .name("vigem-cancel".into())
-                    .spawn(move || {
-                        let _ = WaitForSingleObject(handle(&stale), INFINITE);
-                        drop(pending);
-                        drop(stale);
-                    });
-            } else {
-                std::mem::forget(pending);
-            }
+            abandon_io_with(
+                pending,
+                event,
+                |pending, stale| {
+                    let _ = CancelIoEx(bus, Some(&pending.0));
+                    WaitForSingleObject(stale, CANCEL_WAIT_MS) == WAIT_OBJECT_0
+                },
+                |task| {
+                    std::thread::Builder::new()
+                        .name("vigem-cancel".into())
+                        .spawn(task)
+                        .map(|_| ())
+                },
+            );
             bail!("ViGEmBus request {code:#x} timed out");
         }
         GetOverlappedResult(bus, &pending.0, &mut transferred, false)?;
@@ -417,6 +458,11 @@ struct Target {
     notification: Option<Notification>,
     ds4: Option<Ds4>,
 }
+#[cfg(test)]
+thread_local! {
+    static UNPLUG_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl Target {
     /// Sends a DualShock 4's report as it is at `now`, on `event`.
     fn send_ds4(&mut self, event: &mut OwnedHandle, now: Instant) -> Result<()> {
@@ -431,6 +477,8 @@ impl Target {
         ))
     }
     fn unplug(&mut self) -> Result<()> {
+        #[cfg(test)]
+        UNPLUG_ATTEMPTS.with(|count| count.set(count.get() + 1));
         control(self.bus, UNPLUG, packet(8, self.serial))?;
         self.notification = None;
         self.serial = 0;
@@ -494,6 +542,8 @@ impl Client {
                 slot,
                 "could not unplug the previous ViGEm target; replacing it anyway"
             );
+            // Prevent `Target::drop` from immediately retrying the same wedged unplug.
+            previous.serial = 0;
         }
         let kind = if profile == VIGEM_DS4 {
             Kind::Ds4

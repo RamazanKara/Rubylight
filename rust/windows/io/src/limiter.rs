@@ -241,7 +241,6 @@ fn confirmed(
     applying: bool,
 ) -> std::result::Result<Vec<String>, String> {
     let value = |map: &BTreeMap<String, Option<u32>>, key: &str| map.get(key).copied().flatten();
-    let cap = |limit: u32, denominator: u32| (u64::from(limit), u64::from(denominator.max(1)));
     let same_cap = || {
         let (Some(limit), Some(denominator)) = (
             value(reported, "Limit"),
@@ -257,9 +256,7 @@ fn confirmed(
             Some(wanted) => wanted.unwrap_or(1),
             None => denominator,
         };
-        let (have, have_by) = cap(limit, denominator);
-        let (want, want_by) = cap(wanted_limit, wanted_denominator);
-        (have == 0 && want == 0) || have * want_by == want * have_by
+        rtss::equivalent_cap(limit, denominator, wanted_limit, wanted_denominator)
     };
     let mut unsupported = Vec::new();
     for (key, want) in wanted {

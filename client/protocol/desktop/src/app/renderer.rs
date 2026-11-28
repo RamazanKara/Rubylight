@@ -194,11 +194,7 @@ impl App {
     /// The gui's textures back on the window's renderer, off a stream's overlay plane renderer
     /// (`kms_scanout`) before that renderer goes.
     pub(crate) fn gui_back_from_overlay(&mut self) {
-        if !self.gui_overlay.is_null() {
-            self.gui.release_renderer();
-            self.gui.renderer_changed();
-            self.gui_overlay = std::ptr::null_mut();
-        }
+        overlay_back_to_main(&mut self.gui_overlay, &mut self.gui, &mut self.hosts, &mut self.launcher);
     }
 
     /// Before a stream's checks on Linux: switches to the GPU renderer when the stream needs it
@@ -456,14 +452,7 @@ impl App {
         unsafe { SDL_SetRenderVSync(made, 1) };
         self.renderer = made;
         self.gui.renderer_changed();
-        self.hosts.renderer_changed();
-        self.launcher.renderer_changed(&self.gui.ctx);
-        #[cfg(feature = "demo-library")]
-        {
-            let mut hosts_view = self.hosts.ui_view();
-            ui::demo::covers(&mut hosts_view, &self.gui.ctx);
-            self.hosts.apply_ui_demo(hosts_view);
-        }
+        reset_launcher_textures(&mut self.hosts, &mut self.launcher, &self.gui.ctx);
         self.launcher.gpu_device = renderer_gpu_device(made).map(|d| d.0 as usize);
         self.color_probed = None;
         self.base_probed = None;
@@ -659,14 +648,7 @@ impl App {
         }
         self.renderer = made;
         self.gui.renderer_changed();
-        self.hosts.renderer_changed();
-        self.launcher.renderer_changed(&self.gui.ctx);
-        #[cfg(feature = "demo-library")]
-        {
-            let mut hosts_view = self.hosts.ui_view();
-            ui::demo::covers(&mut hosts_view, &self.gui.ctx);
-            self.hosts.apply_ui_demo(hosts_view);
-        }
+        reset_launcher_textures(&mut self.hosts, &mut self.launcher, &self.gui.ctx);
         self.launcher.gpu_device = renderer_gpu_device(made).map(|d| d.0 as usize);
         self.launcher.tearing_supported =
             media::swapchain_allows_tearing(sdl::renderer_pointer(made, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER));

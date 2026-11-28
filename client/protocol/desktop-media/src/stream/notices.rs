@@ -26,6 +26,9 @@ impl Streaming {
                 Notice::DecoderFailed(text) => {
                     self.exit.get_or_insert(Exit::Ended(Some(text)));
                 }
+                Notice::RenderDeviceLost(text) => {
+                    self.note_render_device_lost(text);
+                }
                 Notice::MicrophoneFailed(text) => {
                     self.microphone = None;
                     self.microphone_muted = true;

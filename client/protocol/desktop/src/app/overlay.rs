@@ -59,6 +59,57 @@ impl ControllerAudioCache {
     }
 }
 
+/// Resets cached host covers and launcher textures (`hosts` covers/ambients and `launcher`
+/// logo/backdrop) after the GUI released or changed renderers.
+pub(crate) fn reset_launcher_textures(hosts: &mut Hosts, launcher: &mut Launcher, ctx: &egui::Context) {
+    hosts.renderer_changed();
+    launcher.renderer_changed(ctx);
+    #[cfg(feature = "demo-library")]
+    {
+        let mut hosts_view = hosts.ui_view();
+        ui::demo::covers(&mut hosts_view, ctx);
+        hosts.apply_ui_demo(hosts_view);
+    }
+}
+
+/// Switches `gui` textures between the main window `main_renderer` and a stream overlay plane
+/// `renderer` (`kms_scanout`), returning whether textures were released and owners must reset.
+pub(crate) fn switch_overlay_target(
+    gui_overlay: &mut *mut SDL_Renderer,
+    main_renderer: *mut SDL_Renderer,
+    renderer: *mut SDL_Renderer,
+    gui: &mut Gui,
+    overlay: &mut StreamOverlay,
+) -> bool {
+    let target = if renderer == main_renderer { std::ptr::null_mut() } else { renderer };
+    if target == *gui_overlay {
+        return false;
+    }
+    gui.release_renderer();
+    gui.renderer_changed();
+    overlay.curtain_art = None;
+    *gui_overlay = target;
+    true
+}
+
+/// Moves `gui`, `hosts` covers, and `launcher` textures off an overlay plane renderer back onto
+/// the main window's renderer (`kms_scanout`).
+pub(crate) fn overlay_back_to_main(
+    gui_overlay: &mut *mut SDL_Renderer,
+    gui: &mut Gui,
+    hosts: &mut Hosts,
+    launcher: &mut Launcher,
+) -> bool {
+    if gui_overlay.is_null() {
+        return false;
+    }
+    gui.release_renderer();
+    gui.renderer_changed();
+    reset_launcher_textures(hosts, launcher, &gui.ctx);
+    *gui_overlay = std::ptr::null_mut();
+    true
+}
+
 /// UI-owned in-stream menu/overlay state lifted off [`stream::Streaming`].
 #[derive(Default)]
 pub(crate) struct StreamOverlay {

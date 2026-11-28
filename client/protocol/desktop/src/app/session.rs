@@ -498,16 +498,12 @@ impl App {
         let dir = self.screenshot_dir.clone();
         let main_renderer = self.renderer;
         let gui_overlay = &mut self.gui_overlay;
+        let mut released_textures = false;
         let overlay = &mut self.overlay;
         streaming.present(renderer, |s, renderer| {
             // The overlay draws into a display plane's own renderer while the planes show the
             // stream (`kms_scanout`): the gui's textures move to the renderer it draws with.
-            let target = if renderer == main_renderer { std::ptr::null_mut() } else { renderer };
-            if target != *gui_overlay {
-                gui.release_renderer();
-                gui.renderer_changed();
-                *gui_overlay = target;
-            }
+            released_textures |= switch_overlay_target(gui_overlay, main_renderer, renderer, gui, overlay);
             // In a video-only frame on a PQ output the overlay's meshes write PQ themselves.
             gui.set_window_state(s.ui_state(renderer));
             shortcuts_changed = draw_overlay(gui, window, renderer, s, overlay, &mut pads.pads(), shortcuts);
@@ -523,6 +519,9 @@ impl App {
                 }
             }
         });
+        if released_textures {
+            reset_launcher_textures(&mut self.hosts, &mut self.launcher, &self.gui.ctx);
+        }
         self.pads = pads.take_back();
         // A shortcut saved or deleted in the stream menu lands in the same file as the settings' list.
         if shortcuts_changed

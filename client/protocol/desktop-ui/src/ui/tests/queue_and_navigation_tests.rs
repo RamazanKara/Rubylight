@@ -171,10 +171,13 @@ fn back_returns_to_the_screen_and_the_item_it_left() {
     assert_eq!(l.screen, Screen::Home);
     assert_eq!(l.restore_key.as_deref(), Some("game:steam:570"));
     assert!(l.focus_screen, "the first item takes focus if the remembered one is gone");
-    // Home is the end of the line: the keyboard's Escape does nothing there, a controller's B
-    // asks to close Nightjar.
+    // Home is the end of the line: both keyboard Escape and controller B ask to close Nightjar,
+    // and pressing Escape or B again dismisses the prompt without quitting.
     l.back(&mut commands, false);
-    assert!(matches!(l.dialog, Dialog::None) && l.screen == Screen::Home, "Escape on Home stays harmless");
+    assert_eq!(l.screen, Screen::Home);
+    assert!(matches!(l.dialog, Dialog::ConfirmExit));
+    l.back(&mut commands, false);
+    assert!(matches!(l.dialog, Dialog::None) && commands.is_empty(), "a second Escape keeps Nightjar open");
     l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home);
     assert!(matches!(l.dialog, Dialog::ConfirmExit));
@@ -202,6 +205,10 @@ fn back_ends_on_home_when_it_is_on_and_on_the_pcs_when_it_is_not() {
 
     let mut empty = launcher(true, false);
     empty.go(Screen::Hosts);
+    empty.back(&mut commands, false);
+    assert!(empty.screen == Screen::Hosts && matches!(empty.dialog, Dialog::ConfirmExit));
+    empty.back(&mut commands, false);
+    assert!(empty.screen == Screen::Hosts && matches!(empty.dialog, Dialog::None));
     empty.back(&mut commands, true);
     assert_eq!(empty.screen, Screen::Hosts, "no library, no Home to go back to");
 }

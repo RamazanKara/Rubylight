@@ -591,3 +591,98 @@ impl DecodeBridge {
         (self.decode_counter.load(Ordering::Acquire), self.reuse_counter.load(Ordering::Acquire), in_use)
     }
 }
+
+#[test]
+fn choose_reuse_slot_never_picks_unflushed_slot_while_headroom_exists() {
+    let slots = [(true, 1), (true, 2), (false, 5)];
+    assert_eq!(choose_reuse_slot(&slots, 1, 3, 2, HARD_SLOT_CAP), SlotChoice::Alloc);
+    let capped = vec![(false, 5); HARD_SLOT_CAP];
+    assert_eq!(choose_reuse_slot(&capped, 1, 3, 2, HARD_SLOT_CAP), SlotChoice::Exhausted);
+    let flushed_slots = [(true, 1), (false, 5), (false, 4)];
+    assert_eq!(choose_reuse_slot(&flushed_slots, 1, 5, 2, HARD_SLOT_CAP), SlotChoice::Reuse(2));
+}
+
+#[test]
+fn device_removed_hresult_matches_dxgi_reset_and_hung_codes() {
+    use windows::Win32::Graphics::Dxgi::{
+        DXGI_ERROR_DEVICE_HUNG, DXGI_ERROR_DEVICE_REMOVED, DXGI_ERROR_DEVICE_RESET,
+        DXGI_ERROR_DRIVER_INTERNAL_ERROR, DXGI_ERROR_WAS_STILL_DRAWING,
+    };
+    assert!(is_device_removed_code(DXGI_ERROR_DEVICE_REMOVED.0));
+    assert!(is_device_removed_code(DXGI_ERROR_DEVICE_HUNG.0));
+    assert!(is_device_removed_code(DXGI_ERROR_DEVICE_RESET.0));
+    assert!(is_device_removed_code(DXGI_ERROR_DRIVER_INTERNAL_ERROR.0));
+    assert!(!is_device_removed_code(DXGI_ERROR_WAS_STILL_DRAWING.0));
+    assert!(!is_device_removed_code(0));
+}
+
+#[test]
+fn decode_bridge_off_thread_drop_allocates_instead_of_stalling_and_removal_stops_immediately() {
+    let Ok((renderer, _)) = make_device(D3D_DRIVER_TYPE_HARDWARE) else {
+        return;
+    };
+    let pictures = Pictures { ten_bit: false, chroma444: false, waiting: 0, ..Pictures::default() };
+    let bridge = DecodeBridge::new(&renderer, pictures).expect("DecodeBridge");
+    let mut src_tex = None;
+    unsafe {
+        bridge.decode_device().CreateTexture2D(
+            &D3D11_TEXTURE2D_DESC {
+                Width: 16, Height: 16, MipLevels: 1, ArraySize: 1, Format: DXGI_FORMAT_NV12,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                Usage: D3D11_USAGE_DEFAULT, BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+                ..Default::default()
+            },
+            None,
+            Some(&mut src_tex),
+        ).unwrap();
+    }
+    let src_tex = src_tex.unwrap();
+    let mut fake: AVFrame = unsafe { std::mem::zeroed() };
+    fake.data[0] = src_tex.as_raw().cast();
+
+    // Queue a short-lived gate fence on `render_queue` so `signal_read_on_renderer()`'s reuse
+    // signal cannot complete on the GPU before the off-thread `SlotLease::drop` checks it.
+    let (gate_dec, gate_ren) = create_shared_fence_pair(
+        &bridge.decode_device.cast::<ID3D11Device5>().unwrap(),
+        &renderer.cast::<ID3D11Device5>().unwrap(),
+        "test-gate",
+    ).unwrap();
+    struct GateGuard(ID3D11DeviceContext, ID3D11DeviceContext4, ID3D11Fence);
+    impl Drop for GateGuard {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = self.1.Signal(&self.2, 1);
+                self.0.Flush();
+            }
+        }
+    }
+    let _gate = GateGuard(bridge.decode_context.clone(), bridge.decode_queue.clone(), gate_dec);
+
+    let shared = unsafe { bridge.export(&fake) }.expect("first export");
+    shared.wait_on_renderer().expect("wait");
+    unsafe { bridge.render_queue.Wait(&gate_ren, 1).unwrap() };
+    shared.signal_read_on_renderer();
+    std::thread::spawn(move || drop(shared)).join().unwrap();
+    assert!(bridge.pending_flush.load(Ordering::Acquire) > 0);
+    assert_eq!(bridge.flushed_reuse.load(Ordering::Acquire), 0);
+
+    let second = unsafe { bridge.export(&fake) }.expect("second export allocates fresh slot");
+    assert_eq!(bridge.pool.lock().unwrap().pool.as_ref().unwrap().slots.len(), 2);
+
+    drop(_gate);
+    second.wait_on_renderer().expect("flushes pending");
+    assert!(bridge.flushed_reuse.load(Ordering::Acquire) > 0);
+    drop(second);
+
+    bridge.decode_removed.store(true, Ordering::Release);
+    assert_eq!(bridge.check_removed(), D3d11Removal::DecodeOnly);
+    assert!(unsafe { bridge.export(&fake) }.is_err(), "removed bridge fails export immediately");
+    assert!(bridge.take_removal_log_once(), "first removal log prints");
+    assert!(!bridge.take_removal_log_once(), "subsequent frames do not spam logs");
+
+    let reuse_before = bridge.reuse_counter.load(Ordering::Acquire);
+    let shared3 = SharedFrame { lease: Arc::new(SlotLease { bridge: bridge.clone(), slot: bridge.pool.lock().unwrap().pool.as_ref().unwrap().slots[0].clone() }), decode_value: 1 };
+    assert!(shared3.wait_on_renderer().is_err());
+    shared3.signal_read_on_renderer();
+    assert_eq!(bridge.reuse_counter.load(Ordering::Acquire), reuse_before);
+}

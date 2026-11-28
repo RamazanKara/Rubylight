@@ -96,6 +96,10 @@ pub struct Decoder {
     /// When the FFmpeg decoder was installed (session clock, us): pictures ready before that are
     /// another decoder's.
     installed_us: u64,
+    /// D3D11VA decode device already rebuilt once after device removal since the last picture.
+    d3d11_rebuilt: bool,
+    /// D3D11 removal observed during `decode_frame`, consumed by `submit`.
+    pub(super) last_d3d11_removal: media::D3d11Removal,
 }
 
 impl Decoder {
@@ -132,6 +136,8 @@ impl Decoder {
             stands_in: None,
             refused: Vec::new(),
             installed_us: 0,
+            d3d11_rebuilt: false,
+            last_d3d11_removal: media::D3d11Removal::None,
         }
     }
 
@@ -221,6 +227,52 @@ impl Decoder {
     /// The stream's hardware decoder when it has made no picture since it was opened.
     fn never_pictured_hardware(&self) -> Option<Hardware> {
         self.decoder.as_ref().map(|decoder| decoder.hardware).filter(|&backend| backend != Hardware::None && !self.pictured)
+    }
+
+    /// Responds immediately when D3D11 device removal/hang/reset breaks decoding instead of
+    /// waiting through a 1-second retry storm and a futile same-device `reopen`.
+    fn d3d11_device_failed(&mut self, removed: media::D3d11Removal) {
+        if removed == media::D3d11Removal::RendererLost || self._device.is_removed() {
+            eprintln!("nightjar: D3D11 device was lost; stopping decoder for renderer recovery");
+            self.decoder = None;
+            self.in_flight.clear();
+            self.failing.given_up = true;
+            self.shared.notify(Notice::RenderDeviceLost(
+                crate::strings::tr(crate::render_device::lost_reason()).to_owned(),
+            ));
+            return;
+        }
+        let Some(setup) = self.setup else { return };
+        self.in_flight.clear();
+        self.reused = false;
+        if !self.d3d11_rebuilt {
+            self.d3d11_rebuilt = true;
+            eprintln!("nightjar: D3D11VA decode device was removed; rebuilding on a fresh video device");
+            self.failing = Failing { reopened: true, rebuilt: true, ..Failing::default() };
+            self.rebuild(&setup);
+            return;
+        }
+        let backend = self.decoder.as_ref().map_or(self.hardware, |d| d.hardware);
+        eprintln!("nightjar: rebuilt D3D11VA decode device failed again; falling back to the next decoder");
+        self.replace_refused(backend);
+        self.failing = Failing::default();
+    }
+
+    pub(super) fn after_frame_checked(
+        &mut self,
+        decoded: bool,
+        need_idr: bool,
+        removed: media::D3d11Removal,
+        now_us: u64,
+    ) {
+        if removed != media::D3d11Removal::None {
+            self.d3d11_device_failed(removed);
+            return;
+        }
+        if decoded {
+            self.d3d11_rebuilt = false;
+        }
+        self.after_frame(decoded, need_idr, now_us);
     }
 
     /// Counts a submitted frame towards [`Failing`]: a picture starts over, and a frame that failed
@@ -572,9 +624,11 @@ impl VideoDecoder for Decoder {
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
         let pictures = self.shared.counters.decoded.load(Ordering::Relaxed);
         self.lost = false;
+        self.last_d3d11_removal = media::D3d11Removal::None;
         let status = self.decode_frame(frame);
         let decoded = self.shared.counters.decoded.load(Ordering::Relaxed) != pictures;
-        self.after_frame(decoded, status == DecodeStatus::NeedIdr, session::now_us());
+        let removed = std::mem::take(&mut self.last_d3d11_removal);
+        self.after_frame_checked(decoded, status == DecodeStatus::NeedIdr, removed, session::now_us());
         status
     }
 

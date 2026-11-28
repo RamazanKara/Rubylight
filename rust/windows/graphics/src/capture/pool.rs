@@ -17,6 +17,9 @@ pub enum Pixel {
     Rgba10Pq,
 }
 
+#[cfg(test)]
+type CopiedD3d11Frame = (std::sync::Arc<ID3D11Texture2D>, u32, u32, Pixel);
+
 impl Pixel {
     /// Convert a DXGI texture format into a host [`Pixel`] when supported.
     pub fn try_from_dxgi(format: DXGI_FORMAT) -> Option<Self> {
@@ -515,7 +518,7 @@ impl GpuPool {
         context: &ID3D11DeviceContext,
         source: &ID3D11Texture2D,
         crop: Option<Crop>,
-    ) -> Result<Option<(std::sync::Arc<ID3D11Texture2D>, u32, u32, Pixel)>> {
+    ) -> Result<Option<CopiedD3d11Frame>> {
         let mut desc = D3D11_TEXTURE2D_DESC::default();
         // SAFETY: `source` is a live D3D11 texture on `device`.
         unsafe { source.GetDesc(&mut desc) };

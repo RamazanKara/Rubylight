@@ -43,7 +43,9 @@ async fn pending_pairing_requests_expire_and_pin_submission_selects_one_device()
             StatusCode::BAD_REQUEST,
         )
         .await;
-        assert_eq!(f.host.pins.lock().unwrap().len(), 3);
+        let pins = f.host.pins.lock().unwrap();
+        assert_eq!(pins.len(), 2);
+        assert!(pins.contains_key("first") && pins.contains_key("second"));
     }
     value(
         request(

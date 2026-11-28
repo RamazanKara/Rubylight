@@ -315,7 +315,7 @@ async fn issue_session(
     headers: &HeaderMap,
     connection: &Connection,
     previous: Option<web_sessions::WebSession>,
-) -> Result<(Response, String), Response> {
+) -> (Response, Option<String>) {
     let username = h
         .credentials
         .read()
@@ -348,13 +348,19 @@ async fn issue_session(
         Ok(tokens) => tokens,
         Err(e) => {
             if e.is::<web_sessions::Rotated>() {
-                return Err(error(StatusCode::UNAUTHORIZED, "refresh token expired"));
+                return (
+                    error(StatusCode::UNAUTHORIZED, "refresh token expired"),
+                    None,
+                );
             }
             tracing::error!(error=%e, "browser session could not be persisted");
-            return Err(error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "browser session could not be saved",
-            ));
+            return (
+                error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "browser session could not be saved",
+                ),
+                None,
+            );
         }
     };
     let ttl = ttl.min(refresh_ttl);
@@ -378,7 +384,7 @@ async fn issue_session(
                 .unwrap(),
         );
     }
-    Ok((r, csrf))
+    (r, Some(csrf))
 }
 
 async fn issued(
@@ -389,16 +395,16 @@ async fn issued(
     connection: &Connection,
     previous: Option<web_sessions::WebSession>,
 ) -> Response {
-    match issue_session(h, username, remember_me, headers, connection, previous).await {
-        Ok((r, _)) | Err(r) => r,
-    }
+    issue_session(h, username, remember_me, headers, connection, previous)
+        .await
+        .0
 }
 
 async fn refresh_browser_with_csrf(
     h: &Shared,
     headers: &HeaderMap,
     connection: &Connection,
-) -> Option<Result<(Response, String), Response>> {
+) -> Option<(Response, Option<String>)> {
     let token = cookie(headers, "__Host-apollo_refresh")?;
     let previous = h.find_refresh_session(&token)?;
     Some(
@@ -421,9 +427,7 @@ pub(crate) async fn refresh_browser(
 ) -> Option<Response> {
     refresh_browser_with_csrf(h, headers, connection)
         .await
-        .map(|res| match res {
-            Ok((r, _)) | Err(r) => r,
-        })
+        .map(|(r, _)| r)
 }
 
 pub(super) async fn status(h: &Shared, headers: &HeaderMap, connection: &Connection) -> Response {
@@ -612,7 +616,7 @@ pub(super) async fn csrf_token(
     }
     let configured = h.credentials.read().unwrap().is_some();
     if configured
-        && let Some(Ok((issued, csrf))) = refresh_browser_with_csrf(h, headers, connection).await
+        && let Some((issued, Some(csrf))) = refresh_browser_with_csrf(h, headers, connection).await
     {
         let mut result =
             Json(json!({"status":true,"csrf_token":csrf,"token":csrf})).into_response();

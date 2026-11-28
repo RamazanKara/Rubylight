@@ -511,9 +511,9 @@ fn async_teardown_retains_events_and_slots_on_eos_timeout() -> Result<()> {
         drop(encoder);
         // SAFETY: `eos_handle` must have been retained rather than closed via CloseHandle, so a
         // zero-timeout wait reports WAIT_TIMEOUT instead of WAIT_FAILED (invalid handle).
+        let wait_result = unsafe { WaitForSingleObject(eos_handle, 0) };
         assert_eq!(
-            unsafe { WaitForSingleObject(eos_handle, 0) },
-            WAIT_TIMEOUT,
+            wait_result, WAIT_TIMEOUT,
             "timed-out EOS event handle must stay open until process exit (idle_slot={idle_slot})"
         );
     }

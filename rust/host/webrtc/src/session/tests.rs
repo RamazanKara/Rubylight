@@ -502,8 +502,21 @@ async fn late_stop_streams_refusal_emits_failed_host_session_status() {
         },
     };
 
+    let hold_launch_transition = || {
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let host = f.host.clone();
+        let handle = std::thread::spawn(move || {
+            let _guard = host.launch_transition.lock().unwrap();
+            let _ = locked_tx.send(());
+            let _ = release_rx.recv();
+        });
+        locked_rx.recv().unwrap();
+        (release_tx, handle)
+    };
+
     // 1. Late refusal during `switch` (after Resuming is already announced) must emit Failed.
-    let guard = f.host.launch_transition.lock().unwrap();
+    let (release_lock, lock_thread) = hold_launch_transition();
     assert!(commands.send(Command::Switch(req)));
     let announced = tokio::time::timeout(Duration::from_secs(2), out_rx.recv())
         .await
@@ -525,7 +538,8 @@ async fn late_stop_streams_refusal_emits_failed_host_session_status() {
         .unwrap()
         .active
         .insert(other_stream.launch.id.clone(), other_stream.clone());
-    drop(guard);
+    drop(release_lock);
+    lock_thread.join().unwrap();
     let failed = tokio::time::timeout(Duration::from_secs(2), out_rx.recv())
         .await
         .unwrap()
@@ -549,7 +563,7 @@ async fn late_stop_streams_refusal_emits_failed_host_session_status() {
         .remove(&other_stream.launch.id);
 
     // 2. Late refusal during `stop-host-session` (after Stopping is announced) must emit Failed.
-    let guard = f.host.launch_transition.lock().unwrap();
+    let (release_lock, lock_thread) = hold_launch_transition();
     assert!(commands.send(Command::StopHost));
     let announced = tokio::time::timeout(Duration::from_secs(2), out_rx.recv())
         .await
@@ -562,8 +576,19 @@ async fn late_stop_streams_refusal_emits_failed_host_session_status() {
             ..
         }
     ));
+    let remote_monitor = butterpollo_stream::state::Session::new(
+        f.launch(other_device.clone(), Role::InputOnly),
+        Default::default(),
+    );
+    f.host
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .insert(remote_monitor.launch.id.clone(), remote_monitor.clone());
     f.host.current_app.lock().unwrap().as_mut().unwrap().owner = other_device.uuid.clone();
-    drop(guard);
+    drop(release_lock);
+    lock_thread.join().unwrap();
     let failed = tokio::time::timeout(Duration::from_secs(2), out_rx.recv())
         .await
         .unwrap()
@@ -579,6 +604,12 @@ async fn late_stop_streams_refusal_emits_failed_host_session_status() {
         ),
         "late stop-host refusal must emit HostSessionState::Failed, got {failed:?}"
     );
+    f.host
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&remote_monitor.launch.id);
     assert!(commands.send(Command::Stop));
     drop(commands);
     f.host.stop.store(true, Ordering::Release);

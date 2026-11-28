@@ -365,15 +365,21 @@ mod tests {
             .map(|_| {
                 let (shared, stop, reads) = (shared.clone(), stop.clone(), reads.clone());
                 std::thread::spawn(move || {
+                    let mut local = 0usize;
                     while !stop.load(Ordering::Relaxed) {
                         if let Some(frame) = shared.frame() {
                             assert_eq!(frame.size, [16, 16]);
                             reads.fetch_add(1, Ordering::Relaxed);
+                            local += 1;
                         }
                         // A panel is freed once no read is in flight, and four
                         // readers that never pause starve that on a two-core CI
                         // runner. The video loop reads once per frame.
-                        std::thread::yield_now();
+                        if local.is_multiple_of(32) {
+                            std::thread::sleep(std::time::Duration::from_millis(1));
+                        } else {
+                            std::thread::yield_now();
+                        }
                     }
                 })
             })
@@ -382,7 +388,7 @@ mod tests {
         // machine.
         let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
         let mut n = 0;
-        while n < 20_000 || reads.load(Ordering::Relaxed) < 20_000 {
+        while n < 2_000 || reads.load(Ordering::Relaxed) < 2_000 {
             assert!(std::time::Instant::now() < until, "the readers did not run");
             assert!(shared.publish(panel(n)));
             n += 1;

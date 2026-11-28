@@ -691,6 +691,9 @@ impl<'a> Combo<'a> {
 
     pub fn show_ui<R>(self, ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<Option<R>> {
         let under = ui.painter().add(egui::Shape::Noop);
+        // The id egui will give the list's first option, read before it is drawn so a controller
+        // or the keyboard can land on it the moment the list opens (`focus_first_option`).
+        let mut first_option = None;
         let shown = ui.scope(|ui| {
             ui.spacing_mut().interact_size.y = COMBO_HEIGHT;
             let widgets = &mut ui.visuals_mut().widgets;
@@ -698,9 +701,13 @@ impl<'a> Combo<'a> {
                 look.weak_bg_fill = Color32::TRANSPARENT;
                 look.bg_stroke = Stroke::NONE;
             }
-            self.0.show_ui(ui, add)
+            self.0.show_ui(ui, |ui| {
+                first_option = Some(ui.next_auto_id());
+                add(ui)
+            })
         });
         let response = &shown.inner.response;
+        focus_first_option(ui, response, first_option);
         let (rect, round) = (response.rect, response.rect.height() / 2.0);
         let mut shapes = Vec::new();
         glass::control(&mut shapes, ui.ctx(), rect, round);
@@ -709,6 +716,24 @@ impl<'a> Combo<'a> {
         ui.painter().set(under, egui::Shape::Vec(shapes));
         focus_ring(ui, rect, response, round as u8);
         shown.inner
+    }
+}
+
+/// egui leaves focus on the combo button when its list opens, so a controller or the keyboard has
+/// to press Down once before the first option is highlighted, as if an empty option sat above it.
+/// When the list opens from a key press (not a pointer click), move focus onto its first option at
+/// once. Only on the opening frame: navigating the open list, and a pointer, are left as they were.
+fn focus_first_option(ui: &Ui, button: &Response, first_option: Option<egui::Id>) {
+    let open = egui::ComboBox::is_open(ui.ctx(), button.id);
+    let was_open = ui.data_mut(|d| {
+        let key = button.id.with("combo-was-open");
+        let was = d.get_temp::<bool>(key).unwrap_or(false);
+        d.insert_temp(key, open);
+        was
+    });
+    let by_key = ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Space));
+    if open && !was_open && by_key && let Some(first) = first_option {
+        ui.ctx().memory_mut(|m| m.request_focus(first));
     }
 }
 

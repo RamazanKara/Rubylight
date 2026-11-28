@@ -503,6 +503,19 @@ fn a_launch_that_failed_on_its_decoder_says_why() {
     assert!(matches!(plain.poll(), Err(ConnectFailed::Message(message)) if message == "Could not start the stream"));
 }
 
+#[test]
+fn a_render_device_lost_notice_is_kept_across_connect_poll() {
+    let (sender, result) = channel();
+    let mut pending = connecting(result, None);
+    pending.shared.notify(Notice::RenderDeviceLost("DXGI reset".into()));
+    assert!(matches!(pending.poll(), Ok(None)));
+    let kept = std::mem::take(&mut *pending.shared.notices.lock().unwrap());
+    assert!(matches!(kept.as_slice(), [Notice::RenderDeviceLost(reason)] if reason == "DXGI reset"));
+    pending.shared.notify(Notice::RenderDeviceLost("DXGI reset".into()));
+    sender.send(Err(ConnectError { message: "Could not start the stream".into(), retryable: false, asks_replace: false, moved_to: None, packed_refused: false, cause: None })).unwrap();
+    assert!(matches!(pending.poll(), Err(ConnectFailed::Message(message)) if message == "DXGI reset"));
+}
+
 // An automatic reconnect still tests the route first: a remote, VPN or tunnelled path uses the
 // route's stock size and never the size a local session negotiated.
 #[test]

@@ -625,6 +625,10 @@ impl DecodeBridge {
                             self.device_error("shared reuse fence", e)
                         })?
                 {
+                    if let Some(reason) = device_removed_reason(&self.render_device) {
+                        self.render_removed.store(true, Ordering::Release);
+                        return Err(format!("waiting on shared reuse fence: renderer device removed ({reason})"));
+                    }
                     if need_reuse > self.flushed_reuse.load(Ordering::Acquire) {
                         return Err("shared reuse fence signal pending renderer flush".into());
                     }

@@ -38,6 +38,11 @@ pub(crate) fn open_audio_encoder(
 type Route = butterpollo_win_io::audio_route::Route;
 use butterpollo_win_io::audio_route::notify;
 
+/// Whether `launch` may publish its audio route as the running app's shared `h.app_audio`.
+fn retains_app_audio(launch: &Launch) -> bool {
+    launch.role == Role::Stream && launch.guest().is_none()
+}
+
 /// The `audio_surround` warning when the device has fewer channels (`applied`)
 /// than the capture `requested`. They differ from the client's own layout only
 /// for headphone surround, which captures surround for a stereo client.
@@ -417,10 +422,11 @@ impl Media {
                     ) {
                         Ok(value) => {
                             let value = Arc::new(value);
-                            if s.launch.role == Role::Stream
+                            if retains_app_audio(&s.launch)
                                 && h.current_app.lock().unwrap().is_some()
                             {
-                                *h.app_audio.lock().unwrap() = Some(value.clone());
+                                let previous = h.app_audio.lock().unwrap().replace(value.clone());
+                                drop(previous);
                             }
                             route = Some(value);
                         }
@@ -785,3 +791,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod guest_route_tests;

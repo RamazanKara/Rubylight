@@ -246,6 +246,9 @@ pub struct Guests {
     requests: Vec<Request>,
     /// The devices whose place the owner revoked: refused until the game ends.
     revoked: Vec<String>,
+    /// Launches of guests pruned by expiry inside [`Self::admit`] or [`Self::approve`],
+    /// drained by [`Self::expire`] so the host still stops their streams.
+    expired_launches: Vec<String>,
     next_id: u32,
     /// Counts every change, so a client polling the list can tell it changed.
     version: u64,
@@ -290,7 +293,12 @@ impl Guests {
             _ => false,
         };
         if !same_game {
-            let ended = self.guests.drain(..).filter_map(|g| g.launch).collect();
+            let ended = self
+                .guests
+                .drain(..)
+                .filter_map(|g| g.launch)
+                .chain(self.expired_launches.drain(..))
+                .collect();
             self.requests.clear();
             self.revoked.clear();
             self.game = game.map(|(generation, _)| generation.to_owned());
@@ -327,12 +335,11 @@ impl Guests {
         if self.revoked.iter().any(|d| d == device) {
             return Admission::Refused(Refusal::Revoked);
         }
-        // An expired place is no place: the host's sweep ([`Guests::expire`]) ends its stream.
-        if let Some(guest) = self
-            .guests
-            .iter_mut()
-            .find(|g| g.device == device && !g.expired(now))
-        {
+        // Evict expired guests before capacity and re-grant checks so expired
+        // entries neither cause false `Refusal::Full` nor duplicate entries;
+        // their launches stay queued for [`Self::expire`] to stop.
+        self.prune_expired(now);
+        if let Some(guest) = self.guests.iter_mut().find(|g| g.device == device) {
             if guest.name != name {
                 guest.name = name.to_owned();
             }
@@ -452,6 +459,7 @@ impl Guests {
         lifetime: Option<Duration>,
         now: u64,
     ) -> bool {
+        self.prune_expired(now);
         if lifetime.is_some_and(|l| !(MIN_LIFETIME..=MAX_LIFETIME).contains(&l))
             || self.guests.len() >= MAX_GUESTS
         {
@@ -592,18 +600,23 @@ impl Guests {
         true
     }
 
-    /// Forgets the guests whose time ended, returning the launches to stop.
-    #[must_use = "stop the returned guests' streams"]
-    pub fn expire(&mut self, now: u64) -> Vec<String> {
+    fn prune_expired(&mut self, now: u64) {
         let (expired, live): (Vec<_>, Vec<_>) = std::mem::take(&mut self.guests)
             .into_iter()
             .partition(|g| g.expired(now));
         self.guests = live;
-        if expired.is_empty() {
-            return Vec::new();
+        if !expired.is_empty() {
+            self.expired_launches
+                .extend(expired.into_iter().filter_map(|g| g.launch));
+            self.changed();
         }
-        self.changed();
-        expired.into_iter().filter_map(|g| g.launch).collect()
+    }
+
+    /// Forgets the guests whose time ended, returning the launches to stop.
+    #[must_use = "stop the returned guests' streams"]
+    pub fn expire(&mut self, now: u64) -> Vec<String> {
+        self.prune_expired(now);
+        std::mem::take(&mut self.expired_launches)
     }
 
     /// Whether any guest streams now: input from streams is checked against guest permissions and
@@ -695,3 +708,6 @@ impl Kbm {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod expire_tests;

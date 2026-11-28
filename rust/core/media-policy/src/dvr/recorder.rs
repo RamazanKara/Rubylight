@@ -11,6 +11,13 @@ use super::{AudioPacket, ParamSets, StreamInfo, VideoCodec, VideoFrame};
 
 /// Buffered video that makes a fragment.
 pub const FRAGMENT_US: u64 = 2_000_000;
+/// Maximum audio duration kept ahead of the newest recorded video frame before dropping
+/// excess packets while video is stalled or paused.
+pub const MAX_BUFFERED_AUDIO_US: u64 = FRAGMENT_US * 2;
+/// Maximum encoded audio payload bytes buffered in memory awaiting a video fragment flush.
+pub const MAX_BUFFERED_AUDIO_BYTES: usize = 4 * 1024 * 1024;
+/// Maximum encoded audio packets buffered in memory awaiting a video fragment flush.
+pub const MAX_BUFFERED_AUDIO_PACKETS: usize = 4096;
 
 #[derive(Debug)]
 pub enum RecPush {
@@ -52,6 +59,8 @@ pub struct Recorder {
     sequence: u32,
     video: Vec<VideoFrame>,
     audio: Vec<AudioPacket>,
+    audio_bytes: usize,
+    last_video_pts_us: u64,
     video_clock: VideoTimeline,
     audio_clock: AudioTimeline,
     bytes: u64,
@@ -88,6 +97,8 @@ impl Recorder {
             sequence: 1,
             video: vec![first_idr],
             audio: Vec::new(),
+            audio_bytes: 0,
+            last_video_pts_us: start_us,
             video_clock: VideoTimeline::new(start_us),
             audio_clock: AudioTimeline::new(start_us),
             bytes: init.len() as u64,
@@ -123,6 +134,7 @@ impl Recorder {
             .first()
             .is_some_and(|first| frame.pts_us.saturating_sub(first.pts_us) >= FRAGMENT_US);
         let next_pts = frame.pts_us;
+        self.last_video_pts_us = self.last_video_pts_us.max(next_pts);
         if due {
             let fragment = self.flush(Some(next_pts));
             self.video.push(frame);
@@ -133,9 +145,20 @@ impl Recorder {
     }
 
     pub fn push_audio(&mut self, packet: AudioPacket) {
-        if self.info.audio.is_some() && packet.pts_us >= self.start_us {
-            self.audio.push(packet);
+        if self.info.audio.is_none() || self.awaiting || packet.pts_us < self.start_us {
+            return;
         }
+        if packet.pts_us.saturating_sub(self.last_video_pts_us) > MAX_BUFFERED_AUDIO_US {
+            return;
+        }
+        let len = packet.data.len();
+        if self.audio.len() >= MAX_BUFFERED_AUDIO_PACKETS
+            || self.audio_bytes.saturating_add(len) > MAX_BUFFERED_AUDIO_BYTES
+        {
+            return;
+        }
+        self.audio_bytes += len;
+        self.audio.push(packet);
     }
 
     /// A tap packet was lost: video waits for the next keyframe.
@@ -146,6 +169,13 @@ impl Recorder {
     /// Bytes handed out so far (init segment and fragments).
     pub fn bytes(&self) -> u64 {
         self.bytes
+    }
+
+    /// Encoded video and audio payload bytes currently buffered in memory awaiting the next
+    /// fragment flush.
+    pub fn buffered_bytes(&self) -> u64 {
+        let video: u64 = self.video.iter().map(|frame| frame.data.len() as u64).sum();
+        video.saturating_add(self.audio_bytes as u64)
     }
 
     /// Recorded video duration so far, including buffered frames.
@@ -172,6 +202,7 @@ impl Recorder {
         });
         let rest = self.audio.split_off(cut);
         let packets = std::mem::replace(&mut self.audio, rest);
+        self.audio_bytes = self.audio.iter().map(|packet| packet.data.len()).sum();
         if frames.is_empty() && packets.is_empty() {
             return Vec::new();
         }
@@ -238,5 +269,89 @@ impl Recorder {
                 ten_bit: self.ten_bit,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod bounded_audio_tests {
+    use super::*;
+    use crate::dvr::OpusConfig;
+    use std::sync::Arc;
+
+    const H264_SPS: &[u8] = &[
+        0x67, 0x64, 0x00, 0x0c, 0xac, 0xd9, 0x43, 0x44, 0x79, 0x65, 0xc0, 0x44, 0x00, 0x00, 0x03,
+        0x00, 0x04, 0x00, 0x00, 0x03, 0x00, 0xf0, 0x3c, 0x50, 0xa6, 0x58,
+    ];
+    const H264_PPS: &[u8] = &[0x68, 0xeb, 0xe3, 0xcb, 0x22, 0xc0];
+
+    fn info_with_audio() -> StreamInfo {
+        StreamInfo {
+            codec: VideoCodec::H264,
+            hdr: None,
+            audio: Some(OpusConfig::stereo()),
+        }
+    }
+
+    fn idr(pts_us: u64) -> VideoFrame {
+        let mut data = Vec::new();
+        for unit in [H264_SPS, H264_PPS, &[0x65, 0x88, 0x84, 0x21, 0x01]] {
+            data.extend_from_slice(&[0, 0, 0, 1]);
+            data.extend_from_slice(unit);
+        }
+        VideoFrame::new(pts_us, true, data)
+    }
+
+    fn audio(pts_us: u64, bytes: usize) -> AudioPacket {
+        AudioPacket {
+            pts_us,
+            samples: 240,
+            data: Arc::new(vec![0xaa; bytes]),
+        }
+    }
+
+    #[test]
+    fn static_video_bounds_audio_queue_by_duration_and_bytes_and_recovers_after_flush() {
+        let info = info_with_audio();
+        let (mut rec, _) = Recorder::start(&info, idr(0)).unwrap();
+        let video_bytes = rec.buffered_bytes();
+
+        // Push audio far past MAX_BUFFERED_AUDIO_US with no video arriving.
+        for i in 0..2_000u64 {
+            rec.push_audio(audio(i * 5_000, 200));
+        }
+        assert!(rec.audio.len() <= (MAX_BUFFERED_AUDIO_US / 5_000) as usize + 1);
+        assert!(rec.audio_bytes <= MAX_BUFFERED_AUDIO_BYTES);
+        assert_eq!(rec.buffered_bytes(), video_bytes + rec.audio_bytes as u64);
+
+        // Once video resumes past FRAGMENT_US, flush drains the audio and resets the budget.
+        assert!(matches!(
+            rec.push_video(&info, idr(FRAGMENT_US + 500_000)),
+            RecPush::Fragment(_)
+        ));
+        assert!(rec.audio_bytes < 500_000);
+        assert_eq!(
+            rec.audio_bytes,
+            rec.audio.iter().map(|p| p.data.len()).sum::<usize>()
+        );
+
+        // While awaiting a keyframe after discontinuity, audio is dropped rather than buffered.
+        let before = rec.audio.len();
+        rec.discontinuity();
+        rec.push_audio(audio(FRAGMENT_US + 510_000, 200));
+        assert_eq!(rec.audio.len(), before);
+    }
+
+    #[test]
+    fn oversized_audio_burst_is_capped_by_byte_budget() {
+        let info = info_with_audio();
+        let (mut rec, _) = Recorder::start(&info, idr(0)).unwrap();
+        for i in 0..100u64 {
+            rec.push_audio(audio(i * 1_000, 128 * 1024));
+        }
+        assert!(rec.audio_bytes <= MAX_BUFFERED_AUDIO_BYTES);
+        assert_eq!(
+            rec.audio_bytes,
+            (MAX_BUFFERED_AUDIO_BYTES / (128 * 1024)) * 128 * 1024
+        );
     }
 }

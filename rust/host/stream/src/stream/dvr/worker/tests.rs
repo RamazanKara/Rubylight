@@ -226,3 +226,45 @@ fn spawn_failure_answers_reply_with_io_error() {
         })
     ));
 }
+
+#[test]
+fn buffered_recording_audio_counts_toward_live_quota_and_enforces_limit_when_video_stalls() {
+    let f = crate::state::test_support::Fixture::new();
+    let root = ScratchDir::new("audio-quota");
+    let dir = root.0.join("clips");
+    // Quota allows starting the recording (~1 KB init segment) and a small amount of audio,
+    // then trips when buffered audio pushes projected usage past 4 KiB without a video flush.
+    let quota_limit = 4096;
+    let shared = Shared::new("dvr-audio-quota", "Game".into(), 60, dir, quota_limit);
+    let limits = Limits {
+        max_us: 60_000_000,
+        max_bytes: 1 << 20,
+    };
+    let mut worker = Worker::new(f.host.clone(), Weak::new(), shared.clone(), limits);
+    worker.info.audio = Some(OpusConfig::stereo());
+    assert_eq!(worker.start_recording(), Ok(()));
+    worker.video(h264_idr(0, true), false);
+    assert!(worker.recording.is_some());
+
+    // Push a small audio packet within quota and verify live quota includes buffered bytes.
+    let written = worker.recording.as_ref().unwrap().written();
+    worker.recording.as_mut().unwrap().audio(AudioPacket {
+        pts_us: 10_000,
+        samples: 240,
+        data: Arc::new(vec![0x11; 512]),
+    });
+    worker.update_live();
+    assert!(shared.live().quota_used_bytes >= written + 512);
+
+    // Push enough audio while video stays static to exceed `quota_limit`.
+    for i in 1..20u64 {
+        worker.recording.as_mut().unwrap().audio(AudioPacket {
+            pts_us: i * 20_000,
+            samples: 240,
+            data: Arc::new(vec![0x22; 512]),
+        });
+    }
+    assert!(worker.tick(Instant::now()));
+    assert!(worker.recording.is_none());
+    assert_eq!(worker.state(), (State::Error, Reason::QuotaExceeded));
+}

@@ -121,11 +121,13 @@ impl Host {
                 std::thread::scope(|scope| {
                     scope.spawn(move || self.release_audio_by(stopped_rx, deadline));
                     self.end_app(Some(running), why);
-                    drop(self.app_audio.lock().unwrap().take());
-                    drop(std::mem::take(&mut *self.app_display.lock().unwrap()));
+                    let audio = self.app_audio.lock().unwrap().take();
+                    let displays = std::mem::take(&mut *self.app_display.lock().unwrap());
+                    drop((audio, displays));
                 });
             } else {
-                drop(self.app_audio.lock().unwrap().take());
+                let audio = self.app_audio.lock().unwrap().take();
+                drop(audio);
                 self.end_app(None, why);
             }
             drop(teardown);
@@ -536,5 +538,97 @@ impl Host {
             nvidia_component: Default::default(),
             device_guests: Default::default(),
         }))
+    }
+}
+
+#[cfg(test)]
+mod drop_outside_lock_tests {
+    use super::*;
+
+    /// A lease stand-in whose `Drop` asserts a shared mutex is NOT held when it drops.
+    #[derive(Clone)]
+    struct LockCheckingLease {
+        guard_lock: Arc<Mutex<()>>,
+        dropped: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl Drop for LockCheckingLease {
+        fn drop(&mut self) {
+            // Only assert when the last strong handle drops, mirroring `Arc<Ready>` / `Arc<Route>`.
+            if Arc::strong_count(&self.dropped) == 2 {
+                assert!(
+                    self.guard_lock.try_lock().is_ok(),
+                    "retained lease dropped while its container mutex was still held"
+                );
+                self.dropped
+                    .store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
+    }
+
+    #[test]
+    fn take_retained_hands_back_replaced_lease_so_drop_happens_outside_lock() {
+        let guard_lock = Arc::new(Mutex::new(()));
+        let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let lease = LockCheckingLease {
+            guard_lock: guard_lock.clone(),
+            dropped: dropped.clone(),
+        };
+        let mut displays = BTreeMap::from([("client-a".to_owned(), (lease, None))]);
+
+        let replaced = {
+            let _held = guard_lock.lock().unwrap();
+            take_retained(&mut displays, "client-a", |_| false)
+        };
+        assert!(!dropped.load(std::sync::atomic::Ordering::Acquire));
+        drop(replaced);
+        assert!(dropped.load(std::sync::atomic::Ordering::Acquire));
+    }
+
+    #[test]
+    fn app_display_and_app_audio_mutations_drop_previous_values_outside_mutexes() {
+        // Guard all 6 STR-03 sites so a future cleanup cannot regress back to dropping
+        // `Arc<Ready>` / `Arc<Route>` under `app_display` or `app_audio`.
+        let lifecycle = include_str!("lifecycle.rs").replace("\r\n", "\n");
+        let stop_app = &lifecycle[lifecycle.find("pub fn stop_app(").unwrap()
+            ..lifecycle.find("fn release_audio_by(").unwrap()];
+        assert!(
+            !stop_app.contains("app_display.lock().unwrap().clear()"),
+            "stop_app must take displays out of app_display before dropping"
+        );
+        assert!(
+            !stop_app.contains("*self.app_audio.lock().unwrap() = None"),
+            "stop_app must take audio out of app_audio before dropping"
+        );
+
+        let launch = include_str!("../nvhttp/launch.rs").replace("\r\n", "\n");
+        assert!(
+            !launch.contains("let _ = h.app_display.lock().unwrap().remove("),
+            "nvhttp/launch.rs must bind and drop removed app_display outside the lock"
+        );
+
+        let launch_steps = include_str!("../nvhttp/launch_steps.rs").replace("\r\n", "\n");
+        assert!(
+            !launch_steps.contains("*h.app_audio.lock().unwrap() = Some("),
+            "nvhttp/launch_steps.rs must replace app_audio and drop previous outside the lock"
+        );
+        assert!(
+            launch_steps.contains("let previous = h\n                .app_display")
+                && launch_steps.contains("drop(previous);"),
+            "nvhttp/launch_steps.rs must bind app_display.insert return value and drop outside the lock"
+        );
+
+        let setup = include_str!("../stream/video/setup.rs").replace("\r\n", "\n");
+        assert!(
+            setup.contains("let previous = {\n                let mut displays = h.app_display.lock().unwrap();")
+                && setup.contains("drop(previous);"),
+            "stream/video/setup.rs must bind app_display.insert return value and drop outside the lock"
+        );
+
+        let audio = include_str!("../stream/audio.rs").replace("\r\n", "\n");
+        assert!(
+            !audio.contains("*h.app_audio.lock().unwrap() = Some("),
+            "stream/audio.rs must replace app_audio and drop previous outside the lock"
+        );
     }
 }

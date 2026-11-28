@@ -287,6 +287,7 @@ impl Media {
                     .flat_map(|p| {
                         [
                             p.injector.as_ref().and_then(Injector::next_due),
+                            p.pads_wait.retry_at(),
                             p.couch.next_due(),
                             p.audio_haptics.arbiter.next_due(),
                             p.session.as_ref().and_then(|s| s.client_cursor.next_due()),

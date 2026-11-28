@@ -243,6 +243,7 @@ pub fn activate(
         .iter()
         .find(|c| c.uuid == butterpollo_session::state::device_uuid(client))
         .cloned();
+    let device_config = device_render_config(h, identity.as_ref());
     let options = display::VirtualOptions {
         peak_nits: identity
             .as_ref()
@@ -255,11 +256,8 @@ pub fn activate(
             })
             .unwrap_or(1000)
             .clamp(400, 2000),
-        render_adapter: crate::win_bridge::configured_render_adapter(&h.config.read().unwrap()),
-        render_resolver: Some(crate::win_bridge::render_resolver(
-            &h.config.read().unwrap(),
-            None,
-        )),
+        render_adapter: crate::win_bridge::configured_render_adapter(&device_config),
+        render_resolver: Some(crate::win_bridge::render_resolver(&device_config, None)),
         joins: false,
     };
     // Read while the display is not there yet: Windows can recall a saved layout
@@ -374,5 +372,57 @@ pub fn disconnect(h: &Shared, client: Option<&str>) {
     }
 }
 
+fn device_render_config(
+    h: &Shared,
+    identity: Option<&butterpollo_session::state::Client>,
+) -> butterpollo_config::config::Config {
+    match identity {
+        Some(client) => crate::stream::device_config(h, client).unwrap_or_else(|error| {
+            tracing::warn!(
+                error = %format!("{error:#}"),
+                client = %client.name,
+                "per-device config unavailable for remote monitor; falling back to global config"
+            );
+            h.config.read().unwrap().clone()
+        }),
+        None => h.config.read().unwrap().clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod device_config_tests {
+    use super::*;
+
+    #[test]
+    fn remote_monitor_render_config_honors_per_device_adapter_overrides() {
+        let f = crate::state::test_support::Fixture::new();
+        {
+            let mut global = f.host.config.write().unwrap();
+            global
+                .values
+                .insert("adapter_name".into(), "Global GPU".into());
+            global
+                .values
+                .insert("adapter_pnp_id".into(), "PCI\\GLOBAL".into());
+        }
+        let mut client = f.client(u32::MAX);
+        client.extra.insert(
+            "config_overrides".into(),
+            serde_json::json!({
+                "adapter_name": "Device GPU",
+                "adapter_pnp_id": "PCI\\DEVICE",
+            }),
+        );
+
+        let effective = device_render_config(&f.host, Some(&client));
+        assert_eq!(effective.get("adapter_name", ""), "Device GPU");
+        assert_eq!(effective.get("adapter_pnp_id", ""), "PCI\\DEVICE");
+
+        let fallback = device_render_config(&f.host, None);
+        assert_eq!(fallback.get("adapter_name", ""), "Global GPU");
+        assert_eq!(fallback.get("adapter_pnp_id", ""), "PCI\\GLOBAL");
+    }
+}

@@ -118,13 +118,14 @@ fn run(
     let started = std::thread::Builder::new()
         .name("quick-suspend".into())
         .spawn(move || {
-            use crate::quick_suspend::{Who, resume, status, suspend};
-            let status = match op {
-                Op::QueryState => status(&h),
-                Op::Suspend => suspend(&h, Who::Device(&client)),
-                Op::Resume => resume(&h, Who::Device(&client)),
+            use crate::quick_suspend::{
+                Who, resume_with_revision, status_with_revision, suspend_with_revision,
             };
-            let revision = h.quick_suspend.revision();
+            let (status, revision) = match op {
+                Op::QueryState => status_with_revision(&h),
+                Op::Suspend => suspend_with_revision(&h, Who::Device(&client)),
+                Op::Resume => resume_with_revision(&h, Who::Device(&client)),
+            };
             answers
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -351,5 +352,57 @@ mod tests {
         assert_eq!(body.matches(".spawn(move ||").count(), 1);
         assert_eq!(body.matches("run(h, control_wake, ").count(), 2);
         assert!(body.contains("if peer.busy.load(Ordering::Acquire) {\n        coalesce("));
+    }
+
+    #[test]
+    fn worker_snapshots_revision_with_status_never_stamping_stale_state_with_newer_rev() {
+        let f = crate::state::test_support::Fixture::new();
+        let rev0 = f.host.quick_suspend.revision();
+        let (status0, snap0) = crate::quick_suspend::status_with_revision(&f.host);
+        assert_eq!(snap0, rev0);
+        assert_ne!(
+            status0.state,
+            rubylight_protocol::quick_suspend::State::Suspended
+        );
+
+        // A concurrent suspend bumps revision atomically under the tracker lock.
+        f.host.quick_suspend.set_suspended_for_test("Game");
+        let rev1 = f.host.quick_suspend.revision();
+        assert_eq!(rev1, rev0 + 1);
+        assert_ne!(
+            snap0, rev1,
+            "older status snapshot must keep its earlier revision"
+        );
+
+        let (status1, snap1) = crate::quick_suspend::status_with_revision(&f.host);
+        assert_eq!(snap1, rev1);
+        assert_eq!(
+            status1.state,
+            rubylight_protocol::quick_suspend::State::Suspended
+        );
+
+        // Refusing a suspend while disabled returns the pre-call revision rather than masking a
+        // concurrent transition.
+        let client = f.client(u32::MAX);
+        let (refused, refused_rev) = crate::quick_suspend::suspend_with_revision(
+            &f.host,
+            crate::quick_suspend::Who::Device(&client),
+        );
+        assert_eq!(
+            refused.state,
+            rubylight_protocol::quick_suspend::State::Refused
+        );
+        assert_eq!(refused_rev, rev1);
+
+        // Clearing suspended state bumps revision again and is visible to the next snapshot.
+        f.host.quick_suspend.clear_suspended_for_test();
+        let rev2 = f.host.quick_suspend.revision();
+        assert_eq!(rev2, rev1 + 1);
+        let (status2, snap2) = crate::quick_suspend::status_with_revision(&f.host);
+        assert_eq!(snap2, rev2);
+        assert_ne!(
+            status2.state,
+            rubylight_protocol::quick_suspend::State::Suspended
+        );
     }
 }

@@ -156,11 +156,9 @@ pub(super) fn ensure_input_ready(
             }
         };
         let output = s.output.read().unwrap().clone();
-        // Keys, clicks and moves need no controller: while the controllers
-        // cannot be had, the injector works without them and they follow.
-        let pads = crate::controller_sessions::acquire_for(h, &s.launch, &c)
-            .inspect_err(|error| controllers_wait(s, error))
-            .ok();
+        // Keys, clicks and moves need no controller: create the injector immediately and
+        // acquire controllers off the control thread so a blocking unplug/join never stalls
+        // other peers' input.
         match Injector::new_options_reported(
             if output.is_empty() {
                 config::output_name(&c)
@@ -173,16 +171,11 @@ pub(super) fn ensure_input_ready(
         ) {
             Ok(mut i) => {
                 i.set_feedback_waker(control_wake.clone());
-                match pads {
-                    Some(pads) => {
-                        attach_pads(&mut i, pads, &p.controller_audio);
-                        s.launch.warnings.clear("input_initialization");
-                    }
-                    None => p.pads_wait.failed(Instant::now()),
-                }
+                s.launch.warnings.clear("input_initialization");
                 i.set_stream_size(s.config.width, s.config.height);
                 p.injector = Some(i);
                 p.keyboard_layout.refresh();
+                p.pads_wait.start_async(h, s, control_wake, Some(c));
             }
             Err(e) => s.launch.warnings.set(
                 "input_initialization",
@@ -192,16 +185,12 @@ pub(super) fn ensure_input_ready(
             ),
         }
     }
-    // The controllers' retry, on its own interval rather than every pass.
+    // Poll async controller acquisition and schedule retries without blocking the control thread.
     if let Some(i) = &mut p.injector
-        && let Some(held) = p.pads_wait.retry(Instant::now(), || {
-            let pads = effective_config(h, &s.launch)
-                .and_then(|c| crate::controller_sessions::acquire_for(h, &s.launch, &c))?;
-            attach_pads(i, pads, &p.controller_audio);
-            Ok(())
-        })
+        && let Some(held) =
+            p.pads_wait
+                .poll_async(Instant::now(), h, s, control_wake, i, &p.controller_audio)
     {
-        controllers_back(s);
         // What they missed that the client sends once, before what came since.
         p.inputs.splice(0..0, held);
     }
@@ -321,6 +310,14 @@ pub(super) fn inject_pending_inputs(
         if !is_ready(p) {
             continue;
         }
+        if let Some(i) = &mut p.injector
+            && p.pads_wait.is_waiting()
+            && let Some(held) =
+                p.pads_wait
+                    .poll_async(Instant::now(), h, &s, control_wake, i, &p.controller_audio)
+        {
+            p.inputs.splice(0..0, held);
+        }
         super::event_loop::follow_couch_menu(h, control_wake, p, &s);
         follow_session(h, p, &s);
         if let Some(i) = &mut p.injector
@@ -379,6 +376,10 @@ pub fn controllers_wait(s: &Session, error: &anyhow::Error) {
     );
 }
 
+/// Background controller-acquisition slot shared between the control thread and a one-shot
+/// `"controller-acquire"` worker.
+type PendingPads = Arc<Mutex<Option<Result<Arc<butterpollo_win_io::input::GamepadThread>>>>>;
+
 /// An injector made without the controllers, because they could not be had yet: when it
 /// tries for them again, and their input meanwhile. GameStream's control loop and the WebRTC
 /// input worker alike.
@@ -386,6 +387,9 @@ pub fn controllers_wait(s: &Session, error: &anyhow::Error) {
 pub struct PadsWait {
     retry: Option<Instant>,
     held: Vec<input::Input>,
+    pending: Option<PendingPads>,
+    waiting: bool,
+    warned: bool,
 }
 
 impl PadsWait {
@@ -393,14 +397,19 @@ impl PadsWait {
     pub fn retry_at(&self) -> Option<Instant> {
         self.retry
     }
+    /// Whether controllers are still being acquired or retried.
+    pub(super) fn is_waiting(&self) -> bool {
+        self.waiting || self.retry.is_some() || self.pending.is_some()
+    }
     /// They could not be had at `now`: tried again [`PADS_RETRY`] later.
     pub fn failed(&mut self, now: Instant) {
         self.retry = Some(now + PADS_RETRY);
+        self.waiting = true;
     }
     /// Takes their input out of `inputs` while it waits ([`hold_pad_input`]); nothing once
     /// they are there.
     pub fn hold(&mut self, inputs: &mut Vec<input::Input>) {
-        if self.retry.is_some() {
+        if self.waiting || self.retry.is_some() {
             hold_pad_input(inputs, &mut self.held);
         }
     }
@@ -417,6 +426,9 @@ impl PadsWait {
         match attach() {
             Ok(()) => {
                 self.retry = None;
+                self.waiting = false;
+                self.pending = None;
+                self.warned = false;
                 Some(std::mem::take(&mut self.held))
             }
             Err(_) => {
@@ -424,6 +436,140 @@ impl PadsWait {
                 None
             }
         }
+    }
+
+    /// Spawns a background worker to run `acquire` without blocking the control thread, waking
+    /// `wake` when the result is ready. Returns `false` if the worker thread failed to spawn.
+    fn start_with(
+        &mut self,
+        now: Instant,
+        wake: Arc<UdpSocket>,
+        acquire: impl FnOnce() -> Result<Arc<butterpollo_win_io::input::GamepadThread>> + Send + 'static,
+    ) -> bool {
+        if self.pending.is_some() {
+            return true;
+        }
+        self.waiting = true;
+        self.retry = None;
+        let slot: PendingPads = Arc::new(Mutex::new(None));
+        let worker_slot = slot.clone();
+        match thread::Builder::new()
+            .name("controller-acquire".into())
+            .spawn(move || {
+                let result = acquire();
+                // Avoid storing a strong `Arc<GamepadThread>` after the peer has already dropped.
+                if Arc::strong_count(&worker_slot) > 1 {
+                    *worker_slot
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
+                    let _ = wake.send(&[1]);
+                }
+            }) {
+            Ok(_) => {
+                self.pending = Some(slot);
+                true
+            }
+            Err(error) => {
+                tracing::warn!(%error, "controller acquire worker did not start");
+                self.failed(now);
+                false
+            }
+        }
+    }
+
+    /// Polls any in-flight background controller acquisition without blocking.
+    fn poll_pending(
+        &mut self,
+        now: Instant,
+    ) -> Option<Result<Arc<butterpollo_win_io::input::GamepadThread>>> {
+        let result = self.pending.as_ref().and_then(|slot| {
+            slot.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take()
+        })?;
+        self.pending = None;
+        match &result {
+            Ok(_) => {
+                self.retry = None;
+                self.waiting = false;
+            }
+            Err(_) => self.failed(now),
+        }
+        Some(result)
+    }
+
+    /// Starts asynchronous controller acquisition for `s` off the control thread.
+    pub(super) fn start_async(
+        &mut self,
+        h: &Shared,
+        s: &Arc<Session>,
+        control_wake: &Arc<UdpSocket>,
+        initial_config: Option<Config>,
+    ) {
+        if self.pending.is_some() {
+            return;
+        }
+        let h_bg = h.clone();
+        let s_bg = s.clone();
+        let started = self.start_with(Instant::now(), control_wake.clone(), move || {
+            if s_bg.stopping() || h_bg.stop.load(Ordering::Acquire) {
+                anyhow::bail!("session stopping");
+            }
+            let c = match initial_config {
+                Some(c) => c,
+                None => effective_config(&h_bg, &s_bg.launch)?,
+            };
+            let pads = crate::controller_sessions::acquire_for(&h_bg, &s_bg.launch, &c)?;
+            if s_bg.stopping() || h_bg.stop.load(Ordering::Acquire) {
+                drop(pads);
+                anyhow::bail!("session stopping");
+            }
+            Ok(pads)
+        });
+        if !started && !self.warned {
+            self.warned = true;
+            controllers_wait(
+                s,
+                &anyhow::anyhow!("controller acquire worker did not start"),
+            );
+        }
+    }
+
+    /// Polls completed controller acquisition or kicks off a due retry; returns held pad inputs
+    /// once attached.
+    pub(super) fn poll_async(
+        &mut self,
+        now: Instant,
+        h: &Shared,
+        s: &Arc<Session>,
+        control_wake: &Arc<UdpSocket>,
+        injector: &mut Injector,
+        announced: &[u8; 16],
+    ) -> Option<Vec<input::Input>> {
+        if let Some(result) = self.poll_pending(now) {
+            return match result {
+                Ok(pads) => {
+                    attach_pads(injector, pads, announced);
+                    if std::mem::take(&mut self.warned) {
+                        controllers_back(s);
+                    } else {
+                        s.launch.warnings.clear("input_initialization");
+                    }
+                    Some(std::mem::take(&mut self.held))
+                }
+                Err(error) => {
+                    if !s.stopping() && !h.stop.load(Ordering::Acquire) && !self.warned {
+                        self.warned = true;
+                        controllers_wait(s, &error);
+                    }
+                    None
+                }
+            };
+        }
+        if self.pending.is_none() && self.retry.is_some_and(|at| now >= at) {
+            self.start_async(h, s, control_wake, None);
+        }
+        None
     }
 }
 
@@ -544,3 +690,6 @@ pub(in crate::stream) fn drop_uninjectable_input(inputs: &mut Vec<input::Input>)
         k
     });
 }
+
+#[cfg(test)]
+mod tests;

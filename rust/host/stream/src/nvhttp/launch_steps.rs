@@ -674,7 +674,8 @@ pub(super) fn retain_launch_app(
                 .as_ref()
                 .map(|route| route.route())
         {
-            *h.app_audio.lock().unwrap() = Some(route);
+            let previous = h.app_audio.lock().unwrap().replace(route);
+            drop(previous);
         }
         if let Some(lease) = launch
             .preparation
@@ -684,10 +685,12 @@ pub(super) fn retain_launch_app(
             .map(|prepared| prepared.prepared().display.clone())
         {
             crate::display_session::record_game_display(h, launch, &lease);
-            h.app_display
+            let previous = h
+                .app_display
                 .lock()
                 .unwrap()
                 .insert(launch.client.uuid.clone(), (lease, None));
+            drop(previous);
         }
     }
 }

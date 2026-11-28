@@ -313,9 +313,11 @@ pub(super) fn check_admission(
 pub(super) fn advance_pacing(
     s: &Session,
     latest: &Source,
+    capture_wake: &Arc<capture::Consumer>,
     pacer: &mut butterpollo_media_policy::stream_policy::Pacer,
     cadence: &mut butterpollo_media_policy::stream_policy::Cadence,
-    unlocked_grid_period: &mut Option<Duration>,
+    phase_locked: &mut bool,
+    grid_period: &mut Duration,
     encoded_at: &mut Instant,
     begin: Instant,
     period: Duration,
@@ -367,20 +369,19 @@ pub(super) fn advance_pacing(
                 .flatten()
             {
                 Some(interval) => {
-                    let mut grid = latest.grid.lock().unwrap();
-                    unlocked_grid_period.get_or_insert(grid.period);
-                    grid.period = interval;
+                    *phase_locked = true;
+                    *grid_period = interval;
                     pacer.set_period(begin, interval);
                 }
                 None => {
-                    if let Some(original) = unlocked_grid_period.take() {
-                        latest.grid.lock().unwrap().period = original;
+                    if std::mem::take(phase_locked) {
+                        *grid_period = period;
                         pacer.set_period(begin, period);
                     }
                 }
             }
         }
-        latest.grid.lock().unwrap().anchor = pacer.allowed_at(begin);
+        latest.update_claim_grid(capture_wake, *grid_period, pacer.allowed_at(begin));
     } else {
         // Phase lock: the grid follows the client's refresh, at a
         // phase that gets frames there just before its latch.
@@ -388,19 +389,16 @@ pub(super) fn advance_pacing(
         match phase_interval(s, begin, period, None, None) {
             Some(interval) => {
                 cadence.submitted_after(begin, interval);
-                let mut grid = latest.grid.lock().unwrap();
-                unlocked_grid_period.get_or_insert(grid.period);
-                grid.anchor = cadence.deadline();
-                grid.period = interval;
+                *phase_locked = true;
+                *grid_period = interval;
             }
             None => {
                 cadence.submitted(begin);
-                let mut grid = latest.grid.lock().unwrap();
-                if let Some(original) = unlocked_grid_period.take() {
-                    grid.period = original;
+                if std::mem::take(phase_locked) {
+                    *grid_period = period;
                 }
-                grid.anchor = cadence.deadline();
             }
         }
+        latest.update_claim_grid(capture_wake, *grid_period, cadence.deadline());
     }
 }

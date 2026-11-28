@@ -261,6 +261,11 @@ impl Recording {
         self.written
     }
 
+    /// Encoded video and audio bytes currently buffered in RAM awaiting the next fragment flush.
+    pub(super) fn buffered_bytes(&self) -> u64 {
+        self.recorder.buffered_bytes()
+    }
+
     /// The next part's number, for [`Self::start`] after a [`RecordingStep::Restart`].
     pub(super) fn next_part(&self) -> (String, u32) {
         (self.base.clone(), self.part + 1)

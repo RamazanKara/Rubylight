@@ -8,7 +8,6 @@ use super::inline_send::InlineSender;
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_pending_reconfigure(
     thread: &SessionThread<'_>,
-    c: &Config,
     runtime_config: &Config,
     prepared: &Arc<crate::display_session::Ready>,
     stream: &mut butterpollo_media_policy::rtsp::Negotiated,
@@ -56,8 +55,12 @@ pub(super) fn apply_pending_reconfigure(
             if (to.width, to.height) != (from.width, from.height) {
                 thread.follow_size(prepared, stream.display_size());
             }
-            s.rebuild_link_rate(stream, c.link_rate_adaptation(), max_bitrate_kbps(s, c));
-            rebuild_congestion(s, stream, c);
+            s.rebuild_link_rate(
+                stream,
+                runtime_config.link_rate_adaptation(),
+                max_bitrate_kbps(s, runtime_config),
+            );
+            rebuild_congestion(s, stream, runtime_config);
             s.reconfigure
                 .lock()
                 .unwrap()
@@ -124,7 +127,6 @@ pub(super) enum RebuildOutcome {
 pub(super) fn rebuild_encoder_now(
     thread: &SessionThread<'_>,
     encoder: &mut Option<Encoder>,
-    c: &Config,
     runtime_config: &Config,
     runtime_revision: u64,
     prepared: &Arc<crate::display_session::Ready>,
@@ -172,7 +174,7 @@ pub(super) fn rebuild_encoder_now(
             "encoder conversion moves to the graphics queue: a second encoder failure within the window while the compute queue converted"
         );
     }
-    let mut tuning = c.clone();
+    let mut tuning = runtime_config.clone();
     if vpe_gave_way {
         tuning.values.insert("amd_vpe".into(), "false".into());
     }
@@ -180,7 +182,7 @@ pub(super) fn rebuild_encoder_now(
         tuning
             .values
             .insert("gpu_compute_conversion".into(), "false".into());
-        if butterpollo_win_graphics::compute::enabled(c) {
+        if butterpollo_win_graphics::compute::enabled(runtime_config) {
             let retry = if compute_demotion.sticky() {
                 "Compute is not tried again for this stream."
             } else {
@@ -239,7 +241,7 @@ pub(super) fn rebuild_encoder_now(
             if let Some((from, _)) = switching.take() {
                 rollback_mode_switch(
                     thread,
-                    c,
+                    runtime_config,
                     prepared,
                     stream,
                     resolution_cap,
@@ -379,4 +381,68 @@ pub(super) fn apply_frame_cap(
         )
         .unwrap_or(0),
     );
+}
+
+#[cfg(test)]
+mod runtime_config_tests {
+    use super::*;
+    use butterpollo_media_policy::link_rate::State as LinkRateState;
+
+    #[test]
+    fn roam_restart_applies_per_device_effective_config_overrides() {
+        let f = crate::state::test_support::Fixture::new();
+        {
+            let mut global = f.host.config.write().unwrap();
+            global
+                .values
+                .insert("link_rate_adaptation".into(), "false".into());
+            global
+                .values
+                .insert("congestion_control".into(), "false".into());
+            global.values.insert("max_bitrate".into(), "0".into());
+        }
+        let mut client = f.client(u32::MAX);
+        client.extra.insert(
+            "config_overrides".into(),
+            serde_json::json!({
+                "link_rate_adaptation": "true",
+                "max_bitrate": "25000",
+            }),
+        );
+        let session = f.session(client, Role::Stream);
+        // Start with global config (link rate off).
+        session.configure_link_rate(false, 0);
+        assert_eq!(
+            session.link_rate.lock().unwrap().rate.state(),
+            LinkRateState::Off
+        );
+
+        // Roaming must resolve `effective_config` so per-device overrides take effect.
+        crate::stream::restart_roamed_session(&f.host, &session);
+        assert_ne!(
+            session.link_rate.lock().unwrap().rate.state(),
+            LinkRateState::Off,
+            "roam restart must honor per-device link_rate_adaptation override"
+        );
+    }
+
+    #[test]
+    fn video_session_loop_uses_live_runtime_config_not_startup_snapshot() {
+        let run_src = include_str!("../run.rs").replace("\r\n", "\n");
+        let loop_start = run_src
+            .find("while !s.stopping() && !h.stop.load(Ordering::Acquire)")
+            .unwrap();
+        let loop_end = run_src.find("fn release_capture_resources").unwrap();
+        let loop_body = &run_src[loop_start..loop_end];
+        let has_startup_c = loop_body.match_indices("&c").any(|(idx, _)| {
+            loop_body[idx + 2..]
+                .chars()
+                .next()
+                .is_none_or(|ch| !ch.is_alphanumeric() && ch != '_')
+        });
+        assert!(
+            !has_startup_c,
+            "video session loop must read live &runtime_config rather than startup &c"
+        );
+    }
 }

@@ -37,6 +37,17 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Owner-side release state: generation incremented whenever [`Source::Owner`] loses KBM,
+/// whether an owner release is still pending delivery, and each owner session's acknowledged
+/// generation so every active owner session releases its held keys without keeping the
+/// atomic fast path permanently defeated.
+#[derive(Default)]
+struct OwnerRelease {
+    generation: u64,
+    pending: bool,
+    seen: std::collections::HashMap<String, u64>,
+}
+
 /// The host's guests, on [`Host::device_guests`].
 #[derive(Default)]
 pub struct DeviceGuests {
@@ -48,10 +59,7 @@ pub struct DeviceGuests {
     streaming: AtomicBool,
     /// Holders that lost the keyboard and mouse and still hold keys or buttons on the PC.
     release: Mutex<BTreeSet<u32>>,
-    /// Owner-side release generation (incremented whenever [`Source::Owner`] loses KBM),
-    /// paired with each owner session's last acknowledged generation so every owner session
-    /// releases its held keys rather than racing on one shared flag.
-    owner_release_gen: Mutex<(u64, std::collections::HashMap<String, u64>)>,
+    owner_release: Mutex<OwnerRelease>,
     releasing: AtomicBool,
     /// The PC's own keyboard and mouse, watched while a guest may hold them.
     local: Mutex<Option<butterpollo_win_io::local_input::Watch>>,
@@ -117,10 +125,12 @@ fn running_game(h: &Host) -> Option<(String, String)> {
 /// Follows the running game, ends the streams of guests whose game or time ended, and forgets
 /// the streams that ended by themselves.
 pub(crate) fn sweep(h: &Shared) {
+    let guests = &h.device_guests;
+    let owner_gen_before = locked(&guests.owner_release).generation;
     let game = running_game(h);
-    let live: BTreeSet<String> = {
+    let (live, live_owners): (BTreeSet<String>, BTreeSet<String>) = {
         let sessions = locked(&h.sessions);
-        sessions
+        let live = sessions
             .pending
             .keys()
             .cloned()
@@ -131,10 +141,16 @@ pub(crate) fn sweep(h: &Shared) {
                     .filter(|s| !s.stopping())
                     .map(|s| s.launch.id.clone()),
             )
-            .collect()
+            .collect();
+        let live_owners = sessions
+            .active
+            .values()
+            .filter(|s| !s.stopping() && s.launch.guest().is_none())
+            .map(|s| s.launch.id.clone())
+            .collect();
+        (live, live_owners)
     };
-    let guests = &h.device_guests;
-    let (game_ended, expired, keyboard_mouse) = {
+    let (game_ended, expired, keyboard_mouse, live_guests, streaming, unplug_pads) = {
         let mut state = locked(&guests.state);
         let game_ended = state.follow_game(
             game.as_ref()
@@ -154,35 +170,44 @@ pub(crate) fn sweep(h: &Shared) {
         // A view-only guest's controllers, or those of a guest that is gone (kicked, revoked,
         // its time or game over), are unplugged with its stream. A guest that may play and lost
         // its connection keeps its place, its pads parked like any device's.
-        let unplug: Vec<u32> = gone
+        // Collect pad keys under lock and unplug outside `guests.state` (blocking up to 2 s).
+        let unplug_pads: Vec<(u32, String)> = {
+            let mut pads = locked(&guests.pads);
+            let unplug: Vec<u32> = gone
+                .iter()
+                .map(|(id, _)| *id)
+                .chain(pads.keys().copied().filter(|id| state.get(*id).is_none()))
+                .filter(|id| !state.get(*id).is_some_and(|g| g.permission.gamepads()))
+                .collect();
+            unplug
+                .into_iter()
+                .filter_map(|id| pads.remove(&id).map(|key| (id, key)))
+                .collect()
+        };
+        let streaming = state.streaming();
+        guests.streaming.store(streaming, Ordering::Release);
+        let live_guests: BTreeSet<u32> = state
+            .guests()
             .iter()
-            .map(|(id, _)| *id)
-            .chain(
-                locked(&guests.pads)
-                    .keys()
-                    .copied()
-                    .filter(|id| state.get(*id).is_none()),
-            )
-            .filter(|id| !state.get(*id).is_some_and(|g| g.permission.gamepads()))
+            .filter(|g| g.launch.is_some())
+            .map(|g| g.id)
             .collect();
-        for id in unplug {
-            if let Some(key) = locked(&guests.pads).remove(&id) {
-                h.controller_sessions.unplug(&key);
-                tracing::info!(
-                    guest = id,
-                    "a guest's controllers were unplugged with its stream"
-                );
-            }
-        }
-        guests.streaming.store(state.streaming(), Ordering::Release);
         let keyboard_mouse: BTreeSet<u32> = state
             .guests()
             .iter()
             .filter(|g| g.launch.is_some() && g.permission.keyboard_mouse())
             .map(|g| g.id)
             .collect();
-        (game_ended, expired, keyboard_mouse)
+        (
+            game_ended,
+            expired,
+            keyboard_mouse,
+            live_guests,
+            streaming,
+            unplug_pads,
+        )
     };
+    guests.reconcile_releases(&live_guests, &live_owners, streaming, owner_gen_before);
     if !game_ended.is_empty() {
         guests.answered.notify_all();
     }
@@ -202,6 +227,13 @@ pub(crate) fn sweep(h: &Shared) {
         }
     }
     follow_local_input(h, !keyboard_mouse.is_empty());
+    for (id, key) in unplug_pads {
+        h.controller_sessions.unplug(&key);
+        tracing::info!(
+            guest = id,
+            "a guest's controllers were unplugged with its stream"
+        );
+    }
 }
 
 /// Watches the PC's own keyboard and mouse while a guest may hold them, and only then.
@@ -287,21 +319,26 @@ impl DeviceGuests {
             };
         }
         let name = butterpollo_session::webrtc::guests::guest_name(&join.client.name);
-        let (admission, ended) = {
+        let now = unix_now();
+        let (admission, ended, expired) = {
             let mut state = locked(&self.state);
             let ended = state.follow_game(Some((&generation, &owner)));
+            let expired = state.expire(now);
             let admission = state.admit(
                 device,
                 &name,
                 join_policy,
                 invited.map_or_else(|| policy::default_permission(&config), |g| g.permission),
-                unix_now(),
+                now,
                 Instant::now(),
             );
-            (admission, ended)
+            (admission, ended, expired)
         };
         for launch in &ended {
             end_stream(h, launch, Ended::GameEnded);
+        }
+        for launch in &expired {
+            end_stream(h, launch, Ended::Expired);
         }
         let id = match admission {
             Admission::Granted { id, permission } => {
@@ -344,17 +381,22 @@ impl DeviceGuests {
     /// place.
     pub(crate) fn guest_live(&self, h: &Shared, id: u32) -> bool {
         let game = running_game(h);
-        let (ended, live) = {
+        let now = unix_now();
+        let (ended, expired, live) = {
             let mut state = locked(&self.state);
             let ended = state.follow_game(
                 game.as_ref()
                     .map(|(generation, owner)| (generation.as_str(), owner.as_str())),
             );
-            let live = state.get(id).is_some_and(|g| !g.expired(unix_now()));
-            (ended, live)
+            let expired = state.expire(now);
+            let live = state.get(id).is_some_and(|g| !g.expired(now));
+            (ended, expired, live)
         };
         for launch in &ended {
             end_stream(h, launch, Ended::GameEnded);
+        }
+        for launch in &expired {
+            end_stream(h, launch, Ended::Expired);
         }
         live
     }
@@ -443,18 +485,48 @@ impl DeviceGuests {
     fn release_later(&self, source: Source) {
         match source {
             Source::Guest(id) => {
-                locked(&self.release).insert(id);
+                let mut release = locked(&self.release);
+                release.insert(id);
+                self.releasing.store(true, Ordering::Release);
             }
             Source::Owner => {
-                let mut owner = locked(&self.owner_release_gen);
-                owner.0 = owner.0.wrapping_add(1);
-                if owner.0 == 0 {
-                    owner.0 = 1;
-                    owner.1.clear();
+                let mut owner = locked(&self.owner_release);
+                owner.generation = owner.generation.wrapping_add(1).max(1);
+                if owner.generation == 1 {
+                    owner.seen.clear();
                 }
+                owner.pending = true;
+                self.releasing.store(true, Ordering::Release);
             }
         }
-        self.releasing.store(true, Ordering::Release);
+    }
+
+    /// Prunes ended sessions from release tracking and restores the lock-free fast path once
+    /// every active owner session has received the release or no guests are streaming.
+    fn reconcile_releases(
+        &self,
+        live_guests: &BTreeSet<u32>,
+        live_owners: &BTreeSet<String>,
+        streaming: bool,
+        owner_gen_before: u64,
+    ) {
+        let mut release = locked(&self.release);
+        release.retain(|id| live_guests.contains(id));
+        let mut owner = locked(&self.owner_release);
+        owner.seen.retain(|id, _| live_owners.contains(id));
+        if owner.pending
+            && (!streaming
+                || (owner.generation == owner_gen_before
+                    && live_owners
+                        .iter()
+                        .all(|id| owner.seen.get(id).copied() == Some(owner.generation))))
+        {
+            owner.pending = false;
+            owner.seen.clear();
+        }
+        if release.is_empty() && !owner.pending {
+            self.releasing.store(false, Ordering::Release);
+        }
     }
 
     /// Whether session `s` must let go of the keys and buttons it holds: another holder took the
@@ -468,24 +540,29 @@ impl DeviceGuests {
             Some(id) => {
                 let mut release = locked(&self.release);
                 let taken = release.remove(&id);
-                if release.is_empty() && locked(&self.owner_release_gen).0 == 0 {
+                if release.is_empty() && !locked(&self.owner_release).pending {
                     self.releasing.store(false, Ordering::Release);
                 }
                 taken
             }
             None => {
-                let mut owner = locked(&self.owner_release_gen);
-                let current = owner.0;
-                if current == 0 {
+                let mut owner = locked(&self.owner_release);
+                if !owner.pending {
+                    drop(owner);
+                    let release = locked(&self.release);
+                    let owner = locked(&self.owner_release);
+                    if release.is_empty() && !owner.pending {
+                        self.releasing.store(false, Ordering::Release);
+                    }
                     return false;
                 }
-                let entry = owner.1.entry(s.launch.id.clone()).or_insert(0);
-                if *entry == current {
+                let current = owner.generation;
+                if owner.seen.get(&s.launch.id).copied() == Some(current) {
                     return false;
                 }
-                *entry = current;
-                if owner.1.len() > 32 {
-                    owner.1.retain(|_, seen| *seen == current);
+                owner.seen.insert(s.launch.id.clone(), current);
+                if owner.seen.len() > 32 {
+                    owner.seen.retain(|_, seen| *seen == current);
                 }
                 true
             }
@@ -662,62 +739,10 @@ impl DeviceGuests {
     }
 }
 
-/// Why a guest action failed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ActionError {
-    /// No such guest or waiting join.
-    NotFound,
-    /// A value the host does not take.
-    Invalid,
-}
+mod view;
+pub use view::{ActionError, GuestView, View, WaitingView};
 
-/// The guests and the joins waiting, as the console and devices see them.
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct View {
-    #[serde(serialize_with = "policy_text")]
-    pub policy: JoinPolicy,
-    #[serde(serialize_with = "permission_text")]
-    pub default_permission: Permission,
-    /// The device whose game it is, when a game runs.
-    pub owner: Option<String>,
-    pub owner_name: Option<String>,
-    pub max_guests: usize,
-    pub version: u64,
-    /// The guest holding the keyboard and mouse; none when the owner does.
-    pub keyboard_mouse: Option<u32>,
-    pub guests: Vec<GuestView>,
-    pub waiting: Vec<WaitingView>,
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct GuestView {
-    pub id: u32,
-    /// The guest device's uuid, to tell a device which guest it is; never sent.
-    #[serde(skip)]
-    pub device: String,
-    pub name: String,
-    #[serde(serialize_with = "permission_text")]
-    pub permission: Permission,
-    pub streaming: bool,
-    /// Unix seconds.
-    pub since: u64,
-    pub expires: Option<u64>,
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct WaitingView {
-    pub id: u32,
-    pub name: String,
-    pub seconds_left: u64,
-}
-
-fn policy_text<S: serde::Serializer>(policy: &JoinPolicy, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(policy.as_str())
-}
-
-fn permission_text<S: serde::Serializer>(permission: &Permission, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(permission.as_str())
-}
-
+#[cfg(test)]
+mod regression_tests;
 #[cfg(test)]
 mod tests;

@@ -1,7 +1,11 @@
 //! Shared capture worker thread, capture key deduplication, device recovery, and
 //! exclusive-fullscreen fallback for streaming sessions.
 
+mod state;
+
 use super::*;
+pub(super) use state::CaptureKey;
+use state::{ClaimGridTracker, Targets};
 
 pub(super) struct Source {
     pub(super) warnings: Arc<butterpollo_session::session::Warnings>,
@@ -11,6 +15,8 @@ pub(super) struct Source {
     /// display driver.
     pub(super) backend: Arc<Mutex<&'static str>>,
     pub(super) grid: Arc<Mutex<butterpollo_win_graphics::capture::ClaimGrid>>,
+    claim_grids: ClaimGridTracker,
+    targets: Arc<Targets>,
     pub(super) stop: Arc<AtomicBool>,
     pub(super) thread: Option<thread::JoinHandle<()>>,
 }
@@ -43,75 +49,26 @@ impl Source {
     pub(super) fn backend(&self) -> &'static str {
         *self.backend.lock().unwrap()
     }
+
+    pub(super) fn attach_target(&self, prepared: &Arc<crate::display_session::Ready>) {
+        self.targets.attach(prepared);
+    }
+
+    pub(super) fn update_claim_grid(
+        &self,
+        consumer: &Arc<capture::Consumer>,
+        period: Duration,
+        anchor: Instant,
+    ) {
+        self.claim_grids
+            .update(&self.grid, consumer, period, anchor);
+    }
 }
 
 impl std::ops::Deref for Source {
     type Target = Latest;
     fn deref(&self) -> &Latest {
         &self.latest
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub(super) struct CaptureKey {
-    kind: String,
-    output: String,
-    /// The user's Capture method was Automatic, which the fullscreen fallback
-    /// may move to Desktop Duplication. An explicit method never shares its
-    /// capture, or the fallback would move it behind the user's back.
-    automatic: bool,
-    hdr: bool,
-    adapter: String,
-    adapter_id: String,
-    phase: String,
-    compute: bool,
-    wgc_compute: bool,
-    wgc_user_helper: bool,
-    wgc_high_rate: bool,
-    wgc_drain: bool,
-    wgc_cursor: bool,
-    wgc_helper_scheduling: bool,
-    idd_fence_ring: bool,
-    background: bool,
-    constant_rate: bool,
-}
-
-impl CaptureKey {
-    pub(super) fn new(
-        kind: &str,
-        output: &str,
-        hdr: bool,
-        config: &Config,
-        phase: &str,
-        constant_rate: bool,
-    ) -> Self {
-        Self {
-            kind: kind.into(),
-            output: output.into(),
-            automatic: butterpollo_media_policy::capture_policy::automatic_capture(
-                config::capture_setting(config),
-            ),
-            hdr,
-            adapter: config::adapter_name(config).into(),
-            adapter_id: config::adapter_pnp_id(config).into(),
-            phase: if config::wgc_slot_aligned_publish(config) {
-                phase
-            } else {
-                ""
-            }
-            .into(),
-            compute: config::gpu_compute_conversion(config),
-            wgc_compute: config::wgc_compute_copy(config),
-            wgc_user_helper: config::wgc_user_helper(config),
-            wgc_high_rate: !matches!(kind, "ddx" | "dxgi") && config::wgc_high_rate_capture(config),
-            wgc_drain: !matches!(kind, "ddx" | "dxgi") && config::wgc_drain_to_newest(config),
-            wgc_cursor: !matches!(kind, "ddx" | "dxgi") && config::wgc_cursor_capture(config),
-            wgc_helper_scheduling: !matches!(kind, "ddx" | "dxgi")
-                && config::wgc_helper_streaming_scope(config),
-            idd_fence_ring: config.idd_push_fence_ring(),
-            background: butterpollo_session::background::enabled(config),
-            constant_rate,
-        }
     }
 }
 
@@ -148,13 +105,19 @@ impl Media {
         );
         let capture_config = capture_config(config);
         let key = CaptureKey::new(&kind, &output, hdr, &capture_config, phase, constant_rate);
-        let mut captures = self.captures.lock().unwrap();
-        captures.retain(|_, source| source.strong_count() > 0);
-        if let Some(existing) = captures.get(&key).and_then(Weak::upgrade)
-            && existing.check().is_ok()
         {
-            return Ok(existing);
+            let mut captures = self.captures.lock().unwrap();
+            captures.retain(|_, source| source.strong_count() > 0);
+            if let Some(existing) = captures.get(&key).and_then(Weak::upgrade)
+                && existing.check().is_ok()
+            {
+                drop(captures);
+                existing.attach_target(&prepared);
+                return Ok(existing);
+            }
         }
+        let targets = Arc::new(Targets::new(&prepared));
+        let worker_targets = targets.clone();
         let latest = Arc::new(Latest::new());
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
@@ -185,7 +148,7 @@ impl Media {
                 // desktop of a UAC prompt or the lock screen.
                 butterpollo_win_io::input::follow_input_desktop();
                 let opened = open_first(
-                    || prepared.capture_target(),
+                    || worker_targets.capture_target(),
                     |target| {
                         wb::open_capture(
                             &target.0,
@@ -196,7 +159,7 @@ impl Media {
                         )
                     },
                     |tried| {
-                        let replaced = prepared.capture_target() != *tried;
+                        let replaced = worker_targets.capture_target() != *tried;
                         wait_to_open_again(started, &worker_stop, replaced)
                     },
                 );
@@ -209,7 +172,7 @@ impl Media {
                 };
                 // The stream's display (and its revision) when the capture last opened on a
                 // new device: a window target switches on that device only while it stays.
-                let mut opened_display = prepared.display_target();
+                let mut opened_display = worker_targets.display_target();
                 capture.set_claim_grid(worker_grid.clone(), aligned);
                 *worker_backend.lock().unwrap() = capture.backend();
                 tracing::info!(requested=%kind, backend=capture.backend(), output=%target.0, constant_rate = constant_rate, "capture backend opened");
@@ -259,7 +222,7 @@ impl Media {
                         if worker_stop.load(Ordering::Acquire) {
                             bail!("capture stopped while recovering");
                         }
-                        let next = prepared.capture_target();
+                        let next = worker_targets.capture_target();
                         // A UAC prompt or the lock screen switches the input
                         // desktop; duplication must be made on that desktop.
                         butterpollo_win_io::input::follow_input_desktop();
@@ -378,7 +341,7 @@ impl Media {
                 while !worker_stop.load(Ordering::Acquire) {
                     if Instant::now() >= check_target {
                         check_target = Instant::now() + Duration::from_millis(100);
-                        let next = prepared.capture_target();
+                        let next = worker_targets.capture_target();
                         let available = kind == "wgc"
                             && butterpollo_win_graphics::capture::wgc_desktop_available();
                         let return_to_wgc = returns_to_wgc(
@@ -401,7 +364,7 @@ impl Media {
                             && !return_to_wgc
                             && !returned
                             && next != target
-                            && prepared.display_target() == opened_display;
+                            && worker_targets.display_target() == opened_display;
                         if in_place
                             && let Some(switched) = wb::switch_capture(
                                 &mut capture,
@@ -440,7 +403,7 @@ impl Media {
                             if switched_to_duplication && capture.backend() == "ddx" {
                                 capture_warnings.set("capture_backend", DUPLICATION_WARNING);
                             }
-                            opened_display = prepared.display_target();
+                            opened_display = worker_targets.display_target();
                             capture.set_claim_grid(worker_grid.clone(), aligned);
                             *worker_backend.lock().unwrap() = capture.backend();
                             last_frame = Instant::now();
@@ -533,7 +496,7 @@ impl Media {
                                         switched_to_duplication = true;
                                         capture_warnings.set("capture_backend", DUPLICATION_WARNING);
                                     }
-                                    opened_display = prepared.display_target();
+                                    opened_display = worker_targets.display_target();
                                     capture.set_claim_grid(worker_grid.clone(), aligned);
                                     *worker_backend.lock().unwrap() = capture.backend();
                                     last_frame = Instant::now();
@@ -622,20 +585,20 @@ impl Media {
                             // target check switches to it on this device, without releasing
                             // the encoder. Any other failure reopens on a new device.
                             if DeviceLost::from_error(&e).is_none()
-                                && target != prepared.display_target()
+                                && target != worker_targets.display_target()
                                 && butterpollo_win_graphics::capture::WindowTarget::parse(&target.0)
                                     .ok()
                                     .flatten()
                                     .is_some()
                             {
                                 let deadline = Instant::now() + WINDOW_TARGET_WAIT;
-                                while prepared.capture_target() == target
+                                while worker_targets.capture_target() == target
                                     && Instant::now() < deadline
                                     && !worker_stop.load(Ordering::Acquire)
                                 {
                                     timer.until(Instant::now() + Duration::from_millis(10));
                                 }
-                                if prepared.capture_target() != target {
+                                if worker_targets.capture_target() != target {
                                     tracing::info!(error = %format!("{e:#}"), "the app's window is unavailable; the capture follows its target");
                                     check_target = Instant::now();
                                     continue;
@@ -661,7 +624,7 @@ impl Media {
                             if switched_to_duplication && capture.backend() == "ddx" {
                                 capture_warnings.set("capture_backend", DUPLICATION_WARNING);
                             }
-                            opened_display = prepared.display_target();
+                            opened_display = worker_targets.display_target();
                             capture.set_claim_grid(worker_grid.clone(), aligned);
                             *worker_backend.lock().unwrap() = capture.backend();
                             last_frame = Instant::now();
@@ -683,13 +646,36 @@ impl Media {
             latest,
             backend,
             grid,
+            claim_grids: ClaimGridTracker::default(),
+            targets,
             stop,
             thread: Some(thread),
         });
-        started_rx
-            .recv_timeout(CAPTURE_START_WAIT)?
-            .map_err(|e| anyhow::anyhow!(e))?;
-        captures.insert(key, Arc::downgrade(&latest));
+        if let Err(error) = started_rx
+            .recv_timeout(CAPTURE_START_WAIT)
+            .map_err(anyhow::Error::from)
+            .and_then(|res| res.map_err(|e| anyhow::anyhow!(e)))
+        {
+            drop(latest);
+            return Err(error);
+        }
+        let existing = {
+            let mut captures = self.captures.lock().unwrap();
+            captures.retain(|_, source| source.strong_count() > 0);
+            if let Some(existing) = captures.get(&key).and_then(Weak::upgrade)
+                && existing.check().is_ok()
+            {
+                Some(existing)
+            } else {
+                captures.insert(key, Arc::downgrade(&latest));
+                None
+            }
+        };
+        if let Some(existing) = existing {
+            drop(latest);
+            existing.attach_target(&prepared);
+            return Ok(existing);
+        }
         Ok(latest)
     }
 }

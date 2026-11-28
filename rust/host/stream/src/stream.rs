@@ -456,6 +456,20 @@ fn restart_on_new_path(s: &Session, c: &Config) {
     s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(s, c));
     rebuild_congestion(s, &stream, c);
 }
+
+/// Resolves the roamed session's effective (per-device + per-app) configuration before
+/// resetting its path state and link-rate/congestion controllers.
+pub(in crate::stream) fn restart_roamed_session(h: &Shared, s: &Session) {
+    let config = effective_config(h, &s.launch).unwrap_or_else(|error| {
+        tracing::warn!(
+            error = %format!("{error:#}"),
+            client = %s.launch.client.name,
+            "effective config unavailable after roam; falling back to global config"
+        );
+        h.config.read().unwrap().clone()
+    });
+    restart_on_new_path(s, &config);
+}
 /// The stream's video FEC at its start: the configured percentage, for every
 /// frame (`fec_percentage`, PyroWave included unless it keeps a share of its
 /// own), unless the client chose its own with `rlFecPercentage`.
@@ -626,7 +640,7 @@ impl Media {
                                     local,
                                 );
                                 if let Some(s) = roamed {
-                                    restart_on_new_path(&s, &h.config.read().unwrap());
+                                    restart_roamed_session(&h, &s);
                                 }
                             }
                             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}

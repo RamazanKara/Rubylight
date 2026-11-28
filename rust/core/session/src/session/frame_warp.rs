@@ -107,13 +107,22 @@ impl Outgoing {
     }
 }
 
+struct HostSlot {
+    host: FrameWarpHost,
+    /// Reused drain buffer so applying queued inbox events avoids per-packet heap allocations.
+    scratch: Vec<Event>,
+}
+
 pub struct FrameWarpState {
     epoch: Instant,
     /// Mirrors the last request, so the control thread and the video paths
     /// skip all work while no client asked.
     on: AtomicBool,
-    host: Mutex<FrameWarpHost>,
+    host: Mutex<HostSlot>,
     inbox: Mutex<VecDeque<Event>>,
+    /// Mirrors `!inbox.is_empty()`, updated under `inbox` so the uncontended input fast path
+    /// skips locking `inbox` entirely.
+    inbox_pending: AtomicBool,
     outbox: Mutex<Outbox>,
     params: Mutex<Params>,
     /// The newest capture time a frame was tagged with: a repeated frame shows it.
@@ -153,8 +162,12 @@ impl FrameWarpState {
         Self {
             epoch,
             on: AtomicBool::new(false),
-            host: Mutex::new(host),
+            host: Mutex::new(HostSlot {
+                host,
+                scratch: Vec::new(),
+            }),
             inbox: Mutex::new(VecDeque::new()),
+            inbox_pending: AtomicBool::new(false),
             outbox: Mutex::new(Outbox::default()),
             params: Mutex::new(params),
             last_capture_us: AtomicU64::new(NONE),
@@ -200,7 +213,10 @@ impl FrameWarpState {
         self.woken.store(false, Ordering::Release);
         if !request.enabled {
             *lock(&self.outbox) = Outbox::default();
-            lock(&self.inbox).retain(|event| matches!(event, Event::Picture(..)));
+            let mut inbox = lock(&self.inbox);
+            inbox.retain(|event| matches!(event, Event::Picture(..)));
+            self.inbox_pending
+                .store(!inbox.is_empty(), Ordering::Release);
         }
         self.push(Event::Request(payload.to_vec()));
         Some(request.enabled)
@@ -334,13 +350,13 @@ impl FrameWarpState {
     pub fn take_outgoing(&self) -> Outgoing {
         // From here on, whatever is produced wakes the control loop again.
         self.woken.store(false, Ordering::Release);
-        let queued = !lock(&self.inbox).is_empty();
+        let queued = self.inbox_pending.load(Ordering::Acquire);
         if queued
             && self.enabled()
-            && let Some(host) = self.try_host()
+            && let Some(slot) = self.try_host()
         {
             // Taken just below: no wake.
-            self.hold_quietly(host, |_| ());
+            self.hold_quietly(slot, |_| ());
         }
         let mut outbox = lock(&self.outbox);
         if !self.enabled() {
@@ -358,18 +374,38 @@ impl FrameWarpState {
     /// Queues `event` and applies it unless someone holds the host.
     fn push(&self, event: Event) {
         self.queue(event);
-        if let Some(host) = self.try_host() {
-            self.hold(host, |_| ());
+        std::sync::atomic::fence(Ordering::SeqCst);
+        if let Some(slot) = self.try_host() {
+            self.hold(slot, |_| ());
         }
     }
 
-    /// Queues `event` and applies it unless someone holds the host, without waking the
-    /// control loop (for input decoded on the control thread itself, which calls
-    /// [`Self::take_outgoing`] later in the same pass).
+    /// Applies a pure input-history event (`Mouse`, `Controller`, `Motion`) directly under the
+    /// host lock when uncontended—avoiding `inbox`, `outbox`, `params` locks and heap
+    /// allocations—and falls back to the inbox when the worker currently holds the host.
     fn push_quietly(&self, event: Event) {
+        if let Some(mut slot) = self.try_host() {
+            let had_queued = self.apply(&mut slot);
+            apply_event(&mut slot.host, event);
+            if had_queued || self.inbox_pending.load(Ordering::Acquire) {
+                let _ = self.apply_and_collect(&mut slot);
+            }
+            drop(slot);
+            std::sync::atomic::fence(Ordering::SeqCst);
+            while self.inbox_pending.load(Ordering::Acquire) {
+                let Some(mut slot) = self.try_host() else {
+                    break;
+                };
+                let _ = self.apply_and_collect(&mut slot);
+                drop(slot);
+                std::sync::atomic::fence(Ordering::SeqCst);
+            }
+            return;
+        }
         self.queue(event);
-        if let Some(host) = self.try_host() {
-            self.hold_quietly(host, |_| ());
+        std::sync::atomic::fence(Ordering::SeqCst);
+        if let Some(slot) = self.try_host() {
+            self.hold_quietly(slot, |_| ());
         }
     }
 
@@ -379,6 +415,7 @@ impl FrameWarpState {
             inbox.pop_front();
         }
         inbox.push_back(event);
+        self.inbox_pending.store(true, Ordering::Release);
     }
 
     /// Wakes the control loop, unless a wake is on its way: the control loop takes everything
@@ -394,9 +431,9 @@ impl FrameWarpState {
         }
     }
 
-    fn try_host(&self) -> Option<MutexGuard<'_, FrameWarpHost>> {
+    fn try_host(&self) -> Option<MutexGuard<'_, HostSlot>> {
         match self.host.try_lock() {
-            Ok(host) => Some(host),
+            Ok(slot) => Some(slot),
             Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
             Err(TryLockError::WouldBlock) => None,
         }
@@ -407,10 +444,10 @@ impl FrameWarpState {
     /// after the last look, unless someone else has it, who then applies them.
     fn hold<R>(
         &self,
-        host: MutexGuard<'_, FrameWarpHost>,
+        slot: MutexGuard<'_, HostSlot>,
         f: impl FnOnce(&mut FrameWarpHost) -> R,
     ) -> R {
-        let (result, produced) = self.hold_quietly(host, f);
+        let (result, produced) = self.hold_quietly(slot, f);
         if produced {
             self.wake();
         }
@@ -420,51 +457,46 @@ impl FrameWarpState {
     /// [`Self::hold`] without the wake; also whether the host produced anything to send.
     fn hold_quietly<R>(
         &self,
-        mut host: MutexGuard<'_, FrameWarpHost>,
+        mut slot: MutexGuard<'_, HostSlot>,
         f: impl FnOnce(&mut FrameWarpHost) -> R,
     ) -> (R, bool) {
-        self.apply(&mut host);
-        let result = f(&mut host);
-        let mut produced = self.apply_and_collect(&mut host);
-        drop(host);
-        while !lock(&self.inbox).is_empty() {
-            let Some(mut host) = self.try_host() else {
+        self.apply(&mut slot);
+        let result = f(&mut slot.host);
+        let mut produced = self.apply_and_collect(&mut slot);
+        drop(slot);
+        std::sync::atomic::fence(Ordering::SeqCst);
+        while self.inbox_pending.load(Ordering::Acquire) {
+            let Some(mut slot) = self.try_host() else {
                 break;
             };
-            produced |= self.apply_and_collect(&mut host);
+            produced |= self.apply_and_collect(&mut slot);
+            drop(slot);
+            std::sync::atomic::fence(Ordering::SeqCst);
         }
         (result, produced)
     }
 
-    fn apply_and_collect(&self, host: &mut FrameWarpHost) -> bool {
-        self.apply(host);
-        self.collect(host)
+    fn apply_and_collect(&self, slot: &mut HostSlot) -> bool {
+        self.apply(slot);
+        self.collect(&mut slot.host)
     }
 
-    fn apply(&self, host: &mut FrameWarpHost) {
-        let events: Vec<Event> = lock(&self.inbox).drain(..).collect();
-        for event in events {
-            match event {
-                Event::Request(payload) => {
-                    let _ = host.on_request(&payload);
-                }
-                Event::Mouse { dx, dy, at_us } => host.on_mouse(dx, dy, at_us),
-                Event::Controller {
-                    number,
-                    stick,
-                    at_us,
-                } => host.on_controller(number, stick, at_us),
-                Event::Tag { frame, capture_us } => host.tag(frame, capture_us),
-                Event::Picture(picture, content) => host.set_picture(picture, content),
-                Event::Motion {
-                    number,
-                    kind,
-                    xyz,
-                    at_us,
-                } => host.on_motion(number, kind, xyz, at_us),
-                Event::Cursor(visible) => host.on_cursor(visible),
-            }
+    fn apply(&self, slot: &mut HostSlot) -> bool {
+        if !self.inbox_pending.load(Ordering::Acquire) {
+            return false;
         }
+        {
+            let mut inbox = lock(&self.inbox);
+            slot.scratch.extend(inbox.drain(..));
+            self.inbox_pending.store(false, Ordering::Release);
+        }
+        if slot.scratch.is_empty() {
+            return false;
+        }
+        for event in slot.scratch.drain(..) {
+            apply_event(&mut slot.host, event);
+        }
+        true
     }
 
     /// Moves what the host produced to the outbox; whether there was anything.
@@ -504,6 +536,29 @@ impl FrameWarpState {
     }
 }
 
+fn apply_event(host: &mut FrameWarpHost, event: Event) {
+    match event {
+        Event::Request(payload) => {
+            let _ = host.on_request(&payload);
+        }
+        Event::Mouse { dx, dy, at_us } => host.on_mouse(dx, dy, at_us),
+        Event::Controller {
+            number,
+            stick,
+            at_us,
+        } => host.on_controller(number, stick, at_us),
+        Event::Tag { frame, capture_us } => host.tag(frame, capture_us),
+        Event::Picture(picture, content) => host.set_picture(picture, content),
+        Event::Motion {
+            number,
+            kind,
+            xyz,
+            at_us,
+        } => host.on_motion(number, kind, xyz, at_us),
+        Event::Cursor(visible) => host.on_cursor(visible),
+    }
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,
@@ -513,3 +568,48 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod fast_path_tests {
+    use super::*;
+    use butterpollo_media_policy::frame_warp::{FrameWarpRequest, Tags};
+    use std::time::Duration;
+
+    #[test]
+    fn uncontended_input_skips_inbox_outbox_and_params_locks() {
+        let epoch = Instant::now();
+        let warp = FrameWarpState::new((1920, 1080), epoch);
+        let req = RequestV2 {
+            gyro: true,
+            gyro_controller: Some(0),
+            ..RequestV2::new(FrameWarpRequest {
+                enabled: true,
+                controller: Some(0),
+                mask_max_width: 0,
+                lens: true,
+            })
+        };
+        assert_eq!(warp.on_request(&req.encode()), Some(true));
+        let _ = warp.take_outgoing();
+
+        // Hold `inbox`, `outbox`, and `params` on this same thread: if `on_mouse`,
+        // `on_controller`, or `on_motion` attempted to lock any of them while `host` is free,
+        // the non-reentrant `std::sync::Mutex` would deadlock immediately.
+        let _inbox = lock(&warp.inbox);
+        let _outbox = lock(&warp.outbox);
+        let _params = lock(&warp.params);
+        warp.on_mouse(12, -4, epoch + Duration::from_millis(1));
+        warp.on_controller(0, (500, -250), epoch + Duration::from_millis(2));
+        warp.on_motion(0, 2, [0.0, 25.0, 0.0], epoch + Duration::from_millis(3));
+        drop((_inbox, _outbox, _params));
+
+        warp.tag(9, Some(epoch + Duration::from_millis(200)));
+        let sent = warp.take_outgoing();
+        let tags = Tags::decode(sent.tags.last().expect("tags")).unwrap();
+        let tag = tags.tags.last().unwrap();
+        assert_eq!(
+            (tag.frame, tag.mouse_x, tag.mouse_y, tag.controller_seq),
+            (9, 12, -4, 1)
+        );
+    }
+}

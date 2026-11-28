@@ -272,7 +272,8 @@ pub fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Res
         {
             let canceled = h.sessions.lock().unwrap().pending.remove(&launch.id);
             drop(canceled);
-            h.app_display.lock().unwrap().remove(&launch.client.uuid);
+            let previous = h.app_display.lock().unwrap().remove(&launch.client.uuid);
+            drop(previous);
             h.device_guests.unplug_guest_pad(&h, id);
             h.controller_sessions
                 .unplug(&crate::controller_sessions::key(&launch));

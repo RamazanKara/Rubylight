@@ -632,8 +632,11 @@ impl Worker {
 
     fn update_live(&mut self) {
         let (state, reason) = self.state();
-        let quota_used_bytes =
-            self.quota_on_disk + self.recording.as_ref().map_or(0, Recording::written);
+        let quota_used_bytes = self.quota_on_disk.saturating_add(
+            self.recording
+                .as_ref()
+                .map_or(0, |r| r.written().saturating_add(r.buffered_bytes())),
+        );
         let buffered_secs = (self.ring.buffered_us() / 1_000_000).min(u64::from(u16::MAX)) as u16;
         let recording_since = self
             .recording
@@ -647,6 +650,42 @@ impl Worker {
             live.recording_since = recording_since;
             live.quota_used_bytes = quota_used_bytes;
         });
+    }
+
+    /// Enforces the DVR quota against bytes buffered in an open recording even when video is
+    /// static and no fragment has flushed recently.
+    fn enforce_buffered_quota(&mut self) {
+        let Some(recording) = &self.recording else {
+            return;
+        };
+        let buffered = recording.buffered_bytes();
+        let projected = recording.written().saturating_add(buffered);
+        if buffered == 0 || self.quota_on_disk.saturating_add(projected) <= self.shared.quota_limit
+        {
+            return;
+        }
+        match self.h.dvr.make_room(
+            &self.shared.clips_dir,
+            projected,
+            buffered,
+            self.shared.quota_limit,
+            std::slice::from_ref(&recording.id),
+        ) {
+            Ok(_) => self.refresh_quota(),
+            Err(refusal) => {
+                let reason = match refusal {
+                    quota::Refusal::DiskFull => Reason::DiskFull,
+                    _ => Reason::QuotaExceeded,
+                };
+                tracing::warn!(
+                    reason = reason.as_str(),
+                    buffered_bytes = buffered,
+                    "stream dvr: recording stopped because buffered bytes exceeded quota"
+                );
+                self.stop_recording(None);
+                self.fail(reason);
+            }
+        }
     }
 
     /// Timers: the keyframe cadence, the state for the device, the setting. `false` ends the
@@ -663,6 +702,7 @@ impl Worker {
                 return false;
             }
         }
+        self.enforce_buffered_quota();
         self.update_live();
         if self.shared.client_speaks.load(Ordering::Acquire)
             && (self.sent != Some(self.state()) || now.duration_since(self.sent_at) >= STATE_EVERY)

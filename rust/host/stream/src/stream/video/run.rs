@@ -77,7 +77,7 @@ impl SessionThread<'_> {
         // for others mid-stream (0x5532); the encoder is rebuilt from this copy.
         // The host's `max_stream_resolution` cap shrinks only the coded picture.
         let mut stream = s.effective_config();
-        let resolution_cap = c.max_stream_resolution();
+        let mut resolution_cap = c.max_stream_resolution();
         let mut rates = butterpollo_media_policy::reconfigure::Rates::new(
             &stream,
             config::minimum_fps_target(&c),
@@ -85,6 +85,7 @@ impl SessionThread<'_> {
         // A constant-rate capture publishes for its fastest stream: this one's
         // stream rate, shared with any other stream on the same capture.
         capture_wake.set_period(rates.period);
+        latest.update_claim_grid(&capture_wake, rates.period, Instant::now());
         // The rate pacing follows, and the period the send path reads.
         let mut paced_rate = stream.fps_millihz();
         let mut stream_period = rates.period;
@@ -113,8 +114,8 @@ impl SessionThread<'_> {
         let source_phase_eligible = vrr || config::frame_pacing_predictive(&c);
         // Read once: the setting is the session's, and a lookup a frame costs.
         let direct_encoder_input = config::wgc_direct_encoder_input(&c);
-        let new_pacer = |rates: &butterpollo_media_policy::reconfigure::Rates| {
-            let predictive = config::frame_pacing_predictive(&c);
+        let new_pacer = |rates: &butterpollo_media_policy::reconfigure::Rates, cfg: &Config| {
+            let predictive = config::frame_pacing_predictive(cfg);
             butterpollo_media_policy::stream_policy::Pacer::new(Instant::now(), rates.period)
                 .with_static_period(rates.static_period)
                 .with_prediction(predictive)
@@ -128,9 +129,11 @@ impl SessionThread<'_> {
                 .with_source_phase(false)
                 .with_spacing(if vrr { 0.5 } else { 0.75 })
         };
-        let mut pacer = new_pacer(&rates);
-        // The claim grid's period from before a phase lock, restored when it ends.
-        let mut unlocked_grid_period: Option<Duration> = None;
+        let mut pacer = new_pacer(&rates, &c);
+        // Whether this stream's local pacer/cadence is currently phase-locked, and the
+        // local claim-grid period it contributes to the shared capture's fastest-consumer grid.
+        let mut phase_locked = false;
+        let mut grid_period = rates.period;
         let mut live_at = cadence.deadline();
         let mut rebuild_encoder = false;
         let mut applied_luminance: Option<(f32, f32)> = None;
@@ -254,19 +257,23 @@ impl SessionThread<'_> {
         let mut fec_whole = ((usize::MAX, 0, false), 0);
         let mut fec_whole_due = Instant::now();
 
-        let send_ctx = |stream_period| SendContext {
-            m,
-            h,
-            s,
-            c: &c,
-            timer: &timer,
-            progress: &progress,
-            prepared: &prepared,
-            claims: &claims,
-            pyrowave_sender,
-            webrtc_sender,
-            stream_period,
-        };
+        macro_rules! send_ctx {
+            ($stream_period:expr, $cfg:expr) => {
+                SendContext {
+                    m,
+                    h,
+                    s,
+                    c: $cfg,
+                    timer: &timer,
+                    progress: &progress,
+                    prepared: &prepared,
+                    claims: &claims,
+                    pyrowave_sender,
+                    webrtc_sender,
+                    stream_period: $stream_period,
+                }
+            };
+        }
 
         while !s.stopping() && !h.stop.load(Ordering::Acquire) {
             progress.mark(crate::stall_watch::Phase::Loop);
@@ -296,6 +303,7 @@ impl SessionThread<'_> {
                     }
                     config_version = version;
                     runtime_config = base_config.clone();
+                    resolution_cap = runtime_config.max_stream_resolution();
                     runtime_revision = runtime_revision.wrapping_add(1);
                     if let Some(due) = &mut calibration_due {
                         *due = Instant::now() + Duration::from_secs(30);
@@ -327,7 +335,6 @@ impl SessionThread<'_> {
             // turns it then, off this loop.
             apply_pending_reconfigure(
                 self,
-                &c,
                 &runtime_config,
                 &prepared,
                 &mut stream,
@@ -341,7 +348,7 @@ impl SessionThread<'_> {
                 paced_rate = stream.fps_millihz();
                 rates = butterpollo_media_policy::reconfigure::Rates::new(
                     &stream,
-                    config::minimum_fps_target(&c),
+                    config::minimum_fps_target(&runtime_config),
                 );
                 capture_wake.set_period(rates.period);
                 stream_period = rates.period;
@@ -349,15 +356,12 @@ impl SessionThread<'_> {
                 cadence = butterpollo_media_policy::stream_policy::Cadence::new(
                     Instant::now(),
                     rates.period,
-                    config::wgc_pacing_smoothing(&c),
+                    config::wgc_pacing_smoothing(&runtime_config),
                 );
-                pacer = new_pacer(&rates);
-                unlocked_grid_period = None;
-                {
-                    let mut grid = latest.grid.lock().unwrap();
-                    grid.period = rates.period;
-                    grid.anchor = Instant::now();
-                }
+                pacer = new_pacer(&rates, &runtime_config);
+                phase_locked = false;
+                grid_period = rates.period;
+                latest.update_claim_grid(&capture_wake, rates.period, Instant::now());
                 s.phase_sync.lock().unwrap().reset();
             }
             let period = stream_period;
@@ -384,7 +388,9 @@ impl SessionThread<'_> {
             };
             let Some(peer) = peer else {
                 // A roam drops the old path's address until the new one pings.
-                if s.media_wait_start(start).elapsed() > crate::network::ping_timeout(&c) {
+                if s.media_wait_start(start).elapsed()
+                    > crate::network::ping_timeout(&runtime_config)
+                {
                     anyhow::bail!("client video ping timed out");
                 }
                 timer.until(Instant::now() + Duration::from_millis(1));
@@ -393,7 +399,7 @@ impl SessionThread<'_> {
             if s.config.video_qos {
                 video_qos.follow(&m.video, peer, false);
             }
-            let ctx = send_ctx(period);
+            let ctx = send_ctx!(period, &runtime_config);
             if !arrival_pacing {
                 wait_grid_cadence(
                     &ctx,
@@ -437,7 +443,10 @@ impl SessionThread<'_> {
                 backend = latest.backend();
                 backend_due = false;
                 source_phase = source_phase_eligible
-                    && butterpollo_media_policy::stream_policy::source_phase(&c, backend);
+                    && butterpollo_media_policy::stream_policy::source_phase(
+                        &runtime_config,
+                        backend,
+                    );
             }
             // Whether this capture only extends the focus window's
             // picture, read before an enhancement replaces the image and
@@ -582,7 +591,6 @@ impl SessionThread<'_> {
                 match rebuild_encoder_now(
                     self,
                     encoder,
-                    &c,
                     &runtime_config,
                     runtime_revision,
                     &prepared,
@@ -624,7 +632,7 @@ impl SessionThread<'_> {
             let (output, begin, fresh, recovering, presented_captured, last_submitted) =
                 match encode_frame(
                     self,
-                    &c,
+                    &runtime_config,
                     &runtime_config,
                     &prepared,
                     &progress,
@@ -714,9 +722,11 @@ impl SessionThread<'_> {
             advance_pacing(
                 s,
                 latest,
+                &capture_wake,
                 &mut pacer,
                 &mut cadence,
-                &mut unlocked_grid_period,
+                &mut phase_locked,
+                &mut grid_period,
                 &mut encoded_at,
                 begin,
                 period,
@@ -731,7 +741,15 @@ impl SessionThread<'_> {
             // An allocation can later reuse this image's address;
             // its trace observation belongs only to this submission.
             first_seen = None;
-            inline_sender.send_frames(&ctx, output, peer, call_latency, latest, capture_tick)?;
+            let send_context = send_ctx!(period, &runtime_config);
+            inline_sender.send_frames(
+                &send_context,
+                output,
+                peer,
+                call_latency,
+                latest,
+                capture_tick,
+            )?;
             // After the frame went out, off its path: Frame Warp's passes.
             // A constant-rate repeat carries no new content to warp.
             frame_warp.frame(

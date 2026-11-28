@@ -183,10 +183,13 @@ impl SessionThread<'_> {
             && s.launch.nucleus.is_none()
             && prepared.kept_for_reconnect()
         {
-            let mut displays = h.app_display.lock().unwrap();
-            if !s.stopping() {
-                displays.insert(s.launch.client.uuid.clone(), (prepared.clone(), None));
-            }
+            let previous = {
+                let mut displays = h.app_display.lock().unwrap();
+                (!s.stopping())
+                    .then(|| displays.insert(s.launch.client.uuid.clone(), (prepared.clone(), None)))
+                    .flatten()
+            };
+            drop(previous);
         }
         let output = prepared.output();
         *s.output.write().unwrap() = output.clone();

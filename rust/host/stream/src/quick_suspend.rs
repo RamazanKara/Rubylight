@@ -56,8 +56,8 @@ impl Tracker {
     pub fn revision(&self) -> u64 {
         self.revision.load(Ordering::Acquire)
     }
-    fn changed(&self) {
-        self.revision.fetch_add(1, Ordering::AcqRel);
+    fn changed(&self) -> u64 {
+        self.revision.fetch_add(1, Ordering::AcqRel) + 1
     }
     /// Whether a game is suspended now.
     pub fn suspended(&self) -> bool {
@@ -65,17 +65,19 @@ impl Tracker {
     }
     #[cfg(test)]
     pub(crate) fn set_suspended_for_test(&self, title: &str) {
-        *self.lock() = Some(Suspended {
+        let mut slot = self.lock();
+        *slot = Some(Suspended {
             journal: Journal::new((1, 1), title, 1),
             count: 1,
             by: "test".into(),
         });
-        self.changed();
+        let _ = self.changed();
     }
     #[cfg(test)]
     pub(crate) fn clear_suspended_for_test(&self) {
-        *self.lock() = None;
-        self.changed();
+        let mut slot = self.lock();
+        *slot = None;
+        let _ = self.changed();
     }
 }
 
@@ -202,19 +204,37 @@ fn running_game(h: &Host) -> Option<(String, bool)> {
 /// The state now. Suspended stays visible while the setting is off, so the
 /// game can still be resumed.
 pub fn status(h: &Host) -> Status {
-    if let Some(suspended) = h.quick_suspend.lock().as_ref() {
-        return suspended_status(suspended);
+    status_with_revision(h).0
+}
+
+/// The state now paired with the revision captured under the tracker lock, so
+/// control-stream answers never stamp an older snapshot with a newer concurrent
+/// transition's revision.
+pub(crate) fn status_with_revision(h: &Host) -> (Status, u64) {
+    let (suspended, revision) = {
+        let slot = h.quick_suspend.lock();
+        (
+            slot.as_ref().map(suspended_status),
+            h.quick_suspend.revision(),
+        )
+    };
+    if let Some(status) = suspended {
+        return (status, revision);
     }
     let game = running_game(h);
     let title = game.as_ref().map(|(title, _)| title.clone());
     if !enabled(h) {
-        return Status::new(State::Unavailable, Reason::DisabledForApp, title);
+        return (
+            Status::new(State::Unavailable, Reason::DisabledForApp, title),
+            revision,
+        );
     }
-    match game {
+    let status = match game {
         None => Status::new(State::Unavailable, Reason::NoSession, None),
         Some((_, false)) => Status::new(State::Unavailable, Reason::NoOwnedProcess, title),
         Some((_, true)) => Status::new(State::Ready, Reason::None, title),
-    }
+    };
+    (status, revision)
 }
 
 /// Whether `who` may suspend or resume the session's game: the console, a
@@ -260,8 +280,14 @@ fn refusal(reason: Reason) -> Refused {
 /// Suspend the running game for `who`. A repeat while suspended answers the
 /// state; a refusal changes nothing and says why.
 pub fn suspend(h: &Host, who: Who<'_>) -> Status {
+    suspend_with_revision(h, who).0
+}
+
+/// Like [`suspend`], returning the revision corresponding to the reported state.
+pub(crate) fn suspend_with_revision(h: &Host, who: Who<'_>) -> (Status, u64) {
+    let revision_before = h.quick_suspend.revision();
     let title = running_game(h).map(|(title, _)| title);
-    let outcome = (|| -> Result<Status, Refused> {
+    let outcome = (|| -> Result<(Status, u64), Refused> {
         if !enabled(h) {
             return Err(refusal(Reason::DisabledForApp));
         }
@@ -273,13 +299,13 @@ pub fn suspend(h: &Host, who: Who<'_>) -> Status {
         }
         let mut slot = h.quick_suspend.lock();
         if let Some(suspended) = slot.as_ref() {
-            return Ok(suspended_status(suspended));
+            return Ok((suspended_status(suspended), h.quick_suspend.revision()));
         }
         let suspended = freeze(h, by, &mut suspend::Thaw)?;
         let answer = suspended_status(&suspended);
         *slot = Some(suspended);
+        let revision = h.quick_suspend.changed();
         drop(slot);
-        h.quick_suspend.changed();
         // A teardown the host starts on its own (the game's stop, the grace
         // period) takes no transition: one that began before the game was
         // suspended resumed nothing, so resume it here. One that begins from
@@ -291,7 +317,7 @@ pub fn suspend(h: &Host, who: Who<'_>) -> Status {
             thaw(h, "the session ends");
             return Err(refusal(Reason::SessionBusy));
         }
-        Ok(answer)
+        Ok((answer, revision))
     })();
     outcome.unwrap_or_else(|refused| {
         tracing::info!(
@@ -299,7 +325,7 @@ pub fn suspend(h: &Host, who: Who<'_>) -> Status {
             program = refused.program.as_deref().unwrap_or(""),
             "Quick Suspend refused"
         );
-        Status::refused(&refused, title)
+        (Status::refused(&refused, title), revision_before)
     })
 }
 
@@ -486,24 +512,35 @@ fn forget(h: &Host) {
 /// Resume the suspended game for `who`. Without one it answers the state; a
 /// process that stays suspended answers a refusal naming it.
 pub fn resume(h: &Host, who: Who<'_>) -> Status {
-    resume_with(h, who, &mut suspend::Thaw)
+    resume_with_revision(h, who).0
 }
 
+/// Like [`resume`], returning the revision corresponding to the reported state.
+pub(crate) fn resume_with_revision(h: &Host, who: Who<'_>) -> (Status, u64) {
+    resume_with_rev(h, who, &mut suspend::Thaw)
+}
+
+#[cfg(test)]
 fn resume_with(h: &Host, who: Who<'_>, thaw: &mut impl Thaw) -> Status {
+    resume_with_rev(h, who, thaw).0
+}
+
+fn resume_with_rev(h: &Host, who: Who<'_>, thaw: &mut impl Thaw) -> (Status, u64) {
+    let revision_before = h.quick_suspend.revision();
     let title = || running_game(h).map(|(title, _)| title);
     if h.quick_suspend.suspended()
         && let Err(reason) = permitted(h, who)
     {
-        return Status::refused(&refusal(reason), title());
+        return (Status::refused(&refusal(reason), title()), revision_before);
     }
     if let Err(failed) = thaw_with(h, "resumed", thaw) {
         let refused = Refused {
             reason: Reason::IoOrOsError,
             program: Some(failed),
         };
-        return Status::refused(&refused, title());
+        return (Status::refused(&refused, title()), revision_before);
     }
-    status(h)
+    status_with_revision(h)
 }
 
 /// Resume the suspended game because `why` (the session ends, the game stops,
@@ -548,8 +585,8 @@ fn thaw_with(h: &Host, why: &str, thaw: &mut impl Thaw) -> Result<(), String> {
         *slot = Some(suspended);
         Err(failed)
     };
+    let _ = h.quick_suspend.changed();
     drop(slot);
-    h.quick_suspend.changed();
     outcome
 }
 
@@ -567,8 +604,8 @@ pub fn tick(h: &Host) {
     if ended {
         slot.take();
         forget(h);
+        let _ = h.quick_suspend.changed();
         drop(slot);
-        h.quick_suspend.changed();
         tracing::info!("Quick Suspend: the suspended game ended");
     }
 }

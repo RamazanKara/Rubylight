@@ -363,3 +363,18 @@ fn a_file_without_a_way_out_gives_the_stream_menu_its_default_back() {
     assert_eq!(menu(&bound(Client::Desktop, &menu_off)).keys, None);
     assert_eq!(check_off(Client::Desktop, "quit", &menu_off), Err(HotkeyError::LastWayOut));
 }
+
+#[test]
+fn default_client_hotkeys_leave_monitor_switch_chords_unclaimed() {
+    let bindings = HotkeyBindings::new();
+    for client in [Client::Desktop, Client::Android] {
+        let bound_list = bound(client, &bindings);
+        for vk in 0x70u16..=0x7B {
+            assert_eq!(
+                hotkey_at(&bound_list, CTRL_ALT_SHIFT, vk),
+                None,
+                "Ctrl+Alt+Shift+{vk:#x} must pass through to the host on {client:?}"
+            );
+        }
+    }
+}

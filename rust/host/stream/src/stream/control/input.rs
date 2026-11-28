@@ -142,6 +142,15 @@ pub(super) fn ensure_input_ready(
     }
     // Made before input comes; after a failure, again when it
     // does. Making it with the first input held that input up.
+    #[cfg(any(test, feature = "test-support"))]
+    if s.launch.nucleus.is_none()
+        && h.reconnect_fixture
+            .as_ref()
+            .is_some_and(|f| f.record_inputs.load(Ordering::Acquire))
+    {
+        p.injector_tried = true;
+        return true;
+    }
     if s.launch.nucleus.is_none()
         && p.injector.is_none()
         && (!p.inputs.is_empty() || !p.injector_tried)
@@ -242,6 +251,7 @@ pub(super) fn apply_input(
     p: &mut ControlPeer,
     s: &Arc<Session>,
     menus: &mut crate::couch_menu::Workers,
+    monitor_switches: &std::sync::mpsc::SyncSender<(Arc<Session>, u8)>,
     received: Option<Instant>,
 ) {
     p.pads_wait.hold(&mut p.inputs);
@@ -253,6 +263,20 @@ pub(super) fn apply_input(
             for event in events {
                 player.input(event, &s.launch.warnings);
             }
+        }
+    } else {
+        super::monitor_switch::filter_input(h, p, s, monitor_switches);
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(fixture) = &h.reconnect_fixture
+            && fixture.record_inputs.load(Ordering::Acquire)
+            && !butterpollo_input_policy::couch_menu::Shared::is_open(s.couch_menu.load())
+            && !p.inputs.is_empty()
+        {
+            fixture
+                .forwarded_inputs
+                .lock()
+                .unwrap()
+                .extend(p.inputs.iter().cloned());
         }
     }
     let injecting = Instant::now();
@@ -291,6 +315,7 @@ pub(super) fn inject_pending_inputs(
     control_wake: &Arc<UdpSocket>,
     peers: &mut HashMap<PeerID, ControlPeer>,
     menus: &mut crate::couch_menu::Workers,
+    monitor_switches: &std::sync::mpsc::SyncSender<(Arc<Session>, u8)>,
     received: Option<Instant>,
     injected: &mut Vec<PeerID>,
 ) {
@@ -302,6 +327,7 @@ pub(super) fn inject_pending_inputs(
             && h.device_guests.take_release(s)
         {
             i.release_keyboard_mouse();
+            p.monitor_switch.reset();
         }
     }
     // Input first, for every peer: none waits for another peer's housekeeping
@@ -319,6 +345,14 @@ pub(super) fn inject_pending_inputs(
             continue;
         }
         if !is_ready(p) {
+            #[cfg(any(test, feature = "test-support"))]
+            if h.reconnect_fixture
+                .as_ref()
+                .is_some_and(|f| f.record_inputs.load(Ordering::Acquire))
+            {
+                apply_input(h, p, &s, menus, monitor_switches, received);
+                injected.push(*peer_id);
+            }
             continue;
         }
         super::event_loop::follow_couch_menu(h, control_wake, p, &s);
@@ -327,8 +361,9 @@ pub(super) fn inject_pending_inputs(
             && h.device_guests.take_release(&s)
         {
             i.release_keyboard_mouse();
+            p.monitor_switch.reset();
         }
-        apply_input(h, p, &s, menus, received);
+        apply_input(h, p, &s, menus, monitor_switches, received);
         injected.push(*peer_id);
     }
 }

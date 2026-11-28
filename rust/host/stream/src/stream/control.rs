@@ -8,6 +8,7 @@ mod extensions;
 mod haptics;
 mod input;
 mod launch_curtain;
+mod monitor_switch;
 mod peer;
 mod ps_speaker;
 mod qos;
@@ -29,6 +30,8 @@ pub(super) use input::{
     INPUT_OVERFLOW, INPUT_QUEUE, drop_uninjectable_input, first_steam_attributes_refusal,
     hold_pad_input, queue_input,
 };
+#[cfg(test)]
+pub(super) use monitor_switch::monitor_switch_allowed;
 pub(super) use peer::ControlPeer;
 #[cfg(test)]
 pub(super) use peer::{PeerConfig, ScaleLookup};

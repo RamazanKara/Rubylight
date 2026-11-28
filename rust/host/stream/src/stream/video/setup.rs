@@ -188,6 +188,17 @@ impl SessionThread<'_> {
                 displays.insert(s.launch.client.uuid.clone(), (prepared.clone(), None));
             }
         }
+        if s.launch.role == Role::Stream
+            && s.launch.nucleus.is_none()
+            && s.launch.guest().is_none()
+            && !butterpollo_session::background::enabled(c)
+        {
+            let mut targets = h.monitor_targets.lock().unwrap();
+            targets.retain(|_, target| target.strong_count() > 0);
+            if !s.stopping() {
+                targets.insert(s.launch.id.clone(), Arc::downgrade(&prepared));
+            }
+        }
         let output = prepared.output();
         *s.output.write().unwrap() = output.clone();
         Ok(StreamDisplay { output, prepared })
@@ -227,7 +238,7 @@ impl SessionThread<'_> {
     ) -> Result<Option<Captured<'a>>> {
         let SessionThread { m, h, s } = *self;
         let first_wait = Instant::now();
-        let (latest, capture_wake) = m.open_session_capture(&s, &c, &prepared, latest)?;
+        let (latest, capture_wake) = m.open_session_capture(&h, &s, &c, &prepared, latest)?;
         let first = {
             let waiting_since = Instant::now();
             let deadline = waiting_since + Duration::from_secs(10);

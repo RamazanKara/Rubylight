@@ -484,6 +484,42 @@ fn an_app_window_is_laid_over_the_display_target_which_the_heartbeat_keeps_publi
     assert!(target.show_window(None));
     assert_eq!(target.current(), (r"\.\DISPLAY10".into(), 4));
 }
+
+#[test]
+fn monitor_override_outranks_window_survives_heartbeat_and_restores_on_clear() {
+    let target = CaptureTarget::new((r"\\.\DISPLAY1".into(), 1));
+    let window = r"window:0x2056c/812@\\.\DISPLAY1".to_owned();
+    let initial_rev = target.revision();
+    assert!(target.show_window(Some(window.clone())));
+    assert!(target.revision() > initial_rev);
+
+    // Override takes precedence over both app window and prepared display.
+    assert!(target.set_monitor_override(Some(r"\\.\DISPLAY2".into())));
+    assert!(target.has_monitor_override());
+    let after_override_rev = target.revision();
+    assert_eq!(target.current(), (r"\\.\DISPLAY2".into(), after_override_rev));
+    assert_eq!(
+        target.display_target(),
+        (r"\\.\DISPLAY2".into(), after_override_rev)
+    );
+    assert_eq!(target.prepared_display_target(), (r"\\.\DISPLAY1".into(), 1));
+
+    // Selecting the same override (case-insensitively) is a no-op.
+    assert!(!target.set_monitor_override(Some(r"\\.\display2".into())));
+    assert_eq!(target.revision(), after_override_rev);
+
+    // Heartbeat publish updates prepared display without clobbering monitor_override.
+    target.publish((r"\\.\DISPLAY1".into(), 2));
+    assert_eq!(target.prepared_display_target(), (r"\\.\DISPLAY1".into(), 2));
+    assert_eq!(target.current(), (r"\\.\DISPLAY2".into(), after_override_rev));
+
+    // Clearing the override restores the overlaid window (or prepared display).
+    assert!(target.set_monitor_override(None));
+    assert!(!target.has_monitor_override());
+    assert!(target.revision() > after_override_rev);
+    assert_eq!(target.current(), (window, 0));
+    assert_eq!(target.display_target(), (r"\\.\DISPLAY1".into(), 2));
+}
 #[test]
 fn a_capped_streams_display_keeps_its_size_for_the_mode_matches_and_resumes() {
     use crate::state::test_support::Fixture;

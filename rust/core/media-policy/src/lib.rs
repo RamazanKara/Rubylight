@@ -162,6 +162,7 @@ pub mod link_notice;
 pub mod link_rate;
 pub mod lossless;
 pub mod ltr;
+pub mod monitor_switch;
 pub mod network_pacing;
 pub mod network_path;
 pub mod nvenc;

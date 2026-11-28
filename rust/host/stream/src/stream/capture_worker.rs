@@ -6,6 +6,8 @@ use super::*;
 pub(super) struct Source {
     pub(super) warnings: Arc<butterpollo_session::session::Warnings>,
     pub(super) latest: Arc<Latest>,
+    /// The display or window name the worker currently captures (follows live monitor switches).
+    pub(super) active_output: Arc<std::sync::RwLock<String>>,
     /// The capture backend that opened, after every reopen: `auto` is planned
     /// as WGC, so the plan cannot say whether frames come from WGC or the
     /// display driver.
@@ -43,6 +45,10 @@ impl Source {
     pub(super) fn backend(&self) -> &'static str {
         *self.backend.lock().unwrap()
     }
+
+    pub(super) fn output(&self) -> String {
+        self.active_output.read().unwrap().clone()
+    }
 }
 
 impl std::ops::Deref for Source {
@@ -74,6 +80,9 @@ pub(super) struct CaptureKey {
     idd_fence_ring: bool,
     background: bool,
     constant_rate: bool,
+    /// Isolates live-switchable owner streams (plus joined guests of the same
+    /// owner) from unrelated background, Remote Monitor, or owner sessions.
+    switch_scope: Option<String>,
 }
 
 impl CaptureKey {
@@ -111,7 +120,13 @@ impl CaptureKey {
             idd_fence_ring: config.idd_push_fence_ring(),
             background: butterpollo_session::background::enabled(config),
             constant_rate,
+            switch_scope: None,
         }
+    }
+
+    pub(super) fn with_switch_scope(mut self, scope: Option<String>) -> Self {
+        self.switch_scope = scope;
+        self
     }
 }
 
@@ -134,12 +149,13 @@ impl Media {
         config: &Config,
         rate: butterpollo_media_policy::framegen::Rate,
         phase: &str,
+        switch_scope: Option<String>,
         prepared: Arc<crate::display_session::Ready>,
     ) -> Result<Arc<Source>> {
         // One read of the stream's policy: the method and the repeat mode
         // must agree, or a capture is keyed under one and opened as the other.
         let (kind, constant_rate) = prepared.capture_method();
-        let output = prepared.output();
+        let output = prepared.prepared_display_target().0;
         let aligned = config::wgc_slot_aligned_publish(config);
         // The user's Capture method, not the resolved backend: an explicit method is
         // never moved to another backend (`capture_policy::automatic_capture`).
@@ -147,7 +163,8 @@ impl Media {
             config::capture_setting(config),
         );
         let capture_config = capture_config(config);
-        let key = CaptureKey::new(&kind, &output, hdr, &capture_config, phase, constant_rate);
+        let key = CaptureKey::new(&kind, &output, hdr, &capture_config, phase, constant_rate)
+            .with_switch_scope(switch_scope);
         let mut captures = self.captures.lock().unwrap();
         captures.retain(|_, source| source.strong_count() > 0);
         if let Some(existing) = captures.get(&key).and_then(Weak::upgrade)
@@ -168,6 +185,8 @@ impl Media {
         let worker_grid = grid.clone();
         let backend = Arc::new(Mutex::new(""));
         let worker_backend = backend.clone();
+        let active_output = Arc::new(std::sync::RwLock::new(output.clone()));
+        let worker_active_output = active_output.clone();
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
         // Before the wait below begins: the capture's tries end within it.
         let started = Instant::now();
@@ -210,6 +229,7 @@ impl Media {
                 // The stream's display (and its revision) when the capture last opened on a
                 // new device: a window target switches on that device only while it stays.
                 let mut opened_display = prepared.display_target();
+                *worker_active_output.write().unwrap() = target.0.clone();
                 capture.set_claim_grid(worker_grid.clone(), aligned);
                 *worker_backend.lock().unwrap() = capture.backend();
                 tracing::info!(requested=%kind, backend=capture.backend(), output=%target.0, constant_rate = constant_rate, "capture backend opened");
@@ -228,7 +248,7 @@ impl Media {
                 // Duplication instead. A refused switch keeps the working one.
                 let reopen = |lost: Capture,
                               target: &(String, u64),
-                              chosen: &str|
+                              mut chosen: &str|
                  -> Result<(Capture, bool, (String, u64))> {
                     let recovery_started = Instant::now();
                     // Desktop Duplication reports the pointer's shape only
@@ -250,6 +270,7 @@ impl Media {
                     }
                     let release_ms = recovery_started.elapsed().as_millis();
                     let mut missing_since = None;
+                    let mut override_fail_since = None;
                     loop {
                         worker.check()?;
                         anyhow::ensure!(
@@ -264,13 +285,25 @@ impl Media {
                         // desktop; duplication must be made on that desktop.
                         butterpollo_win_io::input::follow_input_desktop();
                         let background = butterpollo_session::background::enabled(&capture_config);
+                        let present = butterpollo_win_graphics::capture::display_present(&next.0);
+                        if prepared.has_monitor_override() && !present {
+                            tracing::warn!(
+                                output = %next.0,
+                                "overridden monitor disappeared; falling back to the stream's prepared display"
+                            );
+                            prepared.clear_monitor_override();
+                            capture_warnings.clear("capture_backend");
+                            override_fail_since = None;
+                            chosen = &kind;
+                            continue;
+                        }
                         let on = reopen_on(
-                            butterpollo_win_graphics::capture::display_present(&next.0),
+                            present,
                             background,
                             &mut missing_since,
                             Instant::now(),
                         );
-                        let opened = match on {
+                        let opened: Result<(Capture, String)> = match on {
                             ReopenOn::Wait => {
                                 if background {
                                     capture_warnings.set("capture_display", "The background display disappeared. Waiting for it to recover; the PC's monitor is not captured.");
@@ -285,7 +318,7 @@ impl Media {
                                 &capture_config,
                                 capture_warnings.clone(),
                             ) {
-                                Ok(opened) => Ok(opened),
+                                Ok(opened) => Ok((opened, next.0.clone())),
                                 // Keep the backend that was working: Desktop
                                 // Duplication cannot capture this display (another
                                 // vendor's GPU drives it, or it is turned), and a
@@ -304,7 +337,7 @@ impl Media {
                                             if opened.backend() == "wgc" {
                                                 capture_warnings.set("capture_backend", format!("Capturing with Windows Graphics Capture: Desktop Duplication cannot capture this display ({error:#})."));
                                             }
-                                            Ok(opened)
+                                            Ok((opened, next.0.clone()))
                                         }
                                         Err(failure) => Err(failure),
                                     }
@@ -323,11 +356,12 @@ impl Media {
                                             &capture_config,
                                             capture_warnings.clone(),
                                         )
+                                        .map(|opened| (opened, primary))
                                     })
                             }
                         };
                         match opened {
-                            Ok(mut recovered) => {
+                            Ok((mut recovered, opened_output)) => {
                                 if on == ReopenOn::Primary {
                                     capture_warnings.set("capture_display", format!("The stream's display {} disappeared and did not return within {} s; showing the primary display until it returns. A game or Windows changed the display layout; reconnect if the picture does not return.", next.0, DISPLAY_RETURN_WAIT.as_secs()));
                                 } else {
@@ -341,8 +375,27 @@ impl Media {
                                 {
                                     tracing::warn!(%error, "the pointer appears once it moves or changes");
                                 }
+                                *worker_active_output.write().unwrap() = opened_output;
                                 tracing::info!(release_ms, elapsed_ms=recovery_started.elapsed().as_millis(), backend=recovered.backend(), "capture reopened after resource release");
                                 return Ok((recovered, on == ReopenOn::Primary, next));
+                            }
+                            Err(error) if prepared.has_monitor_override() => {
+                                let since = override_fail_since.get_or_insert_with(Instant::now);
+                                if since.elapsed() >= Duration::from_secs(2)
+                                    || Instant::now() >= deadline
+                                {
+                                    tracing::warn!(
+                                        output = %next.0,
+                                        error = %format!("{error:#}"),
+                                        "overridden monitor could not be captured; falling back to the stream's prepared display"
+                                    );
+                                    prepared.clear_monitor_override();
+                                    capture_warnings.clear("capture_backend");
+                                    override_fail_since = None;
+                                    chosen = &kind;
+                                    continue;
+                                }
+                                thread::sleep(RECOVERY_RETRY);
                             }
                             Err(error) if Instant::now() >= deadline => return Err(error),
                             Err(_) => thread::sleep(RECOVERY_RETRY),
@@ -355,6 +408,7 @@ impl Media {
                 }
                 let progress = crate::stall_watch::register("capture", &output, None);
                 let mut check_target = Instant::now();
+                let mut target_rev = prepared.target_revision();
                 let mut user_desktop = kind == "wgc"
                     && butterpollo_win_graphics::capture::wgc_desktop_available();
                 let mut on_primary = false;
@@ -376,8 +430,9 @@ impl Media {
                     .then(butterpollo_media_policy::capture_policy::ConstantRate::default);
                 let mut origin = 0u64;
                 while !worker_stop.load(Ordering::Acquire) {
-                    if Instant::now() >= check_target {
+                    if Instant::now() >= check_target || prepared.target_revision() != target_rev {
                         check_target = Instant::now() + Duration::from_millis(100);
+                        let next_rev = prepared.target_revision();
                         let next = prepared.capture_target();
                         let available = kind == "wgc"
                             && butterpollo_win_graphics::capture::wgc_desktop_available();
@@ -417,15 +472,23 @@ impl Media {
                                     drop(std::mem::replace(&mut capture, switched));
                                     tracing::info!(from = %target.0, to = %next.0, "capture switched target on its device");
                                     target = next.clone();
+                                    *worker_active_output.write().unwrap() = next.0.clone();
                                     capture.set_claim_grid(worker_grid.clone(), aligned);
                                     *worker_backend.lock().unwrap() = capture.backend();
                                     last_frame = Instant::now();
+                                    target_rev = next_rev;
                                     continue;
                                 }
                                 Err(error) => tracing::info!(error = %format!("{error:#}"), to = %next.0, "the capture could not switch target on its device; reopening it"),
                             }
                         }
                         if restart || next != target || return_to_wgc || returned {
+                            let previous_output = target.0.clone();
+                            if next.0 != previous_output {
+                                switched_to_duplication = false;
+                                duplication_tried = false;
+                                capture_warnings.clear("capture_backend");
+                            }
                             let lost = std::mem::replace(&mut capture, Capture::Closed);
                             progress.mark(crate::stall_watch::Phase::Reopen);
                             (capture, on_primary, target) = match reopen(
@@ -437,7 +500,11 @@ impl Media {
                                 Err(_) if worker_stop.load(Ordering::Acquire) => return Ok(()),
                                 Err(error) => return Err(error),
                             };
-                            if switched_to_duplication && capture.backend() == "ddx" {
+                            if target.0 != previous_output {
+                                switched_to_duplication = false;
+                                duplication_tried = false;
+                                capture_warnings.clear("capture_backend");
+                            } else if switched_to_duplication && capture.backend() == "ddx" {
                                 capture_warnings.set("capture_backend", DUPLICATION_WARNING);
                             }
                             opened_display = prepared.display_target();
@@ -445,6 +512,7 @@ impl Media {
                             *worker_backend.lock().unwrap() = capture.backend();
                             last_frame = Instant::now();
                         }
+                        target_rev = next_rev;
                     }
                     // Reset before the helper's announcements are read: one
                     // that comes after them ends the wait below.
@@ -520,6 +588,7 @@ impl Media {
                                 ) {
                                     duplication_tried = true;
                                     tracing::info!(idle_ms = idle.as_millis(), output = %target.0, "an exclusive-fullscreen app is in front and no picture came; capturing the display with Desktop Duplication");
+                                    let previous_output = target.0.clone();
                                     let lost = std::mem::replace(&mut capture, Capture::Closed);
                                     progress.mark(crate::stall_watch::Phase::Reopen);
                                     (capture, on_primary, target) = match reopen(lost, &target, "ddx") {
@@ -529,11 +598,16 @@ impl Media {
                                         }
                                         Err(error) => return Err(error),
                                     };
-                                    if capture.backend() == "ddx" {
+                                    if target.0 != previous_output {
+                                        switched_to_duplication = false;
+                                        duplication_tried = false;
+                                        capture_warnings.clear("capture_backend");
+                                    } else if capture.backend() == "ddx" {
                                         switched_to_duplication = true;
                                         capture_warnings.set("capture_backend", DUPLICATION_WARNING);
                                     }
                                     opened_display = prepared.display_target();
+                                    target_rev = prepared.target_revision();
                                     capture.set_claim_grid(worker_grid.clone(), aligned);
                                     *worker_backend.lock().unwrap() = capture.backend();
                                     last_frame = Instant::now();
@@ -647,6 +721,7 @@ impl Media {
                             } else {
                                 capture_warnings.set("capture_recovery", format!("Capture interrupted ({e:#}); reopening capture, with a frozen picture until frames resume. If this repeats, keep the display mode stable and check the WGC helper and graphics driver."));
                             }
+                            let previous_output = target.0.clone();
                             let lost = std::mem::replace(&mut capture, Capture::Closed);
                             progress.mark(crate::stall_watch::Phase::Reopen);
                             (capture, on_primary, target) = match reopen(
@@ -658,10 +733,15 @@ impl Media {
                                 Err(_) if worker_stop.load(Ordering::Acquire) => return Ok(()),
                                 Err(error) => return Err(error),
                             };
-                            if switched_to_duplication && capture.backend() == "ddx" {
+                            if target.0 != previous_output {
+                                switched_to_duplication = false;
+                                duplication_tried = false;
+                                capture_warnings.clear("capture_backend");
+                            } else if switched_to_duplication && capture.backend() == "ddx" {
                                 capture_warnings.set("capture_backend", DUPLICATION_WARNING);
                             }
                             opened_display = prepared.display_target();
+                            target_rev = prepared.target_revision();
                             capture.set_claim_grid(worker_grid.clone(), aligned);
                             *worker_backend.lock().unwrap() = capture.backend();
                             last_frame = Instant::now();
@@ -681,6 +761,7 @@ impl Media {
         let latest = Arc::new(Source {
             warnings,
             latest,
+            active_output,
             backend,
             grid,
             stop,

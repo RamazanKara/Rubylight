@@ -172,6 +172,26 @@ impl ClientCursor {
         true
     }
 
+    /// Tells the active cursor session the stream switched to `output`, so the
+    /// next take asks for that display's scale and refreshes the shape if needed.
+    pub fn follow_output(&self, output: &str) -> bool {
+        let mut state = self.state.lock().unwrap();
+        let Some(session) = state.session.as_mut() else {
+            return false;
+        };
+        let Some(Some(noted)) = session.noted.as_mut() else {
+            return false;
+        };
+        if noted.output == output {
+            return false;
+        }
+        noted.output = output.to_owned();
+        session.dirty = true;
+        session.scale_pending = false;
+        self.dirty.store(true, Ordering::Release);
+        true
+    }
+
     /// When a coalesced change is due, for the control loop's wait.
     pub fn next_due(&self) -> Option<Instant> {
         if !self.dirty.load(Ordering::Acquire) {

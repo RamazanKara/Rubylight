@@ -372,3 +372,36 @@ fn a_pointer_noted_after_the_loops_look_is_sent_on_the_next_one() {
     ));
     assert!(!cursor.queued(), "the last shape cleared the gate");
 }
+
+#[test]
+fn follow_output_recomputes_scale_after_monitor_switch() {
+    let cursor = ClientCursor::default();
+    let arrow = solid(4, 4, [10, 20, 30, 255]);
+    let now = Instant::now();
+    // No active cursor session or hidden pointer -> no-op.
+    assert!(!cursor.follow_output("D2"));
+    cursor.on_request(&request(true, 96), true, 1);
+    assert!(cursor.note(None, "D1"));
+    assert!(!cursor.follow_output("D2"));
+    let _ = cursor.take(1, now, scale(100));
+
+    assert!(cursor.note(Some(pointer(&arrow, 4, 4)), "D1"));
+    assert!(matches!(
+        decoded(cursor.take(1, now + INTERVAL, |out| {
+            assert_eq!(out, "D1");
+            Some(Ok(100))
+        })),
+        CursorShape::Image { ref image, .. } if image.scale == 100
+    ));
+    // Following the same output is a no-op; switching to D2 queries D2's scale.
+    assert!(!cursor.follow_output("D1"));
+    assert!(cursor.follow_output("D2"));
+    assert!(cursor.queued());
+    assert!(matches!(
+        decoded(cursor.take(1, now + INTERVAL * 2, |out| {
+            assert_eq!(out, "D2");
+            Some(Ok(200))
+        })),
+        CursorShape::Image { ref image, .. } if image.scale == 200
+    ));
+}

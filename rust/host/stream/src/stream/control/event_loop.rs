@@ -64,6 +64,7 @@ impl Media {
                     }
                 }
             })?;
+        let monitor_switches = super::monitor_switch::spawn_worker(&h, &self.control_wake)?;
         let mut peers: HashMap<PeerID, ControlPeer> = HashMap::new();
         // Active sessions without a control peer, since when.
         let mut unattended: HashMap<String, Instant> = HashMap::new();
@@ -165,6 +166,7 @@ impl Media {
                 &self.control_wake,
                 &mut peers,
                 &mut menus,
+                &monitor_switches,
                 received,
                 &mut injected_peers,
             );
@@ -182,6 +184,7 @@ impl Media {
                     &h,
                     &self.control_wake,
                     &commands,
+                    &monitor_switches,
                     &mut host,
                     *peer_id,
                     p,
@@ -547,6 +550,7 @@ fn poll_peer(
     h: &Shared,
     control_wake: &Arc<UdpSocket>,
     commands: &std::sync::mpsc::SyncSender<(Arc<Session>, crate::process::MenuRun)>,
+    monitor_switches: &std::sync::mpsc::SyncSender<(Arc<Session>, u8)>,
     host: &mut Host<ControlSocket>,
     peer_id: PeerID,
     p: &mut ControlPeer,
@@ -633,6 +637,7 @@ fn poll_peer(
         if let Some(player) = &p.coop {
             player.release_all();
         }
+        p.monitor_switch.reset();
         p.input_released = true;
     }
     tick_and_send_qos(host, peer_id, p, &s, poll_feedback);
@@ -656,10 +661,11 @@ fn poll_peer(
             && h.device_guests.take_release(&s)
         {
             i.release_keyboard_mouse();
+            p.monitor_switch.reset();
         }
         // What the pass above left: input of a peer whose injector or
         // co-op player was made just now, and the couch menu's timers.
-        apply_input(h, p, &s, menus, received);
+        apply_input(h, p, &s, menus, monitor_switches, received);
     }
     let suspended = game_suspended(h, &s);
     if suspended
@@ -667,6 +673,7 @@ fn poll_peer(
         && let Some(i) = &mut p.injector
     {
         i.release_all();
+        p.monitor_switch.reset();
     }
     if !poll_feedback
         && let Some(i) = &mut p.injector

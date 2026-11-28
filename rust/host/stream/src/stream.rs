@@ -42,8 +42,8 @@ use control::{
     MOTION_EVENT_REQUEST, PadSends, PeerConfig, RUMBLE_MARKER, RumbleForwarded,
     SWALLOWED_PER_RECEIVE, ScaleLookup, UNATTENDED_SWEEP, UnattendedSweep, control_wait_timeout,
     drop_uninjectable_input, end_unattended_sessions, expects_enet_control, expire_controllers,
-    first_steam_attributes_refusal, haptics_negotiated, hold_pad_input, motion_requests,
-    pad_reports, queue_input, server_command,
+    first_steam_attributes_refusal, haptics_negotiated, hold_pad_input, monitor_switch_allowed,
+    motion_requests, pad_reports, queue_input, server_command,
 };
 pub use control::{
     PadsWait, RUMBLE_DATA, RUMBLE_TRIGGER_DATA, attach_pads, controllers_back, controllers_wait,
@@ -674,16 +674,35 @@ impl Media {
     }
     fn open_session_capture<'a>(
         &self,
+        h: &Shared,
         s: &Arc<Session>,
         c: &Config,
         prepared: &Arc<crate::display_session::Ready>,
         latest: &'a mut Option<Arc<Source>>,
     ) -> Result<(&'a mut Arc<Source>, Arc<capture::Consumer>)> {
+        let switch_scope = (s.launch.role == Role::Stream
+            && s.launch.nucleus.is_none()
+            && !butterpollo_session::background::enabled(c))
+        .then(|| {
+            if s.launch.guest().is_some() {
+                h.current_app
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .filter(|app| !app.background)
+                    .map(|app| butterpollo_session::state::device_uuid(&app.owner).to_owned())
+                    .filter(|uuid| !uuid.is_empty())
+                    .unwrap_or_else(|| s.launch.id.clone())
+            } else {
+                butterpollo_session::state::device_uuid(&s.launch.client.uuid).to_owned()
+            }
+        });
         let latest = latest.insert(self.capture(
             s.config.hdr,
             c,
             butterpollo_media_policy::framegen::Rate(s.config.fps_millihz()),
             &s.launch.id,
+            switch_scope,
             prepared.clone(),
         )?);
         *s.capture_warnings.write().unwrap() = latest.warnings.clone();

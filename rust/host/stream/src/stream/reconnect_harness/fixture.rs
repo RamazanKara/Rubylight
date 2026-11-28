@@ -86,6 +86,14 @@ pub struct Fixture {
     pub ffmpeg_directory_unknown: AtomicBool,
     /// DESCRIBE and ANNOUNCE's FFmpeg probe panics.
     pub ffmpeg_probe_panics: AtomicBool,
+    /// Ordered/unordered active display names exposed to monitor-switch integration tests.
+    pub monitor_displays: Mutex<Vec<String>>,
+    /// Monitor names selected via live mid-stream monitor switching in fixture sessions.
+    pub monitor_switches: Mutex<Vec<String>>,
+    /// Captures non-swallowed input batches without instantiating a host desktop injector.
+    pub record_inputs: AtomicBool,
+    /// Inputs that passed host filtering during fixture sessions (`record_inputs = true`).
+    pub forwarded_inputs: Mutex<Vec<butterpollo_input_policy::input::Input>>,
 }
 
 pub struct Slot(Arc<AtomicUsize>);
@@ -383,6 +391,15 @@ impl Fixture {
         // The video clock starts with the stream, as in the video worker: clock sync
         // probes are answered from here on.
         *s.media_epoch.write().unwrap() = Some(Instant::now());
+        if let Some(initial) = butterpollo_media_policy::monitor_switch::select_display(
+            &self.monitor_displays.lock().unwrap(),
+            1,
+        ) {
+            let mut out = s.output.write().unwrap();
+            if out.is_empty() {
+                *out = initial;
+            }
+        }
         while !h.stop.load(Ordering::Acquire) && !s.stopping() {
             if self.session_panics.load(Ordering::Acquire) {
                 let _sessions = self

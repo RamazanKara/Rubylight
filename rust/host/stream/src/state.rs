@@ -206,6 +206,8 @@ pub struct Host {
     pub app_audio: Mutex<Option<Arc<butterpollo_win_io::audio_route::Route>>>,
     /// Each client's game display, kept between its streams while the app runs.
     pub app_display: Mutex<BTreeMap<String, RetainedDisplay>>,
+    /// Active primary streams eligible for live monitor switching, keyed by launch ID.
+    pub monitor_targets: Mutex<HashMap<String, std::sync::Weak<crate::display_session::Ready>>>,
     pub monitors: Mutex<BTreeMap<String, Arc<butterpollo_win_display::display::Retained>>>,
     /// The remote monitors still being made, outside the `monitors` lock.
     pub monitors_creating: crate::remote_display::Creating,

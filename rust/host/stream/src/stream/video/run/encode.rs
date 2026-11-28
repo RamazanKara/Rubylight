@@ -20,6 +20,24 @@ pub(super) enum EncodeStep {
     Continue,
 }
 
+/// Keeps `s.output` and `timings`'s display name aligned with the live capture source,
+/// including guest streams following an owner monitor switch.
+pub(super) fn sync_stream_output(
+    s: &Session,
+    prepared: &crate::display_session::Ready,
+    latest: &Source,
+    output: &mut String,
+) {
+    if s.launch.guest().is_some() {
+        let live = latest.output();
+        *s.output.write().unwrap() = live.clone();
+        *output = live;
+    } else {
+        *s.output.write().unwrap() = prepared.output();
+        *output = prepared.display_target().0;
+    }
+}
+
 /// Configures per-frame encoder state and encodes `image`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn encode_frame(
@@ -125,7 +143,7 @@ pub(super) fn encode_frame(
         );
     }
     timings.record_claim_age(fresh, raw_image.repeat, image, begin);
-    if Instant::now() >= *metadata_due {
+    if rebuilt || Instant::now() >= *metadata_due {
         let checks_started = Instant::now();
         let mut display_metadata = image.gpu.hdr_metadata();
         if let Some(peak) = enhancer.hdr_peak(runtime_config) {

@@ -117,6 +117,10 @@ impl SessionThread<'_> {
         {
             crate::remote_display::disconnect(&h, Some(&s.launch.client.uuid));
         }
+        h.monitor_targets
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&s.launch.id);
         h.sessions.lock().unwrap_or_else(PoisonError::into_inner).teardown.remove(&s.launch.id);
         tracing::info!(client=%s.launch.client.name,"CLIENT DISCONNECTED");
     }

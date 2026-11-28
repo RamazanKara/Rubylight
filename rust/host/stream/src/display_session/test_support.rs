@@ -19,6 +19,14 @@ pub fn retained_display(host: &Shared, config: &Config) -> Arc<Ready> {
     Ready::prepare((prepared, limiter)).unwrap().display.clone()
 }
 
+/// A retained display initialized with an explicit `output` name, for tests.
+pub fn retained_output(host: &Shared, config: &Config, output: &str) -> Arc<Ready> {
+    let mut prepared = test_prepared(host);
+    prepared.output = output.to_owned();
+    let limiter = limiter::Lease::acquire(&host.directory, config, &prepared.framegen).unwrap();
+    Ready::prepare((prepared, limiter)).unwrap().display.clone()
+}
+
 /// A kept display that is the virtual display `identity`, joined or a stream's own.
 pub fn retained_on(host: &Shared, config: &Config, identity: &str, joined: bool) -> Arc<Ready> {
     let mut prepared = test_prepared(host);

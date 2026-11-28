@@ -11,7 +11,7 @@ mod timings;
 use super::setup::{Captured, Configured, Started, StreamDisplay};
 use super::*;
 use admission::{Admission, advance_pacing, check_admission, wait_grid_cadence};
-use encode::{EncodeStep, encode_frame};
+use encode::{EncodeStep, encode_frame, sync_stream_output};
 use inline_send::{InlineSender, SendContext};
 use rebuild::{RebuildOutcome, apply_pending_reconfigure, rebuild_encoder_now};
 use timings::TimingsWindow;
@@ -42,7 +42,10 @@ impl SessionThread<'_> {
             c,
             timer,
         } = config;
-        let StreamDisplay { prepared, output } = display;
+        let StreamDisplay {
+            prepared,
+            mut output,
+        } = display;
         let Captured {
             latest,
             capture_wake,
@@ -301,7 +304,7 @@ impl SessionThread<'_> {
                         *due = Instant::now() + Duration::from_secs(30);
                     }
                 }
-                *s.output.write().unwrap() = prepared.output();
+                sync_stream_output(s, &prepared, latest, &mut output);
                 timings.live_tick(
                     h,
                     s,
@@ -436,6 +439,7 @@ impl SessionThread<'_> {
                 // backend it opened before this, its first new picture.
                 backend = latest.backend();
                 backend_due = false;
+                sync_stream_output(s, &prepared, latest, &mut output);
                 source_phase = source_phase_eligible
                     && butterpollo_media_policy::stream_policy::source_phase(&c, backend);
             }

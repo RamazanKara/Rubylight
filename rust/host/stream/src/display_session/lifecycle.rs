@@ -25,7 +25,7 @@ use butterpollo_win_io::limiter;
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -83,6 +83,7 @@ impl Drop for StreamPreparation {
                 prepared.keep_chosen_layout();
                 prepared.keep_chosen_resolution();
                 prepared.keep_chosen_scale();
+                self.display.clear_monitor_override();
             }
         }
         if let Some(retained) = &self.display.retained {
@@ -313,6 +314,7 @@ impl Ready {
                     self.mode_report.publish(applied_mode(&prepared.output));
                 }
                 prepared.put_scale_back()?;
+                self.target.set_monitor_override(None);
                 self.target.publish(prepared.capture_target());
                 self.active.fetch_add(1, Ordering::AcqRel);
                 prepared.machine.attach_stream();
@@ -424,7 +426,27 @@ impl Ready {
     }
 
     pub fn display_target(&self) -> (String, u64) {
-        self.target.display.lock().unwrap().clone()
+        self.target.display_target()
+    }
+
+    pub fn prepared_display_target(&self) -> (String, u64) {
+        self.target.prepared_display_target()
+    }
+
+    pub fn set_monitor_override(&self, display: Option<String>) -> bool {
+        self.target.set_monitor_override(display)
+    }
+
+    pub fn clear_monitor_override(&self) -> bool {
+        self.target.set_monitor_override(None)
+    }
+
+    pub fn has_monitor_override(&self) -> bool {
+        self.target.has_monitor_override()
+    }
+
+    pub fn target_revision(&self) -> u64 {
+        self.target.revision()
     }
 
     pub fn show_app_window(&self, window: Option<String>) -> bool {
@@ -472,6 +494,8 @@ impl Ready {
 pub(super) struct CaptureTarget {
     display: Arc<Mutex<(String, u64)>>,
     window: Arc<Mutex<Option<String>>>,
+    monitor_override: Arc<Mutex<Option<(String, u64)>>>,
+    revision: Arc<AtomicU64>,
 }
 
 impl CaptureTarget {
@@ -479,22 +503,62 @@ impl CaptureTarget {
         Self {
             display: Arc::new(Mutex::new(target)),
             window: Arc::new(Mutex::new(None)),
+            monitor_override: Arc::new(Mutex::new(None)),
+            revision: Arc::new(AtomicU64::new(1)),
         }
     }
     pub(super) fn current(&self) -> (String, u64) {
+        if let Some(overridden) = self.monitor_override.lock().unwrap().clone() {
+            return overridden;
+        }
         match &*self.window.lock().unwrap() {
             Some(window) => (window.clone(), 0),
             None => self.display.lock().unwrap().clone(),
         }
     }
+    pub(super) fn display_target(&self) -> (String, u64) {
+        if let Some(overridden) = self.monitor_override.lock().unwrap().clone() {
+            return overridden;
+        }
+        self.display.lock().unwrap().clone()
+    }
+    pub(super) fn prepared_display_target(&self) -> (String, u64) {
+        self.display.lock().unwrap().clone()
+    }
     pub(super) fn publish(&self, target: (String, u64)) {
-        *self.display.lock().unwrap() = target;
+        let mut display = self.display.lock().unwrap();
+        if *display != target {
+            *display = target;
+            self.revision.fetch_add(1, Ordering::AcqRel);
+        }
     }
     pub(super) fn show_window(&self, window: Option<String>) -> bool {
         let mut shown = self.window.lock().unwrap();
         let changed = *shown != window;
-        *shown = window;
+        if changed {
+            *shown = window;
+            self.revision.fetch_add(1, Ordering::AcqRel);
+        }
         changed
+    }
+    pub(super) fn set_monitor_override(&self, display: Option<String>) -> bool {
+        let mut overridden = self.monitor_override.lock().unwrap();
+        let changed = match (overridden.as_ref().map(|(d, _)| d.as_str()), display.as_deref()) {
+            (Some(cur), Some(next)) => !cur.eq_ignore_ascii_case(next),
+            (None, None) => false,
+            _ => true,
+        };
+        if changed {
+            let rev = self.revision.fetch_add(1, Ordering::AcqRel) + 1;
+            *overridden = display.map(|d| (d, rev));
+        }
+        changed
+    }
+    pub(super) fn has_monitor_override(&self) -> bool {
+        self.monitor_override.lock().unwrap().is_some()
+    }
+    pub(super) fn revision(&self) -> u64 {
+        self.revision.load(Ordering::Acquire)
     }
 }
 

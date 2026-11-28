@@ -132,5 +132,7 @@ mod input_notices_tests;
 mod join_resume_tests;
 #[path = "reconnect_tests/media_and_launch_tests.rs"]
 mod media_and_launch_tests;
+#[path = "reconnect_tests/monitor_switch_tests.rs"]
+mod monitor_switch_tests;
 #[path = "reconnect_tests/rtsp_lifecycle_tests.rs"]
 mod rtsp_lifecycle_tests;

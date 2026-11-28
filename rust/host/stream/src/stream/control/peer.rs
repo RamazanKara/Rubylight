@@ -77,6 +77,8 @@ pub(in crate::stream) struct ControlPeer {
     /// Raw control packets received while the launch was still pending in `sessions.pending`,
     /// replayed once `sessions.active` gets this peer's session.
     pub(super) pre_active_packets: std::collections::VecDeque<Vec<u8>>,
+    /// Per-peer detector for live `Ctrl + Alt + Shift + F1`–`F12` monitor switches.
+    pub(super) monitor_switch: butterpollo_input_policy::monitor_switch::Matcher,
 }
 
 impl Drop for ControlPeer {
@@ -142,6 +144,7 @@ impl ControlPeer {
             config: Default::default(),
             cursor_scale: Default::default(),
             pre_active_packets: std::collections::VecDeque::new(),
+            monitor_switch: Default::default(),
         }
     }
 

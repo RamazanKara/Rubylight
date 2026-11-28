@@ -513,6 +513,7 @@ impl Host {
             confirmations: Mutex::new(Default::default()),
             app_audio: Mutex::new(None),
             app_display: Mutex::new(BTreeMap::new()),
+            monitor_targets: Mutex::new(HashMap::new()),
             monitors: Mutex::new(BTreeMap::new()),
             monitors_creating: Default::default(),
             updates: Mutex::new(

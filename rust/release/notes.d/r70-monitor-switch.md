@@ -1,0 +1,2 @@
+# Live mid-stream monitor switching
+- **Switch monitors live during a stream.** Primary desktop and game streams (with keyboard permission, outside the couch menu and background sessions) now switch capture cleanly across active displays on `Ctrl + Alt + Shift + F1`–`F12` without disconnecting or dropping held modifier keys. Joined guest streams follow the owner's selected display automatically, and disappearing overridden monitors fall back to the stream's prepared display.

@@ -107,6 +107,7 @@ pub(super) async fn devices(
         .lock()
         .unwrap()
         .iter()
+        .filter(|(_, pin)| pin.created.elapsed() < std::time::Duration::from_secs(300))
         .map(|(id, pin)| {
             (
                 id.clone(),

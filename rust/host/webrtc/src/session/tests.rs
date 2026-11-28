@@ -452,3 +452,134 @@ async fn same_app_switch_allows_resume_alongside_remote_monitor_and_enforces_web
     drop(commands);
     f.host.stop.store(true, Ordering::Release);
 }
+
+#[tokio::test]
+async fn late_stop_streams_refusal_emits_failed_host_session_status() {
+    use butterpollo_session::{
+        session::Transport,
+        webrtc::protocol::{AudioSettings, HostSessionState, ServerMessage, VideoSettings},
+    };
+    let f = Fixture::new();
+    let app0 = f.host.apps.read().unwrap()[0].clone();
+    let app_id = app0.id();
+    let mut other_device = f.client(u32::MAX);
+    other_device.uuid = "other-device".into();
+    // Start a running app owned by the caller so the early terminate_refused check passes.
+    let caller = crate::WebRtcRuntime::for_host(&f.host)
+        .clients
+        .console_device(&f.host, "caller")
+        .unwrap();
+    let client_id = caller.webrtc().unwrap().0.to_owned();
+    let mut running =
+        butterpollo_stream::process::RunningApp::with_environment(&app0, Default::default())
+            .unwrap();
+    running.owner = caller.uuid.clone();
+    *f.host.current_app.lock().unwrap() = Some(running);
+    let media = test_media(&f);
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::channel(16);
+    let commands = spawn(
+        f.host.clone(),
+        media,
+        client_id,
+        "127.0.0.1:5000".parse().unwrap(),
+        "127.0.0.1".parse().unwrap(),
+        false,
+        out_tx,
+    );
+    let req = Request {
+        app_id: app_id.to_string(),
+        video: VideoSettings {
+            width: 1920,
+            height: 1080,
+            fps: 60,
+            codec: "hevc".into(),
+            bitrate_kbps: 20_000,
+            hdr: false,
+        },
+        audio: AudioSettings {
+            channels: 2,
+            sample_rate: None,
+        },
+    };
+
+    // 1. Late refusal during `switch` (after Resuming is already announced) must emit Failed.
+    let guard = f.host.launch_transition.lock().unwrap();
+    assert!(commands.send(Command::Switch(req)));
+    let announced = tokio::time::timeout(Duration::from_secs(2), out_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        announced,
+        ServerMessage::HostSessionStatus {
+            state: HostSessionState::Resuming,
+            ..
+        }
+    ));
+    let mut webrtc_launch = f.launch(other_device.clone(), Role::Stream);
+    webrtc_launch.transport = Transport::WebRtc;
+    let other_stream = butterpollo_stream::state::Session::new(webrtc_launch, Default::default());
+    f.host
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .insert(other_stream.launch.id.clone(), other_stream.clone());
+    drop(guard);
+    let failed = tokio::time::timeout(Duration::from_secs(2), out_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(
+            failed,
+            ServerMessage::HostSessionStatus {
+                state: HostSessionState::Failed,
+                message: Some(ref msg),
+                ..
+            } if msg.contains("Another device")
+        ),
+        "late switch refusal must emit HostSessionState::Failed, got {failed:?}"
+    );
+    f.host
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .remove(&other_stream.launch.id);
+
+    // 2. Late refusal during `stop-host-session` (after Stopping is announced) must emit Failed.
+    let guard = f.host.launch_transition.lock().unwrap();
+    assert!(commands.send(Command::StopHost));
+    let announced = tokio::time::timeout(Duration::from_secs(2), out_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        announced,
+        ServerMessage::HostSessionStatus {
+            state: HostSessionState::Stopping,
+            ..
+        }
+    ));
+    f.host.current_app.lock().unwrap().as_mut().unwrap().owner = other_device.uuid.clone();
+    drop(guard);
+    let failed = tokio::time::timeout(Duration::from_secs(2), out_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(
+            failed,
+            ServerMessage::HostSessionStatus {
+                state: HostSessionState::Failed,
+                message: Some(ref msg),
+                ..
+            } if msg.contains("Another device")
+        ),
+        "late stop-host refusal must emit HostSessionState::Failed, got {failed:?}"
+    );
+    assert!(commands.send(Command::Stop));
+    drop(commands);
+    f.host.stop.store(true, Ordering::Release);
+}

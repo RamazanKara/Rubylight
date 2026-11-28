@@ -32,7 +32,7 @@
   import { marked, poll } from '../lib/format';
   import { checkPowerStatus } from '../lib/power';
   import { link } from '../lib/router.svelte';
-  import { refreshMetadata, session } from '../lib/session.svelte';
+  import { fetchSessionStatus, refreshMetadata, session } from '../lib/session.svelte';
 
   // The art Home shows before a device is paired, and when no game has been played.
   const landscape = new URL('../assets/home-landscape.webp', import.meta.url).href;
@@ -162,7 +162,7 @@
   let latestSessions = 0;
   async function refreshSessions() {
     const id = ++latestSessions;
-    const [list, current, paused] = await Promise.allSettled([api.sessions.streams(), api.sessions.status(), api.sessions.suspendStatus()]);
+    const [list, current, paused] = await Promise.allSettled([api.sessions.streams(), fetchSessionStatus(), api.sessions.suspendStatus()]);
     if (id !== latestSessions) return;
     quick = paused.status === 'fulfilled' ? paused.value : null;
     if (list.status === 'fulfilled') {

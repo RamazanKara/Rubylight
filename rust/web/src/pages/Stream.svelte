@@ -149,6 +149,16 @@
     refused = false;
     signedOut = false;
     try {
+      // Refresh a lapsed access cookie before fetching the socket's CSRF token.
+      const auth = await api.auth.status();
+      if (gone) return;
+      if (!auth.authenticated) {
+        signedOut = true;
+        refused = true;
+        error = 'This tab is no longer signed in.';
+        phase = 'failed';
+        return;
+      }
       const opened = await ConsoleStream.connect(await sessionCsrfToken());
       if (gone) return opened.close();
       stream = opened;

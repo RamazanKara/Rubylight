@@ -2,6 +2,21 @@
 //! save/reload operations.
 
 use super::*;
+use std::sync::LazyLock;
+
+const REFRESH_ROTATION_GRACE: Duration = Duration::from_secs(15);
+const CREDENTIALS_RELOAD_INTERVAL: Duration = Duration::from_secs(2);
+const CREDENTIALS_RELOAD_CACHE_MAX: usize = 128;
+
+/// Pre-rotation CSRF tokens kept alongside [`Host::rotated_web_sessions`], bucketed by
+/// `aliases_path` so distinct `Host` instances never clear or prune each other's grace entries.
+type RotatedCsrfBuckets = HashMap<PathBuf, HashMap<String, (Instant, String)>>;
+static ROTATED_CSRF: LazyLock<Mutex<RotatedCsrfBuckets>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Last time each credentials file path was stat-checked on hot web request paths.
+static CREDENTIALS_RELOAD_AT: LazyLock<Mutex<HashMap<PathBuf, Instant>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 impl Host {
     /// Write the app library and remember the file as written, so [`Host::reload_apps`] does
@@ -84,7 +99,32 @@ impl Host {
             paired.document = document;
         }
         *self.credentials_stamp.lock().unwrap() = file_stamp(&self.credentials_path);
+        CREDENTIALS_RELOAD_AT
+            .lock()
+            .unwrap()
+            .remove(&self.credentials_path);
         Ok(())
+    }
+
+    /// Whether a throttled web-path credentials check should run now for this host.
+    pub fn credentials_reload_due(&self) -> bool {
+        let now = Instant::now();
+        let mut cache = CREDENTIALS_RELOAD_AT.lock().unwrap();
+        if let Some(last) = cache.get(&self.credentials_path)
+            && now.saturating_duration_since(*last) < CREDENTIALS_RELOAD_INTERVAL
+        {
+            return false;
+        }
+        if cache.len() >= CREDENTIALS_RELOAD_CACHE_MAX
+            && !cache.contains_key(&self.credentials_path)
+        {
+            cache.retain(|_, at| now.saturating_duration_since(*at) < CREDENTIALS_RELOAD_INTERVAL);
+            if cache.len() >= CREDENTIALS_RELOAD_CACHE_MAX {
+                cache.clear();
+            }
+        }
+        cache.insert(self.credentials_path.clone(), now);
+        true
     }
 
     /// Take up a sign-in changed on disk, as `--creds` changes it while the
@@ -145,6 +185,7 @@ impl Host {
         }
         sessions.clear();
         self.rotated_web_sessions.lock().unwrap().clear();
+        ROTATED_CSRF.lock().unwrap().remove(&self.aliases_path);
     }
 
     pub fn save_web_sessions(&self, sessions: &HashMap<String, WebSession>) -> Result<()> {
@@ -153,17 +194,67 @@ impl Host {
         if !document["root"].is_object() {
             document["root"] = json!({});
         }
+        let now = Instant::now();
         document["root"]["session_tokens"] = Value::Array(
             sessions
                 .iter()
-                .filter(|(_, s)| s.refresh_expires > Instant::now())
+                .filter(|(_, s)| s.refresh_expires > now)
                 .map(|(key, s)| web_sessions::record(key, s))
                 .collect(),
         );
         butterpollo_session::state::write_json(&self.aliases_path, &document)?;
         *aliases = document;
-        self.rotated_web_sessions.lock().unwrap().clear();
+        let mut rotated = self.rotated_web_sessions.lock().unwrap();
+        rotated.retain(|_, entry| {
+            entry.rotated_at.elapsed() < REFRESH_ROTATION_GRACE
+                && sessions
+                    .get(&entry.access_hash)
+                    .is_some_and(|s| s.refresh_expires > now)
+        });
+        let mut csrf_buckets = ROTATED_CSRF.lock().unwrap();
+        if let Some(bucket) = csrf_buckets.get_mut(&self.aliases_path) {
+            bucket.retain(|old_hash, (at, _)| {
+                at.elapsed() < REFRESH_ROTATION_GRACE && rotated.contains_key(old_hash)
+            });
+        }
+        csrf_buckets.retain(|_, bucket| {
+            bucket.retain(|_, (at, _)| at.elapsed() < REFRESH_ROTATION_GRACE);
+            !bucket.is_empty()
+        });
         Ok(())
+    }
+
+    /// Look up a browser refresh token across live sessions and recently rotated sessions still
+    /// within the rotation grace window (so concurrent tabs sharing one refresh cookie all receive
+    /// the rotated credentials instead of failing with 401).
+    pub fn find_refresh_session(&self, token: &str) -> Option<WebSession> {
+        let now = Instant::now();
+        let sessions = self.web_sessions.lock().unwrap();
+        if let Some(live) = sessions.values().find(|s| {
+            butterpollo_crypto::crypto::matches_hash(token.as_bytes(), &s.refresh)
+                && s.refresh_expires > now
+        }) {
+            return Some(live.clone());
+        }
+        let mut rotated = self.rotated_web_sessions.lock().unwrap();
+        rotated.retain(|_, entry| entry.rotated_at.elapsed() < REFRESH_ROTATION_GRACE);
+        let (old_hash, entry) = rotated.iter().find(|(old_hash, entry)| {
+            butterpollo_crypto::crypto::matches_hash(token.as_bytes(), old_hash)
+                && sessions
+                    .get(&entry.access_hash)
+                    .is_some_and(|s| s.refresh_expires > now)
+        })?;
+        let mut previous = sessions.get(&entry.access_hash)?.clone();
+        previous.refresh = old_hash.clone();
+        if let Some((_, old_csrf)) = ROTATED_CSRF
+            .lock()
+            .unwrap()
+            .get(&self.aliases_path)
+            .and_then(|bucket| bucket.get(old_hash))
+        {
+            previous.csrf = old_csrf.clone();
+        }
+        Some(previous)
     }
 
     /// A changed console sign-in ends what the old one let in: browser
@@ -180,6 +271,7 @@ impl Host {
         butterpollo_session::state::write_json(&self.aliases_path, &document)?;
         *aliases = document;
         self.rotated_web_sessions.lock().unwrap().clear();
+        ROTATED_CSRF.lock().unwrap().remove(&self.aliases_path);
         Ok(())
     }
 
@@ -224,7 +316,6 @@ impl Host {
             "rotation_id".into(),
             hex::encode(butterpollo_crypto::crypto::random::<12>()).into(),
         );
-        const REFRESH_ROTATION_GRACE: Duration = Duration::from_secs(15);
         let mut sessions = self.web_sessions.lock().unwrap();
         let live = previous.as_ref().map(|previous| {
             sessions
@@ -293,12 +384,13 @@ impl Host {
         self.save_web_sessions(&next)?;
         *sessions = next;
         if let Some(prev) = previous.as_ref() {
+            let rotated_at = Instant::now();
             let mut rotated = self.rotated_web_sessions.lock().unwrap();
             rotated.retain(|_, entry| entry.rotated_at.elapsed() < REFRESH_ROTATION_GRACE);
             rotated.insert(
                 prev.refresh.clone(),
                 crate::state::RotatedWebSession {
-                    rotated_at: Instant::now(),
+                    rotated_at,
                     access: access.clone(),
                     refresh: refresh.clone(),
                     csrf: csrf.clone(),
@@ -306,6 +398,15 @@ impl Host {
                     access_hash,
                 },
             );
+            let mut csrf_buckets = ROTATED_CSRF.lock().unwrap();
+            csrf_buckets.retain(|_, bucket| {
+                bucket.retain(|_, (at, _)| at.elapsed() < REFRESH_ROTATION_GRACE);
+                !bucket.is_empty()
+            });
+            csrf_buckets
+                .entry(self.aliases_path.clone())
+                .or_default()
+                .insert(prev.refresh.clone(), (rotated_at, prev.csrf.clone()));
         }
         Ok((access, refresh, csrf, refresh_deadline.saturating_sub(wall)))
     }

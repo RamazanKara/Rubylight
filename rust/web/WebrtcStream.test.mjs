@@ -411,3 +411,33 @@ test('the page carries no Experimental badge and has the stream video the e2e pr
   // The socket opens on Connect, not with the page.
   assert.match(body, /Checking this PC/);
 });
+
+test('concurrent signalling requests preserve each other’s waiters and correlate artwork by appId', async () => {
+  const playMod = await server.ssrLoadModule('/src/lib/webrtc/play.ts');
+  const { socket } = await openStream();
+  const sigMod = await server.ssrLoadModule('/src/lib/webrtc/signalling.ts');
+  // Open a fresh PlayStream-compatible socket and test Signalling directly.
+  const opening = sigMod.Signalling.openWith('wss://host/play/signal', [sigMod.PROTOCOL]);
+  const s = FakeSocket.last;
+  s.open(sigMod.PROTOCOL);
+  const sig = await opening;
+
+  // Start two concurrent requests: the second must NOT clear the first's reply.
+  const reqA = sig.request('get-apps', {}, 'apps');
+  const reqB = sig.request('get-app-artwork', { appId: 'b' }, 'app-artwork', 15000, (m) => m.appId === 'b');
+  // Deliver an out-of-order artwork reply for another appId first: must NOT satisfy reqB.
+  s.receive({ type: 'app-artwork', appId: 'a', available: true, mimeType: 'image/png', data: 'QUFB' });
+  s.receive({ type: 'apps', apps: [{ id: 'b', title: 'B', artworkAvailable: true, running: false }] });
+  s.receive({ type: 'app-artwork', appId: 'b', available: true, mimeType: 'image/png', data: 'QkJC' });
+  const [appsReply, artReply] = await Promise.all([reqA, reqB]);
+  assert.equal(appsReply.apps[0].id, 'b');
+  assert.equal(artReply.appId, 'b');
+  assert.equal(artReply.data, 'QkJC');
+
+  // Stream.svelte refreshes auth status before fetching the WebSocket CSRF token.
+  const { readFileSync } = await import('node:fs');
+  const streamSource = readFileSync(new URL('./src/pages/Stream.svelte', import.meta.url), 'utf8');
+  assert.match(streamSource, /const auth = await api\.auth\.status\(\);[\s\S]*?ConsoleStream\.connect\(await sessionCsrfToken\(\)\)/);
+  assert.ok(playMod.PlayStream);
+  void socket;
+});

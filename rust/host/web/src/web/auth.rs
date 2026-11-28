@@ -1,4 +1,5 @@
 //! Browser session authentication, sign-in rate limiting, CSRF checks, and auth/password endpoints.
+mod cache;
 use super::{error, response};
 use axum::{
     Json,
@@ -9,9 +10,12 @@ use base64::Engine;
 use butterpollo_crypto::{auth, crypto};
 use butterpollo_session::state::Credentials;
 use butterpollo_stream::{state::Shared, tls::Connection, web_sessions};
+use cache::SIGN_INS;
+#[cfg(test)]
+pub(super) use cache::SignIns;
+pub(super) use cache::{BASIC_CACHE, BasicCache};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub(crate) fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
@@ -34,147 +38,10 @@ pub(crate) fn access(headers: &HeaderMap) -> Option<String> {
         .or_else(|| cookie(headers, "__Host-apollo_session"))
 }
 
-/// Sign-in attempts per address over the last minute. The login form and
-/// Basic credentials share it, so neither lets a peer guess the password at
-/// full speed. This PC is never throttled, and IPv6 counts per /64, the
-/// block one LAN host can take addresses from.
-pub(super) struct SignIns {
-    pub(super) attempts: std::collections::HashMap<std::net::IpAddr, (Instant, u32)>,
-}
-
-static SIGN_INS: std::sync::LazyLock<std::sync::Mutex<SignIns>> = std::sync::LazyLock::new(|| {
-    std::sync::Mutex::new(SignIns {
-        attempts: Default::default(),
-    })
-});
-
-impl SignIns {
-    const LIMIT: u32 = 10;
-    const WINDOW: Duration = Duration::from_secs(60);
-    pub(super) const TRACKED: usize = 1024;
-    fn key(peer: std::net::IpAddr) -> std::net::IpAddr {
-        let peer = peer.to_canonical();
-        match peer {
-            std::net::IpAddr::V6(address) if !address.is_loopback() => {
-                std::net::Ipv6Addr::from(u128::from(address) & (u128::MAX << 64)).into()
-            }
-            other => other,
-        }
-    }
-    /// Whether `peer` may attempt sign-in without counting against the limit.
-    pub(super) fn allowed(&mut self, peer: std::net::IpAddr, now: Instant) -> bool {
-        let key = Self::key(peer);
-        self.attempts
-            .retain(|_, (since, _)| now.saturating_duration_since(*since) < Self::WINDOW);
-        self.attempts
-            .get(&key)
-            .is_none_or(|(_, count)| *count < Self::LIMIT)
-    }
-    /// Record a failed sign-in attempt for `peer`.
-    pub(super) fn failed(&mut self, peer: std::net::IpAddr, now: Instant) {
-        let key = Self::key(peer);
-        self.attempts
-            .retain(|_, (since, _)| now.saturating_duration_since(*since) < Self::WINDOW);
-        // Full: forget the oldest address instead of refusing every new
-        // one, which would let a flood of addresses lock everyone out.
-        if self.attempts.len() >= Self::TRACKED
-            && !self.attempts.contains_key(&key)
-            && let Some(oldest) = self
-                .attempts
-                .iter()
-                .min_by_key(|(_, (since, _))| *since)
-                .map(|(address, _)| *address)
-        {
-            self.attempts.remove(&oldest);
-        }
-        let (_, count) = self.attempts.entry(key).or_insert((now, 0));
-        *count = count.saturating_add(1);
-    }
-    pub(super) fn succeeded(&mut self, peer: std::net::IpAddr) {
-        let key = Self::key(peer);
-        self.attempts.remove(&key);
-    }
-}
-
-/// Basic credentials that passed PBKDF2 in the last five minutes, so a
-/// script that sends them with every request is not slowed (and the host
-/// not loaded) by 600,000 rounds each time. A key binds the stored username,
-/// salt and hash, so it never matches once the password or its hash changes.
-pub(super) struct BasicCache {
-    /// Key: when it was verified, and the stored credentials it was checked against.
-    pub(super) entries: std::collections::HashMap<[u8; 32], (Instant, [u8; 32])>,
-}
-
-pub(super) static BASIC_CACHE: std::sync::LazyLock<std::sync::Mutex<BasicCache>> =
-    std::sync::LazyLock::new(|| {
-        std::sync::Mutex::new(BasicCache {
-            entries: Default::default(),
-        })
-    });
-
 /// Serializes uncached PBKDF2 checks so concurrent bursts with the same valid
 /// Basic credentials verify once and coalesce onto [`BASIC_CACHE`] instead of
 /// tripping the failed-attempt limiter while the first hash is in flight.
 static SIGN_IN_VERIFY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-impl BasicCache {
-    pub(super) const TTL: Duration = Duration::from_secs(300);
-    pub(super) const CAPACITY: usize = 64;
-    fn digest(parts: &[&[u8]]) -> [u8; 32] {
-        let mut hasher = Sha256::new();
-        for part in parts {
-            hasher.update((part.len() as u64).to_le_bytes());
-            hasher.update(part);
-        }
-        hasher.finalize().into()
-    }
-    /// The stored credentials, without the attempt.
-    fn owner(stored: &Credentials) -> [u8; 32] {
-        Self::digest(&[
-            stored.username.as_bytes(),
-            stored.salt.as_bytes(),
-            stored.password.as_bytes(),
-        ])
-    }
-    /// The attempt `user`/`pass` against `stored`; usernames compare as
-    /// [`Credentials::verifies`] does.
-    pub(super) fn key(stored: &Credentials, user: &str, pass: &str) -> [u8; 32] {
-        Self::digest(&[
-            &Self::owner(stored),
-            user.trim().to_ascii_lowercase().as_bytes(),
-            pass.as_bytes(),
-        ])
-    }
-    fn expire(&mut self, now: Instant) {
-        self.entries
-            .retain(|_, (since, _)| now.saturating_duration_since(*since) < Self::TTL);
-    }
-    /// Whether `key` was verified within the last [`Self::TTL`].
-    pub(super) fn hit(&mut self, key: &[u8; 32], now: Instant) -> bool {
-        self.expire(now);
-        self.entries.contains_key(key)
-    }
-    /// Remember that `key` passed against `stored` at `now`; full, the oldest entry goes.
-    pub(super) fn insert(&mut self, key: [u8; 32], stored: &Credentials, now: Instant) {
-        self.expire(now);
-        if self.entries.len() >= Self::CAPACITY
-            && !self.entries.contains_key(&key)
-            && let Some(oldest) = self
-                .entries
-                .iter()
-                .min_by_key(|(_, (since, _))| *since)
-                .map(|(key, _)| *key)
-        {
-            self.entries.remove(&oldest);
-        }
-        self.entries.insert(key, (now, Self::owner(stored)));
-    }
-    /// Drop every attempt verified against `stored`, which was just replaced.
-    pub(super) fn forget(&mut self, stored: &Credentials) {
-        let owner = Self::owner(stored);
-        self.entries.retain(|_, (_, of)| *of != owner);
-    }
-}
 
 /// Replace `stored`, just verified with `password`, by a current PBKDF2
 /// hash. Blocking: run it on the blocking pool.
@@ -206,23 +73,58 @@ async fn sign_in(h: &Shared, peer: std::net::IpAddr, user: &str, pass: &str) -> 
     if !SIGN_INS.lock().unwrap().allowed(peer, now) {
         return false;
     }
-    let Some(stored) = h.credentials.read().unwrap().clone() else {
-        SIGN_INS.lock().unwrap().failed(peer, now);
-        return false;
+    let initial = h.credentials.read().unwrap().clone();
+    let mut stored = match initial {
+        Some(stored) => stored,
+        None => {
+            let host = h.clone();
+            let _ = tokio::task::spawn_blocking(move || host.reload_credentials()).await;
+            let reloaded = h.credentials.read().unwrap().clone();
+            let Some(stored) = reloaded else {
+                SIGN_INS.lock().unwrap().failed(peer, now);
+                return false;
+            };
+            stored
+        }
     };
-    let key = BasicCache::key(&stored, user, pass);
+    let mut key = BasicCache::key(&stored, user, pass);
     if !stored.needs_rehash() && BASIC_CACHE.lock().unwrap().hit(&key, now) {
         SIGN_INS.lock().unwrap().succeeded(peer);
         return true;
     }
     let (user, pass) = (user.to_owned(), pass.to_owned());
-    let verified = tokio::task::spawn_blocking({
+    let mut verified = tokio::task::spawn_blocking({
         let stored = stored.clone();
+        let user = user.clone();
         let pass = pass.clone();
         move || stored.verifies(&user, &pass)
     })
     .await
     .unwrap_or(false);
+    // If `--creds` updated the file within the hot-path stat-throttle window, reload once now.
+    if !verified {
+        let host = h.clone();
+        let refreshed = tokio::task::spawn_blocking(move || {
+            host.reload_credentials();
+            host.credentials.read().unwrap().clone()
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(fresh) = refreshed
+            && fresh != stored
+        {
+            stored = fresh;
+            key = BasicCache::key(&stored, &user, &pass);
+            verified = tokio::task::spawn_blocking({
+                let stored = stored.clone();
+                let pass = pass.clone();
+                move || stored.verifies(&user, &pass)
+            })
+            .await
+            .unwrap_or(false);
+        }
+    }
     if !verified {
         SIGN_INS.lock().unwrap().failed(peer, Instant::now());
         return false;
@@ -248,22 +150,37 @@ pub(crate) async fn authenticated(
     peer: Option<std::net::IpAddr>,
 ) -> bool {
     if let Some(token) = access(headers) {
-        let mut sessions = h.web_sessions.lock().unwrap();
-        let Some(key) = web_sessions::resolve_hash(&sessions, &token) else {
-            return false;
+        let save = {
+            let mut sessions = h.web_sessions.lock().unwrap();
+            let Some(key) = web_sessions::resolve_hash(&sessions, &token) else {
+                return false;
+            };
+            let Some(session) = sessions
+                .get_mut(&key)
+                .filter(|s| s.expires > Instant::now())
+            else {
+                return false;
+            };
+            let wall = web_sessions::now();
+            if wall.saturating_sub(session.last_seen) >= 300 {
+                let previous = session.last_seen;
+                session.last_seen = wall;
+                Some((key, previous, wall, sessions.clone()))
+            } else {
+                None
+            }
         };
-        let Some(session) = sessions
-            .get_mut(&key)
-            .filter(|s| s.expires > Instant::now())
-        else {
-            return false;
-        };
-        let wall = web_sessions::now();
-        if wall.saturating_sub(session.last_seen) >= 300 {
-            let previous = session.last_seen;
-            session.last_seen = wall;
-            if let Err(error) = h.save_web_sessions(&sessions) {
-                sessions.get_mut(&key).unwrap().last_seen = previous;
+        if let Some((key, previous, wall, snapshot)) = save {
+            let host = h.clone();
+            let saved = tokio::task::spawn_blocking(move || host.save_web_sessions(&snapshot))
+                .await
+                .unwrap_or_else(|e| Err(e.into()));
+            if let Err(error) = saved {
+                if let Some(session) = h.web_sessions.lock().unwrap().get_mut(&key)
+                    && session.last_seen == wall
+                {
+                    session.last_seen = previous;
+                }
                 tracing::debug!(%error, "browser session activity could not be saved");
             }
         }
@@ -391,14 +308,14 @@ pub(super) fn origin_allowed(h: &Shared, headers: &HeaderMap, origin: &str) -> b
         .any(|allowed| allowed == origin)
 }
 
-fn issued(
+async fn issue_session(
     h: &Shared,
     username: String,
     remember_me: bool,
     headers: &HeaderMap,
     connection: &Connection,
     previous: Option<web_sessions::WebSession>,
-) -> Response {
+) -> Result<(Response, String), Response> {
     let username = h
         .credentials
         .read()
@@ -413,30 +330,31 @@ fn issued(
         .unwrap()
         .integer("session_token_ttl_seconds", 7200)
         .clamp(60, 604800) as u64;
-    let user_agent = headers
+    let user_agent: String = headers
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .chars()
         .take(512)
         .collect();
-    let (access, refresh, csrf, refresh_ttl) = match h.new_web_session(
-        username,
-        remember_me,
-        user_agent,
-        connection.peer.ip().to_string(),
-        previous,
-    ) {
+    let peer_ip = connection.peer.ip().to_string();
+    let host = h.clone();
+    let created = tokio::task::spawn_blocking(move || {
+        host.new_web_session(username, remember_me, user_agent, peer_ip, previous)
+    })
+    .await
+    .unwrap_or_else(|e| Err(e.into()));
+    let (access, refresh, csrf, refresh_ttl) = match created {
         Ok(tokens) => tokens,
         Err(e) => {
             if e.is::<web_sessions::Rotated>() {
-                return error(StatusCode::UNAUTHORIZED, "refresh token expired");
+                return Err(error(StatusCode::UNAUTHORIZED, "refresh token expired"));
             }
             tracing::error!(error=%e, "browser session could not be persisted");
-            return error(
+            return Err(error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "browser session could not be saved",
-            );
+            ));
         }
     };
     let ttl = ttl.min(refresh_ttl);
@@ -460,32 +378,52 @@ fn issued(
                 .unwrap(),
         );
     }
-    r
+    Ok((r, csrf))
 }
 
-pub(crate) fn refresh_browser(
+async fn issued(
+    h: &Shared,
+    username: String,
+    remember_me: bool,
+    headers: &HeaderMap,
+    connection: &Connection,
+    previous: Option<web_sessions::WebSession>,
+) -> Response {
+    match issue_session(h, username, remember_me, headers, connection, previous).await {
+        Ok((r, _)) | Err(r) => r,
+    }
+}
+
+async fn refresh_browser_with_csrf(
+    h: &Shared,
+    headers: &HeaderMap,
+    connection: &Connection,
+) -> Option<Result<(Response, String), Response>> {
+    let token = cookie(headers, "__Host-apollo_refresh")?;
+    let previous = h.find_refresh_session(&token)?;
+    Some(
+        issue_session(
+            h,
+            previous.username.clone(),
+            previous.remember_me,
+            headers,
+            connection,
+            Some(previous),
+        )
+        .await,
+    )
+}
+
+pub(crate) async fn refresh_browser(
     h: &Shared,
     headers: &HeaderMap,
     connection: &Connection,
 ) -> Option<Response> {
-    let token = cookie(headers, "__Host-apollo_refresh")?;
-    let previous = h
-        .web_sessions
-        .lock()
-        .unwrap()
-        .values()
-        .find(|s| {
-            crypto::matches_hash(token.as_bytes(), &s.refresh) && s.refresh_expires > Instant::now()
+    refresh_browser_with_csrf(h, headers, connection)
+        .await
+        .map(|res| match res {
+            Ok((r, _)) | Err(r) => r,
         })
-        .cloned()?;
-    Some(issued(
-        h,
-        previous.username.clone(),
-        previous.remember_me,
-        headers,
-        connection,
-        Some(previous),
-    ))
 }
 
 pub(super) async fn status(h: &Shared, headers: &HeaderMap, connection: &Connection) -> Response {
@@ -496,7 +434,7 @@ pub(super) async fn status(h: &Shared, headers: &HeaderMap, connection: &Connect
     // the console page does, instead of being sent to the login page.
     if configured
         && !authenticated
-        && let Some(issued) = refresh_browser(h, headers, connection)
+        && let Some(issued) = refresh_browser(h, headers, connection).await
         && issued.status().is_success()
     {
         let mut result = Json(json!({"authenticated":true,"credentials_configured":true,"login_required":false,"status":true})).into_response();
@@ -549,12 +487,12 @@ pub(super) async fn login(
             v.as_bool()
                 .unwrap_or_else(|| matches!(v.as_str(), Some("true" | "1" | "on")))
         });
-        return issued(h, username.into(), remember, headers, connection, None);
+        return issued(h, username.into(), remember, headers, connection, None).await;
     }
     error(StatusCode::UNAUTHORIZED, "invalid username or password")
 }
 
-pub(super) fn refresh(
+pub(super) async fn refresh(
     h: &Shared,
     method: &Method,
     headers: &HeaderMap,
@@ -578,16 +516,7 @@ pub(super) fn refresh(
     let token = header_token
         .or(cookie_token)
         .unwrap_or_else(|| text("refresh_token").into());
-    let previous = {
-        let sessions = h.web_sessions.lock().unwrap();
-        sessions
-            .iter()
-            .find(|(_, s)| {
-                crypto::matches_hash(token.as_bytes(), &s.refresh)
-                    && s.refresh_expires > Instant::now()
-            })
-            .map(|(_, s)| s.clone())
-    };
+    let previous = h.find_refresh_session(&token);
     // The browser sends the refresh cookie with any request to the console, so a refresh that
     // rests on it needs the page's CSRF token: the session's, or the anonymous one
     // `/api/csrf-token` hands a tab whose access cookie lapsed. A token sent in a header or the
@@ -596,14 +525,17 @@ pub(super) fn refresh(
         return error(StatusCode::BAD_REQUEST, "CSRF token required");
     }
     match previous {
-        Some(s) => issued(
-            h,
-            s.username.clone(),
-            s.remember_me,
-            headers,
-            connection,
-            Some(s),
-        ),
+        Some(s) => {
+            issued(
+                h,
+                s.username.clone(),
+                s.remember_me,
+                headers,
+                connection,
+                Some(s),
+            )
+            .await
+        }
         None => error(StatusCode::UNAUTHORIZED, "refresh token expired"),
     }
 }
@@ -624,17 +556,27 @@ fn refresh_csrf_matches(headers: &HeaderMap, session: Option<&str>) -> bool {
         .any(|expected| crypto::equal(expected.as_bytes(), got.as_bytes()))
 }
 
-pub(super) fn logout(h: &Shared, headers: &HeaderMap) -> Response {
+pub(super) async fn logout(h: &Shared, method: &Method, headers: &HeaderMap) -> Response {
+    if *method != Method::POST {
+        return error(StatusCode::METHOD_NOT_ALLOWED, "POST required");
+    }
     if let Some(token) = access(headers) {
-        let mut sessions = h.web_sessions.lock().unwrap();
-        let mut next = sessions.clone();
-        if let Some(key) = web_sessions::resolve_hash(&next, &token) {
-            next.remove(&key);
-        }
-        if let Err(e) = h.save_web_sessions(&next) {
+        let host = h.clone();
+        let saved = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            let mut sessions = host.web_sessions.lock().unwrap();
+            let mut next = sessions.clone();
+            if let Some(key) = web_sessions::resolve_hash(&next, &token) {
+                next.remove(&key);
+            }
+            host.save_web_sessions(&next)?;
+            *sessions = next;
+            Ok(())
+        })
+        .await
+        .unwrap_or_else(|e| Err(e.into()));
+        if let Err(e) = saved {
             return error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
-        *sessions = next;
     }
     let mut r = Json(json!({"status":true})).into_response();
     for name in ["__Host-apollo_session", "__Host-apollo_refresh"] {
@@ -648,18 +590,38 @@ pub(super) fn logout(h: &Shared, headers: &HeaderMap) -> Response {
     r
 }
 
-pub(super) fn csrf_token(h: &Shared, method: &Method, headers: &HeaderMap) -> Response {
+pub(super) async fn csrf_token(
+    h: &Shared,
+    method: &Method,
+    headers: &HeaderMap,
+    connection: &Connection,
+) -> Response {
     if *method != Method::GET {
         return error(StatusCode::METHOD_NOT_ALLOWED, "GET required");
     }
     let token = access(headers);
     let csrf = token
         .and_then(|t| {
-            web_sessions::find(&h.web_sessions.lock().unwrap(), &t).map(|s| s.csrf.clone())
+            web_sessions::find(&h.web_sessions.lock().unwrap(), &t)
+                .filter(|s| s.expires > Instant::now())
+                .map(|s| s.csrf.clone())
         })
         .unwrap_or_default();
     if !csrf.is_empty() {
         return Json(json!({"status":true,"csrf_token":csrf,"token":csrf})).into_response();
+    }
+    let configured = h.credentials.read().unwrap().is_some();
+    if configured
+        && let Some(Ok((issued, csrf))) = refresh_browser_with_csrf(h, headers, connection).await
+    {
+        let mut result =
+            Json(json!({"status":true,"csrf_token":csrf,"token":csrf})).into_response();
+        for value in issued.headers().get_all(header::SET_COOKIE) {
+            result
+                .headers_mut()
+                .append(header::SET_COOKIE, value.clone());
+        }
+        return result;
     }
     let csrf = hex::encode(crypto::random::<32>());
     let mut result = Json(json!({"status":true,"csrf_token":csrf,"token":csrf})).into_response();

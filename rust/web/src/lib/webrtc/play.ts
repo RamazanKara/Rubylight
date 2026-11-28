@@ -150,11 +150,23 @@ export class PlayStream extends ConsoleStream {
     return this.sig.closeReason;
   }
 
-  /** The app's cover as a `data:` URL; null when it has none. One request at a time. */
-  async artwork(appId: string): Promise<string | null> {
-    const reply = await this.sig.request('get-app-artwork', { appId }, 'app-artwork');
-    if (!reply.available || reply.appId !== appId || typeof reply.data !== 'string') return null;
-    return `data:${String(reply.mimeType)};base64,${reply.data}`;
+  private artworkChain: Promise<unknown> = Promise.resolve();
+
+  /** The app's cover as a `data:` URL; null when it has none. Serialized and correlated by `appId`. */
+  artwork(appId: string): Promise<string | null> {
+    const next = this.artworkChain.then(async () => {
+      const reply = await this.sig.request(
+        'get-app-artwork',
+        { appId },
+        'app-artwork',
+        15000,
+        (message) => message.appId === appId,
+      );
+      if (!reply.available || reply.appId !== appId || typeof reply.data !== 'string') return null;
+      return `data:${String(reply.mimeType)};base64,${reply.data}`;
+    });
+    this.artworkChain = next.catch(() => {});
+    return next;
   }
 
   protected override opened(pc: RTCPeerConnection) {

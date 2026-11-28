@@ -88,10 +88,18 @@ test('values read in words, and a control stores what the host reads', () => {
   assert.equal(lib.storedValue(bitrate, ' 40000 '), 40000);
   assert.equal(lib.storedValue(hdr, 'force_on'), 'force_on');
   assert.equal(lib.storedValue(hdr, ''), undefined, 'empty clears the layer');
-  assert.equal(lib.rangeError(fec, '250'), 'At most 100%.');
-  assert.equal(lib.rangeError(fec, '-1'), 'At least 0%.');
-  assert.equal(lib.rangeError(fec, 'abc'), 'Enter a number.');
+  assert.equal(lib.rangeError(fec, '250'), 'Enter a number from 0 to 100.');
+  assert.equal(lib.rangeError(fec, '-1'), 'Enter a number from 0 to 100.');
+  assert.equal(lib.rangeError(fec, '15.5'), 'Enter a whole number.');
+  assert.equal(lib.rangeError(fec, 'abc'), 'Enter a valid number.');
   assert.equal(lib.rangeError(fec, ''), '');
+  const rate = lib.cascadeSetting('dd_manual_refresh_rate');
+  assert.equal(lib.rangeError(rate, '59.9401'), 'Enter at most three decimal places.');
+  assert.equal(lib.rangeError(rate, '59.94'), '');
+  const resolution = lib.cascadeSetting('dd_manual_resolution');
+  assert.equal(lib.rangeError(resolution, '1920*1080'), 'Enter WIDTHxHEIGHT, for example 2560x1440.');
+  assert.equal(lib.rangeError(resolution, '100x100'), 'Enter a width from 320 to 7680 and a height from 200 to 4320.');
+  assert.equal(lib.rangeError(resolution, '2560x1440'), '');
   assert.equal(lib.setCount(['max_bitrate', 'hevc_mode', 'av1_mode'], { max_bitrate: 1, hevc_mode: '', av1_mode: '0' }), 2);
 });
 

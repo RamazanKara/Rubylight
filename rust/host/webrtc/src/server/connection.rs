@@ -238,7 +238,7 @@ pub(super) async fn connection(
                 return;
             }
             Some(message) = replied.recv() => out.push(message),
-            outcome = state.pairing_outcome() => flow = state.finish_pairing(outcome, &mut out),
+            outcome = state.pairing_outcome() => flow = state.finish_pairing(outcome, &mut out).await,
             _ = idle(idle_until) => {
                 tracing::debug!(peer = %peer.address, id, "WebRTC connection closed: not authenticated in time");
                 flow = Flow::Close;

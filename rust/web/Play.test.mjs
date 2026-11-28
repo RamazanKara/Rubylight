@@ -336,6 +336,9 @@ test('nothing blurs over the picture, and the capsule is this browser’s choice
   // The handle is the pointer's way in; it never takes the focus from the game.
   assert.match(page, /<button class="handle"[^>]*tabindex="-1"[^>]*aria-label="Stream menu"[^>]*onclick=\{openMenu\}/);
   assert.match(page, /\{#if hint\}<PlayGlyphBar \{source\} context="stream" floating \/>\{\/if\}/);
+  // Library refreshes carry a generation token and quit() guards against re-entry and closed streams.
+  assert.match(page, /const run = \+\+libraryRun;/);
+  assert.match(page, /if \(quitting \|\| !from \|\| from\.closed\) return;/);
 });
 
 test('the pairing card shows the PIN a digit to a cell, and a spent PIN offers a new one', () => {

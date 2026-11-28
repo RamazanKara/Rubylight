@@ -663,3 +663,5 @@ async fn api_tokens_reach_neither_the_password_nor_the_file_picker() {
     let response = console_request(&f, "GET", "/api/apps", &headers, None).await;
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+mod regressions;

@@ -10,7 +10,7 @@
   import ClipPreview from '../components/dvr/ClipPreview.svelte';
   import ClipsPanel from '../components/dvr/ClipsPanel.svelte';
   import DvrLivePanel from '../components/dvr/DvrLivePanel.svelte';
-  import { clipName, refusalText, savedAt, savedNotice } from '../components/dvr/dvr-view';
+  import { clipName, mergeFirstPage, refusalText, savedAt, savedNotice } from '../components/dvr/dvr-view';
   import { api, type ClipSummary, type ConsoleDvrStatus } from '../lib/api';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
   import { poll } from '../lib/format';
@@ -46,15 +46,24 @@
     }
   }
 
+  // Only the newest poll or pagination step may land; older pages survive the 15 s head refresh.
+  let clipsSeq = 0;
+  let paginated = false;
+
   /** The first page again: after a save, a stop or a delete, and on the slow poll. */
-  async function loadClips() {
+  async function loadClips(reset = false) {
+    const seq = ++clipsSeq;
     try {
       const reply = await api.dvr.clips();
-      clips = reply.clips;
-      cursor = reply.next_cursor;
+      if (seq !== clipsSeq) return;
+      const merged = mergeFirstPage(clips, cursor, reset ? false : paginated, reply.clips, reply.next_cursor);
+      clips = merged.clips;
+      cursor = merged.cursor;
+      paginated = merged.paginated;
       quota = { used: reply.quota_used_bytes, limit: reply.quota_limit_bytes };
       clipsError = '';
     } catch (failure) {
+      if (seq !== clipsSeq) return;
       clipsError = reason(failure);
     }
   }
@@ -62,13 +71,17 @@
   async function loadMore() {
     if (!cursor || loadingMore) return;
     loadingMore = true;
+    const seq = ++clipsSeq;
     try {
       const reply = await api.dvr.clips(cursor);
+      if (seq !== clipsSeq) return;
       const known = new Set((clips ?? []).map((clip) => clip.id));
       clips = [...(clips ?? []), ...reply.clips.filter((clip) => !known.has(clip.id))];
       cursor = reply.next_cursor;
+      paginated = true;
       quota = { used: reply.quota_used_bytes, limit: reply.quota_limit_bytes };
     } catch (failure) {
+      if (seq !== clipsSeq) return;
       failed('Loading older clips failed', failure);
     } finally {
       loadingMore = false;
@@ -183,7 +196,7 @@
     onpreview={(clip) => (previewing = clip)}
     ondelete={remove}
     onmore={loadMore}
-    onretry={loadClips}
+    onretry={() => loadClips(true)}
   />
 </div>
 

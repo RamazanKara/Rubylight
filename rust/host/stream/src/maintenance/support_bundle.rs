@@ -93,11 +93,53 @@ fn copy_redacted(source: &Path, writer: &mut impl Write, redactor: &Redactor) ->
     }
 }
 
+/// Removes a partial support bundle if creation fails before the caller takes ownership.
+struct RemoveOnDrop(Option<PathBuf>);
+
+impl RemoveOnDrop {
+    fn new(path: PathBuf) -> Self {
+        Self(Some(path))
+    }
+
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// Removes leftover `.zip` archives under `<profile>/support/` left behind by a crash or failed
+/// download. Any bundle currently open for streaming is skipped cleanly on Windows.
+pub fn sweep(directory: &Path) {
+    let support = directory.join("support");
+    let Ok(entries) = std::fs::read_dir(&support) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+        {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 pub(super) fn bundle_with_dump(h: &Shared, dump: impl FnOnce() -> Option<Dump>) -> Result<PathBuf> {
     use zip::{ZipWriter, write::SimpleFileOptions};
     let directory = h.directory.join("support");
     std::fs::create_dir_all(&directory)?;
     let path = directory.join(format!("{}.zip", uuid::Uuid::new_v4()));
+    // Declared before `writer` so Rust drops `writer` (closing the handle) before removing `path`.
+    let mut cleanup = RemoveOnDrop::new(path.clone());
     let mut writer = ZipWriter::new(std::fs::File::create(&path)?);
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
     let redactor = redactor(h);
@@ -156,6 +198,7 @@ pub(super) fn bundle_with_dump(h: &Shared, dump: impl FnOnce() -> Option<Dump>) 
         )?;
     }
     writer.finish()?.sync_all()?;
+    cleanup.disarm();
     Ok(path)
 }
 
@@ -331,5 +374,36 @@ mod tests {
         for key in ["API_Token", "Custom_Password", "My_SECRET_Field"] {
             assert_eq!(diagnostics["config"][key], "[redacted]", "{key}");
         }
+    }
+
+    #[test]
+    fn failed_bundle_creation_removes_partial_zip() {
+        let (f, _) = fixture();
+        let missing = f.host.directory.join("crashes").join("gone.dmp");
+        assert!(bundle_with_dump(&f.host, || Some(the_dump(&missing))).is_err());
+        let support = f.host.directory.join("support");
+        let zips: Vec<_> = std::fs::read_dir(&support)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("zip"))
+            .collect();
+        assert!(
+            zips.is_empty(),
+            "partial support bundle leaked after error: {zips:?}"
+        );
+    }
+
+    #[test]
+    fn sweep_removes_leftover_zips_only() {
+        let (f, _) = fixture();
+        let support = f.host.directory.join("support");
+        std::fs::create_dir_all(&support).unwrap();
+        let leftover = support.join("leftover.zip");
+        let keep = support.join("readme.txt");
+        std::fs::write(&leftover, b"partial").unwrap();
+        std::fs::write(&keep, b"keep").unwrap();
+        sweep(&f.host.directory);
+        assert!(!leftover.exists());
+        assert!(keep.exists());
     }
 }

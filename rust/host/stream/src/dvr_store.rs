@@ -327,6 +327,12 @@ pub fn used_bytes(clips: &[ClipSummary]) -> u64 {
     clips.iter().map(|clip| clip.size_bytes).sum()
 }
 
+/// Encodes a `(created_unix_ms, id)` pagination cursor using a URL-safe `.` separator so
+/// pagination remains monotonic even if the anchor clip is later deleted or evicted by quota.
+fn encode_cursor(clip: &ClipSummary) -> String {
+    format!("{}.{}", clip.created_unix_ms, clip.id)
+}
+
 /// One page of `clips` (newest first): `limit` (default [`PAGE`], at most [`MAX_PAGE`]) after
 /// the clip named by `cursor`.
 pub fn page(
@@ -336,12 +342,29 @@ pub fn page(
     quota_limit_bytes: u64,
 ) -> ClipList {
     let quota_used_bytes = used_bytes(&clips);
-    let start = cursor
-        .and_then(|cursor| clips.iter().position(|clip| clip.id == cursor))
-        .map_or(0, |at| at + 1);
+    let start = match cursor {
+        None | Some("") => 0,
+        Some(cursor) => {
+            if let Some((ts_str, id)) = cursor.split_once('.')
+                && let Ok(ts) = ts_str.parse::<u64>()
+                && !id.is_empty()
+            {
+                clips
+                    .iter()
+                    .position(|clip| (clip.created_unix_ms, clip.id.as_str()) < (ts, id))
+                    .unwrap_or(clips.len())
+            } else {
+                // Legacy bare clip-id cursor: if the anchor was deleted, do not wrap back to 0.
+                clips
+                    .iter()
+                    .position(|clip| clip.id == cursor)
+                    .map_or(clips.len(), |at| at + 1)
+            }
+        }
+    };
     let limit = limit.unwrap_or(PAGE).clamp(1, MAX_PAGE);
     let page: Vec<ClipSummary> = clips.into_iter().skip(start).take(limit + 1).collect();
-    let next_cursor = (page.len() > limit).then(|| page[limit - 1].id.clone());
+    let next_cursor = (page.len() > limit).then(|| encode_cursor(&page[limit - 1]));
     ClipList {
         clips: page.into_iter().take(limit).collect(),
         next_cursor,

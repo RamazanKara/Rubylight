@@ -41,9 +41,10 @@ pub(super) async fn handle(
             };
         }
         ("POST", "/api/neural/accept") => {
-            return match neural::accept(&h) {
-                Ok(()) => Json(json!({"status": true})).into_response(),
-                Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
+            return match tokio::task::spawn_blocking(move || neural::accept(&h)).await {
+                Ok(Ok(())) => Json(json!({"status": true})).into_response(),
+                Ok(Err(e)) => error(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
+                Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
             };
         }
         ("POST", "/api/neural/enable") => {

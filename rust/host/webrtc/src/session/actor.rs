@@ -391,7 +391,12 @@ impl Actor {
         ));
         let stopped = self.stop_streams(checked.client.uuid.clone(), !same).await;
         if stopped == StopStreams::Refused {
-            self.say(Self::not_the_owner(KIND));
+            self.refuse(
+                KIND,
+                ErrorCode::SessionActive,
+                "Another device's game is running",
+                true,
+            );
             return Flow::Done;
         }
         if self.live.is_some() {
@@ -446,7 +451,12 @@ impl Actor {
         self.say(host_status(HostSessionState::Stopping, running, None, None));
         let stopped = self.stop_streams(client.uuid, true).await;
         if stopped == StopStreams::Refused {
-            self.say(Self::not_the_owner(KIND));
+            self.refuse(
+                KIND,
+                ErrorCode::SessionActive,
+                "Another device's game is running",
+                true,
+            );
             return Flow::Done;
         }
         if self.live.is_some() {

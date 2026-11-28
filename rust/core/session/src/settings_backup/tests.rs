@@ -699,3 +699,51 @@ fn settings_backup_gates_wake_relay_secrets_on_export_read_and_restore() {
     );
     assert!(!migrated_target.path().join(LEGACY_WAKE_RELAY_FILE).exists());
 }
+
+#[test]
+fn tx_writer_rollback_attempts_every_entry_and_collects_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join("a.txt");
+    let blocked = dir.path().join("b.txt");
+    let last = dir.path().join("c.txt");
+    std::fs::write(&first, b"orig-a").unwrap();
+    std::fs::write(&blocked, b"orig-b").unwrap();
+
+    let mut tx = restore::TxWriter::new();
+    tx.write(&first, b"new-a").unwrap();
+    tx.write(&blocked, b"new-b").unwrap();
+    tx.write(&last, b"new-c").unwrap();
+    // Replace `blocked` with a directory so rolling `blocked` back fails.
+    std::fs::remove_file(&blocked).unwrap();
+    std::fs::create_dir(&blocked).unwrap();
+
+    let err = format!("{:#}", tx.rollback().unwrap_err());
+    assert!(err.contains("b.txt"), "combined rollback error: {err}");
+    // Even though `b.txt` failed mid-rollback, both `a.txt` and `c.txt` were still rolled back.
+    assert_eq!(std::fs::read(&first).unwrap(), b"orig-a");
+    assert!(!last.exists(), "newly created c.txt must still be removed");
+}
+
+#[test]
+fn streaming_inspect_reader_matches_summarize_and_rejects_tampered_cover() {
+    let source = profile();
+    let target = profile();
+    let bytes = backup(source.path(), false);
+    let archive = read(Cursor::new(&bytes)).unwrap();
+    let expected = summarize(&archive, target.path());
+    let streamed = inspect_reader(Cursor::new(&bytes), target.path()).unwrap();
+    assert_eq!(streamed, expected);
+
+    let broken = tampered(
+        &bytes,
+        |files, _| {
+            files.insert("covers/u1.png".into(), b"CORRUPTED".to_vec());
+        },
+        false,
+    );
+    let err = format!(
+        "{:#}",
+        inspect_reader(Cursor::new(&broken), target.path()).unwrap_err()
+    );
+    assert!(err.contains("changed or damaged"), "{err}");
+}

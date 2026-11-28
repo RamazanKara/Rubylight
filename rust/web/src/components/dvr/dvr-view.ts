@@ -171,3 +171,35 @@ export function clipName(clip: Pick<ClipSummary, 'app_title' | 'kind'>): string 
 export function savedNotice(clip: Pick<ClipSummary, 'duration_ms' | 'size_bytes' | 'kind'>): string {
   return `${clip.kind === 'manual' ? 'Recording saved' : 'Clip saved'} (${clipLength(clip.duration_ms)}, ${size(clip.size_bytes)}).`;
 }
+
+/**
+ * Merges a fresh page-1 poll into an already-paginated clips list without dropping older pages or
+ * resetting the pagination cursor. Clips newer than the page-1 tail reflect the fresh head; clips
+ * strictly older than the page-1 tail remain appended in descending `(created_unix_ms, id)` order.
+ */
+export function mergeFirstPage(
+  existing: readonly ClipSummary[] | null,
+  existingCursor: string | null,
+  paginated: boolean,
+  firstPage: ClipSummary[],
+  firstCursor: string | null,
+): { clips: ClipSummary[]; cursor: string | null; paginated: boolean } {
+  if (!existing || !paginated) {
+    return { clips: firstPage, cursor: firstCursor, paginated: false };
+  }
+  if (!firstPage.length || firstCursor === null) {
+    return { clips: firstPage, cursor: null, paginated: false };
+  }
+  const tail = firstPage[firstPage.length - 1]!;
+  const headIds = new Set(firstPage.map((clip) => clip.id));
+  const older = existing.filter(
+    (clip) =>
+      !headIds.has(clip.id) &&
+      (clip.created_unix_ms < tail.created_unix_ms ||
+        (clip.created_unix_ms === tail.created_unix_ms && clip.id < tail.id)),
+  );
+  if (!older.length) {
+    return { clips: firstPage, cursor: firstCursor, paginated: false };
+  }
+  return { clips: [...firstPage, ...older], cursor: existingCursor, paginated: true };
+}

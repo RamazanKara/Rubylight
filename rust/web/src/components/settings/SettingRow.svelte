@@ -77,8 +77,12 @@
   const grouped = $derived(kind === 'list' || kind === 'flags' || kind === 'commands' || kind === 'server-commands' || kind === 'folders');
   /** Wide controls (and paths with their folder browser) go under the text instead of in the control column. */
   const full = $derived(grouped || kind === 'json' || (setting.control.kind === 'text' && !!setting.control.browse));
+  const fixedShown = $derived(
+    Boolean(fixed && setting.control.kind === 'select' && setting.control.fixed && String(value) === setting.control.fixed.value),
+  );
+  const rowInvalid = $derived(invalidText ?? (fixedShown ? fixed?.invalidText : undefined));
   /** An unsaved value or invalid draft. Either can be undone. */
-  const marked = $derived(changed || invalidText !== undefined);
+  const marked = $derived(changed || rowInvalid !== undefined);
   const fallback = $derived(describeDefault(setting));
   /** Reset only when it does something Undo does not. */
   const canReset = $derived(differs && !resetting && (stored || !marked));
@@ -88,7 +92,7 @@
 <div
   class="setting"
   class:marked
-  class:invalid={invalidText !== undefined}
+  class:invalid={rowInvalid !== undefined}
   class:full
   class:switch-row={kind === 'toggle'}
   data-setting={setting.key}
@@ -133,7 +137,7 @@
           describedby={setting.description ? `${uid}-description` : undefined}
         />
       {/if}
-      {#if fixed && setting.control.kind === 'select' && setting.control.fixed && String(value) === setting.control.fixed.value}
+      {#if fixedShown && fixed}
         <div class="fixed" data-fixed={fixed.setting.key}>
           <SettingControl
             setting={fixed.setting}
@@ -162,7 +166,7 @@
         {#if resetting}
           <span class="state">Resets to the default when saved</span>
         {:else if marked}
-          <span class="state">{invalidText !== undefined ? 'Needs correction' : 'Unsaved change'}</span>
+          <span class="state">{rowInvalid !== undefined ? 'Needs correction' : 'Unsaved change'}</span>
         {/if}
         {#if marked || resetting}
           <button type="button" class="link" onclick={onundo}>

@@ -105,11 +105,39 @@ fn pages_follow_the_cursor() {
     assert_eq!(first.clips.len(), 2);
     assert_eq!(
         first.next_cursor.as_deref(),
-        Some("20260101-100001-replay-0001")
+        Some("9.20260101-100001-replay-0001")
     );
     assert_eq!(first.quota_limit_bytes, 99);
     let second = page(clips.clone(), Some(2), first.next_cursor.as_deref(), 99);
     assert_eq!(second.clips[0].id, "20260101-100002-replay-0002");
+    // Evicting the anchor clip still advances strictly past its (created_unix_ms, id) position.
+    let without_anchor: Vec<ClipSummary> = clips
+        .iter()
+        .filter(|c| c.id != "20260101-100001-replay-0001")
+        .cloned()
+        .collect();
+    let after_eviction = page(without_anchor, Some(2), first.next_cursor.as_deref(), 99);
+    assert_eq!(after_eviction.clips.len(), 2);
+    assert_eq!(after_eviction.clips[0].id, "20260101-100002-replay-0002");
+    assert_eq!(after_eviction.clips[1].id, "20260101-100003-replay-0003");
+    // A cursor older than every remaining clip returns an empty page instead of wrapping to 0.
+    let past_end = page(
+        clips.clone(),
+        Some(2),
+        Some("1.20260101-000000-replay-0000"),
+        99,
+    );
+    assert!(past_end.clips.is_empty());
+    assert_eq!(past_end.next_cursor, None);
+    // An evicted legacy bare-id cursor also stops instead of repeating page 1.
+    let evicted_legacy = page(
+        clips.clone(),
+        Some(2),
+        Some("20260101-999999-replay-9999"),
+        99,
+    );
+    assert!(evicted_legacy.clips.is_empty());
+    assert_eq!(evicted_legacy.next_cursor, None);
     let last = page(
         clips.clone(),
         Some(2),

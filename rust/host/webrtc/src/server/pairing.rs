@@ -163,7 +163,7 @@ impl Connection {
         }
     }
 
-    pub(super) fn finish_pairing(
+    pub(super) async fn finish_pairing(
         &mut self,
         outcome: Outcome,
         out: &mut Vec<ServerMessage>,
@@ -189,14 +189,24 @@ impl Connection {
                 ));
             }
             Outcome::Entered(Ok((entered, name, _, approver))) => {
-                match self.clients.finish_pairing(
-                    &self.h,
-                    &pairing.request_id,
-                    &entered,
-                    &name,
-                    approver.as_deref(),
-                    self.peer.address.ip(),
-                ) {
+                let clients = self.clients.clone();
+                let h = self.h.clone();
+                let request_id = pairing.request_id;
+                let entered_name = name.clone();
+                let peer_ip = self.peer.address.ip();
+                let finished = tokio::task::spawn_blocking(move || {
+                    clients.finish_pairing(
+                        &h,
+                        &request_id,
+                        &entered,
+                        &entered_name,
+                        approver.as_deref(),
+                        peer_ip,
+                    )
+                })
+                .await
+                .unwrap_or(Err(ErrorCode::InternalError));
+                match finished {
                     Err(code) => {
                         let text = match code {
                             ErrorCode::IncorrectPin => "The PIN does not match the one shown",

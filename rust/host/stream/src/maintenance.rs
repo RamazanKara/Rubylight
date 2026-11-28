@@ -5,10 +5,26 @@ use anyhow::{Context, Result, bail};
 use butterpollo_session::version::newer;
 use serde_json::{Value, json};
 use std::{
-    path::PathBuf,
+    collections::HashSet,
+    path::{Path, PathBuf},
+    sync::{LazyLock, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-pub use support_bundle::{bundle, manifest as bundle_manifest};
+pub use support_bundle::{bundle, manifest as bundle_manifest, sweep as sweep_support_bundles};
+
+static SWEPT_SUPPORT_DIRS: LazyLock<Mutex<HashSet<PathBuf>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Sweeps leftover support bundles in `<profile>/support/` once per profile directory on startup.
+pub fn sweep_support_bundles_once(directory: &Path) {
+    if SWEPT_SUPPORT_DIRS
+        .lock()
+        .unwrap()
+        .insert(directory.to_path_buf())
+    {
+        support_bundle::sweep(directory);
+    }
+}
 
 fn compatible_release(release: &Value, config: &butterpollo_config::config::Config) -> bool {
     release["draft"] != true
@@ -59,6 +75,8 @@ fn release_metadata(mut release: Value) -> Value {
 /// also reports the result in a notification, even an update already
 /// announced.
 pub fn trigger_update(h: &Shared, tell: bool) {
+    let support_dir = h.directory.clone();
+    tokio::task::spawn_blocking(move || sweep_support_bundles_once(&support_dir));
     let mut state = h.updates.lock().unwrap();
     if state["checking"] == true {
         return;

@@ -155,23 +155,46 @@ export class Signalling {
 
   /**
    * Sends `type` and waits for its `reply`, of any of `replies`, or the host's `error` about it.
-   * Messages left over from earlier requests are forgotten first.
+   * When no other waiter is active, stale unawaited messages are forgotten first; with concurrent
+   * waiters in flight, only unawaited messages targeting this request are pruned so other waiters
+   * do not lose their replies.
    */
-  request(type: string, fields: Record<string, unknown>, reply: string | string[], timeout = 15000): Promise<Message> {
-    this.clear();
+  request(
+    type: string,
+    fields: Record<string, unknown>,
+    reply: string | string[],
+    timeout = 15000,
+    match?: (message: Message) => boolean,
+  ): Promise<Message> {
+    const types = Array.isArray(reply) ? reply : [reply];
+    if (this.waiters.length === 0) {
+      this.clear();
+    } else {
+      const staleForThis = (m: Message) =>
+        (types.includes(m.type) && (!match || match(m))) || (m.type === 'error' && m.requestType === type);
+      this.queue = this.queue.filter((m) => !staleForThis(m) || this.waiters.some((w) => w.match(m)));
+    }
     this.send(type, fields);
-    return this.expect(reply, timeout, type);
+    return this.expect(reply, timeout, type, match);
   }
 
   /**
-   * The next message of `type`, or of any of `types`. An `error` whose `requestType` is
-   * `request` rejects; errors about other requests are left to whoever made them.
+   * The next message of `type`, or of any of `types` (optionally matching `predicate`). An `error`
+   * whose `requestType` is `request` rejects; errors about other requests are left to whoever made
+   * them.
    */
-  expect(type: string | string[], timeout = 15000, request?: string): Promise<Message> {
+  expect(
+    type: string | string[],
+    timeout = 15000,
+    request?: string,
+    predicate?: (message: Message) => boolean,
+  ): Promise<Message> {
     const types = Array.isArray(type) ? type : [type];
     return new Promise((resolve, reject) => {
       const waiter: Waiter = {
-        match: (m) => types.includes(m.type) || (m.type === 'error' && request !== undefined && m.requestType === request),
+        match: (m) =>
+          (types.includes(m.type) && (!predicate || predicate(m))) ||
+          (m.type === 'error' && request !== undefined && m.requestType === request),
         what: types.join(' or '),
         resolve: (message) => {
           if (message.type === 'error' && !types.includes('error')) {

@@ -248,9 +248,18 @@ impl PendingPins {
         self.entries.is_empty()
     }
 
-    /// Drop expired and used requests.
-    pub fn prune(&mut self, now: Duration) {
-        self.entries.retain(|p| !p.attempted && !p.is_expired(now));
+    /// Drop expired and used requests and return them so callers can dismiss UI/tray state.
+    pub fn prune(&mut self, now: Duration) -> Vec<PendingPin> {
+        let mut removed = Vec::new();
+        let mut index = 0;
+        while index < self.entries.len() {
+            if self.entries[index].attempted || self.entries[index].is_expired(now) {
+                removed.push(self.entries.remove(index));
+            } else {
+                index += 1;
+            }
+        }
+        removed
     }
 
     /// The admin entered `pin` for `request_id`. The request is consumed
@@ -519,3 +528,28 @@ impl PairedRoster {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod prune_tests {
+    use super::*;
+    use rand::rngs::OsRng;
+
+    #[test]
+    fn prune_returns_expired_entries() {
+        let mut pins = PendingPins::new();
+        let old = PendingPin::new(&mut OsRng, "1111", "Old TV", Duration::from_secs(0));
+        let old_id = old.request_id().to_owned();
+        let fresh = PendingPin::new(&mut OsRng, "2222", "New TV", Duration::from_secs(200));
+        let fresh_id = fresh.request_id().to_owned();
+        pins.add(old);
+        pins.add(fresh);
+        let pruned = pins.prune(Duration::from_secs(301));
+        assert_eq!(pruned.len(), 1);
+        assert_eq!(pruned[0].request_id(), old_id);
+        let remaining: Vec<_> = pins
+            .waiting(Duration::from_secs(301))
+            .map(PendingPin::request_id)
+            .collect();
+        assert_eq!(remaining, vec![fresh_id.as_str()]);
+    }
+}

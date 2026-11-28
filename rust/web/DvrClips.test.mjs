@@ -291,3 +291,35 @@ test('the Clips page draws its title, live panel and list without a host', () =>
   assert.match(out, /Loading Stream DVR's state…/);
   assert.match(out, /Loading the saved clips…/);
 });
+
+test('page-1 poll merges new clips into the head without dropping older loaded pages or cursor', () => {
+  const c = (id, ts) => clip({ id, created_unix_ms: ts });
+  const existing = [c('clip-5', 500), c('clip-4', 400), c('clip-3', 300), c('clip-2', 200)];
+  // New clip arrives at head; page 1 now returns [6, 5] with cursor pointing after 5.
+  const added = view.mergeFirstPage(existing, '200.clip-2', true, [c('clip-6', 600), c('clip-5', 500)], '500.clip-5');
+  assert.deepEqual(
+    added.clips.map((item) => item.id),
+    ['clip-6', 'clip-5', 'clip-4', 'clip-3', 'clip-2'],
+  );
+  assert.equal(added.cursor, '200.clip-2');
+  assert.equal(added.paginated, true);
+
+  // Head clip deleted externally; page 1 returns [5, 4] and older pages stay intact.
+  const headDeleted = view.mergeFirstPage(existing, '200.clip-2', true, [c('clip-4', 400), c('clip-3', 300)], '300.clip-3');
+  assert.deepEqual(
+    headDeleted.clips.map((item) => item.id),
+    ['clip-4', 'clip-3', 'clip-2'],
+  );
+  assert.equal(headDeleted.cursor, '200.clip-2');
+
+  // When host now fits everything on page 1 (firstCursor === null), older stale tail is cleared.
+  const singlePage = view.mergeFirstPage(existing, '200.clip-2', true, [c('clip-5', 500)], null);
+  assert.deepEqual(singlePage.clips.map((item) => item.id), ['clip-5']);
+  assert.equal(singlePage.cursor, null);
+  assert.equal(singlePage.paginated, false);
+
+  // Clips.svelte guards loadClips and loadMore with a shared sequence counter.
+  const page = source('pages/Clips.svelte');
+  assert.match(page, /let clipsSeq = 0;/);
+  assert.match(page, /const seq = \+\+clipsSeq;[\s\S]*?if \(seq !== clipsSeq\) return;/);
+});

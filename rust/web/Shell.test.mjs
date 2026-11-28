@@ -1,16 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { after, before, test } from 'node:test';
-import { createServer } from 'vite';
+import { test } from 'node:test';
+import { createTestServer } from './test-server.mjs';
 
 // Rubylight 7.0's shell: the rail, the command bar above the page, and its live badge.
-let server, liveBadge;
-before(async () => {
-  server = await createServer({ root: import.meta.dirname, configFile: false, appType: 'custom', logLevel: 'silent',
-    server: { middlewareMode: true, hmr: false, ws: false } });
-  ({ liveBadge } = await server.ssrLoadModule('/src/lib/shell.ts'));
-});
-after(() => server?.close());
+globalThis.location = new URL('http://localhost/');
+globalThis.window = new EventTarget();
+const server = await createTestServer();
+const { liveBadge } = await server.ssrLoadModule('/src/lib/shell.ts');
+const sessionMod = await server.ssrLoadModule('/src/lib/session.svelte.ts');
 
 const source = name => readFileSync(new URL(`./src/${name}`, import.meta.url), 'utf8');
 
@@ -52,4 +50,40 @@ test('Search, the live badge and the theme sit in the command bar, and in the me
   const theme = source('components/shell/ThemeSwitch.svelte');
   assert.match(theme, /role="group" aria-label="Theme"/);
   assert.match(theme, /aria-pressed=\{theme === option\.value\}/);
+});
+
+test('Overview and the shell heartbeat share one /api/session/status poll', async () => {
+  const overview = source('pages/Overview.svelte');
+  assert.match(overview, /fetchSessionStatus\(\)/);
+  assert.doesNotMatch(overview, /api\.sessions\.status\(\)/);
+  const mod = sessionMod;
+  const realFetch = globalThis.fetch;
+  let statusCalls = 0;
+  globalThis.fetch = async (url) => {
+    const path = String(url);
+    if (path.endsWith('/api/session/status')) {
+      statusCalls++;
+      return new Response(
+        JSON.stringify({ status: true, activeSessions: 1, appRunning: true, appName: 'Portal 2', appId: 1 }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    return new Response(JSON.stringify({ status: true, requests: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    mod.session.state = 'signed-in';
+    const [a, b] = await Promise.all([mod.fetchSessionStatus(), mod.fetchSessionStatus()]);
+    assert.equal(a.appName, 'Portal 2');
+    assert.equal(b.appName, 'Portal 2');
+    assert.equal(statusCalls, 1, 'concurrent callers coalesce onto one request');
+    // Immediately afterwards, heartbeat skips a duplicate /api/session/status poll.
+    await mod.heartbeat();
+    assert.equal(statusCalls, 1, 'heartbeat reuses fresh Overview status');
+    assert.deepEqual(mod.session.live, { streams: 1, app: 'Portal 2' });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

@@ -2,11 +2,11 @@
 use super::{
     ALIASES, APPS, Archive, BACKUPS, CERTIFICATE, CONFIG, COVERS, CREDENTIALS_DIR,
     CREDENTIALS_FILE, Change, DEVICES, GAME_SETTINGS, KEY, LEGACY_WAKE_RELAY_FILE, LOCATION_KEYS,
-    PAIRED, STAGED, Summary, WAKE_RELAY_FILE, device_identity_key, keeping_sessions, named_devices,
-    read, read_optional, secret_key,
+    Manifest, PAIRED, STAGED, Summary, WAKE_RELAY_FILE, device_identity_key, keeping_sessions,
+    named_devices, read, read_optional, secret_key,
 };
 use crate::state::ProfileFiles;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use butterpollo_config::config::Config;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -84,9 +84,32 @@ fn archived_webhook_secrets(archive: &Archive) -> BTreeMap<String, String> {
 /// What restoring `archive` changes on the host whose data folder is
 /// `directory`.
 pub fn summarize(archive: &Archive, directory: &Path) -> Summary {
-    let secrets = archive.manifest.secrets;
+    summarize_parts(
+        &archive.manifest,
+        &archive.files,
+        archive.under(COVERS).count(),
+        archive.under(GAME_SETTINGS).count(),
+        directory,
+    )
+}
+
+pub(super) fn summarize_parts(
+    manifest: &Manifest,
+    files_map: &BTreeMap<String, Vec<u8>>,
+    covers: usize,
+    kept: usize,
+    directory: &Path,
+) -> Summary {
+    let secrets = manifest.secrets;
     let current = current_config(directory);
-    let restored = merged_config(archive, &current);
+    let archive_config = files_map
+        .get(CONFIG)
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .and_then(|text| Config::parse(text).ok())
+        .unwrap_or_default();
+    let restored = merged_config_from(archive_config, secrets, &current);
+    let json_file =
+        |name: &str| -> Option<Value> { serde_json::from_slice(files_map.get(name)?).ok() };
     let mut current_clean = current.clone();
     if let Some(hooks) = current_clean.values.get_mut("webhooks")
         && let Some((stripped, _)) = crate::webhook::split_json_secrets(hooks)
@@ -126,7 +149,7 @@ pub fn summarize(archive: &Archive, directory: &Path) -> Summary {
         },
     });
     let files = ProfileFiles::new(&current, directory);
-    if archive.files.contains_key(APPS) {
+    if files_map.contains_key(APPS) {
         let before = app_names(
             read_optional(&files.apps)
                 .ok()
@@ -134,7 +157,7 @@ pub fn summarize(archive: &Archive, directory: &Path) -> Summary {
                 .and_then(|b| serde_json::from_slice(&b).ok())
                 .as_ref(),
         );
-        let after = app_names(archive.json(APPS).as_ref());
+        let after = app_names(json_file(APPS).as_ref());
         let added = after.keys().filter(|k| !before.contains_key(*k)).count();
         let removed = before.keys().filter(|k| !after.contains_key(*k)).count();
         let edited = after
@@ -149,14 +172,12 @@ pub fn summarize(archive: &Archive, directory: &Path) -> Summary {
             ),
         });
     }
-    let covers = archive.under(COVERS).count();
     if covers > 0 {
         changes.push(Change {
             item: "covers",
             detail: format!("{covers} covers written; covers only on this PC stay."),
         });
     }
-    let kept = archive.under(GAME_SETTINGS).count();
     if kept > 0 {
         changes.push(Change {
             item: "game_settings",
@@ -173,8 +194,7 @@ pub fn summarize(archive: &Archive, directory: &Path) -> Summary {
         .filter_map(|d| d.get("uuid")?.as_str().map(str::to_owned))
         .collect();
     if secrets {
-        let devices = archive
-            .json(PAIRED)
+        let devices = json_file(PAIRED)
             .map(|d| named_devices(&d).len())
             .unwrap_or(0);
         changes.push(Change {
@@ -192,7 +212,7 @@ pub fn summarize(archive: &Archive, directory: &Path) -> Summary {
             item: "credentials",
             detail: "The console sign-in and API tokens are replaced by the backup's.".into(),
         });
-    } else if let Some(devices) = archive.json(DEVICES) {
+    } else if let Some(devices) = json_file(DEVICES) {
         let listed: Vec<String> = devices
             .get("devices")
             .and_then(Value::as_array)
@@ -239,8 +259,8 @@ pub fn summarize(archive: &Archive, directory: &Path) -> Summary {
         });
     }
     Summary {
-        created_unix: archive.manifest.created_unix,
-        host_version: archive.manifest.host_version.clone(),
+        created_unix: manifest.created_unix,
+        host_version: manifest.host_version.clone(),
         secrets,
         changes,
     }
@@ -250,7 +270,10 @@ pub fn summarize(archive: &Archive, directory: &Path) -> Summary {
 /// secret keys when `!archive.manifest.secrets`, and always keeping webhook inline secrets out of
 /// `sunshine.conf`.
 fn merged_config(archive: &Archive, current: &Config) -> Config {
-    let mut config = archive.config();
+    merged_config_from(archive.config(), archive.manifest.secrets, current)
+}
+
+fn merged_config_from(mut config: Config, secrets: bool, current: &Config) -> Config {
     // Where this PC keeps its files stays this PC's: a backup from another
     // PC, or a crafted one, never moves them or makes the restore write
     // elsewhere.
@@ -260,7 +283,7 @@ fn merged_config(archive: &Archive, current: &Config) -> Config {
             None => config.values.remove(key),
         };
     }
-    if !archive.manifest.secrets {
+    if !secrets {
         for (key, value) in &current.values {
             if secret_key(key) {
                 config.values.insert(key.clone(), value.clone());
@@ -323,13 +346,13 @@ fn folder_target(directory: &Path, name: &str) -> PathBuf {
 }
 
 /// Records the original file bytes before each mutation so a mid-restore error rolls back cleanly.
-struct TxWriter {
+pub(super) struct TxWriter {
     originals: BTreeMap<PathBuf, Option<Vec<u8>>>,
     latest: BTreeMap<PathBuf, Option<Vec<u8>>>,
 }
 
 impl TxWriter {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             originals: BTreeMap::new(),
             latest: BTreeMap::new(),
@@ -345,7 +368,7 @@ impl TxWriter {
         Ok(())
     }
 
-    fn write(&mut self, path: &Path, bytes: &[u8]) -> Result<()> {
+    pub(super) fn write(&mut self, path: &Path, bytes: &[u8]) -> Result<()> {
         self.snapshot(path)?;
         crate::state::atomic_write(path, bytes)?;
         self.latest.insert(path.to_path_buf(), Some(bytes.to_vec()));
@@ -372,19 +395,26 @@ impl TxWriter {
         read_optional(path)
     }
 
-    fn rollback(self) -> Result<()> {
+    pub(super) fn rollback(self) -> Result<()> {
+        let mut errors = Vec::new();
         for (path, original) in self.originals.into_iter().rev() {
             match original {
-                Some(bytes) => crate::state::atomic_write(&path, &bytes)?,
+                Some(bytes) => {
+                    if let Err(error) = crate::state::atomic_write(&path, &bytes) {
+                        errors.push(format!("rolling back {}: {error:#}", path.display()));
+                    }
+                }
                 None => match std::fs::remove_file(&path) {
                     Ok(()) => {}
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                     Err(error) => {
-                        return Err(error)
-                            .with_context(|| format!("rolling back {}", path.display()));
+                        errors.push(format!("rolling back {}: {error}", path.display()));
                     }
                 },
             }
+        }
+        if !errors.is_empty() {
+            bail!("{}", errors.join("; "));
         }
         Ok(())
     }

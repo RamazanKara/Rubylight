@@ -128,12 +128,10 @@ pub fn guest_router_with(h: Shared, webrtc: Option<Arc<dyn WebRtcWebService>>) -
 pub fn router_with(h: Shared, webrtc: Option<Arc<dyn WebRtcWebService>>) -> Router {
     Router::new()
         .route("/api/webrtc/signal", get(webrtc_signal))
-        // A settings backup may be larger than the other requests.
+        // Stream backup archives straight to disk and enforce MAX_ARCHIVE incrementally.
         .route(
             "/api/backup/inspect",
-            axum::routing::post(api).layer(axum::extract::DefaultBodyLimit::max(
-                butterpollo_session::settings_backup::MAX_ARCHIVE as usize,
-            )),
+            axum::routing::post(backup::inspect).layer(axum::extract::DefaultBodyLimit::disable()),
         )
         .route(
             "/api/{*path}",
@@ -207,8 +205,9 @@ async fn guard(State(h): State<Shared>, mut request: Request, next: Next) -> Res
             | "/api/csrf-token"
             | "/api/configLocale"
     );
-    if path.starts_with("/api/") {
-        h.reload_credentials();
+    if path.starts_with("/api/") && h.credentials_reload_due() {
+        let host = h.clone();
+        let _ = tokio::task::spawn_blocking(move || host.reload_credentials()).await;
     }
     let fresh_password = path == "/api/password" && h.credentials.read().unwrap().is_none();
     let api_token = token_authenticated(&h, request.headers(), path, method.as_str());
@@ -469,13 +468,13 @@ pub(crate) async fn api(
         return auth::login(&h, &method, &headers, &connection, &data).await;
     }
     if path == "/api/auth/refresh" {
-        return auth::refresh(&h, &method, &headers, &connection, &data);
+        return auth::refresh(&h, &method, &headers, &connection, &data).await;
     }
     if path == "/api/auth/logout" {
-        return auth::logout(&h, &headers);
+        return auth::logout(&h, &method, &headers).await;
     }
     if path == "/api/csrf-token" {
-        return auth::csrf_token(&h, &method, &headers);
+        return auth::csrf_token(&h, &method, &headers, &connection).await;
     }
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
         let path = uri.path();

@@ -28,8 +28,9 @@ fn fresh_secret() -> String {
 }
 
 /// Applies a staged restore at start; the message for the console when one
-/// failed.
+/// failed. Also sweeps leftover support bundle zips from previous runs.
 pub fn apply_staged(directory: &Path) -> std::result::Result<(), String> {
+    crate::maintenance::sweep_support_bundles_once(directory);
     match core::apply_staged(directory, fresh_secret) {
         Ok(true) => {
             tracing::info!("settings restored from a backup");
@@ -81,7 +82,7 @@ fn backups(directory: &Path) -> PathBuf {
     directory.join(core::BACKUPS)
 }
 
-fn ensure_backups_dir(directory: &Path) -> Result<PathBuf> {
+pub fn ensure_backups_dir(directory: &Path) -> Result<PathBuf> {
     let folder = backups(directory);
     if butterpollo_win_io::process::is_system() {
         match std::fs::symlink_metadata(&folder) {
@@ -118,10 +119,29 @@ fn remove_pending(directory: &Path, except: Option<&Path>) {
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with(PENDING_PREFIX) && Some(path.as_path()) != except {
+        if (name.starts_with(PENDING_PREFIX)
+            || (name.starts_with(".inspect-") && name.ends_with(".tmp")))
+            && Some(path.as_path()) != except
+        {
             let _ = std::fs::remove_file(path);
         }
     }
+}
+
+/// Validates a streamed temporary archive on disk without buffering its payload in RAM, promotes
+/// it to `backups/pending-<token>.zip`, and returns the restore token and summary.
+pub fn inspect_file(directory: &Path, staged_temp: &Path) -> Result<Value> {
+    let file = std::fs::File::open(staged_temp).context("the uploaded backup could not be read")?;
+    if file.metadata()?.len() > core::MAX_ARCHIVE {
+        bail!("the archive is too large");
+    }
+    let summary = core::inspect_reader(std::io::BufReader::new(file), directory)?;
+    let token = hex::encode(butterpollo_crypto::crypto::random::<16>());
+    let folder = ensure_backups_dir(directory)?;
+    let path = folder.join(format!("{PENDING_PREFIX}{token}.zip"));
+    std::fs::rename(staged_temp, &path).context("the uploaded backup could not be kept")?;
+    remove_pending(directory, Some(&path));
+    Ok(json!({"status": true, "token": token, "summary": summary}))
 }
 
 /// Checks an uploaded archive and keeps it for `restore`: the token and what
@@ -130,8 +150,7 @@ pub fn inspect(directory: &Path, bytes: &[u8]) -> Result<Value> {
     if bytes.len() as u64 > core::MAX_ARCHIVE {
         bail!("the archive is too large");
     }
-    let archive = core::read(std::io::Cursor::new(bytes))?;
-    let summary = core::summarize(&archive, directory);
+    let summary = core::inspect_reader(std::io::Cursor::new(bytes), directory)?;
     let token = hex::encode(butterpollo_crypto::crypto::random::<16>());
     let folder = ensure_backups_dir(directory)?;
     let path = folder.join(format!("{PENDING_PREFIX}{token}.zip"));
@@ -149,7 +168,7 @@ pub fn restore(h: &Shared, token: &str) -> Result<Value> {
     let directory = &h.directory;
     let path = pending(directory, token)?;
     // The pending file is checked again: it sat on disk since `inspect`.
-    core::read(std::io::BufReader::new(std::fs::File::open(&path)?))
+    core::verify(std::io::BufReader::new(std::fs::File::open(&path)?))
         .context("the uploaded backup can no longer be read")?;
     let folder = ensure_backups_dir(directory)?;
     let before = folder.join(format!("before-restore-{}.zip", now_unix()));

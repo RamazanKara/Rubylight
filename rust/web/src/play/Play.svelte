@@ -71,6 +71,8 @@
   let frame = 0;
   let hintTimer: ReturnType<typeof setTimeout> | undefined;
   let gone = false;
+  let libraryRun = 0;
+  let quitting = false;
   let buttons = 0;
   let wheelInput = new Wheel();
 
@@ -179,6 +181,7 @@
               ? 'The PC does not answer. Check that Rubylight is running.'
               : 'The PC refused this page’s connection.';
     }
+    libraryRun++;
     attempt = null;
     cancelPairing?.();
     cancelPairing = null;
@@ -205,22 +208,28 @@
   async function library() {
     const from = stream;
     if (!from) return;
+    const run = ++libraryRun;
     phase = 'library';
     loading = true;
     try {
-      apps = await from.apps();
+      const list = await from.apps();
+      if (gone || stream !== from || libraryRun !== run) return;
+      apps = list;
     } catch (error) {
+      if (gone || stream !== from || libraryRun !== run) return;
       return failed(error);
     } finally {
-      loading = false;
+      if (libraryRun === run) loading = false;
     }
     await tick();
+    if (gone || stream !== from || libraryRun !== run || phase !== 'library') return;
     focusFirst();
     for (const app of apps) {
-      if (stream !== from || phase !== 'library') return;
+      if (gone || stream !== from || libraryRun !== run || phase !== 'library') return;
       if (!app.artworkAvailable || covers[app.id]) continue;
       try {
         const cover = await from.artwork(app.id);
+        if (gone || stream !== from || libraryRun !== run || phase !== 'library') return;
         if (cover) covers = { ...covers, [app.id]: cover };
       } catch (error) {
         console.error(`The cover of ${app.title} did not load:`, error);
@@ -254,6 +263,7 @@
 
   async function start(app: AppEntry, fullscreen = true) {
     if (!stream || !choice || !video) return;
+    libraryRun++;
     const current = (attempt = {});
     notice = '';
     status = 'Starting…';
@@ -340,6 +350,7 @@
 
   function ended(from: PlayStream, reason: string, closed: boolean) {
     if (stream !== from || gone) return;
+    libraryRun++;
     attempt = null;
     playingApp = null;
     menu = false;
@@ -368,6 +379,7 @@
   }
 
   function disconnect() {
+    libraryRun++;
     attempt = null;
     playingApp = null;
     menu = false;
@@ -378,6 +390,10 @@
   }
 
   async function quit() {
+    const from = stream;
+    if (quitting || !from || from.closed) return;
+    quitting = true;
+    libraryRun++;
     attempt = null;
     playingApp = null;
     menu = false;
@@ -385,10 +401,13 @@
     status = 'Quitting…';
     leaveFullscreen();
     try {
-      await stream?.quit();
+      await from.quit();
     } catch (error) {
-      notice = errorText(error);
+      if (!gone && stream === from) notice = errorText(error);
+    } finally {
+      quitting = false;
     }
+    if (gone || stream !== from || from.closed) return;
     status = '';
     void library();
   }
@@ -628,18 +647,9 @@
     background-repeat: no-repeat;
     font-size: clamp(18px, 1.5vw, 32px);
   }
-  main.hinted {
-    padding-bottom: calc(5vh + 4em);
-  }
-  main.live {
-    padding: 0;
-  }
-  .top {
-    display: flex;
-    align-items: center;
-    gap: 0.75em;
-    font-weight: var(--weight-semibold);
-  }
+  main.hinted { padding-bottom: calc(5vh + 4em); }
+  main.live { padding: 0; }
+  .top { display: flex; align-items: center; gap: 0.75em; font-weight: var(--weight-semibold); }
   .host {
     flex: 1;
     min-width: 0;
@@ -650,14 +660,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  [hidden] {
-    display: none !important;
-  }
-  button {
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
-  }
+  [hidden] { display: none !important; }
+  button { font: inherit; color: inherit; cursor: pointer; }
   .chip {
     display: inline-flex;
     align-items: center;
@@ -771,22 +775,10 @@
     background: var(--media-ink-2);
     box-shadow: var(--media-shadow);
   }
-  .handle:hover,
-  .handle:focus-visible,
-  .handle.peek {
-    opacity: 1;
-  }
-  @media (max-width: 600px) {
-    .chip-label {
-      display: none;
-    }
-  }
+  .handle:hover, .handle:focus-visible, .handle.peek { opacity: 1; }
+  @media (max-width: 600px) { .chip-label { display: none; } }
   @media (prefers-reduced-motion: reduce) {
-    .pulse {
-      animation: none;
-    }
-    .handle {
-      transition: none;
-    }
+    .pulse { animation: none; }
+    .handle { transition: none; }
   }
 </style>

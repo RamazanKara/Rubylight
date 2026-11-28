@@ -216,3 +216,38 @@ test('the update schedule is one row: a daily time is a choice of Check how ofte
   // Without the time part the control has no daily choice at all.
   assert.doesNotMatch(row(86400, undefined), /Daily at a set time/);
 });
+
+test('a row with an invalid fixed child shows invalid highlight, Needs correction, and Undo', async () => {
+  const { default: SettingRow } = await server.ssrLoadModule('/src/components/settings/SettingRow.svelte');
+  const parent = schema.settings.find((item) => item.key === 'dd_resolution_option');
+  const child = schema.settings.find((item) => item.key === 'dd_manual_resolution');
+  assert(parent && child);
+  const base = {
+    setting: parent,
+    stored: true,
+    changed: false,
+    resetting: false,
+    differs: true,
+    onchange() {},
+    onreset() {},
+    onundo() {},
+    oninvalid() {},
+    fixed: {
+      setting: child,
+      value: '1920x1080',
+      missing: false,
+      invalidText: '1920*1080',
+      onchange() {},
+      oninvalid() {},
+    },
+  };
+  const manual = render(SettingRow, { props: { ...base, value: 'manual' } }).body;
+  assert.match(manual, /class="setting[^"]*\bmarked\b[^"]*\binvalid\b|class="setting[^"]*\binvalid\b[^"]*\bmarked\b/);
+  assert.match(manual, />Needs correction</);
+  assert.match(manual, />Undo<span/);
+
+  // When the parent is not on the fixed choice, the hidden child's invalid draft does not mark the row.
+  const auto = render(SettingRow, { props: { ...base, value: 'auto' } }).body;
+  assert.doesNotMatch(auto, /class="setting[^"]*\binvalid\b/);
+  assert.doesNotMatch(auto, />Needs correction</);
+});

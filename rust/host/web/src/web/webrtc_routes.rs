@@ -103,19 +103,24 @@ pub(super) async fn webrtc_signal(
         Ok(upgrade) => upgrade,
         Err(rejection) => return rejection.into_response(),
     };
-    let device = match webrtc.console_device(&h, &username) {
-        Ok(device) => device,
-        Err(butterpollo_session::webrtc::protocol::ErrorCode::ClientDisabled) => {
-            return error(
-                StatusCode::LOCKED,
-                "this console's device is disabled on the Devices page",
-            );
-        }
-        Err(_) => {
-            return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "the console's device could not be saved",
-            );
+    let device = {
+        let webrtc = webrtc.clone();
+        let host = h.clone();
+        let user = username.clone();
+        match tokio::task::spawn_blocking(move || webrtc.console_device(&host, &user)).await {
+            Ok(Ok(device)) => device,
+            Ok(Err(butterpollo_session::webrtc::protocol::ErrorCode::ClientDisabled)) => {
+                return error(
+                    StatusCode::LOCKED,
+                    "this console's device is disabled on the Devices page",
+                );
+            }
+            Ok(Err(_)) | Err(_) => {
+                return error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "the console's device could not be saved",
+                );
+            }
         }
     };
     let Some((client_id, _)) = device.webrtc() else {

@@ -9,10 +9,10 @@
 //! (an empty name for none), replaces the app's together with its settings. Its game files
 //! replace the app's entry for the same file, section and key and add the others. The block of
 //! a device that is not paired is kept and never used.
-use crate::{game_files, state::App};
+use crate::{config_ext::ConfigExt, game_files, state::App};
 use anyhow::{Context, Result, bail};
-use butterpollo_config::config;
-use butterpollo_media_policy::{radeon_profile, stream_preset};
+use butterpollo_config::config::{self, Config};
+use butterpollo_media_policy::{framegen, radeon_profile, stream_preset};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
@@ -122,6 +122,135 @@ pub fn check(extra: &BTreeMap<String, Value>) -> Result<()> {
     Ok(())
 }
 
+/// Validate a `config_overrides` / `config-overrides` object (or `null` when clearing).
+/// When `enforce_allowed` is true, host-wide keys outside `override_allowed` are refused.
+pub fn check_config_overrides(overrides: &Value, enforce_allowed: bool) -> Result<()> {
+    if overrides.is_null() {
+        return Ok(());
+    }
+    let Value::Object(map) = overrides else {
+        bail!("{CONFIG} must be an object");
+    };
+    stream_preset::check_overrides(overrides)?;
+    if enforce_allowed
+        && let Some(key) = map.keys().find(|key| {
+            !config::retired_name(key) && !config::override_allowed(config::current_name(key))
+        })
+    {
+        bail!("{key} is a host-wide setting and cannot be set for one device");
+    }
+    let mut probe = Config::default();
+    probe.update(map)?;
+    probe.check_saved(map.keys())?;
+    for (key, raw) in &probe.values {
+        check_known_override(key, raw)?;
+    }
+    Ok(())
+}
+
+fn check_int_override(key: &str, raw: &str, min: i64, max: i64) -> Result<()> {
+    let Some(n) = config::parse_integer(raw) else {
+        bail!("{key} must be a whole number");
+    };
+    if n < min || n > max {
+        if max == i64::MAX {
+            bail!("{key} must be {min} or more");
+        }
+        bail!("{key} must be between {min} and {max}");
+    }
+    Ok(())
+}
+
+fn check_enum_override(key: &str, raw: &str, allowed: &[&str]) -> Result<()> {
+    let value = config::unquote(raw.trim()).trim().to_ascii_lowercase();
+    if !allowed.contains(&value.as_str()) {
+        bail!("{key} must be one of: {}", allowed.join(", "));
+    }
+    Ok(())
+}
+
+fn check_known_override(key: &str, raw: &str) -> Result<()> {
+    let trimmed = config::unquote(raw.trim()).trim();
+    match key {
+        "fec_percentage" | "pyrowave_critical_fec_percentage" => {
+            check_int_override(key, raw, 0, 100)?;
+        }
+        "max_bitrate" => check_int_override(key, raw, 0, i64::MAX)?,
+        "minimum_fps_target" => check_int_override(key, raw, 0, 1000)?,
+        "hevc_mode" | "av1_mode" => check_int_override(key, raw, 0, 3)?,
+        "hdr_peak_brightness" => check_int_override(key, raw, 400, 2000)?,
+        "touch_sensitivity" => check_int_override(key, raw, 25, 400)?,
+        "rtx_hdr_sdr_brightness" => check_int_override(key, raw, 0, 100)?,
+        "rtx_hdr_contrast" | "rtx_hdr_saturation" => check_int_override(key, raw, -100, 100)?,
+        "rtx_hdr_middle_gray" => check_int_override(key, raw, 10, 100)?,
+        "dd_manual_rotation" => {
+            let Some(n) = config::parse_integer(raw) else {
+                bail!("dd_manual_rotation must be 0, 90, 180 or 270");
+            };
+            if !matches!(n, 0 | 90 | 180 | 270) {
+                bail!("dd_manual_rotation must be 0, 90, 180 or 270");
+            }
+        }
+        "dd_manual_refresh_rate" => {
+            let rate = framegen::Rate::parse(raw).map_err(|_| {
+                anyhow::anyhow!(
+                    "dd_manual_refresh_rate must be 1–1000 Hz with at most three decimal places"
+                )
+            })?;
+            if rate.0 < 1000 {
+                bail!("dd_manual_refresh_rate must be between 1 and 1000 Hz");
+            }
+        }
+        "dd_manual_resolution" => {
+            let Some((w, h)) = trimmed.split_once('x') else {
+                bail!("dd_manual_resolution must be WIDTHxHEIGHT (for example 2560x1440)");
+            };
+            let (w, h) = (w.trim(), h.trim());
+            let (Ok(width), Ok(height)) = (w.parse::<u32>(), h.parse::<u32>()) else {
+                bail!("dd_manual_resolution must be WIDTHxHEIGHT (for example 2560x1440)");
+            };
+            if !(320..=7680).contains(&width) || !(200..=4320).contains(&height) {
+                bail!("dd_manual_resolution width must be 320–7680 and height 200–4320");
+            }
+        }
+        "dd_resolution_option" | "dd_rotation_option" => {
+            check_enum_override(key, raw, &["disabled", "auto", "manual"])?;
+        }
+        "dd_refresh_rate_option" => {
+            check_enum_override(key, raw, &["disabled", "auto", "prefer_highest", "manual"])?;
+        }
+        "dd_hdr_option" => {
+            check_enum_override(key, raw, &["auto", "force_on", "force_off", "disabled"])?;
+        }
+        "virtual_display_refresh" => {
+            check_enum_override(key, raw, &["legacy", "enabled", "480hz", "vrr", "disabled"])?;
+        }
+        "frame_limiter_provider" => {
+            check_enum_override(key, raw, &["auto", "rtss", "none"])?;
+        }
+        "audio_capture_mode" => check_enum_override(key, raw, &["system", "game"])?,
+        "mouse_mode" => check_enum_override(key, raw, &["auto", "virtual_mouse", "injection"])?,
+        "touch_mode" => check_enum_override(key, raw, &["client", "mouse", "trackpad"])?,
+        "dd_activate_virtual_display"
+        | "packed_444"
+        | "frame_limiter_enable"
+        | "stream_mic"
+        | "audio_surround_714"
+        | "controller"
+        | "stream_audio"
+        | "keyboard"
+        | "mouse"
+        | "touch_gestures"
+        | "client_cursor"
+            if config::parse_boolean(raw).is_none() =>
+        {
+            bail!("{key} must be true or false");
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn check_block(block: &Value) -> Result<()> {
     let Value::Object(block) = block else {
         bail!("its settings must be an object");
@@ -133,15 +262,10 @@ fn check_block(block: &Value) -> Result<()> {
         );
     }
     if let Some(overrides) = block.get(CONFIG) {
-        let Value::Object(map) = overrides else {
+        if !overrides.is_object() {
             bail!("{CONFIG} must be an object");
-        };
-        stream_preset::check_overrides(overrides)?;
-        if let Some(key) = map.keys().find(|key| {
-            !config::retired_name(key) && !config::override_allowed(config::current_name(key))
-        }) {
-            bail!("{key} is a host-wide setting and cannot be set for one device");
         }
+        check_config_overrides(overrides, true)?;
     }
     let radeon: BTreeMap<String, Value> = [radeon_profile::PROFILE, radeon_profile::SETTINGS]
         .into_iter()
@@ -300,5 +424,44 @@ mod tests {
         }
         let error = check(json!({"tv": {"config-overrides": {"port": 48000}}})).unwrap_err();
         assert!(format!("{error:#}").contains("device tv"), "{error:#}");
+    }
+
+    #[test]
+    fn check_config_overrides_validates_known_override_values() {
+        check_config_overrides(&json!(null), false).unwrap();
+        check_config_overrides(
+            &json!({
+                "fec_percentage": 20,
+                "max_bitrate": 50000,
+                "dd_manual_resolution": "2560x1440",
+                "dd_manual_refresh_rate": 59.94,
+                "dd_manual_rotation": 90,
+                "dd_hdr_option": "force_on",
+                "hevc_mode": 2,
+                "packed_444": true
+            }),
+            true,
+        )
+        .unwrap();
+        for bad in [
+            json!({"fec_percentage": 15.5}),
+            json!({"fec_percentage": 250}),
+            json!({"fec_percentage": -1}),
+            json!({"max_bitrate": -10}),
+            json!({"max_bitrate": 12000.5}),
+            json!({"dd_manual_resolution": "1920*1080"}),
+            json!({"dd_manual_resolution": "100x100"}),
+            json!({"dd_manual_refresh_rate": 59.9401}),
+            json!({"dd_manual_refresh_rate": 0}),
+            json!({"dd_manual_rotation": 45}),
+            json!({"dd_hdr_option": "always"}),
+            json!({"hevc_mode": 9}),
+            json!({"packed_444": "maybe"}),
+        ] {
+            assert!(
+                check_config_overrides(&bad, false).is_err(),
+                "expected invalid override to fail: {bad}"
+            );
+        }
     }
 }

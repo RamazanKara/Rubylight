@@ -1,8 +1,12 @@
 // Who is signed in, and what the host is: shared by the shell and pages.
-import { ApiError, api, type Metadata, type PendingPairing } from './api';
+import { ApiError, api, type Metadata, type PendingPairing, type SessionStatus } from './api';
 import { marked } from './format';
 import { navigate, route } from './router.svelte';
 import type { LiveState } from './shell';
+
+const STATUS_FRESH_MS = 2500;
+let lastStatusAt = 0;
+let statusFlight: Promise<SessionStatus> | null = null;
 
 export const session = $state({
   state: 'checking' as 'checking' | 'unavailable' | 'signed-out' | 'needs-setup' | 'signed-in',
@@ -47,7 +51,7 @@ export async function checkSession() {
     refreshMetadata().catch(() => {});
     // A device waiting for a PIN shows at once, not on the shell's next poll.
     refreshPending().catch(() => {});
-    void refreshLive();
+    void refreshLive(true);
   } catch (error) {
     session.error = message(error);
     // A signed-in console keeps its page under the notice; it is back when the host answers.
@@ -61,6 +65,8 @@ export function signedOut() {
   session.metadata = null;
   session.pending = [];
   session.live = null;
+  lastStatusAt = 0;
+  statusFlight = null;
   if (route.path !== '/login') {
     const back = route.path === '/' ? '' : `?next=${encodeURIComponent(route.path + route.search)}`;
     navigate(`/login${back}`, { replace: true, force: true });
@@ -77,12 +83,38 @@ export async function refreshPending() {
   session.pending = (await api.clients.pending()).requests;
 }
 
+/**
+ * Reads `/api/session/status` once for concurrent callers (Overview's 2 s poll and the shell
+ * heartbeat) and keeps `session.live` fresh so the heartbeat skips redundant polls.
+ */
+export function fetchSessionStatus(): Promise<SessionStatus> {
+  if (statusFlight) return statusFlight;
+  const run = api.sessions
+    .status()
+    .then((status) => {
+      lastStatusAt = Date.now();
+      session.live = { streams: status.activeSessions, app: status.appRunning ? status.appName : '' };
+      return status;
+    })
+    .finally(() => {
+      if (statusFlight === run) statusFlight = null;
+    });
+  statusFlight = run;
+  return run;
+}
+
 /** What plays now, for the command bar's live badge. Never an error of its own: the pages report those. */
-export async function refreshLive() {
+export async function refreshLive(force = false) {
   if (session.state !== 'signed-in') return;
+  if (!force && session.live !== null && Date.now() - lastStatusAt < STATUS_FRESH_MS) return;
   try {
+    if (!force && statusFlight) {
+      await statusFlight;
+      return;
+    }
     // After the pairing requests' await, so marked here: the poll's own mark covers only its first request.
     const status = await marked(() => api.sessions.status());
+    lastStatusAt = Date.now();
     session.live = { streams: status.activeSessions, app: status.appRunning ? status.appName : '' };
   } catch {
     session.live = null;

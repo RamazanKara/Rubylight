@@ -324,7 +324,10 @@ pub(crate) async fn page(
     let Some(path) = page_path(uri.path()) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    h.reload_credentials();
+    if h.credentials_reload_due() {
+        let host = h.clone();
+        let _ = tokio::task::spawn_blocking(move || host.reload_credentials()).await;
+    }
     let configured = h.credentials.read().unwrap().is_some();
     let signed_in = web::authenticated(&h, &headers, Some(connection.peer.ip())).await;
     if !configured && path != "/setup" {
@@ -333,7 +336,7 @@ pub(crate) async fn page(
     if configured
         && !signed_in
         && method == Method::GET
-        && let Some(issued) = web::refresh_browser(&h, &headers, &connection)
+        && let Some(issued) = web::refresh_browser(&h, &headers, &connection).await
     {
         if !issued.status().is_success() {
             return issued;

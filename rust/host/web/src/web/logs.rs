@@ -39,11 +39,18 @@ pub(super) async fn export_crash(h: &Shared, include_dump: bool) -> Response {
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<std::fs::File> {
         use std::os::windows::fs::OpenOptionsExt;
         let path = butterpollo_stream::maintenance::bundle(&h, include_dump)?;
-        Ok(std::fs::OpenOptions::new()
+        match std::fs::OpenOptions::new()
             .access_mode(0x80000000 | 0x00010000)
             .share_mode(1 | 4)
             .custom_flags(0x04000000)
-            .open(path)?)
+            .open(&path)
+        {
+            Ok(file) => Ok(file),
+            Err(err) => {
+                let _ = std::fs::remove_file(&path);
+                Err(err.into())
+            }
+        }
     })
     .await;
     match result {

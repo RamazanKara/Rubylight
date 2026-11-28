@@ -121,14 +121,15 @@ pub async fn clips(
     let client = caller(&h, &c)?;
     require_view_or_launch(&client)?;
     let (mut limit, mut cursor) = (None, None);
-    for pair in query.as_deref().unwrap_or_default().split('&') {
-        match pair.split_once('=') {
-            Some(("limit", value)) => {
+    for (key, value) in url::form_urlencoded::parse(query.as_deref().unwrap_or_default().as_bytes())
+    {
+        match key.as_ref() {
+            "limit" => {
                 limit = Some(value.parse::<usize>().map_err(|_| {
                     Failure::new(ErrorCode::InvalidRequest, "limit is not a number.")
                 })?);
             }
-            Some(("cursor", value)) if !value.is_empty() => cursor = Some(value.to_owned()),
+            "cursor" if !value.is_empty() => cursor = Some(value.into_owned()),
             _ => {}
         }
     }

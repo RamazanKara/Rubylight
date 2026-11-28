@@ -9,7 +9,7 @@
 import { schema } from '../../lib/settings-schema';
 import type { Setting } from '../../lib/settings-types';
 import { OVERRIDE_ALLOWED } from '../../lib/schema/overrides.gen';
-import { choice, sameValue, toBoolean, toNumber, toText, withUnit } from '../settings/values';
+import { choice, numberError, sameValue, textError, toBoolean, toNumber, toText, withUnit } from '../settings/values';
 
 export type LayerId = 'pair' | 'app' | 'device' | 'host';
 
@@ -157,22 +157,14 @@ export function storedValue(setting: Setting, text: string): string | number | b
   const value = text.trim();
   if (value === '') return undefined;
   if (setting.control.kind === 'toggle') return value === 'on';
-  if (setting.control.kind === 'number') {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : undefined;
-  }
+  if (setting.control.kind === 'number') return toNumber(value) ?? undefined;
   return value;
 }
 
-/** Why a typed number is not one the host takes, or `''`. */
+/** Why a typed number or text value is not one the host takes, or `''`. */
 export function rangeError(setting: Setting, text: string): string {
-  const { control } = setting;
-  const value = text.trim();
-  if (control.kind !== 'number' || value === '') return '';
-  const number = Number(value);
-  if (!Number.isFinite(number)) return 'Enter a number.';
-  if (control.min !== undefined && number < control.min) return `At least ${withUnit(control.min, control.unit)}.`;
-  if (control.max !== undefined && number > control.max) return `At most ${withUnit(control.max, control.unit)}.`;
+  if (setting.control.kind === 'number') return numberError(setting, text);
+  if (setting.control.kind === 'text') return textError(setting, text);
   return '';
 }
 

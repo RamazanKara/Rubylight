@@ -117,10 +117,9 @@ pub fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyhow::Res
             // skipped at every stream: refuse them here instead.
             butterpollo_session::connection_commands::check_update(data)
                 .map_err(anyhow::Error::msg)?;
-            // A preset the host does not know is refused here, as it is for the
-            // host's own setting, before anything is saved.
+            // Validate known override keys and values before saving, as for the host's config.
             if let Some(overrides) = data.get("config_overrides") {
-                butterpollo_media_policy::stream_preset::check_overrides(overrides)?;
+                butterpollo_session::device_overrides::check_config_overrides(overrides, false)?;
             }
             let previous_perm = c.perm;
             let previous_usb = c.allows_usb();
@@ -272,6 +271,13 @@ pub fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyhow::Res
                 anyhow::bail!("PIN must contain four digits");
             }
             let mut pins = h.pins.lock().unwrap();
+            pins.retain(|id, p| {
+                let alive = p.created.elapsed() < Duration::from_secs(300);
+                if !alive {
+                    butterpollo_win_io::tray::pairing_request_ended(id);
+                }
+                alive
+            });
             let key = if !text("uniqueid").is_empty() {
                 text("uniqueid").to_owned()
             } else {

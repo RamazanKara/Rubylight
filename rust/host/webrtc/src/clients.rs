@@ -404,8 +404,12 @@ impl Registry {
         let id = request.request_id().to_owned();
         let (sender, receiver) = oneshot::channel();
         let mut inner = self.inner.lock().unwrap();
-        inner.pins.prune(now);
+        let pruned = inner.pins.prune(now);
         let mut pins = h.pins.lock().unwrap();
+        for expired in pruned {
+            pins.remove(expired.request_id());
+            butterpollo_win_io::tray::pairing_request_ended(expired.request_id());
+        }
         if let Some(evicted) = inner.pins.add(request) {
             pins.remove(evicted.request_id());
             butterpollo_win_io::tray::pairing_request_ended(evicted.request_id());

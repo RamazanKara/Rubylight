@@ -35,7 +35,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             butterpollo_config::config::migrate_app(&mut settings);
             app.extra = settings.into_iter().collect();
             if let Some(overrides) = app.extra.get("config-overrides") {
-                butterpollo_media_policy::stream_preset::check_overrides(overrides)?;
+                butterpollo_session::device_overrides::check_config_overrides(overrides, false)?;
             }
             // A Radeon profile the host cannot read is an error here, not a game that starts
             // without it.
@@ -184,6 +184,16 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
     })
 }
 
+static COVER_CLIENT: std::sync::LazyLock<Result<reqwest::Client, String>> =
+    std::sync::LazyLock::new(|| {
+        reqwest::Client::builder()
+            .https_only(true)
+            .timeout(std::time::Duration::from_secs(20))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| e.to_string())
+    });
+
 pub(super) async fn upload_cover(h: &Shared, data: &Value) -> Response {
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
     let result = async {
@@ -203,7 +213,10 @@ pub(super) async fn upload_cover(h: &Shared, data: &Value) -> Response {
                 anyhow::bail!("cover must be PNG");
             }
             let path = h.directory.join("covers").join(format!("{key}.png"));
-            state::atomic_write(&path, &bytes)?;
+            let written = path.clone();
+            tokio::task::spawn_blocking(move || state::atomic_write(&written, &bytes))
+                .await
+                .map_err(anyhow::Error::from)??;
             return Ok(json!({"status":true,"path":path}));
         }
         let url = url::Url::parse(text("url"))?;
@@ -216,11 +229,7 @@ pub(super) async fn upload_cover(h: &Shared, data: &Value) -> Response {
         {
             anyhow::bail!("cover URL must use the IGDB image service");
         }
-        let client = reqwest::Client::builder()
-            .https_only(true)
-            .timeout(std::time::Duration::from_secs(20))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
+        let client = COVER_CLIENT.as_ref().map_err(anyhow::Error::msg)?;
         let mut response = client.get(url).send().await?.error_for_status()?;
         let mut bytes = vec![];
         while let Some(chunk) = response.chunk().await? {
@@ -233,7 +242,10 @@ pub(super) async fn upload_cover(h: &Shared, data: &Value) -> Response {
             anyhow::bail!("cover must be PNG");
         }
         let path = h.directory.join("covers").join(format!("{key}.png"));
-        state::atomic_write(&path, &bytes)?;
+        let written = path.clone();
+        tokio::task::spawn_blocking(move || state::atomic_write(&written, &bytes))
+            .await
+            .map_err(anyhow::Error::from)??;
         Ok::<_, anyhow::Error>(json!({"status":true,"path":path}))
     }
     .await;

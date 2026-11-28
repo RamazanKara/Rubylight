@@ -119,10 +119,10 @@ fn clips_dir(h: &Shared) -> PathBuf {
 
 fn page_query(query: Option<&str>) -> (Option<usize>, Option<String>) {
     let (mut limit, mut cursor) = (None, None);
-    for pair in query.unwrap_or_default().split('&') {
-        match pair.split_once('=') {
-            Some(("limit", value)) => limit = value.parse().ok(),
-            Some(("cursor", value)) if !value.is_empty() => cursor = Some(value.to_owned()),
+    for (key, value) in url::form_urlencoded::parse(query.unwrap_or_default().as_bytes()) {
+        match key.as_ref() {
+            "limit" => limit = value.parse().ok(),
+            "cursor" if !value.is_empty() => cursor = Some(value.into_owned()),
             _ => {}
         }
     }

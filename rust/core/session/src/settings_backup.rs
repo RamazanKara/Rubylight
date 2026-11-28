@@ -24,7 +24,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
+mod inspect;
 mod restore;
+pub use inspect::inspect_reader;
 pub use restore::{apply, apply_staged, summarize};
 
 /// The manifest's `format`.
@@ -503,7 +505,9 @@ pub fn read<R: Read + Seek>(reader: R) -> Result<Archive> {
             bail!("the archive is too large");
         }
         if name == MANIFEST {
-            manifest = Some(bytes);
+            if manifest.replace(bytes).is_some() {
+                bail!("{name} is in the archive twice");
+            }
         } else if files.insert(name.clone(), bytes).is_some() {
             bail!("{name} is in the archive twice");
         }
@@ -512,19 +516,8 @@ pub fn read<R: Read + Seek>(reader: R) -> Result<Archive> {
         &manifest.context("the archive is no Rubylight settings backup: it has no backup.json")?,
     )
     .context("the archive's backup.json cannot be read")?;
-    if manifest.format != FORMAT {
-        bail!("the archive is no Rubylight settings backup");
-    }
-    if manifest.version > VERSION {
-        bail!(
-            "the backup was made by a newer Rubylight ({}); update this PC first",
-            manifest.host_version
-        );
-    }
+    inspect::validate_manifest_header(&manifest)?;
     let listed: BTreeSet<&str> = manifest.files.iter().map(|e| e.path.as_str()).collect();
-    if listed.len() != manifest.files.len() {
-        bail!("the archive's backup.json lists a file twice");
-    }
     for entry in &manifest.files {
         let Some(bytes) = files.get(&entry.path) else {
             bail!("{} is missing from the archive", entry.path);
@@ -537,50 +530,15 @@ pub fn read<R: Read + Seek>(reader: R) -> Result<Archive> {
         if !listed.contains(name.as_str()) {
             bail!("{name} in the archive is not in its backup.json");
         }
-        match allowed(name) {
-            None => bail!("{name} is not a file a settings backup holds"),
-            Some(true) if !manifest.secrets => {
-                bail!("{name} holds secrets, but the backup says it has none")
-            }
-            Some(false) if name == DEVICES && manifest.secrets => {
-                bail!("a backup with secrets has no devices.json")
-            }
-            _ => {}
-        }
+        inspect::validate_entry_path(name, manifest.secrets)?;
     }
-    let config = files
-        .get(CONFIG)
-        .context("the archive has no sunshine.conf")?;
-    Config::parse(std::str::from_utf8(config).context("the archive's sunshine.conf is not UTF-8")?)
-        .context("the archive's sunshine.conf cannot be read")?;
-    if let Some(apps) = files.get(APPS) {
-        let apps = json_object(apps, "the archive's apps.json")?;
-        if !apps.get("apps").is_some_and(Value::is_array) {
-            bail!("the archive's apps.json has no app list");
-        }
-    }
-    for (name, what) in [
-        (ALIASES, "the archive's vibeshine_state.json"),
-        (DEVICES, "the archive's devices.json"),
-        (PAIRED, "the archive's sunshine_state.json"),
-        (CREDENTIALS_FILE, "the archive's sunshine_credentials.json"),
-        (
-            crate::webhook::SECRETS_FILE,
-            "the archive's webhook_secrets.json",
-        ),
-        (WAKE_RELAY_FILE, "the archive's wake-relay.json"),
-        (LEGACY_WAKE_RELAY_FILE, "the archive's wake-relay.json"),
-    ] {
-        if let Some(bytes) = files.get(name) {
-            json_object(bytes, what)?;
-        }
-    }
+    inspect::validate_metadata_files(&files)?;
     Ok(Archive { manifest, files })
 }
 
-/// Checks a written archive is readable and matches [`read`]'s checks.
+/// Checks a written archive is readable and matches [`read`]'s checks, streaming entries one by one.
 pub fn verify<R: Read + Seek>(reader: R) -> Result<Manifest> {
-    read(reader).map(|archive| archive.manifest)
+    inspect::scan_archive(reader).map(|inspected| inspected.manifest)
 }
 
 impl Archive {

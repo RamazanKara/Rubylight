@@ -201,7 +201,7 @@ pub(in crate::ui) const MAIN_KEYS: [(&str, &[&str]); SECTION_COUNT] = [
     ("simple", &["simple_smoothness", "simple_picture", "simple_screen", "simple_hdr", "checkbox_console_home", "simple_back_to_recommended"]),
     ("video", &["list_resolution", "list_fps", "automatic_bitrate", "seekbar_bitrate_kbps", "lower_bitrate", "list_mobile_bitrate_kbps", "video_format", "checkbox_enable_hdr"]),
     ("display", &["video_scaling", "stream_orientation", "checkbox_vrr", "frame_pacing"]),
-    ("input", &["touch_mode", "checkbox_absolute_mouse_mode", "controller_editor", "checkbox_show_onscreen_controls", "checkbox_keyboard_follows_text_fields", "checkbox_clipboard_sync"]),
+    ("input", &["touch_mode", "checkbox_pinch_to_zoom", "checkbox_absolute_mouse_mode", "controller_editor", "checkbox_show_onscreen_controls", "checkbox_keyboard_follows_text_fields", "checkbox_clipboard_sync"]),
     ("controller", &["controllers", "controller_button_mapping", "controller_test", "seekbar_deadzone", "seekbar_trigger_deadzone", "checkbox_gamepad_motion_sensors", "list_rumble_feel"]),
     ("audio", &["list_audio_config", "checkbox_host_audio", "checkbox_enable_mic", "checkbox_mic_button"]),
     ("streaming", &["checkbox_enable_perf_overlay", "performance_overlay_position", "checkbox_auto_reconnect", "network_tests"]),

@@ -703,4 +703,5 @@ fn post_loss_refinements_stay_scoped_from_normal_adaptive_pacing() {
 
 mod loss_and_recovery;
 mod path_sim;
+mod post_loss;
 mod wireless;

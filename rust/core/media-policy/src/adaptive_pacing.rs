@@ -199,8 +199,9 @@ impl AdaptivePacing {
         needed: u64,
         encoder_kbps: u32,
     ) -> u64 {
-        let route_ceiling =
-            post_loss.map_or(route_ceiling.max(1), |p| p.ceiling(route_ceiling, needed));
+        let route_ceiling = post_loss.map_or(route_ceiling.max(1), |p| {
+            p.ceiling(route_ceiling, needed, encoder_kbps)
+        });
         if wireless_unknown_link {
             crate::network_pacing::wireless_unknown_link_ceiling_bps(
                 route_ceiling,
@@ -409,9 +410,7 @@ impl AdaptivePacing {
         self.reported_frames
             .retain(|(seen, _)| last_sent.wrapping_sub(*seen) < recent_frames);
         let failed = matches!(block, Block::Unrecoverable);
-        if failed && let Some(post_loss) = &mut self.post_loss {
-            post_loss.on_failed_block(keyframe);
-        }
+        let mut newly_failed = false;
         if let Some((_, was_failed)) = self
             .reported_frames
             .iter_mut()
@@ -420,11 +419,16 @@ impl AdaptivePacing {
             if failed && !*was_failed {
                 *was_failed = true;
                 self.failed_frames = self.failed_frames.saturating_add(1);
+                newly_failed = true;
             }
         } else {
             self.reported_frames.push((frame, failed));
             self.lost_frames = self.lost_frames.saturating_add(1);
             self.failed_frames = self.failed_frames.saturating_add(u32::from(failed));
+            newly_failed = failed;
+        }
+        if newly_failed && let Some(post_loss) = &mut self.post_loss {
+            post_loss.on_failed_block(keyframe);
         }
     }
 
@@ -519,12 +523,15 @@ impl AdaptivePacing {
                 reason = Some(PacingReason::ProbeLoss);
                 if let Some(post_loss) = &mut self.post_loss {
                     post_loss.on_probe_loss(probe.stable);
+                    self.ceiling = post_loss.cap_ceiling(self.ceiling, self.floor);
                 }
                 probe.stable
             } else {
                 reason = Some(PacingReason::PacketLoss);
                 if let Some(post_loss) = &mut self.post_loss {
-                    post_loss.packet_loss_rate(old, self.floor, self.ceiling)
+                    let next = post_loss.packet_loss_rate(old, self.floor, self.ceiling);
+                    self.ceiling = post_loss.cap_ceiling(self.ceiling, self.floor);
+                    next
                 } else {
                     old / 2
                 }

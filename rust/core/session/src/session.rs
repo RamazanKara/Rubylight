@@ -151,17 +151,22 @@ pub struct Session<P = (), A = ()> {
     /// The route policy paced the last frame faster than the Wi-Fi rate, so
     /// a latch that slows it may be the whole fix (see `LinkRate::on_latch`).
     pace_was_fast: AtomicBool,
-    /// Latest pre-latch pacing rate (bps) seen on this path, 0 before any frame
-    /// or after a roam.
+    /// Latest pre-latch fast pacing rate (bps, strictly above `safe`) seen on
+    /// this path, 0 before any fast frame, on non-fast routes, or after a roam.
     last_fast_bps: AtomicU64,
     pub adaptive_video_pacing_bps: AtomicU64,
     pub automatic_pacing:
         std::sync::Mutex<butterpollo_media_policy::adaptive_pacing::AdaptivePacing>,
-    /// Whether `automatic_pacing` is enabled, set with it at stream start.
+    /// Whether `automatic_pacing` is enabled, set with it at stream start or on loss handoff.
     automatic_pacing_on: AtomicBool,
+    /// Whether the active `automatic_pacing` controller has produced at least one rate.
+    automatic_pacing_seeded: AtomicBool,
     /// Whether sustained client-reported loss on a wired stream hands pacing over
     /// to `automatic_pacing`.
     adaptive_pacing_on_loss: AtomicBool,
+    /// Monotonic epoch bumped in `new_network_path` so pre-roam loss callbacks
+    /// cannot install stale post-loss pacing or warnings onto the replacement path.
+    path_epoch: AtomicU64,
     /// Slower pacing once the client's link has dropped a keyframe.
     pub keyframe_loss: std::sync::Mutex<butterpollo_media_policy::keyframe_loss::KeyframeLoss>,
     /// FEC percentage for the next video frame; the video sender reads it per
@@ -319,7 +324,9 @@ impl<P, A> Session<P, A> {
             adaptive_video_pacing_bps: AtomicU64::new(0),
             automatic_pacing: Default::default(),
             automatic_pacing_on: AtomicBool::new(false),
+            automatic_pacing_seeded: AtomicBool::new(false),
             adaptive_pacing_on_loss: AtomicBool::new(false),
+            path_epoch: AtomicU64::new(0),
             keyframe_loss: Default::default(),
             fec_percent: AtomicU32::new(
                 butterpollo_media_policy::adaptive_fec::AdaptiveFec::default().percent() as u32,
@@ -419,18 +426,32 @@ impl<P, A> Session<P, A> {
     /// bitrate adaptation forgets the old path's RTT baseline, and the keyframe-loss
     /// guard starts over without the old path's latch.
     pub fn new_network_path(&self) {
-        let keep_adaptive = self.automatic_pacing_enabled()
-            && !self.adaptive_pacing_on_loss.load(Ordering::Acquire);
-        self.configure_automatic_pacing(keep_adaptive);
-        self.last_fast_bps.store(0, Ordering::Release);
-        self.adaptive_bitrate.lock().unwrap().new_path();
+        // Advance `path_epoch` while holding `keyframe_loss` and reset it first,
+        // then reset `automatic_pacing` and clear the warning under the pacing
+        // lock so a concurrent `report_keyframe_loss` from the old path cannot
+        // install pre-roam post-loss pacing or stale warnings on the new path.
         {
             let mut loss = self.keyframe_loss.lock().unwrap();
+            self.path_epoch.fetch_add(1, Ordering::AcqRel);
             let reports_losses = loss.reports_losses();
             *loss = butterpollo_media_policy::keyframe_loss::KeyframeLoss::new(loss.enabled());
             loss.set_reports_losses(reports_losses);
         }
-        self.launch.warnings.clear("network_keyframe_loss");
+        {
+            let mut pacing = self.automatic_pacing.lock().unwrap();
+            let keep_adaptive = self.automatic_pacing_enabled()
+                && !self.adaptive_pacing_on_loss.load(Ordering::Acquire);
+            let mut next =
+                butterpollo_media_policy::adaptive_pacing::AdaptivePacing::new(keep_adaptive);
+            next.set_wireless_unknown_link(self.wireless_unknown_link());
+            *pacing = next;
+            self.automatic_pacing_seeded.store(false, Ordering::Release);
+            self.automatic_pacing_on
+                .store(keep_adaptive, Ordering::Release);
+            self.last_fast_bps.store(0, Ordering::Release);
+            self.launch.warnings.clear("network_keyframe_loss");
+        }
+        self.adaptive_bitrate.lock().unwrap().new_path();
     }
     /// Since when a stream without its client's media ping has waited for one: the
     /// stream's `start`, or the last roam, which drops the old path's media addresses.

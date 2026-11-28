@@ -722,3 +722,75 @@ fn post_loss_caps_by_failed_rate_cuts_on_single_keyframe_and_skips_probes_at_low
     }
     assert_eq!(low.video_pacing_bps(FAST, 40_000_000), 80_000_000);
 }
+
+#[test]
+fn post_loss_preserves_non_fast_routes_ignores_stale_roam_and_keeps_adaptive_on_send_refusal() {
+    let wired_fec = || Negotiated {
+        codec: 1,
+        bitrate_kbps: 40_000,
+        client_wireless: false,
+        moonlight_features: butterpollo_media_policy::rtsp::FEC_STATUS_FEATURE,
+        ..Default::default()
+    };
+
+    // 1) Non-fast route (host Wi-Fi / 100 Mbps NIC: base == safe == 80 Mbps) does not store
+    // `last_fast_bps`, so sustained loss keeps 80 Mbps (2x bitrate) instead of clamping to 62.5 Mbps.
+    let s = Session::new(launch("non-fast-route", Role::Stream), wired_fec());
+    s.configure_adaptive_pacing_on_loss(true);
+    s.configure_keyframe_loss(true);
+    let t0 = Instant::now() - Duration::from_secs(1);
+    assert_eq!(
+        s.keyframe_loss_bps_at(80_000_000, 80_000_000, 1, true, t0),
+        80_000_000
+    );
+    s.stats.video_frame.store(13, Ordering::Release);
+    for frame in 10..=12 {
+        s.record_fec_status(&fec_report(frame, 7, 1));
+    }
+    assert!(s.automatic_pacing_enabled());
+    // Mid-frame handoff before `video_pacing_bps` runs still clamps pre-handoff FAST to safe.
+    assert_eq!(s.keyframe_loss_bps(FAST, 80_000_000, 13, false), 80_000_000);
+    assert_eq!(s.video_pacing_bps(80_000_000, 50_000_000), 80_000_000);
+    assert_eq!(
+        s.automatic_pacing.lock().unwrap().snapshot()["ceiling_kbps"],
+        80_000
+    );
+
+    // 2) Stale pre-roam latch dropped after `new_network_path()` cannot re-enable post-loss pacing.
+    let r = Session::new(launch("roam-race", Role::Stream), wired_fec());
+    r.configure_adaptive_pacing_on_loss(true);
+    r.configure_keyframe_loss(true);
+    let pre_roam = r.path_epoch.load(Ordering::Acquire);
+    let stale_latch = Some(butterpollo_media_policy::keyframe_loss::Latched {
+        reason: "stale pre-roam loss",
+        detail: "frames [1, 2, 3]".into(),
+        kind: butterpollo_media_policy::keyframe_loss::LatchKind::Sustained,
+        confirmed: false,
+        from: None,
+        host_only: false,
+    });
+    r.new_network_path();
+    r.report_keyframe_loss_for_epoch(stale_latch, None, pre_roam);
+    assert!(!r.automatic_pacing_enabled());
+    assert!(r.info()["warnings"].as_array().unwrap().is_empty());
+
+    // 3) Host-only send refusal on an already-adaptive remembered route keeps adaptive wording.
+    let m = Session::new(launch("remembered-send-refusal", Role::Stream), wired_fec());
+    m.configure_adaptive_pacing_on_loss(true);
+    m.configure_remembered_keyframe_loss(true, true);
+    assert!(m.automatic_pacing_enabled());
+    for frame in 1..=3 {
+        m.keyframe_loss_bps(80_000_000, 80_000_000, frame, frame == 1);
+        m.keyframe_abandoned(frame);
+    }
+    assert!(m.automatic_pacing_enabled());
+    let warning = m.info()["warnings"][0]["message"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        warning.contains("Adaptive packet pacing remains active"),
+        "{warning}"
+    );
+    assert!(!warning.contains("paced like Wi-Fi"), "{warning}");
+}

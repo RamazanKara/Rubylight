@@ -143,17 +143,24 @@ impl PostLoss {
         self.fec_percent = fec_percent;
     }
 
-    pub(super) fn ceiling(&self, route_ceiling: u64, needed: u64) -> u64 {
+    pub(super) fn ceiling(&self, route_ceiling: u64, needed: u64, encoder_kbps: u32) -> u64 {
         let min_floor = needed.saturating_add(needed / 4).max(1_000_000);
+        let seed_floor = u64::from(encoder_kbps).saturating_mul(2000).max(min_floor);
         let mut cap = route_ceiling.max(1);
         if let (Some(failed), Some((num, den))) = (self.failed_bps, self.config.failed_cap) {
-            let bounded = (failed.saturating_mul(num) / den).max(min_floor);
+            let bounded = (failed.saturating_mul(num) / den).max(seed_floor);
             cap = cap.min(bounded);
         }
         if let Some(learned) = self.learned_ceiling {
             cap = cap.min(learned.max(min_floor));
         }
         cap.max(1)
+    }
+
+    pub(super) fn cap_ceiling(&self, ceiling: u64, floor: u64) -> u64 {
+        self.learned_ceiling
+            .map_or(ceiling, |learned| ceiling.min(learned.max(floor)))
+            .max(1)
     }
 
     pub(super) fn on_failed_block(&mut self, keyframe: bool) {

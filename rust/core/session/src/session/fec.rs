@@ -32,8 +32,9 @@ impl<P, A> Session<P, A> {
             let frame = u32::from_be_bytes(payload[..4].try_into().unwrap());
             let period = self.stream_mode().period();
             self.link_status(payload, frame, block);
-            let (route_abandoned, keyframe) = {
+            let (route_abandoned, keyframe, path_epoch) = {
                 let mut loss = self.keyframe_loss.lock().unwrap();
+                let path_epoch = self.path_epoch.load(Ordering::Acquire);
                 let route_abandoned = loss.is_route_abandoned(frame);
                 let keyframe = loss.is_keyframe(frame);
                 if matches!(
@@ -44,18 +45,16 @@ impl<P, A> Session<P, A> {
                         loss.unrecoverable(frame, last_sent.unwrap(), period, Instant::now());
                     let ignored = loss.take_ignored();
                     drop(loss);
-                    self.report_keyframe_loss(latched, ignored);
+                    self.report_keyframe_loss_for_epoch(latched, ignored, path_epoch);
                 }
-                (route_abandoned, keyframe)
+                (route_abandoned, keyframe, path_epoch)
             };
-            if !route_abandoned {
-                self.automatic_pacing.lock().unwrap().on_block_kind(
-                    frame,
-                    last_sent.unwrap(),
-                    period,
-                    block,
-                    keyframe,
-                );
+            if !route_abandoned && self.path_epoch.load(Ordering::Acquire) == path_epoch {
+                let mut pacing = self.automatic_pacing.lock().unwrap();
+                if self.path_epoch.load(Ordering::Acquire) == path_epoch {
+                    pacing.on_block_kind(frame, last_sent.unwrap(), period, block, keyframe);
+                }
+                drop(pacing);
                 self.adaptive_bitrate.lock().unwrap().on_block(block);
                 let mut fec = self.adaptive_fec.lock().unwrap();
                 if fec.enabled() {

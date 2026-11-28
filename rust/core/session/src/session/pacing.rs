@@ -26,16 +26,17 @@ impl<P, A> Session<P, A> {
     /// A keyframe the client needs after losing frames: its request (0x0302),
     /// or an invalidation the encoder cannot repair with a reference frame.
     pub fn request_recovery_keyframe(&self) {
-        let (latched, ignored) = {
+        let (latched, ignored, path_epoch) = {
             let mut loss = self.keyframe_loss.lock().unwrap();
+            let path_epoch = self.path_epoch.load(Ordering::Acquire);
             let latched = loss.requested(Instant::now());
             if self.config.codec == 3 {
                 // Intra-only: no keyframe will answer it.
                 loss.unanswerable();
             }
-            (latched, loss.take_ignored())
+            (latched, loss.take_ignored(), path_epoch)
         };
-        self.report_keyframe_loss(latched, ignored);
+        self.report_keyframe_loss_for_epoch(latched, ignored, path_epoch);
         self.request_idr();
     }
     /// The client asked for a keyframe (0x0302): the same, and evidence for
@@ -79,14 +80,16 @@ impl<P, A> Session<P, A> {
             wake();
         }
     }
-    fn wireless_unknown_link(&self) -> bool {
+    pub(super) fn wireless_unknown_link(&self) -> bool {
         self.config.client_wireless && self.client_link_mbps() == 0
     }
 
     pub fn configure_automatic_pacing(&self, enabled: bool) {
         let mut pacing = butterpollo_media_policy::adaptive_pacing::AdaptivePacing::new(enabled);
         pacing.set_wireless_unknown_link(self.wireless_unknown_link());
-        *self.automatic_pacing.lock().unwrap() = pacing;
+        let mut guard = self.automatic_pacing.lock().unwrap();
+        *guard = pacing;
+        self.automatic_pacing_seeded.store(false, Ordering::Release);
         self.automatic_pacing_on.store(enabled, Ordering::Release);
     }
     /// Allow sustained client-reported loss (or a remembered lossy route) to
@@ -102,13 +105,16 @@ impl<P, A> Session<P, A> {
         self.adaptive_pacing_on_loss.store(allow, Ordering::Release);
     }
     /// Hand pacing over to `AdaptivePacing` after sustained loss, seeded at
-    /// twice the bitrate and fenced at the latest sent frame. Never call while
-    /// holding `self.keyframe_loss`.
-    fn activate_adaptive_pacing_from_loss(&self) -> bool {
+    /// twice the bitrate and fenced at the latest sent frame. Caller must hold
+    /// `self.automatic_pacing` and must never hold `self.keyframe_loss`.
+    fn activate_adaptive_pacing_locked(
+        &self,
+        pacing: &mut butterpollo_media_policy::adaptive_pacing::AdaptivePacing,
+    ) -> bool {
         if !self.adaptive_pacing_on_loss.load(Ordering::Acquire) {
             return false;
         }
-        if self.automatic_pacing_enabled() {
+        if pacing.enabled() {
             return true;
         }
         let last_sent = self
@@ -117,16 +123,17 @@ impl<P, A> Session<P, A> {
             .load(Ordering::Acquire)
             .checked_sub(1)
             .map(|v| v as u32);
-        let mut pacing = butterpollo_media_policy::adaptive_pacing::AdaptivePacing::new_after_loss(
+        let mut next = butterpollo_media_policy::adaptive_pacing::AdaptivePacing::new_after_loss(
             last_sent,
             match self.last_fast_bps.load(Ordering::Acquire) {
                 0 => None,
                 bps => Some(bps),
             },
         );
-        pacing.set_fec_percent(self.fec_percent());
-        pacing.set_wireless_unknown_link(self.wireless_unknown_link());
-        *self.automatic_pacing.lock().unwrap() = pacing;
+        next.set_fec_percent(self.fec_percent());
+        next.set_wireless_unknown_link(self.wireless_unknown_link());
+        *pacing = next;
+        self.automatic_pacing_seeded.store(false, Ordering::Release);
         self.automatic_pacing_on.store(true, Ordering::Release);
         true
     }
@@ -138,7 +145,7 @@ impl<P, A> Session<P, A> {
     pub fn client_wireless_sets_route_pacing(&self) -> bool {
         self.config.client_wireless && !self.automatic_pacing_enabled()
     }
-    /// Read per frame, so it is the flag set at stream start, not the mutex.
+    /// Read per frame, so it is the flag set at stream start or on loss handoff, not the mutex.
     pub fn automatic_pacing_enabled(&self) -> bool {
         self.automatic_pacing_on.load(Ordering::Acquire)
     }
@@ -147,6 +154,9 @@ impl<P, A> Session<P, A> {
         pacing.set_fec_percent(self.fec_percent());
         pacing.set_wireless_unknown_link(self.wireless_unknown_link());
         let paced = pacing.rate(base, needed, self.bitrate.load(Ordering::Acquire));
+        if pacing.enabled() {
+            self.automatic_pacing_seeded.store(true, Ordering::Release);
+        }
         drop(pacing);
         self.adaptive_pacing_bps(paced)
     }
@@ -182,9 +192,18 @@ impl<P, A> Session<P, A> {
             self.config.moonlight_features & butterpollo_media_policy::rtsp::FEC_STATUS_FEATURE
                 != 0,
         );
-        *self.keyframe_loss.lock().unwrap() = loss;
+        let path_epoch = {
+            let mut guard = self.keyframe_loss.lock().unwrap();
+            let path_epoch = self.path_epoch.load(Ordering::Acquire);
+            *guard = loss;
+            path_epoch
+        };
+        let mut pacing = self.automatic_pacing.lock().unwrap();
+        if self.path_epoch.load(Ordering::Acquire) != path_epoch {
+            return;
+        }
         if remembered {
-            if self.activate_adaptive_pacing_from_loss() {
+            if self.activate_adaptive_pacing_locked(&mut pacing) {
                 tracing::info!(stream_id = %self.launch.id, "starting adaptive packet pacing from the first frame: remembered from the previous session");
                 self.launch.warnings.set("network_keyframe_loss", "This device lost video frames in a previous stream at this address. Video starts at the Wi-Fi pacing rate and probes up as the link stays clean to limit packet bursts without reducing the encoder bitrate. This memory expires after 24 hours and the host periodically tests the fast rate. Reset it in Devices after changing the network.");
             } else {
@@ -195,11 +214,27 @@ impl<P, A> Session<P, A> {
             self.launch.warnings.clear("network_keyframe_loss");
         }
     }
+    #[cfg(test)]
     pub(super) fn report_keyframe_loss(
         &self,
         latched: Option<butterpollo_media_policy::keyframe_loss::Latched>,
         ignored: Option<String>,
     ) {
+        self.report_keyframe_loss_for_epoch(
+            latched,
+            ignored,
+            self.path_epoch.load(Ordering::Acquire),
+        );
+    }
+    pub(super) fn report_keyframe_loss_for_epoch(
+        &self,
+        latched: Option<butterpollo_media_policy::keyframe_loss::Latched>,
+        ignored: Option<String>,
+        path_epoch: u64,
+    ) {
+        if self.path_epoch.load(Ordering::Acquire) != path_epoch {
+            return;
+        }
         if let Some(why) = ignored {
             tracing::info!(stream_id = %self.launch.id, why, "video loss evidence not counted");
         }
@@ -224,9 +259,14 @@ impl<P, A> Session<P, A> {
                     !confirmed,
                 );
             }
+            let mut pacing = self.automatic_pacing.lock().unwrap();
+            if self.path_epoch.load(Ordering::Acquire) != path_epoch {
+                return;
+            }
             let adaptive = kind == LatchKind::Sustained
                 && !host_only
-                && self.activate_adaptive_pacing_from_loss();
+                && self.activate_adaptive_pacing_locked(&mut pacing);
+            let adaptive_active = pacing.enabled();
             if adaptive {
                 if confirmed && matches!(from, Some(LatchKind::Send | LatchKind::Sustained)) {
                     tracing::warn!(stream_id = %self.launch.id, reason, detail, "the client reported video loss after the host's send loss; handing packet pacing over to adaptive pacing");
@@ -236,6 +276,9 @@ impl<P, A> Session<P, A> {
                     tracing::warn!(stream_id = %self.launch.id, reason, detail, "video frames are not arriving; handing packet pacing over to adaptive pacing");
                 }
                 self.launch.warnings.set("network_keyframe_loss", format!("Video frames were lost on the way to this device ({reason}), so adaptive packet pacing is now active starting from twice the bitrate and probing up as the link stays clean without reducing the encoder bitrate. Check the network path if loss continues."));
+            } else if host_only && adaptive_active {
+                tracing::warn!(stream_id = %self.launch.id, reason, detail, "the host's socket refused video packets while adaptive packet pacing is active; keeping adaptive packet pacing");
+                self.launch.warnings.set("network_keyframe_loss", format!("The PC could not send video packets fast enough ({reason}; its CPU or network adapter fell behind). Adaptive packet pacing remains active without reducing the encoder bitrate. The device reported no loss; close other work on the PC, or check the network adapter and its driver, if this continues."));
             } else {
                 if confirmed && matches!(from, Some(LatchKind::Send | LatchKind::Sustained)) {
                     tracing::warn!(stream_id = %self.launch.id, reason, detail, "the client reported video loss after the host's send loss; pacing video like a Wi-Fi route for the rest of the stream");
@@ -297,11 +340,13 @@ impl<P, A> Session<P, A> {
             .frames_lost_on_send
             .fetch_add(1, Ordering::Relaxed);
         let period = self.stream_mode().period();
-        let (latched, ignored) = {
+        let (latched, ignored, path_epoch) = {
             let mut loss = self.keyframe_loss.lock().unwrap();
+            let path_epoch = self.path_epoch.load(Ordering::Acquire);
             (
                 loss.abandoned(wire_frame, period, Instant::now()),
                 loss.take_ignored(),
+                path_epoch,
             )
         };
         if self.link_sent.live() {
@@ -313,7 +358,7 @@ impl<P, A> Session<P, A> {
                 link.rate.on_send_too_large(wire_frame, Instant::now());
             }
         }
-        self.report_keyframe_loss(latched, ignored);
+        self.report_keyframe_loss_for_epoch(latched, ignored, path_epoch);
     }
     pub fn keyframe_loss_active(&self) -> bool {
         self.keyframe_loss.lock().unwrap().latched()
@@ -350,13 +395,15 @@ impl<P, A> Session<P, A> {
         let (bps, lifted) = {
             let mut loss = self.keyframe_loss.lock().unwrap();
             loss.sending_at(wire_frame, keyframe, now);
-            let bps = if self.automatic_pacing_enabled() {
+            let automatic = self.automatic_pacing_enabled();
+            let bps = if automatic && self.automatic_pacing_seeded.load(Ordering::Acquire) {
                 base
             } else {
                 loss.bps(base, safe)
             };
-            if !loss.latched() {
-                self.last_fast_bps.store(bps, Ordering::Release);
+            if !loss.latched() && !automatic {
+                self.last_fast_bps
+                    .store(if bps > safe { bps } else { 0 }, Ordering::Release);
             }
             (bps, loss.take_lifted())
         };

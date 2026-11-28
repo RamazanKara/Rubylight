@@ -342,13 +342,18 @@ impl Page {
         let worker = Worker { shared: shared.clone(), wake, gate: Gate::new(radeon_every, session_every) };
         let spawned = std::thread::Builder::new().name("session-page".into()).spawn(move || match make() {
             Ok(api) => worker.run(api, inbox),
-            Err(error) => worker.update(|s| {
-                // An exit asked for before the worker gave up would show as running for ever.
-                if let ExitState::Running(exit) = s.exit {
-                    s.exit = ExitState::Failed(exit, Failure::of(&Error::InvalidArgument(error.clone()), None));
-                }
-                s.setup_error = Some(error);
-            }),
+            Err(error) => {
+                // Drop `inbox` before publishing `setup_error` so a caller woken by the failure
+                // immediately observes a disconnected channel in `exit()` rather than racing.
+                drop(inbox);
+                worker.update(|s| {
+                    // An exit asked for before the worker gave up would show as running for ever.
+                    if let ExitState::Running(exit) = s.exit {
+                        s.exit = ExitState::Failed(exit, Failure::of(&Error::InvalidArgument(error.clone()), None));
+                    }
+                    s.setup_error = Some(error);
+                });
+            }
         });
         if spawned.is_err() {
             Arc::make_mut(&mut lock(&shared)).setup_error = Some(tr("The page could not start its worker.").into());

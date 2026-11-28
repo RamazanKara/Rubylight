@@ -34,26 +34,46 @@ public final class CrashCapture implements Application.ActivityLifecycleCallback
         directory = context.getNoBackupFilesDir();
     }
 
-    public void installHandler() {
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, exception) -> {
+    private static final class CapturingHandler implements Thread.UncaughtExceptionHandler {
+        final CrashCapture owner;
+        final Thread.UncaughtExceptionHandler previous;
+
+        CapturingHandler(CrashCapture owner, Thread.UncaughtExceptionHandler previous) {
+            this.owner = owner;
+            this.previous = previous;
+        }
+
+        @Override
+        public void uncaughtException(Thread thread, Throwable exception) {
             try {
-                synchronized (lock) {
+                synchronized (owner.lock) {
                     CrashRecord.javaCrash(System.currentTimeMillis(), Process.myPid(),
                             BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")", Build.VERSION.SDK_INT,
-                            Build.MODEL, thread.getName(), exception).save(directory);
+                            Build.MODEL, thread.getName(), exception).save(owner.directory);
                 }
             } catch (Throwable ignored) {
                 // Reporting must not prevent Android's crash handler from terminating the process, even on OOM.
             } finally {
                 if (previous != null) {
                     previous.uncaughtException(thread, exception);
-                } else {
+                } else if (!"robolectric".equals(Build.FINGERPRINT)) {
                     Process.killProcess(Process.myPid());
                     System.exit(10);
+                } else {
+                    exception.printStackTrace(System.err);
                 }
             }
-        });
+        }
+    }
+
+    public void installHandler() {
+        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        // Unwrap an earlier CrashCapture handler so repeated Application creation in unit tests
+        // never builds an unbounded chain pinning every prior Application and Activity in memory.
+        while (previous instanceof CapturingHandler) {
+            previous = ((CapturingHandler) previous).previous;
+        }
+        Thread.setDefaultUncaughtExceptionHandler(new CapturingHandler(this, previous));
     }
 
     public void start(Application application) {

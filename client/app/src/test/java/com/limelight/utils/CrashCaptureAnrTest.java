@@ -66,4 +66,24 @@ public class CrashCaptureAnrTest {
         assertTrue(report, report.contains("Reason: ANR"));
         assertTrue(report, report.contains("ANR trace unavailable."));
     }
+
+    @Test
+    public void installHandlerReplacesPreviousCrashCaptureInsteadOfChaining() {
+        Context context = RuntimeEnvironment.getApplication();
+        Thread.UncaughtExceptionHandler original = Thread.getDefaultUncaughtExceptionHandler();
+        java.util.concurrent.atomic.AtomicInteger baseCalls = new java.util.concurrent.atomic.AtomicInteger();
+        Thread.UncaughtExceptionHandler sentinel = (t, e) -> baseCalls.incrementAndGet();
+        try {
+            Thread.setDefaultUncaughtExceptionHandler(sentinel);
+            new CrashCapture(context).installHandler();
+            Thread.UncaughtExceptionHandler first = Thread.getDefaultUncaughtExceptionHandler();
+            new CrashCapture(context).installHandler();
+            Thread.UncaughtExceptionHandler second = Thread.getDefaultUncaughtExceptionHandler();
+            assertNotSame(first, second);
+            second.uncaughtException(Thread.currentThread(), new RuntimeException("boom"));
+            assertEquals("sentinel must be called exactly once without chaining prior CrashCaptures", 1, baseCalls.get());
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(original);
+        }
+    }
 }

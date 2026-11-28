@@ -6,7 +6,7 @@
 use crate::state::{Session, Shared};
 use anyhow::{Context, Result};
 use butterpollo_config::config::Config;
-use butterpollo_media_policy::packet::{CbcKey, mic_open_into};
+use butterpollo_media_policy::packet::{CbcKey, mic_open_into, mic_open_single_into};
 use butterpollo_session::mic::{self, Arrival, Playout, Sequencer};
 use butterpollo_win_graphics::capture::{ComGuard, Priority};
 use butterpollo_win_io::{audio::OpusDecoder, audio_route, mic::Render};
@@ -104,6 +104,21 @@ struct Cached {
     /// The session's pre-expanded AES-128-CBC key and key id.
     cbc: CbcKey,
     key_id: u32,
+    single_pkcs7: bool,
+}
+
+fn open_packet<'a>(
+    cbc: &CbcKey,
+    key_id: u32,
+    single_pkcs7: bool,
+    packet: &mic::Packet<'_>,
+    out: &'a mut Vec<u8>,
+) -> Result<&'a [u8]> {
+    if single_pkcs7 {
+        mic_open_single_into(cbc, key_id, packet, out)
+    } else {
+        mic_open_into(cbc, key_id, packet, out)
+    }
 }
 struct Receiver {
     h: Shared,
@@ -195,7 +210,15 @@ impl Receiver {
             && session.config.mic
             && !session.stopping()
             && session.client_ip() == peer
-            && mic_open_into(&cached.cbc, cached.key_id, packet, &mut self.opus).is_ok()
+            && cached.single_pkcs7 == session.config.mic_single_pkcs7
+            && open_packet(
+                &cached.cbc,
+                cached.key_id,
+                cached.single_pkcs7,
+                packet,
+                &mut self.opus,
+            )
+            .is_ok()
         {
             return Some(session);
         }
@@ -211,13 +234,21 @@ impl Receiver {
             .collect();
         let (session, cbc) = candidates.into_iter().find_map(|s| {
             let cbc = CbcKey::new(&s.launch.key);
-            mic_open_into(&cbc, s.launch.key_id, packet, &mut self.opus).ok()?;
+            open_packet(
+                &cbc,
+                s.launch.key_id,
+                s.config.mic_single_pkcs7,
+                packet,
+                &mut self.opus,
+            )
+            .ok()?;
             Some((s, cbc))
         })?;
         self.cached = Some(Cached {
             session: Arc::downgrade(&session),
             cbc,
             key_id: session.launch.key_id,
+            single_pkcs7: session.config.mic_single_pkcs7,
         });
         Some(session)
     }

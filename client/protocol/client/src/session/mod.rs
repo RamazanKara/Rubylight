@@ -655,12 +655,13 @@ impl Session {
             .as_mut()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no microphone stream"))?;
         let timestamp = mic.started.elapsed().as_millis() as u32;
-        let len = microphone::build_packet_into(
+        let len = microphone::build_packet_framed_into(
             &mic.cipher,
             mic.key_id,
             mic.sequence,
             timestamp,
             opus,
+            mic.single_pkcs7,
             &mut mic.packet,
         )
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "bad Opus packet size"))?;

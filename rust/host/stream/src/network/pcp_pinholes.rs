@@ -176,6 +176,8 @@ pub(super) async fn renew_pcp_v4(
                 .await
                 .ok();
         }
+    } else {
+        held.mapper = None;
     }
     // The mapper's own method once known: a NAT-PMP round then neither rewrites the record
     // nor adds a second method every minute. While unknown, PCP is what it asks first.
@@ -290,31 +292,21 @@ pub(super) async fn renew_pinholes(
     nonce_secret: &[u8],
     record: &std::sync::Mutex<LeaseRecord>,
 ) {
+    let locals = portmap::ipv6_locals(bind);
+    if held
+        .firewall
+        .as_ref()
+        .is_some_and(|firewall| !locals.iter().any(|&(local, _)| local == firewall.local()))
+    {
+        held.firewall = None;
+    }
     if held.firewall.is_none() {
         held.firewall = ipv6::discover(bind).await.ok();
     }
-    if let Some(firewall) = held.firewall.as_mut() {
-        let outcome = firewall.renew(wanted).await;
-        if let Some(error) = &outcome.error {
-            tracing::debug!(
-                %error,
-                opened = outcome.opened,
-                wanted = wanted.len(),
-                "some IPv6 firewall pinholes could not be renewed"
-            );
-        }
-        let guest_ipv6 = (outcome.opened > 0 && !guest.is_empty()).then(|| firewall.local());
-        let error = outcome.error.map(|error| format!("{error:#}"));
-        crate::internet_play::update_mapping(|status| {
-            status.ipv6_method = Some("UPnP".into());
-            status.ipv6_pinholes = outcome.opened;
-            status.ipv6_error = error;
-            status.guest_ipv6 = guest_ipv6;
-        });
+    if apply_firewall_round(held, guest, wanted).await {
         return;
     }
     let gateways = ipv6_gateways();
-    let locals = portmap::ipv6_locals(bind);
     held.pinholes.retain(|mapper| {
         locals.iter().any(|&(local, index)| {
             gateways
@@ -407,4 +399,231 @@ pub(super) async fn renew_pinholes(
         });
         status.guest_ipv6 = guest_ipv6;
     });
+}
+
+/// Runs one UPnP IGDv2 firewall renewal round if `held.firewall` is present.
+/// Returns `true` when UPnP handled this round, or `false` when no firewall is held or every
+/// requested pinhole failed (`opened == 0 && !wanted.is_empty()`), clearing `held.firewall` so
+/// the caller falls through to PCP.
+async fn apply_firewall_round(held: &mut Held, guest: &[Mapping], wanted: &[Mapping]) -> bool {
+    let Some(firewall) = held.firewall.as_mut() else {
+        return false;
+    };
+    let outcome = firewall.renew(wanted).await;
+    if let Some(error) = &outcome.error {
+        tracing::debug!(
+            %error,
+            opened = outcome.opened,
+            wanted = wanted.len(),
+            "some IPv6 firewall pinholes could not be renewed"
+        );
+    }
+    if outcome.opened == 0 && !wanted.is_empty() {
+        held.firewall = None;
+        return false;
+    }
+    let all_guests = !guest.is_empty()
+        && guest
+            .iter()
+            .all(|mapping| outcome.mappings.contains(mapping));
+    let guest_ipv6 = all_guests.then(|| firewall.local());
+    let error = outcome.error.map(|error| format!("{error:#}"));
+    crate::internet_play::update_mapping(|status| {
+        status.ipv6_method = Some("UPnP".into());
+        status.ipv6_pinholes = outcome.opened;
+        status.ipv6_error = error;
+        status.guest_ipv6 = guest_ipv6;
+    });
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{Ipv4Addr, Ipv6Addr};
+    use std::sync::atomic::{AtomicU8, Ordering};
+
+    fn current_guest_ipv6() -> Option<Ipv6Addr> {
+        let mut got = None;
+        crate::internet_play::update_mapping(|status| got = status.guest_ipv6);
+        got
+    }
+
+    fn temp_lease_record(tag: &str) -> (std::path::PathBuf, std::sync::Mutex<LeaseRecord>) {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("rubylight-pcp-test-{tag}-{nanos}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let record = std::sync::Mutex::new(LeaseRecord::load(&dir));
+        (dir, record)
+    }
+
+    #[tokio::test]
+    async fn renew_pcp_v4_clears_cached_mapper_when_default_route_disappears() {
+        let mut held = Held {
+            mapper: Some(
+                portmap::PortMapper::ipv4(Ipv4Addr::LOCALHOST, Ipv4Addr::LOCALHOST, b"secret")
+                    .await
+                    .unwrap(),
+            ),
+            ..Default::default()
+        };
+        let (dir, record) = temp_lease_record("pcp-v4");
+        let mut reported = Vec::new();
+        let wanted = [Mapping {
+            protocol: Protocol::UDP,
+            port: 48132,
+        }];
+        // Clear default gateways on this test thread so `pcp_route` genuinely returns `None`.
+        let prev_gateways = TEST_NET.with(|net| net.borrow_mut().gateways.replace(Vec::new()));
+        renew_pcp_v4(
+            &mut held,
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            &wanted,
+            &[],
+            &wanted,
+            b"secret",
+            &mut reported,
+            &record,
+            None,
+        )
+        .await;
+        TEST_NET.with(|net| net.borrow_mut().gateways = prev_gateways);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            held.mapper.is_none(),
+            "stale PCP/NAT-PMP mapper must be cleared when route disappears"
+        );
+    }
+
+    #[tokio::test]
+    async fn ipv6_firewall_tracks_guest_mappings_clears_on_total_failure_and_stale_local() {
+        use axum::{Router, http::HeaderMap, routing::get};
+
+        const SERVICE: &str = "urn:schemas-upnp-org:service:WANIPv6FirewallControl:1";
+        // Mode 0: allow stream (48132), refuse guest (48125).
+        // Mode 1: allow both.
+        // Mode 2: refuse everything.
+        let mode = std::sync::Arc::new(AtomicU8::new(0));
+        let mode_srv = mode.clone();
+        let listener = tokio::net::TcpListener::bind("[::1]:0").await.unwrap();
+        let url = reqwest::Url::parse(&format!(
+            "http://{}/root.xml",
+            listener.local_addr().unwrap()
+        ))
+        .unwrap();
+        let router = Router::new()
+            .route(
+                "/root.xml",
+                get(|| async {
+                    format!(
+                        "<root><device><serviceList><service><serviceType>{SERVICE}</serviceType><controlURL>/fw</controlURL></service></serviceList></device></root>"
+                    )
+                }),
+            )
+            .route(
+                "/fw",
+                axum::routing::post(move |headers: HeaderMap, body: String| {
+                    let mode = mode_srv.clone();
+                    async move {
+                        let action = headers["SOAPAction"]
+                            .to_str()
+                            .unwrap()
+                            .trim_matches('"')
+                            .split('#')
+                            .nth(1)
+                            .unwrap();
+                        let m = mode.load(Ordering::Acquire);
+                        let value = match action {
+                            "GetFirewallStatus" => {
+                                "<FirewallEnabled>1</FirewallEnabled><InboundPinholeAllowed>1</InboundPinholeAllowed>"
+                            }
+                            "AddPinhole" if m == 2 => {
+                                "<UPnPError><errorCode>706</errorCode><errorDescription>Refused</errorDescription></UPnPError>"
+                            }
+                            "AddPinhole"
+                                if m == 0 && body.contains("<InternalPort>48125</InternalPort>") =>
+                            {
+                                "<UPnPError><errorCode>706</errorCode><errorDescription>Refused</errorDescription></UPnPError>"
+                            }
+                            "AddPinhole" => "<UniqueID>42</UniqueID>",
+                            "DeletePinhole" => "",
+                            _ => "",
+                        };
+                        format!(
+                            "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body><u:{action}Response xmlns:u=\"{SERVICE}\">{value}</u:{action}Response></s:Body></s:Envelope>"
+                        )
+                    }
+                }),
+            );
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let local: Ipv6Addr = "2001:db8::cafe".parse().unwrap();
+        let stream = Mapping {
+            protocol: Protocol::UDP,
+            port: 48132,
+        };
+        let guest = Mapping {
+            protocol: Protocol::TCP,
+            port: 48125,
+        };
+        let wanted = [stream, guest];
+
+        let mut held = Held {
+            firewall: Some(
+                ipv6::Firewall::from_location(client.clone(), url.clone(), local)
+                    .await
+                    .unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        // Stream opens, guest refused -> firewall stays, guest_ipv6 MUST stay None.
+        assert!(apply_firewall_round(&mut held, &[guest], &wanted).await);
+        assert!(held.firewall.is_some());
+        assert_eq!(current_guest_ipv6(), None);
+
+        // Both stream and guest open -> guest_ipv6 reports firewall.local().
+        mode.store(1, Ordering::Release);
+        assert!(apply_firewall_round(&mut held, &[guest], &wanted).await);
+        assert_eq!(current_guest_ipv6(), Some(local));
+
+        // Empty wanted (closing pinholes) keeps the firewall cached even though opened == 0.
+        assert!(apply_firewall_round(&mut held, &[], &[]).await);
+        assert!(held.firewall.is_some());
+
+        // Total refusal with non-empty wanted drops `held.firewall` and signals PCP fallback.
+        mode.store(2, Ordering::Release);
+        assert!(!apply_firewall_round(&mut held, &[guest], &wanted).await);
+        assert!(held.firewall.is_none());
+
+        // Stale `firewall.local()` absent from `portmap::ipv6_locals(bind)` is cleared by `renew_pinholes`.
+        held.firewall = Some(
+            ipv6::Firewall::from_location(client, url, local)
+                .await
+                .unwrap(),
+        );
+        let (dir, record) = temp_lease_record("ipv6-stale");
+        renew_pinholes(
+            &mut held,
+            IpAddr::V6("2001:db8::beef".parse().unwrap()),
+            &[],
+            &[],
+            b"secret",
+            &record,
+        )
+        .await;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            held.firewall.is_none(),
+            "firewall for a vanished IPv6 address must be cleared"
+        );
+        server.abort();
+    }
 }

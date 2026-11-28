@@ -48,6 +48,7 @@ pub struct DirectPollOutcome {
 struct PollCancelState {
     next_id: u64,
     cancellers: Vec<(u64, HostClientCanceller)>,
+    wakers: Vec<(u64, Box<dyn FnOnce() + Send>)>,
 }
 
 #[derive(Default)]
@@ -60,7 +61,7 @@ struct PollCancelInner {
 #[derive(Clone, Default)]
 pub struct PollCancel(Arc<PollCancelInner>);
 
-/// RAII guard unregistering a [`HostClientCanceller`] from [`PollCancel`] on drop.
+/// RAII guard unregistering a [`HostClientCanceller`] or wake callback from [`PollCancel`] on drop.
 pub struct PollCancelGuard {
     inner: Arc<PollCancelInner>,
     id: u64,
@@ -70,6 +71,7 @@ impl Drop for PollCancelGuard {
     fn drop(&mut self) {
         let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         state.cancellers.retain(|(id, _)| *id != self.id);
+        state.wakers.retain(|(id, _)| *id != self.id);
     }
 }
 
@@ -106,6 +108,23 @@ impl PollCancel {
         })
     }
 
+    /// Registers a non-blocking wake callback invoked once if this scope is cancelled.
+    fn register_wake(&self, wake: impl FnOnce() + Send + 'static) -> Option<PollCancelGuard> {
+        let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+        if self.0.cancelled.load(Ordering::Acquire) {
+            drop(state);
+            wake();
+            return None;
+        }
+        let id = state.next_id;
+        state.next_id = state.next_id.wrapping_add(1);
+        state.wakers.push((id, Box::new(wake)));
+        Some(PollCancelGuard {
+            inner: Arc::clone(&self.0),
+            id,
+        })
+    }
+
     /// Marks this scope cancelled and aborts every currently registered [`HostClientCanceller`].
     ///
     /// Holds the registration mutex across `canceller.cancel()` so a finishing worker's
@@ -116,6 +135,9 @@ impl PollCancel {
         self.0.cancelled.store(true, Ordering::Release);
         for (_, canceller) in state.cancellers.drain(..) {
             canceller.cancel();
+        }
+        for (_, wake) in state.wakers.drain(..) {
+            wake();
         }
     }
 }
@@ -329,7 +351,13 @@ pub fn parallel_poll_direct_cancellable(
         return outcome;
     }
 
-    let (tx, rx) = mpsc::channel::<(usize, Result<PollIpSuccess, PollIpError>)>();
+    let (tx, rx) = mpsc::channel::<Option<(usize, Result<PollIpSuccess, PollIpError>)>>();
+    let _wake_guard = cancel.and_then(|scope| {
+        let tx_wake = tx.clone();
+        scope.register_wake(move || {
+            let _ = tx_wake.send(None);
+        })
+    });
     let n = candidates.len();
     let mut results: Vec<Option<Result<PollIpSuccess, PollIpError>>> = vec![None; n];
     // Per-worker cancel scope synchronized with `pool.give_back` so a winner's cancellation
@@ -389,7 +417,7 @@ pub fn parallel_poll_direct_cancellable(
                         drop(_slot_guard);
                         drop(_cancel_guard);
                         pool.give_back(&cand_bg.address, cand_bg.port, cert.as_deref(), pool_gen, client);
-                        let _ = tx.send((idx, res));
+                        let _ = tx.send(Some((idx, res)));
                     })
                 {
                     results[idx] = Some(Err(PollIpError {
@@ -445,10 +473,32 @@ pub fn parallel_poll_direct_cancellable(
         if results.iter().all(Option::is_some) {
             return outcome;
         }
-        let Ok((idx, res)) = rx.recv() else {
+        if cancel.is_some_and(PollCancel::is_cancelled) {
+            for (j, slot_cancel) in slot_cancels.iter().enumerate() {
+                if results[j].is_none()
+                    && let Some(c) = slot_cancel
+                {
+                    c.cancel();
+                }
+            }
+            outcome.last_error = Some(PollErrorKind::Cancelled);
             return outcome;
-        };
-        results[idx] = Some(res);
+        }
+        match rx.recv() {
+            Ok(Some((idx, res))) => results[idx] = Some(res),
+            Ok(None) => {
+                for (j, slot_cancel) in slot_cancels.iter().enumerate() {
+                    if results[j].is_none()
+                        && let Some(c) = slot_cancel
+                    {
+                        c.cancel();
+                    }
+                }
+                outcome.last_error = Some(PollErrorKind::Cancelled);
+                return outcome;
+            }
+            Err(_) => return outcome,
+        }
     }
 }
 

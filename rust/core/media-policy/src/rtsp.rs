@@ -101,6 +101,10 @@ pub struct Negotiated {
     /// encrypts it.
     #[serde(default)]
     pub mic: bool,
+    /// The client negotiated single-PKCS#7 microphone framing (`x-rl-mic.framing:1`)
+    /// so block-aligned Opus packets ending in `0x01`/`[k; k]` are never stripped.
+    #[serde(default)]
+    pub mic_single_pkcs7: bool,
     /// The HDR format the client picked from the host's offer
     /// (`x-rl-video[0].hdrFormat`, one `rubylight_protocol::hdr` bit); 0 is
     /// stock HDR. `extensions::Offered::check_announce` refuses one not offered.
@@ -163,6 +167,7 @@ impl Default for Negotiated {
             video_qos: true,
             audio_qos: true,
             mic: false,
+            mic_single_pkcs7: false,
             hdr_format: 0,
             dolby_vision_full_range: false,
             audio_codec: 0,
@@ -392,6 +397,12 @@ impl Negotiated {
             rubylight_protocol::audio_ext::CODEC_ANNOUNCE_ATTRIBUTE,
             0,
         )?)?;
+        let mic_framing = get(rubylight_protocol::mic::FRAMING_ATTRIBUTE, 0)?;
+        if mic_framing > u32::from(rubylight_protocol::mic::FRAMING_SINGLE_PKCS7) {
+            bail!("unsupported microphone framing mode {mic_framing}");
+        }
+        n.mic_single_pkcs7 =
+            mic_framing == u32::from(rubylight_protocol::mic::FRAMING_SINGLE_PKCS7);
         n.validate()?;
         Ok(n)
     }

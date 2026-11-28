@@ -593,3 +593,40 @@ fn oversized_datagram_is_classified_as_datagram_lost_in_microphone_loop() {
         "expected datagram_lost for oversized UDP datagram, got {err:?}"
     );
 }
+
+#[test]
+fn open_packet_respects_single_pkcs7_and_legacy_modes() {
+    let key = [0x3du8; 16];
+    let cbc = CbcKey::new(&key);
+    let mut out = Vec::new();
+
+    // 16-byte-aligned Opus packet ending in 0x01: preserved verbatim when single_pkcs7 is true.
+    let mut aligned = vec![0x88u8; 32];
+    aligned[31] = 0x01;
+    let dg_single = {
+        let mut raw = vec![0, mic::PACKET_TYPE_OPUS];
+        raw.extend_from_slice(&7u16.to_le_bytes());
+        raw.extend_from_slice(&100u32.to_le_bytes());
+        raw.extend_from_slice(&mic::MAGIC.to_le_bytes());
+        raw.extend_from_slice(&butterpollo_crypto::crypto::cbc_seal(
+            &key,
+            &mic::iv(99, 7),
+            &aligned,
+        ));
+        raw
+    };
+    let pkt = mic::parse(&dg_single).unwrap();
+    assert_eq!(
+        open_packet(&cbc, 99, true, &pkt, &mut out).unwrap(),
+        aligned.as_slice()
+    );
+
+    // Legacy double-padded packet still opens cleanly when single_pkcs7 is false.
+    let legacy_opus = b"legacy-21-byte-packet";
+    let dg_legacy = mic::seal(&key, 99, 8, 120, legacy_opus);
+    let pkt = mic::parse(&dg_legacy).unwrap();
+    assert_eq!(
+        open_packet(&cbc, 99, false, &pkt, &mut out).unwrap(),
+        legacy_opus
+    );
+}

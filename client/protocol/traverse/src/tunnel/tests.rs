@@ -408,3 +408,69 @@ fn a_tunnel_started_again_for_a_device_session_never_repeats_a_sequence_number()
     distinct.dedup();
     assert_eq!(distinct.len(), seen.len(), "sequence numbers {seen:?}");
 }
+
+/// Closing a device tunnel wakes its media forwarder threads promptly so a replacement tunnel
+/// on the same loopback ports binds without waiting for the 500 ms recv_from timeout.
+#[test]
+fn closing_a_device_tunnel_releases_media_ports_promptly_and_reconnect_retries() {
+    use crate::client::{ClientConfig, ClientTunnel, HostInfo, Status};
+    use std::time::Instant;
+
+    let local = bindable_loopback(loopback_for(78, "net02-restart-host"));
+    // Pick unused ports on `local` so the test never collides with a running host.
+    let probe_tcp = || TcpListener::bind((local, 0)).unwrap().local_addr().unwrap().port();
+    let probe_udp = || UdpSocket::bind((local, 0)).unwrap().local_addr().unwrap().port();
+    let ports = Ports {
+        http: probe_tcp(),
+        https: probe_tcp(),
+        rtsp: probe_tcp(),
+        video: probe_udp(),
+        audio: probe_udp(),
+        control: probe_udp(),
+        mic: probe_udp(),
+    };
+    let make_config = || ClientConfig {
+        host_id: "net02-restart-host".into(),
+        secret: [0x5a; 32],
+        known: Some(HostInfo {
+            session: Some([0x11; 16]),
+            endpoints: vec!["127.0.0.1:9".parse().unwrap()],
+            nat: crate::record::Nat::None,
+            ports,
+        }),
+        stun_servers: Vec::new(),
+        bootstrap: Vec::new(),
+    };
+
+    let first = ClientTunnel::start(make_config());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !matches!(first.status(), Status::Punching) && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        matches!(first.status(), Status::Punching),
+        "first tunnel status: {:?}",
+        first.status()
+    );
+
+    let restarted = Instant::now();
+    first.stop();
+    drop(first);
+
+    let second = ClientTunnel::start(make_config());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while matches!(second.status(), Status::LookingUp) && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    let elapsed = restarted.elapsed();
+    let status = second.status();
+    second.stop();
+    assert!(
+        matches!(status, Status::Punching),
+        "back-to-back reconnect failed with {status:?} after {elapsed:?}"
+    );
+    assert!(
+        elapsed < Duration::from_millis(450),
+        "closing should wake media sockets before the 500 ms recv timeout ({elapsed:?})"
+    );
+}

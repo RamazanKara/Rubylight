@@ -33,6 +33,7 @@ fn params<'a>(
         encryption_supported: 0,
         encryption_requested: 0,
         mic_port: 0,
+        mic_single_pkcs7: false,
         high_quality_surround_supported: false,
         pyrowave_records_enabled: false,
         hdr_format: 0,

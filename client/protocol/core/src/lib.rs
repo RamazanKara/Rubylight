@@ -29,6 +29,7 @@ pub mod invite_uri;
 pub mod keyboard_layout;
 pub mod launch_curtain;
 pub mod ltr_recovery;
+pub mod mic;
 pub mod nvidia_enhance;
 pub mod packed444;
 pub mod pairing_uri;

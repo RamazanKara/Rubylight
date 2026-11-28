@@ -301,22 +301,23 @@ fn qos_flows_tag_a_network_client() -> Result<()> {
 }
 
 #[test]
-fn a_loopback_route_reports_an_mtu_and_a_socket_can_refuse_fragmentation() -> Result<()> {
+fn a_loopback_route_reports_no_mtu_and_a_socket_can_refuse_fragmentation() -> Result<()> {
+    for peer in [
+        "127.0.0.1:9",
+        "127.77.1.2:9",
+        "127.78.1.2:9",
+        "[::1]:9",
+        "[::ffff:127.77.1.2]:9",
+    ] {
+        let peer: SocketAddr = peer.parse()?;
+        // Loopback and Internet Play tunnel addresses must never report a giant pseudo-MTU.
+        assert_eq!(routed_mtu(peer), None, "{peer}");
+    }
     for (peer, bind) in [
         ("127.0.0.1:9".parse::<SocketAddr>()?, "127.0.0.1:0"),
         ("[::1]:9".parse::<SocketAddr>()?, "[::1]:0"),
     ] {
-        // The loopback pseudo-interface carries any datagram size.
-        let mtu = routed_mtu(peer).unwrap_or_else(|| panic!("no route MTU for {peer}"));
-        assert!(mtu >= 1500, "{peer}: {mtu}");
-        // Loopback is on-link, so jumbo packets may be offered there.
         assert!(routed_same_link(peer), "{peer}");
-        // The packet size offered for it is the largest this version defines.
-        assert_eq!(
-            rubylight_protocol::video_packet::for_mtu(mtu),
-            rubylight_protocol::video_packet::MAX_VIDEO_PACKET,
-            "{peer}: {mtu}"
-        );
         let socket = UdpSocket::bind(bind)?;
         // A jumbo stream enables both families' refusal; a later stock stream
         // must be able to clear it on the same process-wide socket.

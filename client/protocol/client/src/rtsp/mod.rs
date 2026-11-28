@@ -215,6 +215,8 @@ pub struct RtspOutcome {
     pub control_port: u16,
     /// 0 without a microphone stream.
     pub mic_port: u16,
+    /// True when the host offered `X-RL-Mic-Framing: 1` and ANNOUNCE selected single-PKCS#7 framing.
+    pub mic_single_pkcs7: bool,
     pub audio_ping_payload: Option<[u8; 16]>,
     pub video_ping_payload: Option<[u8; 16]>,
     pub control_connect_data: u32,

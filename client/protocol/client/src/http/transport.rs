@@ -454,8 +454,164 @@ pub(crate) fn connect(host: &Host, port: u16, timeout: Duration, deadline: Optio
     connect_with_cancels(host, port, timeout, deadline, &[])
 }
 
-fn connect_with_cancels(host: &Host, port: u16, timeout: Duration, deadline: Option<std::time::Instant>, cancels: &[&Cancel]) -> Result<TcpStream, Error> {
-    connect_each_with(&host.socket_addrs(port)?, timeout, deadline, cancels, TcpStream::connect_timeout)
+pub(crate) fn connect_with_cancels(host: &Host, port: u16, timeout: Duration, deadline: Option<std::time::Instant>, cancels: &[&Cancel]) -> Result<TcpStream, Error> {
+    connect_each_with(&host.socket_addrs(port)?, timeout, deadline, cancels, |address, budget| {
+        connect_timeout_cancellable(address, budget, cancels)
+    })
+}
+
+/// Non-blocking TCP connect that checks `cancels` every ~15 ms so cancelling a poll or request
+/// never blocks for the full connect timeout on a silent/blackholed address.
+fn connect_timeout_cancellable(
+    address: &SocketAddr,
+    timeout: Duration,
+    cancels: &[&Cancel],
+) -> std::io::Result<TcpStream> {
+    use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+    let is_cancelled = || cancels.iter().any(|cancel| cancel.is_cancelled());
+    if is_cancelled() {
+        return Err(std::io::Error::new(ErrorKind::Interrupted, "cancelled"));
+    }
+    let socket = Socket::new(Domain::for_address(*address), Type::STREAM, Some(Protocol::TCP))?;
+    socket.set_nonblocking(true)?;
+    match socket.connect(&SockAddr::from(*address)) {
+        Ok(()) => {}
+        Err(err) if is_connect_in_progress(&err) => {
+            let deadline = std::time::Instant::now() + timeout;
+            loop {
+                if is_cancelled() {
+                    return Err(std::io::Error::new(ErrorKind::Interrupted, "cancelled"));
+                }
+                let Some(remaining) = deadline
+                    .checked_duration_since(std::time::Instant::now())
+                    .filter(|left| !left.is_zero())
+                else {
+                    return Err(ErrorKind::TimedOut.into());
+                };
+                match poll_connect_ready(&socket, remaining.min(Duration::from_millis(15)))? {
+                    ConnectPoll::Pending => continue,
+                    ConnectPoll::Ready => {
+                        if let Some(err) = socket.take_error()? {
+                            return Err(err);
+                        }
+                        break;
+                    }
+                    ConnectPoll::Failed => {
+                        return Err(socket
+                            .take_error()?
+                            .unwrap_or_else(|| ErrorKind::ConnectionRefused.into()));
+                    }
+                }
+            }
+        }
+        Err(err) => return Err(err),
+    }
+    if is_cancelled() {
+        return Err(std::io::Error::new(ErrorKind::Interrupted, "cancelled"));
+    }
+    socket.set_nonblocking(false)?;
+    Ok(socket.into())
+}
+
+enum ConnectPoll {
+    Pending,
+    Ready,
+    Failed,
+}
+
+fn is_connect_in_progress(err: &std::io::Error) -> bool {
+    if err.kind() == ErrorKind::WouldBlock {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Networking::WinSock::{WSAEINPROGRESS, WSAEWOULDBLOCK};
+        matches!(err.raw_os_error(), Some(code) if code == WSAEWOULDBLOCK || code == WSAEINPROGRESS)
+    }
+    #[cfg(unix)]
+    {
+        err.raw_os_error() == Some(libc::EINPROGRESS)
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        false
+    }
+}
+
+#[cfg(windows)]
+fn poll_connect_ready(socket: &socket2::Socket, timeout: Duration) -> std::io::Result<ConnectPoll> {
+    use std::os::windows::io::AsRawSocket;
+    use windows_sys::Win32::Networking::WinSock::{FD_SET, SOCKET_ERROR, TIMEVAL, select};
+    let raw = socket.as_raw_socket() as usize;
+    let mut write_set = FD_SET {
+        fd_count: 1,
+        fd_array: [0; 64],
+    };
+    write_set.fd_array[0] = raw;
+    let mut except_set = write_set;
+    let tv = TIMEVAL {
+        tv_sec: timeout.as_secs().min(i32::MAX as u64) as i32,
+        tv_usec: timeout.subsec_micros() as i32,
+    };
+    // SAFETY: `write_set`, `except_set` and `tv` are valid locals; `socket` stays open.
+    let rc = unsafe {
+        select(
+            0,
+            std::ptr::null_mut(),
+            &mut write_set,
+            &mut except_set,
+            &tv,
+        )
+    };
+    if rc == SOCKET_ERROR {
+        Err(std::io::Error::last_os_error())
+    } else if rc == 0 {
+        Ok(ConnectPoll::Pending)
+    } else if except_set.fd_count > 0 {
+        Ok(ConnectPoll::Failed)
+    } else {
+        Ok(ConnectPoll::Ready)
+    }
+}
+
+#[cfg(unix)]
+fn poll_connect_ready(socket: &socket2::Socket, timeout: Duration) -> std::io::Result<ConnectPoll> {
+    use std::os::unix::io::AsRawFd;
+    let mut pfd = libc::pollfd {
+        fd: socket.as_raw_fd(),
+        events: libc::POLLOUT,
+        revents: 0,
+    };
+    let ms = timeout.as_millis().clamp(1, i32::MAX as u128) as libc::c_int;
+    // SAFETY: `pfd` points to one valid entry and `socket` remains open during the call.
+    let rc = unsafe { libc::poll(&mut pfd, 1, ms) };
+    if rc < 0 {
+        let err = std::io::Error::last_os_error();
+        if err.kind() == ErrorKind::Interrupted {
+            Ok(ConnectPoll::Pending)
+        } else {
+            Err(err)
+        }
+    } else if rc == 0 {
+        Ok(ConnectPoll::Pending)
+    } else if pfd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+        Ok(ConnectPoll::Failed)
+    } else {
+        Ok(ConnectPoll::Ready)
+    }
+}
+
+#[cfg(not(any(windows, unix)))]
+fn poll_connect_ready(_socket: &socket2::Socket, timeout: Duration) -> std::io::Result<ConnectPoll> {
+    std::thread::sleep(timeout);
+    Ok(ConnectPoll::Ready)
+}
+
+/// Server name for rustls: uses `host.name` when it is a valid DNS name or IP literal, and
+/// falls back to the connected `peer.ip()` for LAN/NetBIOS names (such as `GAMING_PC`) that
+/// rustls rejects as DNS names. Certificate identity is always enforced by the pinned cert.
+pub(super) fn tls_server_name(host: &Host, peer: SocketAddr) -> ServerName<'static> {
+    ServerName::try_from(host.name.clone()).unwrap_or_else(|_| ServerName::from(peer.ip()))
 }
 
 /// Tries the addresses in turn, each for `timeout` but never past `deadline`; a deadline that
@@ -482,6 +638,9 @@ fn connect_each_with<S>(addresses: &[SocketAddr], timeout: Duration, deadline: O
         };
         match attempt(address, budget) {
             Ok(stream) => return Ok(stream),
+            Err(_) if cancels.iter().any(|cancel| cancel.is_cancelled()) => {
+                return Err(Error::Cancelled);
+            }
             Err(e) => last = Some(e),
         }
     }
@@ -507,9 +666,7 @@ fn open(request: &Request<'_>, tcp: TcpStream, abort: Arc<Abort>, deadline: Dead
     let mut stream: Box<dyn Stream> = match &request.tls {
         None => Box::new(tcp),
         Some(config) => {
-            let name = ServerName::try_from(request.host.name.clone()).map_err(|_| {
-                Error::InvalidArgument(format!("invalid host name: {}", request.host.name))
-            })?;
+            let name = tls_server_name(request.host, peer);
             let connection = ClientConnection::new(config.clone(), name).map_err(tls_error)?;
             let mut stream = StreamOwned::new(connection, tcp);
             while stream.conn.is_handshaking() {

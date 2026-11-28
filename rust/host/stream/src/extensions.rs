@@ -61,6 +61,11 @@ pub fn stream_offered(h: &Shared, config: &Config, dolby: u8, launch: &Launch) -
 /// fragmentation refusal below 1488. A lookup that fails falls back to a 1500-byte
 /// path, which offers nothing, and says so.
 fn max_video_packet(peer: std::net::IpAddr) -> u16 {
+    if peer.to_canonical().is_loopback() || crate::network::reach(peer) > crate::network::Reach::Lan
+    {
+        tracing::debug!(%peer, "loopback or non-LAN peer; offering no jumbo packets");
+        return 0;
+    }
     let address = std::net::SocketAddr::new(peer, 0);
     if !butterpollo_win_io::net::routed_same_link(address) {
         tracing::debug!(%peer, "the client is behind a gateway; offering no jumbo packets");
@@ -417,6 +422,22 @@ mod tests {
         ] {
             let config = Config::parse(text).unwrap();
             assert_eq!(transport_feedback(&config), offered, "{text}");
+        }
+    }
+
+    #[test]
+    fn loopback_tunnel_and_wan_peers_never_offer_jumbo_packets() {
+        for peer in [
+            "127.0.0.1",
+            "127.77.1.2",
+            "127.78.3.4",
+            "::1",
+            "::ffff:127.77.1.2",
+            "203.0.113.5",
+            "2001:db8::5",
+        ] {
+            let ip: std::net::IpAddr = peer.parse().unwrap();
+            assert_eq!(max_video_packet(ip), 0, "peer {peer}");
         }
     }
 }

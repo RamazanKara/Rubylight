@@ -265,6 +265,8 @@ pub struct SdpParams<'a> {
     pub encryption_requested: u32,
     /// Nonzero when the microphone stream was set up.
     pub mic_port: u16,
+    /// Host offered single-PKCS#7 microphone framing on `SETUP streamid=mic`.
+    pub mic_single_pkcs7: bool,
     pub high_quality_surround_supported: bool,
     pub pyrowave_records_enabled: bool,
     /// The HDR format asked for (`x-rl-video[0].hdrFormat`, one `rubylight_protocol::hdr` bit);
@@ -372,6 +374,8 @@ pub struct Sdp {
     pub dolby_vision_full_range: bool,
     /// The description asks for controller speaker PCM (0x5602).
     pub ps_speaker_pcm: bool,
+    /// The description selected single-PKCS#7 microphone framing (`x-rl-mic.framing:1`).
+    pub mic_single_pkcs7: bool,
 }
 
 /// The URL form of an address: IPv6 in brackets.
@@ -412,6 +416,7 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
         p.host_feature_flags,
     );
 
+    let mut mic_single_pkcs7 = false;
     if sunshine {
         let flags = ML_FF_FEC_STATUS
             | ML_FF_SESSION_ID_V1
@@ -433,8 +438,17 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
         // Hosts never take the microphone unencrypted.
         if p.mic_port != 0 && p.encryption_supported & SS_ENC_MICROPHONE != 0 {
             enabled |= SS_ENC_MICROPHONE;
+            if p.mic_single_pkcs7 {
+                mic_single_pkcs7 = true;
+            }
         }
         a.add("x-ss-general.encryptionEnabled", enabled);
+        if mic_single_pkcs7 {
+            a.add(
+                rubylight_protocol::mic::FRAMING_ATTRIBUTE,
+                rubylight_protocol::mic::FRAMING_SINGLE_PKCS7,
+            );
+        }
         a.add(
             "x-ss-video[0].chromaSamplingType",
             u8::from(format & VIDEO_FORMAT_MASK_YUV444 != 0),
@@ -711,6 +725,7 @@ pub fn generate(p: &SdpParams<'_>) -> Sdp {
         color_range,
         dolby_vision_full_range,
         ps_speaker_pcm,
+        mic_single_pkcs7,
     }
 }
 

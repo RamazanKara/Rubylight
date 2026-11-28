@@ -4,7 +4,7 @@
 //! classic favourite `app_id`s.
 
 use super::store::{FavouritesStore, HiddenStore, LibraryCacheStore, RecentsStore};
-use crate::http::{ClientIdentity, HostClient};
+pub use super::transport::HostClientTransport;
 use nightjar_policy::console::{
     build_hidden_listings, classic_library, continue_playing, hide_keys_by_id,
     merge_rich_library, reconcile_starred, split_hidden, ClassicApps, Continue, Entry, Favourite,
@@ -18,7 +18,7 @@ use nightjar_policy::http::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 /// Minimum wait before retrying a failed `GET /capabilities` probe on an online host.
@@ -57,64 +57,6 @@ pub trait NativeTransport: Send + Sync {
         host: &HostDescriptor,
         game_id: &str,
     ) -> Result<Option<AddedGame>, String>;
-}
-
-/// Production [`NativeTransport`] backed by `HostClient`.
-pub struct HostClientTransport {
-    identity: Arc<ClientIdentity>,
-}
-
-impl HostClientTransport {
-    pub fn new(identity: Arc<ClientIdentity>) -> Self {
-        Self { identity }
-    }
-
-    fn client(&self, host: &HostDescriptor) -> Result<HostClient, String> {
-        let mut client =
-            HostClient::new(&host.address, host.http_port, Arc::clone(&self.identity))
-                .map_err(|e| e.to_string())?;
-        if host.https_port > 0 {
-            client = client.with_https_port(host.https_port);
-        }
-        if let Some(pem) = &host.server_cert_pem {
-            client = client
-                .with_server_certificate_pem(pem)
-                .map_err(|e| e.to_string())?;
-        }
-        Ok(client)
-    }
-}
-
-impl NativeTransport for HostClientTransport {
-    fn capabilities(&self, host: &HostDescriptor) -> Result<NativeCapabilities, String> {
-        self.client(host)?
-            .native_capabilities_with_files()
-            .map_err(|e| e.to_string())
-    }
-
-    fn library(
-        &self,
-        host: &HostDescriptor,
-        include_unadded: bool,
-    ) -> Result<NativeLibrary, String> {
-        self.client(host)?
-            .library_with_unadded(include_unadded)
-            .map_err(|e| e.to_string())
-    }
-
-    fn session(&self, host: &HostDescriptor) -> Result<Session, String> {
-        self.client(host)?.session().map_err(|e| e.to_string())
-    }
-
-    fn add_to_library(
-        &self,
-        host: &HostDescriptor,
-        game_id: &str,
-    ) -> Result<Option<AddedGame>, String> {
-        self.client(host)?
-            .add_to_library(game_id)
-            .map_err(|e| e.to_string())
-    }
 }
 
 /// Per-host status tracked across refreshes for `ConsoleSnapshot::host_states`.

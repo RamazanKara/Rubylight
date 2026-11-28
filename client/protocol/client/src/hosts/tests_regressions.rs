@@ -627,3 +627,66 @@ fn store_ignores_empty_unique_id_and_cleans_stale_tmp_files() {
     assert!(stale.exists());
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn parallel_poll_direct_cancellable_wakes_and_exits_immediately_on_cancel() {
+    use super::poll::parallel_poll_direct_cancellable;
+    use nightjar_policy::hosts::{CandidateSlot, PollErrorKind, ProbeCandidate};
+
+    let l1 = TcpListener::bind("127.0.0.1:0").unwrap();
+    let p1 = l1.local_addr().unwrap().port();
+    let l2 = TcpListener::bind("127.0.0.1:0").unwrap();
+    let p2 = l2.local_addr().unwrap().port();
+    let (acc_tx, acc_rx) = mpsc::channel();
+    let (rel_tx, rel_rx) = mpsc::channel();
+    let srv1 = std::thread::spawn(move || {
+        let (_s, _) = l1.accept().unwrap();
+        let _ = acc_tx.send(());
+        let _ = rel_rx.recv_timeout(Duration::from_secs(5));
+    });
+    let (rel2_tx, rel2_rx) = mpsc::channel();
+    let srv2 = std::thread::spawn(move || {
+        let (_s, _) = l2.accept().unwrap();
+        let _ = rel2_rx.recv_timeout(Duration::from_secs(5));
+    });
+
+    let pool = Arc::new(HostClientPool::new(Arc::new(fixture())));
+    let cancel = PollCancel::new();
+    let candidates = vec![
+        ProbeCandidate {
+            slot: CandidateSlot::Local,
+            address: "127.0.0.1".into(),
+            port: p1,
+            https_port: 0,
+        },
+        ProbeCandidate {
+            slot: CandidateSlot::Manual,
+            address: "127.0.0.1".into(),
+            port: p2,
+            https_port: 0,
+        },
+    ];
+    let cancel_bg = cancel.clone();
+    let trigger = std::thread::spawn(move || {
+        let _ = acc_rx.recv_timeout(Duration::from_secs(2));
+        std::thread::sleep(Duration::from_millis(20));
+        let t0 = Instant::now();
+        cancel_bg.cancel();
+        t0
+    });
+
+    let outcome = parallel_poll_direct_cancellable(&pool, &candidates, None, None, true, Some(&cancel));
+    let cancelled_at = trigger.join().unwrap();
+    let wake_latency = cancelled_at.elapsed();
+    let _ = rel_tx.send(());
+    let _ = rel2_tx.send(());
+    let _ = srv1.join();
+    let _ = srv2.join();
+
+    assert!(outcome.winner.is_none());
+    assert_eq!(outcome.last_error, Some(PollErrorKind::Cancelled));
+    assert!(
+        wake_latency < Duration::from_millis(500),
+        "parallel_poll_direct_cancellable took too long after cancel: {wake_latency:?}"
+    );
+}

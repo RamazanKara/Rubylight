@@ -59,6 +59,69 @@ pub fn build_packet_into(
     Some(HEADER_BYTES + written)
 }
 
+/// Writes one single-PKCS#7 microphone datagram (`x-rl-mic.framing:1`) into `out`, avoiding the
+/// legacy double-padding ambiguity on 16-byte-aligned Opus frames ending in `0x01`/`[k; k]`.
+pub fn build_packet_single_into(
+    cipher: &aes::Aes128,
+    key_id: u32,
+    sequence: u16,
+    timestamp_ms: u32,
+    opus: &[u8],
+    out: &mut [u8],
+) -> Option<usize> {
+    if opus.is_empty() {
+        return None;
+    }
+    let cipher_len = (opus.len() / BLOCK_BYTES).checked_add(1)?.checked_mul(BLOCK_BYTES)?;
+    let total = HEADER_BYTES.checked_add(cipher_len)?;
+    if total > MAX_PACKET_BYTES || total > out.len() {
+        return None;
+    }
+    out[0] = 0;
+    out[1] = PACKET_TYPE_OPUS;
+    out[2..4].copy_from_slice(&sequence.to_le_bytes());
+    out[4..8].copy_from_slice(&timestamp_ms.to_le_bytes());
+    out[8..12].copy_from_slice(&MAGIC.to_le_bytes());
+    let body = &mut out[HEADER_BYTES..total];
+    body[..opus.len()].copy_from_slice(opus);
+    let iv = rikey_iv(key_id, u32::from(sequence));
+    let encryptor = cbc::Encryptor::<&aes::Aes128>::inner_iv_init(cipher, &iv.into());
+    let written = encryptor.encrypt_padded_mut::<Pkcs7>(body, opus.len()).ok()?.len();
+    debug_assert_eq!(written, cipher_len);
+    Some(HEADER_BYTES + written)
+}
+
+/// Dispatches single-PKCS#7 (`single_pkcs7 == true`) vs legacy double-padded microphone framing.
+pub fn build_packet_framed_into(
+    cipher: &aes::Aes128,
+    key_id: u32,
+    sequence: u16,
+    timestamp_ms: u32,
+    opus: &[u8],
+    single_pkcs7: bool,
+    out: &mut [u8],
+) -> Option<usize> {
+    if single_pkcs7 {
+        build_packet_single_into(cipher, key_id, sequence, timestamp_ms, opus, out)
+    } else {
+        build_packet_into(cipher, key_id, sequence, timestamp_ms, opus, out)
+    }
+}
+
+/// The single-PKCS#7 datagram for one Opus packet, or `None` when empty or over [`MAX_PACKET_BYTES`].
+pub fn build_packet_single(
+    key: &Key,
+    key_id: u32,
+    sequence: u16,
+    timestamp_ms: u32,
+    opus: &[u8],
+) -> Option<Vec<u8>> {
+    let cipher = aes::Aes128::new(key.into());
+    let mut buf = [0u8; MAX_PACKET_BYTES];
+    let len = build_packet_single_into(&cipher, key_id, sequence, timestamp_ms, opus, &mut buf)?;
+    Some(buf[..len].to_vec())
+}
+
 /// The datagram for one Opus packet, or `None` when it is empty or would exceed
 /// [`MAX_PACKET_BYTES`].
 pub fn build_packet(
@@ -96,5 +159,33 @@ mod tests {
         }
         assert!(build_packet(&KEY, 0, 0, 0, &[]).is_none());
         assert!(build_packet(&KEY, 0, 0, 0, &[0; 1361]).is_none());
+    }
+
+    #[test]
+    fn single_pkcs7_round_trips_aligned_frames_ending_in_padding_patterns() {
+        for pad in 1u8..16 {
+            let mut opus = vec![0x5c; 32];
+            opus[32 - usize::from(pad)..].fill(pad);
+            let ours = build_packet_single(&KEY, 0x1234, u16::from(pad), 555, &opus).unwrap();
+            assert_eq!(
+                ours,
+                mic::seal_single(&KEY, 0x1234, u16::from(pad), 555, &opus),
+                "pad {pad}"
+            );
+            let packet = mic::parse(&ours).unwrap();
+            assert_eq!(
+                mic::open_single(&KEY, 0x1234, &packet).unwrap(),
+                opus,
+                "pad {pad}"
+            );
+        }
+        for len in [1, 15, 16, 17, 200, 1375] {
+            let opus: Vec<u8> = (0..len).map(|i| (i as u8).wrapping_mul(3)).collect();
+            let ours = build_packet_single(&KEY, 0x99, len as u16, 7, &opus).unwrap();
+            let packet = mic::parse(&ours).unwrap();
+            assert_eq!(mic::open_single(&KEY, 0x99, &packet).unwrap(), opus);
+        }
+        assert!(build_packet_single(&KEY, 0, 0, 0, &[]).is_none());
+        assert!(build_packet_single(&KEY, 0, 0, 0, &[0; 1376]).is_none());
     }
 }

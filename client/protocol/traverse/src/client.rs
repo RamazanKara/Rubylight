@@ -237,6 +237,7 @@ impl ClientTunnel {
             tunnel.close("the device disconnected");
         }
         if let Some(node) = self.shared.node.lock().unwrap().take() {
+            node.set_handler(Box::new(|_, _| {}));
             node.stop();
         }
         self.set(Status::Stopped);
@@ -275,7 +276,9 @@ impl ClientTunnel {
         // open this device's NAT towards the PC early. The PC's record, when it names another
         // session, replaces it.
         let known = match config.known.as_ref().and_then(Target::known) {
-            Some(target) => Some(self.open_path(&node, &keys, client_session, local, target)?),
+            Some(target) => {
+                Some(self.open_path_retrying(&node, &keys, client_session, local, target)?)
+            }
             None => None,
         };
 
@@ -321,7 +324,7 @@ impl ClientTunnel {
                             .to_owned()
                     });
                 };
-                self.open_path(
+                self.open_path_retrying(
                     &node,
                     &keys,
                     client_session,
@@ -399,8 +402,9 @@ impl ClientTunnel {
         })
     }
 
-    /// Starts punching `target` and makes it the path the node's datagrams go to.
-    fn open_path(
+    /// Starts punching `target`, retrying briefly on `AddrInUse` while a previous tunnel's
+    /// local TCP/UDP sockets finish closing.
+    fn open_path_retrying(
         &self,
         node: &Node,
         keys: &Keys,
@@ -408,8 +412,30 @@ impl ClientTunnel {
         local: IpAddr,
         target: Target,
     ) -> Result<Path, String> {
+        let deadline = Instant::now() + Duration::from_millis(REPLACE_WAIT);
+        loop {
+            match self.open_path(node, keys, client_session, local, target.clone()) {
+                Err((true, _)) if Instant::now() < deadline && !self.stopped() => {
+                    thread::sleep(Duration::from_millis(25))
+                }
+                Err((_, message)) => return Err(message),
+                Ok(path) => return Ok(path),
+            }
+        }
+    }
+
+    /// Starts punching `target` and makes it the path the node's datagrams go to.
+    /// Returns `(addr_in_use, message)` on error so callers can retry transient socket teardown.
+    fn open_path(
+        &self,
+        node: &Node,
+        keys: &Keys,
+        client_session: [u8; 16],
+        local: IpAddr,
+        target: Target,
+    ) -> Result<Path, (bool, String)> {
         if target.ports.http == 0 || target.ports.https == 0 {
-            return Err("the PC did not say which ports it uses".to_owned());
+            return Err((false, "the PC did not say which ports it uses".to_owned()));
         }
         let tunnel = Tunnel::start(
             node.clone(),
@@ -423,7 +449,10 @@ impl ClientTunnel {
             },
         )
         .map_err(|error| {
-            format!("the PC's ports could not be opened on this device ({local}): {error}")
+            (
+                error.kind() == std::io::ErrorKind::AddrInUse,
+                format!("the PC's ports could not be opened on this device ({local}): {error}"),
+            )
         })?;
         let receiving = tunnel.clone();
         node.set_handler(Box::new(move |datagram, from| {
@@ -452,15 +481,7 @@ impl ClientTunnel {
         node.set_handler(Box::new(|_, _| {}));
         self.shared.tunnel.lock().unwrap().take();
         drop(old);
-        let deadline = Instant::now() + Duration::from_millis(REPLACE_WAIT);
-        loop {
-            match self.open_path(node, keys, client_session, local, target.clone()) {
-                Err(_) if Instant::now() < deadline && !self.stopped() => {
-                    thread::sleep(Duration::from_millis(100))
-                }
-                opened => return opened,
-            }
-        }
+        self.open_path_retrying(node, keys, client_session, local, target)
     }
 
     /// Stores this device's record for `path` on a thread of its own, so punching goes on

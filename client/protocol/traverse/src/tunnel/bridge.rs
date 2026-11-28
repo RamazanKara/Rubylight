@@ -174,10 +174,7 @@ impl Tunnel {
     }
 
     /// Media from this side's local sockets goes out to the peer.
-    pub(super) fn forward_media(&self, channel: u8) {
-        let Some(end) = &self.shared.media[channel as usize] else {
-            return;
-        };
+    pub(super) fn forward_media(&self, channel: u8, end: Arc<MediaEnd>) {
         let mut buffer = vec![0u8; 4096];
         // Kept for every datagram, so sealing allocates nothing.
         let mut sealed = Vec::with_capacity(buffer.len() + wire::OVERHEAD);
@@ -185,6 +182,9 @@ impl Tunnel {
             let Ok((length, from)) = end.socket.recv_from(&mut buffer) else {
                 continue;
             };
+            if self.is_closed() {
+                break;
+            }
             if let Bridge::Device { .. } = self.shared.bridge {
                 // Replies go back to wherever the client last sent from.
                 if *end.client.read().unwrap() != Some(from) {
@@ -206,7 +206,12 @@ impl Tunnel {
 
     /// Media from the peer goes to this side's local end.
     pub(super) fn media_in(&self, channel: u8, payload: &[u8]) {
-        let Some(Some(end)) = self.shared.media.get(channel as usize) else {
+        let Some(end) = self
+            .shared
+            .media
+            .get(channel as usize)
+            .and_then(|slot| slot.read().unwrap().clone())
+        else {
             return;
         };
         let to = match &self.shared.bridge {

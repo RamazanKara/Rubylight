@@ -251,3 +251,76 @@ fn multi_fec_block_0_loss_emits_no_stale_fec_status_and_notifies_frame_lost() {
         "speculative RFI on frame 2 must not suppress frame 3's loss: {events:?}"
     );
 }
+
+/// When FEC recovery validates an earlier missing shard but rejects a later missing shard as
+/// corrupt, none of the staged recovered shards may be committed to `pending`/`seen`, so genuine
+/// late arrivals for those sequences are accepted rather than dropped as duplicates.
+#[test]
+fn partial_corrupt_fec_recovery_leaves_pending_and_seen_clean_for_late_packets() {
+    use super::super::{VideoEvent, VideoReceiver};
+
+    let mut rx = VideoReceiver::new(config(0x1000));
+    let mut events = Vec::new();
+    // Establish baseline frame 1 so frame 2 is a normal block.
+    for pkt in av1_block_datagrams(1, 2, 0, 1, 100, 2, 0) {
+        rx.receive(&pkt, 1000, &mut events);
+    }
+    events.clear();
+
+    let data_count = 4usize;
+    let parity_count = 2usize;
+    let fec_percent = 50usize; // (4 * 50 + 99) / 100 = 2 parity shards
+    let seq_start = 110u16;
+    let frame = 2u32;
+    let packet_size = 1024usize;
+    let receive_size = packet_size + MAX_RTP_HEADER_SIZE;
+    let data = av1_block_datagrams(frame, 2, 0, 1, seq_start, data_count, fec_percent);
+
+    // Encode parity from data where shard 2 has an invalid flag bit (0x80) while shard 1 is valid.
+    // Recovering shards 1 and 2 from (D0, D3, P4, P5) validates shard 1 then fails shard 2.
+    let mut shards = data.clone();
+    shards[2][24] |= 0x80;
+    shards.extend((0..parity_count).map(|_| vec![0u8; receive_size]));
+    let rs = ReedSolomon::new(data_count, parity_count).unwrap();
+    {
+        let mut refs: Vec<&mut [u8]> = shards.iter_mut().map(Vec::as_mut_slice).collect();
+        rs.encode(&mut refs, receive_size).unwrap();
+    }
+    let mut parity = shards.split_off(data_count);
+    for (p_idx, p) in parity.iter_mut().enumerate() {
+        p[0] = 0x90;
+        p[2..4].copy_from_slice(&seq_start.wrapping_add((data_count + p_idx) as u16).to_be_bytes());
+        p[4..8].copy_from_slice(&(frame * 1500).to_be_bytes());
+        p[20..24].copy_from_slice(&frame.to_le_bytes());
+        p[27] = 0;
+        let info = (((data_count + p_idx) as u32) << 12)
+            | ((data_count as u32) << 22)
+            | ((fec_percent as u32) << 4);
+        p[28..32].copy_from_slice(&info.to_le_bytes());
+    }
+
+    // Receive D0, D3, P4, P5 -> triggers FEC recovery for missing D1 (valid) and D2 (corrupt).
+    rx.receive(&data[0], 2000, &mut events);
+    rx.receive(&data[3], 2001, &mut events);
+    rx.receive(&parity[0], 2002, &mut events);
+    rx.receive(&parity[1], 2003, &mut events);
+
+    assert_eq!(rx.stats().packets_recovered, 0, "failed recovery must not count recovered shards");
+    assert_eq!(rx.queue.received_data_packets, 2, "only genuine D0 and D3 should be queued");
+    assert!(
+        !events.iter().any(|e| matches!(e, VideoEvent::Frame(_))),
+        "corrupt FEC recovery must not emit a frame"
+    );
+
+    // Now the genuine late D1 and D2 arrive: D1 must NOT be rejected as a duplicate!
+    rx.receive(&data[1], 2004, &mut events);
+    rx.receive(&data[2], 2005, &mut events);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, VideoEvent::Frame(_)))
+            .count(),
+        1,
+        "genuine late packets must complete the frame cleanly after aborted FEC recovery"
+    );
+}

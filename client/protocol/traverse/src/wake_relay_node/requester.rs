@@ -222,6 +222,11 @@ fn run(
     let mut sends = 0;
     let mut last_send: Option<Instant> = None;
     let mut sent_burst: Option<(WakeStatus, Instant)> = None;
+    let mut last_keepalive: Option<Instant> = None;
+    #[cfg(not(test))]
+    let keepalive_every = Duration::from_secs(10);
+    #[cfg(test)]
+    let keepalive_every = Duration::from_millis(120);
     loop {
         if cancel.load(Ordering::Acquire) {
             return Err(Failure::Cancelled);
@@ -251,6 +256,7 @@ fn run(
                         return Ok(status);
                     }
                     sent_burst.get_or_insert((status, Instant::now()));
+                    last_keepalive.get_or_insert_with(Instant::now);
                 }
                 _ => {}
             }
@@ -260,6 +266,10 @@ fn run(
                 (Some((status, at)), _) => {
                     if at.elapsed() >= FINAL_WAIT {
                         return Ok(*status);
+                    }
+                    if last_keepalive.is_none_or(|last| last.elapsed() >= keepalive_every) {
+                        node.send(relay, &sealer.seal(Kind::Keepalive, 0, &[]));
+                        last_keepalive = Some(Instant::now());
                     }
                 }
                 (None, Some(at)) if sends >= SENDS && at.elapsed() >= ANSWER_WAIT => {

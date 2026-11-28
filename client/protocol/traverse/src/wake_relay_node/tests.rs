@@ -638,3 +638,33 @@ fn watch_skips_missing_target_and_stops_when_session_leaves_paths() {
     );
     peer.stop();
 }
+
+/// While waiting for the target PC to boot, the relay sends periodic `WaitingForBoot` updates
+/// and the requester sends periodic keepalives that refresh the relay path before `HostAwake`.
+#[test]
+fn boot_wait_sends_waiting_for_boot_and_keepalives_until_host_wakes() {
+    let lan = Arc::new(FakeLan::default());
+    let peer = relay(lan.clone());
+    let lan_up = lan.clone();
+    let boot_trigger = thread::spawn(move || {
+        thread::sleep(WAIT_KEEPALIVE * 3);
+        lan_up.up.store(true, Ordering::Release);
+    });
+    let mut seen = Vec::new();
+    let result = request_wake(request(&peer, 2), &AtomicBool::new(false), &mut |p| {
+        seen.push(p)
+    });
+    boot_trigger.join().unwrap();
+    peer.stop();
+    assert_eq!(result.map(|s| s.status), Ok(Status::HostAwake));
+    assert!(
+        seen.iter()
+            .any(|p| matches!(p, Progress::Status(s) if s.status == Status::PacketSent)),
+        "missing PacketSent: {seen:?}"
+    );
+    assert!(
+        seen.iter()
+            .any(|p| matches!(p, Progress::Status(s) if s.status == Status::WaitingForBoot)),
+        "expected periodic WaitingForBoot keepalive during boot wait: {seen:?}"
+    );
+}

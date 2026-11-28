@@ -4,6 +4,7 @@
 
 pub mod repo;
 pub mod store;
+mod transport;
 
 #[cfg(test)]
 mod tests;

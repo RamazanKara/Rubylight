@@ -104,6 +104,7 @@ async fn soap(
 }
 pub(super) struct Renewed {
     pub(super) opened: usize,
+    pub(super) mappings: Vec<Mapping>,
     pub(super) error: Option<anyhow::Error>,
 }
 
@@ -114,7 +115,11 @@ pub(super) struct Firewall {
     leases: Vec<(Mapping, u16, Instant)>,
 }
 impl Firewall {
-    async fn from_location(client: Client, location: Url, local: Ipv6Addr) -> Result<Self> {
+    pub(super) async fn from_location(
+        client: Client,
+        location: Url,
+        local: Ipv6Addr,
+    ) -> Result<Self> {
         let response = client
             .get(location.clone())
             .send()
@@ -158,6 +163,7 @@ impl Firewall {
         }
         self.leases = kept;
         let mut opened = 0;
+        let mut opened_mappings = Vec::with_capacity(mappings.len());
         let mut last_error = None;
         for &mapping in mappings {
             // Re-adding the tuple renews its lease and returns its current ID;
@@ -194,6 +200,7 @@ impl Firewall {
             match added {
                 Ok(id) => {
                     opened += 1;
+                    opened_mappings.push(mapping);
                     self.leases.retain(|(old, _, _)| *old != mapping);
                     self.leases
                         .push((mapping, id, Instant::now() + Duration::from_secs(120)));
@@ -206,6 +213,7 @@ impl Firewall {
         }
         Renewed {
             opened,
+            mappings: opened_mappings,
             error: last_error,
         }
     }
@@ -438,14 +446,17 @@ mod tests {
         ];
         let first = firewall.renew(&mappings).await;
         assert_eq!(first.opened, 2);
+        assert_eq!(first.mappings, mappings);
         assert!(first.error.is_none());
         let second = firewall.renew(&mappings).await;
         assert_eq!(second.opened, 2);
+        assert_eq!(second.mappings, mappings);
         assert!(second.error.is_none());
         // No longer wanted (a guest link is gone): its pinhole closes now, and close has
         // nothing left to delete.
         let cleared = firewall.renew(&[]).await;
         assert_eq!(cleared.opened, 0);
+        assert!(cleared.mappings.is_empty());
         assert!(cleared.error.is_none());
         assert!(firewall.leases.is_empty());
         firewall.close().await.unwrap();
@@ -497,6 +508,7 @@ mod tests {
             .unwrap();
         let outcome = partial_fw.renew(&mappings).await;
         assert_eq!(outcome.opened, 1);
+        assert_eq!(outcome.mappings, [mappings[1]]);
         assert!(outcome.error.is_some());
         assert_eq!(partial_fw.leases.len(), 1);
         assert_eq!(partial_fw.leases[0].0.port, 48133);

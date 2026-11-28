@@ -33,6 +33,7 @@ fn sdp_for(
         encryption_supported: supported,
         encryption_requested: 1,
         mic_port,
+        mic_single_pkcs7: false,
         high_quality_surround_supported: true,
         pyrowave_records_enabled: format & VIDEO_FORMAT_MASK_PYROWAVE != 0,
         hdr_format: 0,
@@ -421,7 +422,7 @@ fn read_request(socket: &mut TcpStream, key: Option<[u8; 16]>) -> Option<Vec<u8>
     Some(message.into_bytes())
 }
 
-fn start_rtsp_host(key: Option<[u8; 16]>) -> RtspHost {
+fn start_rtsp_host(key: Option<[u8; 16]>, offer_single_mic_pkcs7: bool) -> RtspHost {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let negotiated = Arc::new(Mutex::new(None));
@@ -455,6 +456,7 @@ fn start_rtsp_host(key: Option<[u8; 16]>) -> RtspHost {
                     headers.push(("Content-Type", "application/sdp".into()));
                 }
                 "SETUP" => {
+                    let mut is_mic = false;
                     let port = if req.target.contains("=audio") {
                         48000
                     } else if req.target.contains("=video") {
@@ -463,10 +465,17 @@ fn start_rtsp_host(key: Option<[u8; 16]>) -> RtspHost {
                         47999
                     } else {
                         mic_setup = true;
+                        is_mic = true;
                         48012
                     };
                     headers.push(("Session", "DEADBEEFCAFE;timeout = 90".into()));
                     headers.push(("Transport", format!("server_port={port}")));
+                    if is_mic && offer_single_mic_pkcs7 {
+                        headers.push((
+                            rubylight_protocol::mic::FRAMING_HEADER,
+                            rubylight_protocol::mic::FRAMING_SINGLE_PKCS7.to_string(),
+                        ));
+                    }
                     if port == 47999 {
                         headers.push(("X-SS-Connect-Data", "305419896".into()));
                     } else {
@@ -476,6 +485,9 @@ fn start_rtsp_host(key: Option<[u8; 16]>) -> RtspHost {
                 "ANNOUNCE" => {
                     let mut n = host_rtsp::Negotiated::from_sdp(&req.body).unwrap();
                     n.mic = mic_setup && n.encryption & mic::ENCRYPTION != 0;
+                    if !n.mic {
+                        n.mic_single_pkcs7 = false;
+                    }
                     if n.encryption & 6 != 6 {
                         (code, reason) = (
                             403,
@@ -514,8 +526,8 @@ fn start_rtsp_host(key: Option<[u8; 16]>) -> RtspHost {
     }
 }
 
-fn handshake_against(key: Option<[u8; 16]>) {
-    let host = start_rtsp_host(key);
+fn handshake_against(key: Option<[u8; 16]>, offer_single_mic_pkcs7: bool) {
+    let host = start_rtsp_host(key, offer_single_mic_pkcs7);
     let scheme = if key.is_some() { "rtspenc" } else { "rtsp" };
     let config = StreamConfig {
         width: 2560,
@@ -579,21 +591,63 @@ fn handshake_against(key: Option<[u8; 16]>) {
 
     let n = host.negotiated.lock().unwrap().clone().unwrap();
     assert_eq!((n.width, n.height, n.fps, n.codec), (2560, 1440, 120, 2));
-    assert_eq!((n.encryption, n.mic), (15, true));
+    assert_eq!(
+        (n.encryption, n.mic, n.mic_single_pkcs7),
+        (15, true, offer_single_mic_pkcs7)
+    );
+    assert_eq!(outcome.mic_single_pkcs7, offer_single_mic_pkcs7);
     assert_eq!(
         (n.audio_channels, n.audio_quality, n.audio_packet_ms),
         (6, true, 5)
     );
     assert_eq!(n.packet_size, outcome.config.packet_size as usize);
     assert_eq!(n.bitrate_kbps, 48000);
+
+    // Exercise actual microphone packet interop under the negotiated framing mode.
+    let mic_key = key.unwrap_or([0x22; 16]);
+    let cbc = butterpollo_media_policy::packet::CbcKey::new(&mic_key);
+    let mut out = Vec::new();
+    if offer_single_mic_pkcs7 {
+        for pad in 1u8..16 {
+            let mut opus = vec![0x7e; 32];
+            opus[32 - usize::from(pad)..].fill(pad);
+            let dg = nightjar_core::input::microphone::build_packet_single(
+                &mic_key,
+                0x1234,
+                u16::from(pad),
+                50,
+                &opus,
+            )
+            .unwrap();
+            let pkt = mic::parse(&dg).unwrap();
+            let decoded = butterpollo_media_policy::packet::mic_open_single_into(
+                &cbc, 0x1234, &pkt, &mut out,
+            )
+            .unwrap();
+            assert_eq!(decoded, opus.as_slice(), "single-PKCS#7 pad={pad}");
+        }
+    } else {
+        let opus = b"legacy-opus-payload-23b";
+        let dg =
+            nightjar_core::input::microphone::build_packet(&mic_key, 0x1234, 1, 50, opus).unwrap();
+        let pkt = mic::parse(&dg).unwrap();
+        let decoded =
+            butterpollo_media_policy::packet::mic_open_into(&cbc, 0x1234, &pkt, &mut out).unwrap();
+        assert_eq!(decoded, opus);
+    }
 }
 
 #[test]
 fn rtsp_handshake_with_the_host() {
-    handshake_against(None);
+    handshake_against(None, false);
 }
 
 #[test]
 fn encrypted_rtsp_handshake_with_the_host() {
-    handshake_against(Some(core::array::from_fn(|i| i as u8 * 3)));
+    handshake_against(Some(core::array::from_fn(|i| i as u8 * 3)), false);
+}
+
+#[test]
+fn rtsp_handshake_negotiates_single_pkcs7_microphone_framing() {
+    handshake_against(Some(core::array::from_fn(|i| i as u8 * 5 + 1)), true);
 }

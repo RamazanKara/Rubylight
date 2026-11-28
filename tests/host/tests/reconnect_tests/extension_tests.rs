@@ -3,18 +3,10 @@
 //! only lines stock clients ignore are added.
 use super::*;
 
-/// The video packet size the host offers for `launch`'s path; loopback carries
-/// the largest this version defines.
-fn max_packet(launch: &Launch) -> u16 {
-    rubylight_protocol::video_packet::for_mtu(
-        butterpollo_win_io::net::routed_mtu(std::net::SocketAddr::new(launch.peer, 0))
-            .unwrap_or(1500),
-    )
-}
-
 /// The DESCRIBE answer's body. Only the input feature flags (what this PC's Windows can
 /// inject) and the microphone port vary. `x-rl-audio.codecs:3` is Opus and PCM: the test
-/// binary's folder has no FFmpeg for AC3 and E-AC3.
+/// binary's folder has no FFmpeg for AC3 and E-AC3. Loopback peers (`127.0.0.1`) receive no
+/// jumbo packet offer (`a=x-rl-max-packet-size`), matching tunnelled/loopback paths.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
     let h = Harness::new(10_000, 1).await?;
@@ -23,8 +15,6 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
     let (_, body) = describe.split_once("\r\n\r\n").unwrap();
     let flags = butterpollo_win_io::input::capabilities(&h.h.config.read().unwrap());
     let mic = h.ports.mic;
-    // The path's own MTU decides the jumbo offer; loopback carries the largest.
-    let max_packet = max_packet(&launch);
     assert_eq!(
         body,
         format!(
@@ -40,7 +30,6 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
              a=fmtp:97 surround-params=660014523\r\n\
              a=fmtp:97 surround-params=88001456723\r\n\
              a=x-rl-video.hdrFormats:79\r\n\
-             a=x-rl-max-packet-size:{max_packet}\r\n\
              a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
@@ -116,7 +105,6 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
     let (_, body) = describe.split_once("\r\n\r\n").unwrap();
     let flags = butterpollo_win_io::input::capabilities(&h.h.config.read().unwrap());
     let mic = h.ports.mic;
-    let max_packet = max_packet(&launch);
     assert_eq!(
         body,
         format!(
@@ -135,7 +123,6 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
              a=x-rl-video.packed444Modes:15\r\n\
              a=x-rl-video.packed444LayeredModes:10\r\n\
              a=x-rl-video.hdrFormats:79\r\n\
-             a=x-rl-max-packet-size:{max_packet}\r\n\
              a=x-rl-audio.codecs:3\r\n\
              a=x-rl-audio.layout714:12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=x-rl-audio.layout714Hq:12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\

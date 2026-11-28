@@ -74,6 +74,7 @@ pub(super) struct RtpQueue {
     fec: Option<ReedSolomon>,
     fec_missing: Vec<bool>,
     fec_shards: Vec<Box<[u8]>>,
+    fec_staged: Vec<Packet>,
 }
 
 impl RtpQueue {
@@ -116,6 +117,7 @@ impl RtpQueue {
             fec: None,
             fec_missing: Vec::new(),
             fec_shards: Vec::new(),
+            fec_staged: Vec::new(),
         }
     }
 
@@ -344,6 +346,7 @@ impl RtpQueue {
 
         let head_header = self.pending[0].buf[0];
         let head_timestamp = self.pending[0].timestamp;
+        self.fec_staged.clear();
         for index in 0..data_packets {
             if !self.fec_missing[index] {
                 continue;
@@ -380,11 +383,22 @@ impl RtpQueue {
                 continue;
             }
             recovered.len = self.packet_size + offset;
+            self.fec_staged.push(recovered);
+        }
+        if ret != 0 {
+            for packet in self.fec_staged.drain(..) {
+                io.pools.recycle_packet(packet.buf);
+            }
+            return -1;
+        }
+        let mut staged = std::mem::take(&mut self.fec_staged);
+        for recovered in staged.drain(..) {
             io.stats.packets_recovered += 1;
             if let Err(packet) = self.queue_packet(recovered, false, true) {
                 io.pools.recycle_packet(packet.buf);
             }
         }
+        self.fec_staged = staged;
         ret
     }
 

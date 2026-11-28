@@ -213,6 +213,7 @@ impl Handshake {
                 video_port: 0,
                 control_port: 0,
                 mic_port: 0,
+                mic_single_pkcs7: false,
                 audio_ping_payload: None,
                 video_ping_payload: None,
                 control_connect_data: 0,
@@ -404,6 +405,7 @@ impl Handshake {
             encryption_supported: describe.encryption_supported,
             encryption_requested: describe.encryption_requested,
             mic_port: self.out.mic_port,
+            mic_single_pkcs7: self.out.mic_single_pkcs7,
             high_quality_surround_supported: self.out.opus.high_quality.is_some(),
             pyrowave_records_enabled: self.out.pyrowave_records_enabled,
             hdr_format: self.out.config.hdr_format,
@@ -420,6 +422,7 @@ impl Handshake {
             host_feature_flags: describe.sunshine_feature_flags,
         });
         self.out.ps_speaker_pcm = sdp.ps_speaker_pcm;
+        self.out.mic_single_pkcs7 = sdp.mic_single_pkcs7;
         self.out.audio_codec = audio_codec;
         self.out.encryption_enabled = sdp.encryption_enabled;
         self.out.audio_encryption_enabled = sdp.audio_encryption_enabled;
@@ -577,9 +580,13 @@ impl Handshake {
                         } else {
                             DEFAULT_MIC_PORT
                         });
+                    self.out.mic_single_pkcs7 = response
+                        .option(rubylight_protocol::mic::FRAMING_HEADER)
+                        .is_some_and(rubylight_protocol::mic::offers_single_pkcs7);
                     self.out.microphone = MicrophoneState::On;
                 } else {
                     // A host that refuses costs only the microphone.
+                    self.out.mic_single_pkcs7 = false;
                     self.out.microphone = MicrophoneState::Unavailable;
                 }
                 Stage::Announce
@@ -636,6 +643,7 @@ impl Handshake {
             Stage::PlayMic => {
                 if !ok {
                     self.out.mic_port = 0;
+                    self.out.mic_single_pkcs7 = false;
                     self.out.microphone = MicrophoneState::Unavailable;
                 }
                 Stage::Done

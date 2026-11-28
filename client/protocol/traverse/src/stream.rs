@@ -95,6 +95,10 @@ pub struct Reliable {
     rto: Millis,
     last_cum: u32,
     repeats: u32,
+    /// Zero-window persist probe timer: next due time, backoff count, and unacked probes.
+    probe_at: Option<Millis>,
+    probe_retries: u32,
+    probe_unacked: u32,
     dead: bool,
 }
 
@@ -118,6 +122,9 @@ impl Reliable {
             rto: INITIAL_RTO,
             last_cum: 0,
             repeats: 0,
+            probe_at: None,
+            probe_retries: 0,
+            probe_unacked: 0,
             dead: false,
         }
     }
@@ -191,6 +198,9 @@ impl Reliable {
         if self.dead {
             return None;
         }
+        if self.peer_window == 0 {
+            return self.probe_at;
+        }
         self.in_flight
             .values()
             .filter(|sent| !sent.sacked)
@@ -212,6 +222,47 @@ impl Reliable {
         if self.ack_due {
             self.ack_due = false;
             return Some(self.ack());
+        }
+        if self.peer_window == 0 {
+            if self.in_flight.is_empty() && self.unsent.is_empty() {
+                self.probe_at = None;
+                return None;
+            }
+            let delay = self.backoff(self.probe_retries);
+            let due = *self.probe_at.get_or_insert(now + delay);
+            if now < due {
+                return None;
+            }
+            if self.probe_unacked >= MAX_RETRIES {
+                self.dead = true;
+                self.events.push_back(Event::Dead);
+                return None;
+            }
+            self.probe_unacked += 1;
+            self.probe_retries = self.probe_retries.saturating_add(1);
+            self.probe_at = Some(now + self.backoff(self.probe_retries));
+            if let Some(sent) = self.in_flight.values_mut().find(|sent| !sent.sacked) {
+                sent.sent_at = now;
+                sent.force = false;
+                return Some(sent.bytes.clone());
+            }
+            if let Some((seq, bytes, payload)) = self.unsent.pop_front() {
+                let copy = bytes.clone();
+                self.in_flight.insert(
+                    seq,
+                    Sent {
+                        bytes,
+                        payload,
+                        first_sent: now,
+                        sent_at: now,
+                        retries: 0,
+                        sacked: false,
+                        force: false,
+                    },
+                );
+                return Some(copy);
+            }
+            return None;
         }
         let rto = self.rto;
         let mut died = false;
@@ -239,8 +290,7 @@ impl Reliable {
         if resend.is_some() {
             return resend;
         }
-        // A closed window still lets one segment through, so a lost window update can't stall.
-        if (self.in_flight.len() as u32) < self.peer_window.clamp(1, WINDOW)
+        if (self.in_flight.len() as u32) < self.peer_window.min(WINDOW)
             && let Some((seq, bytes, payload)) = self.unsent.pop_front()
         {
             let copy = bytes.clone();
@@ -295,8 +345,10 @@ impl Reliable {
                 let seq = u32::from_be_bytes(segment[1..5].try_into().unwrap());
                 self.ack_due = true;
                 let ahead = seq.wrapping_sub(self.recv_next);
-                if ahead >= WINDOW {
-                    // Already delivered (a retransmission whose ack was lost), or too far ahead.
+                if ahead >= WINDOW || self.window() == 0 {
+                    // Already delivered (a retransmission whose ack was lost), too far ahead,
+                    // or the receive window is closed: acknowledge with the current `recv_next`
+                    // and `window = 0` without advancing or buffering.
                     return;
                 }
                 self.recv.entry(seq).or_insert_with(|| Segment {
@@ -308,13 +360,36 @@ impl Reliable {
                 while let Some(segment) = self.recv.remove(&self.recv_next) {
                     self.recv_next = self.recv_next.wrapping_add(1);
                     self.deliver(segment);
+                    if self.window() == 0 {
+                        break;
+                    }
                 }
             }
             ACK if segment.len() >= 15 => {
                 let cum = u32::from_be_bytes(segment[1..5].try_into().unwrap());
                 let sack = u64::from_be_bytes(segment[5..13].try_into().unwrap());
+                let was_closed = self.peer_window == 0;
                 self.peer_window = u16::from_be_bytes([segment[13], segment[14]]) as u32;
+                self.probe_unacked = 0;
                 self.on_ack(cum, sack, now);
+                if self.peer_window == 0 {
+                    if self.probe_at.is_none()
+                        && (!self.in_flight.is_empty() || !self.unsent.is_empty())
+                    {
+                        self.probe_at = Some(now + self.backoff(self.probe_retries));
+                    }
+                } else {
+                    self.probe_at = None;
+                    self.probe_retries = 0;
+                    if was_closed {
+                        // Resume promptly once the peer reopens its window.
+                        for sent in self.in_flight.values_mut() {
+                            if !sent.sacked {
+                                sent.force = true;
+                            }
+                        }
+                    }
+                }
             }
             _ => {}
         }
@@ -395,9 +470,19 @@ impl Reliable {
 
     pub fn poll_event(&mut self) -> Option<Event> {
         let event = self.events.pop_front();
-        // The window reopens: tell the sender.
-        if event.is_some() && self.window_closed && self.window() > 0 {
-            self.ack_due = true;
+        if event.is_some() {
+            let mut advanced = false;
+            while self.window() > 0
+                && let Some(segment) = self.recv.remove(&self.recv_next)
+            {
+                self.recv_next = self.recv_next.wrapping_add(1);
+                self.deliver(segment);
+                advanced = true;
+            }
+            // The window reopens (or buffered segments advanced `recv_next`): tell the sender.
+            if (self.window_closed && self.window() > 0) || advanced {
+                self.ack_due = true;
+            }
         }
         event
     }
@@ -585,5 +670,94 @@ mod tests {
         assert!(client.is_idle());
         assert!(client.next_seq < start, "the sequence wrapped");
         assert_eq!(host.recv_next, client.next_seq);
+    }
+
+    #[test]
+    fn closed_receive_window_bounds_events_backs_off_probes_and_recovers() {
+        let (mut sender, mut receiver) = (Reliable::new(true), Reliable::new(false));
+        let stream = sender.open(1);
+        let payload = vec![0x42u8; (WINDOW as usize + 64) * MAX_PAYLOAD];
+        assert_eq!(sender.write(stream, &payload), payload.len());
+        sender.finish(stream);
+
+        let mut probes_while_closed = Vec::new();
+        let mut window_closed_at = None;
+        // Run for 12 s without draining `receiver.poll_event()`.
+        for now in 0..12_000u64 {
+            while let Some(seg) = sender.poll_transmit(now) {
+                if window_closed_at.is_some() && seg[0] == DATA {
+                    probes_while_closed.push(now);
+                }
+                receiver.handle(&seg, now);
+            }
+            while let Some(seg) = receiver.poll_transmit(now) {
+                if seg[0] == ACK && u16::from_be_bytes([seg[13], seg[14]]) == 0 {
+                    window_closed_at.get_or_insert(now);
+                }
+                sender.handle(&seg, now);
+            }
+            assert!(
+                receiver.events.len() <= WINDOW as usize + 2,
+                "stalled receiver events grew unbounded: {}",
+                receiver.events.len()
+            );
+        }
+
+        let closed_at = window_closed_at.expect("receiver advertised zero window");
+        assert_eq!(sender.peer_window, 0);
+        assert!(!sender.is_dead(), "zero-window stall with live peer must not kill path");
+        assert!(
+            sender.next_timeout().is_some(),
+            "zero-window probe timer must be scheduled in next_timeout"
+        );
+        // Zero-window probes must be RTO-backed off (a handful over 12 s, never every tick).
+        assert!(
+            (2..=12).contains(&probes_while_closed.len()),
+            "expected RTO-backed-off probes after t={closed_at}, got {}: {probes_while_closed:?}",
+            probes_while_closed.len()
+        );
+        if probes_while_closed.len() >= 3 {
+            let first_gap = probes_while_closed[1] - probes_while_closed[0];
+            let second_gap = probes_while_closed[2] - probes_while_closed[1];
+            assert!(
+                second_gap >= first_gap,
+                "probe gaps did not back off: {probes_while_closed:?}"
+            );
+        }
+
+        // Drain the receiver and drop its initial window-reopen ACK to prove a backed-off
+        // zero-window probe recovers full transfer with zero corruption or duplicates.
+        let mut delivered = Vec::new();
+        while let Some(ev) = receiver.poll_event() {
+            delivered.push(ev);
+        }
+        let dropped_reopen = receiver.poll_transmit(12_000);
+        assert!(
+            dropped_reopen.as_ref().is_some_and(|s| s[0] == ACK),
+            "draining reopened window schedules an ACK"
+        );
+
+        for now in 12_001..25_000u64 {
+            while let Some(seg) = sender.poll_transmit(now) {
+                receiver.handle(&seg, now);
+            }
+            while let Some(seg) = receiver.poll_transmit(now) {
+                sender.handle(&seg, now);
+            }
+            while let Some(ev) = receiver.poll_event() {
+                delivered.push(ev);
+            }
+        }
+
+        assert_eq!(received(&delivered, stream), payload);
+        assert_eq!(
+            delivered
+                .iter()
+                .filter(|ev| matches!(ev, Event::Finished { stream: s } if *s == stream))
+                .count(),
+            1
+        );
+        assert!(!sender.is_dead());
+        assert!(sender.is_idle());
     }
 }

@@ -540,19 +540,33 @@ fn next_hop_unspecified(next: &windows::Win32::Networking::WinSock::SOCKADDR_INE
 }
 
 /// The payload MTU of the interface Windows routes `peer` through, IPv4 or IPv6:
-/// the size a datagram may have before the network fragments it. None when the
-/// lookup fails or there is no route.
+/// the size a datagram may have before the network fragments it. None for loopback
+/// (including Internet Play tunnels on `127.77.x.y`/`127.78.x.y`), tunnel interfaces,
+/// or when the lookup fails or there is no route.
 pub fn routed_mtu(peer: SocketAddr) -> Option<u32> {
     use windows::Win32::NetworkManagement::IpHelper::{
-        GetBestInterfaceEx, GetIpInterfaceEntry, MIB_IPINTERFACE_ROW,
+        GetBestInterfaceEx, GetIfEntry2Ex, GetIpInterfaceEntry, IF_TYPE_SOFTWARE_LOOPBACK,
+        IF_TYPE_TUNNEL, MIB_IF_ROW2, MIB_IPINTERFACE_ROW, MibIfEntryNormalWithoutStatistics,
     };
     let peer = SocketAddr::new(peer.ip().to_canonical(), peer.port());
+    if peer.ip().is_loopback() {
+        return None;
+    }
     let address = socket2::SockAddr::from(peer);
     let mut index = 0;
-    // SAFETY: `address` outlives the call that only reads it, and `row` is
-    // filled by the call before `NlMtu` is read on success.
+    // SAFETY: `address` outlives the call that only reads it, and `if_row`/`row` are
+    // filled by the calls before their fields are read on success.
     unsafe {
         if GetBestInterfaceEx(address.as_ptr().cast(), &mut index) != 0 {
+            return None;
+        }
+        let mut if_row = MIB_IF_ROW2 {
+            InterfaceIndex: index,
+            ..Default::default()
+        };
+        if GetIfEntry2Ex(MibIfEntryNormalWithoutStatistics, &mut if_row).0 == 0
+            && matches!(if_row.Type, IF_TYPE_SOFTWARE_LOOPBACK | IF_TYPE_TUNNEL)
+        {
             return None;
         }
         let mut row = MIB_IPINTERFACE_ROW {

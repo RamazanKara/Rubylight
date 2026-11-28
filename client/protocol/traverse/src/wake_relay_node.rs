@@ -55,6 +55,12 @@ const ENDED_SESSION_HOLD: Millis = 2 * record::CLIENT_FRESH_SECONDS * 1000;
 const PROBE_EVERY: Duration = Duration::from_secs(2);
 #[cfg(test)]
 const PROBE_EVERY: Duration = Duration::from_millis(50);
+/// How often the relay sends `Status::WaitingForBoot` while waiting for the PC to boot, keeping
+/// NAT pinholes alive across [`crate::wake_relay::BOOT_WAIT_SECONDS`].
+#[cfg(not(test))]
+const WAIT_KEEPALIVE: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const WAIT_KEEPALIVE: Duration = Duration::from_millis(120);
 const PROBE_CONNECT: Duration = Duration::from_millis(800);
 /// The sequence numbers each path may send: far more than a path lives to use.
 const PATH_SEQUENCES: u64 = 1 << 32;
@@ -577,28 +583,44 @@ impl WakeRelayPeer {
             .name("wake relay watch".into())
             .spawn(move || {
                 let started = std::time::Instant::now();
+                let mut last_keepalive = started;
                 let wait = Duration::from_secs(crate::wake_relay::BOOT_WAIT_SECONDS);
                 let status = loop {
                     thread::sleep(PROBE_EVERY);
                     if watching.stopped() {
                         return;
                     }
-                    let alive = watching
-                        .shared
-                        .paths
-                        .lock()
-                        .unwrap()
-                        .active
-                        .get(&tag)
-                        .is_some_and(|path| path.session == session);
-                    if !alive {
+                    let peer_alive = {
+                        let paths = watching.shared.paths.lock().unwrap();
+                        paths
+                            .active
+                            .get(&tag)
+                            .filter(|path| path.session == session)
+                            .map(|path| path.peer)
+                    };
+                    let Some(_) = peer_alive else {
                         return;
-                    }
+                    };
                     if watching.shared.lan.is_up(target) {
                         break Status::HostAwake;
                     }
                     if started.elapsed() >= wait {
                         break Status::TimedOut;
+                    }
+                    if last_keepalive.elapsed() >= WAIT_KEEPALIVE {
+                        let paths = watching.shared.paths.lock().unwrap();
+                        if let Some(path) = paths
+                            .active
+                            .get(&tag)
+                            .filter(|path| path.session == session)
+                            && let Some(peer) = path.peer
+                        {
+                            let mut waiting = WakeStatus::new(Status::WaitingForBoot, nonce);
+                            waiting.elapsed_ms =
+                                u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
+                            watching.send(path, peer, Kind::WakeStatus, &waiting.encode());
+                        }
+                        last_keepalive = std::time::Instant::now();
                     }
                 };
                 let mut answer = WakeStatus::new(status, nonce);

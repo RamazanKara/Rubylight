@@ -201,6 +201,7 @@ pub(super) struct Microphone {
     pub(super) cipher: aes::Aes128,
     pub(super) key_id: u32,
     pub(super) sequence: u16,
+    pub(super) single_pkcs7: bool,
     pub(super) started: Instant,
     pub(super) packet: [u8; microphone::MAX_PACKET_BYTES],
 }

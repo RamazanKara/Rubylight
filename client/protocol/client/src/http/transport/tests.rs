@@ -415,3 +415,125 @@ fn closing_an_upgraded_connection_ends_its_tls_cleanly_and_wakes_a_read() {
     assert_eq!(server.join().unwrap(), Ok(0), "the host reads a close_notify");
     assert!(matches!(reader.join().unwrap(), Ok(0) | Err(_)), "the blocked read returns");
 }
+
+#[test]
+fn tls_server_name_falls_back_to_peer_ip_for_non_dns_lan_names() {
+    let v4_peer: SocketAddr = "127.0.0.1:47984".parse().unwrap();
+    let v6_peer: SocketAddr = "[::1]:47984".parse().unwrap();
+    for bad in ["-bad_host", "GAMING PC", "bad..host", "host_name-"] {
+        let host = Host::parse(bad).unwrap();
+        assert_eq!(
+            tls_server_name(&host, v4_peer),
+            ServerName::from(v4_peer.ip()),
+            "host {bad}"
+        );
+        assert_eq!(
+            tls_server_name(&host, v6_peer),
+            ServerName::from(v6_peer.ip()),
+            "host {bad}"
+        );
+    }
+    // Valid DNS names and IP literals keep their direct ServerName.
+    let dns = Host::parse("gaming-pc.local").unwrap();
+    assert_eq!(
+        tls_server_name(&dns, v4_peer),
+        ServerName::try_from("gaming-pc.local".to_owned()).unwrap()
+    );
+
+    // Real TLS handshake succeeds via `open` even when `request.host.name` is rejected as a DNS name.
+    let invalid_dns = Host::parse("-bad_host").unwrap();
+    let (port, config, server) = tls_host(|mut tls| {
+        let head = read_head_of(&mut tls);
+        tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+            .unwrap();
+        tls.flush().unwrap();
+        head
+    });
+    let tcp = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let abort = Abort::new(&tcp).unwrap();
+    let request = Request {
+        host: &invalid_dns,
+        port,
+        target: "serverinfo",
+        tls: Some(config),
+        timeouts: Timeouts {
+            connect: Duration::from_secs(2),
+            read: Some(Duration::from_secs(2)),
+        },
+        body_limit: 1024,
+    };
+    let head = request_head(&request, None);
+    let (mut stream, _peer) = open(
+        &request,
+        tcp,
+        abort,
+        Deadline::None,
+        Some(Duration::from_secs(2)),
+        &head,
+        None,
+    )
+    .unwrap();
+    stream.flush().unwrap();
+    let response = read_response(&mut *stream, 1024).unwrap();
+    assert_eq!((response.status, response.body.as_slice()), (200, &b"ok"[..]));
+    assert!(server.join().unwrap().contains("Host: -bad_host:"));
+}
+
+#[test]
+fn cancellable_connect_handles_loopback_refusal_and_cancellation() {
+    // 1. Live loopback listener connects cleanly and produces a working blocking socket.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        let (mut sock, _) = listener.accept().unwrap();
+        sock.write_all(b"hi").unwrap();
+    });
+    let host = Host::parse("127.0.0.1").unwrap();
+    let cancel = Cancel::default();
+    let mut tcp = connect_with_cancels(&host, port, Duration::from_secs(2), None, &[&cancel]).unwrap();
+    let mut buf = [0u8; 2];
+    tcp.read_exact(&mut buf).unwrap();
+    assert_eq!(&buf, b"hi");
+    server.join().unwrap();
+
+    // 2. Pre-cancelled token aborts immediately without blocking.
+    cancel.cancel();
+    let err = connect_with_cancels(&host, port, Duration::from_secs(5), None, &[&cancel]).unwrap_err();
+    assert!(matches!(err, Error::Cancelled), "{err:?}");
+
+    // 3. Closed loopback port fails with ConnectionRefused (not TimedOut) and can be cancelled
+    //    mid-SYN well before Windows' ~2 s loopback SYN retry finishes.
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let closed_port = closed.local_addr().unwrap().port();
+    drop(closed);
+    let mid_cancel = Arc::new(Cancel::default());
+    let trigger = cancel_later(&mid_cancel, Duration::from_millis(50));
+    let started = std::time::Instant::now();
+    let err = connect_with_cancels(&host, closed_port, Duration::from_secs(5), None, &[&mid_cancel])
+        .unwrap_err();
+    trigger.join().unwrap();
+    assert!(
+        started.elapsed() < Duration::from_millis(600),
+        "mid-connect cancellation took too long: {:?}",
+        started.elapsed()
+    );
+    assert!(
+        matches!(err, Error::Cancelled)
+            || matches!(&err, Error::Io(e) if e.kind() == ErrorKind::ConnectionRefused || e.kind() == ErrorKind::Interrupted),
+        "unexpected error on cancelled connect: {err:?}"
+    );
+
+    let fresh = Cancel::default();
+    let started = std::time::Instant::now();
+    let err = connect_with_cancels(&host, closed_port, Duration::from_secs(5), None, &[&fresh])
+        .unwrap_err();
+    assert!(
+        matches!(&err, Error::Io(e) if e.kind() == ErrorKind::ConnectionRefused),
+        "expected ConnectionRefused on closed port, got {err:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "closed port connect timed out instead of detecting refusal: {:?}",
+        started.elapsed()
+    );
+}

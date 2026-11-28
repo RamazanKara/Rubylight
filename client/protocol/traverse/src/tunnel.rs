@@ -175,8 +175,10 @@ struct Shared {
     rounds: AtomicU64,
     stopped: AtomicBool,
     queued: Arc<AtomicUsize>,
-    /// The device's media sockets, and where its client last sent from on each.
-    media: Vec<Option<MediaEnd>>,
+    /// The device's media sockets, and where its client last sent from on each. Taken on close so
+    /// the UDP ports drop as soon as each media forwarder wakes, even while another handle still
+    /// holds `Arc<Shared>`.
+    media: Vec<RwLock<Option<Arc<MediaEnd>>>>,
     listeners: Mutex<Vec<SocketAddr>>,
 }
 
@@ -208,16 +210,16 @@ impl Tunnel {
             Role::Client | Role::WakeRequester => (keys.client_to_host, keys.host_to_client),
         };
         let now = node.now();
-        let mut media = Vec::with_capacity(CHANNELS);
+        let mut media_ends = Vec::with_capacity(CHANNELS);
         for channel in 0..CHANNELS as u8 {
-            media.push(match &bridge {
+            media_ends.push(match &bridge {
                 Bridge::Device { local, ports } => {
                     match media_port(ports, channel).filter(|port| *port != 0) {
-                        Some(port) => Some(MediaEnd {
+                        Some(port) => Some(Arc::new(MediaEnd {
                             socket: node::bind_udp(SocketAddr::new(*local, port))?,
                             client: RwLock::new(None),
                             _mark: None,
-                        }),
+                        })),
                         None => None,
                     }
                 }
@@ -225,18 +227,23 @@ impl Tunnel {
                     let socket = node::bind_udp(SocketAddr::new(*source, 0))?;
                     // Registered before the first datagram reaches the host's media ports.
                     let mark = peers::register(socket.local_addr()?, device);
-                    Some(MediaEnd {
+                    Some(Arc::new(MediaEnd {
                         socket,
                         client: RwLock::new(None),
                         _mark: Some(mark),
-                    })
+                    }))
                 }
             });
         }
-        for end in media.iter().flatten() {
+        for end in media_ends.iter().flatten() {
             end.socket
                 .set_read_timeout(Some(Duration::from_millis(500)))?;
         }
+        let media = media_ends
+            .iter()
+            .cloned()
+            .map(RwLock::new)
+            .collect();
         let shared = Arc::new(Shared {
             role,
             bridge: bridge.clone(),
@@ -295,12 +302,12 @@ impl Tunnel {
                     .spawn(move || accepting.accept(listener, target))?;
             }
         }
-        for channel in 0..CHANNELS as u8 {
-            if tunnel.shared.media[channel as usize].is_some() {
+        for (channel, end) in media_ends.into_iter().enumerate() {
+            if let Some(end) = end {
                 let forwarding = tunnel.clone();
                 thread::Builder::new()
                     .name("internet play media".into())
-                    .spawn(move || forwarding.forward_media(channel))?;
+                    .spawn(move || forwarding.forward_media(channel as u8, end))?;
             }
         }
         let ticking = tunnel.clone();
@@ -417,6 +424,15 @@ impl Tunnel {
             // Wake the accept threads, which block in accept.
             for address in self.shared.listeners.lock().unwrap().iter() {
                 let _ = TcpStream::connect_timeout(address, Duration::from_millis(200));
+            }
+            // Detach and wake the media forwarder threads, which otherwise wait up to 500 ms in
+            // recv_from while holding the UDP sockets open.
+            for slot in &self.shared.media {
+                if let Some(end) = slot.write().unwrap().take()
+                    && let Ok(address) = end.socket.local_addr()
+                {
+                    let _ = end.socket.send_to(&[0], address);
+                }
             }
             self.shared.capacity.notify_all();
             self.wake_by(0);

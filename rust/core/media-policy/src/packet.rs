@@ -13,6 +13,7 @@ pub use audio::AudioPacketizer;
 pub use inline_blocks::InlineBlocks;
 pub use rubylight_wire::crypto::CbcKey;
 pub use rubylight_wire::mic::open_into as mic_open_into;
+pub use rubylight_wire::mic::open_single_into as mic_open_single_into;
 mod cauchy;
 mod streamed;
 #[cfg(test)]

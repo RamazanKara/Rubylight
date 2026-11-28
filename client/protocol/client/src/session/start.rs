@@ -545,6 +545,7 @@ pub(super) fn start(
                         stream.remote_input_aes_iv[..4].try_into().expect("4 bytes"),
                     ),
                     sequence: 0,
+                    single_pkcs7: outcome.mic_single_pkcs7,
                     started: Instant::now(),
                     packet: [0u8; microphone::MAX_PACKET_BYTES],
                 });

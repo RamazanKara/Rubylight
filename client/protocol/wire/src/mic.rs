@@ -88,7 +88,34 @@ pub fn open_into<'a>(
     Ok(out.as_slice())
 }
 
-/// An encrypted datagram as a client sends it, padding included, for tests
+/// The Opus packet inside a single-PKCS#7 encrypted payload (negotiated via `x-rl-mic.framing:1`).
+pub fn open_single(key: &[u8; 16], key_id: u32, packet: &Packet) -> Result<Vec<u8>> {
+    let mut opus = Vec::new();
+    open_single_into(&crypto::CbcKey::new(key), key_id, packet, &mut opus)?;
+    Ok(opus)
+}
+
+/// [`open_single`] using a pre-expanded [`crypto::CbcKey`] and reusing `out` across packets.
+/// Unlike [`open_into`], performs no heuristic inner-padding strip so 16-byte-aligned Opus frames
+/// ending in `0x01` or `[k; k]` round-trip bit-identically.
+pub fn open_single_into<'a>(
+    key: &crypto::CbcKey,
+    key_id: u32,
+    packet: &Packet,
+    out: &'a mut Vec<u8>,
+) -> Result<&'a [u8]> {
+    if packet.payload.is_empty() {
+        out.clear();
+        bail!("empty microphone payload");
+    }
+    key.open_into(&iv(key_id, packet.sequence), packet.payload, out)?;
+    if out.is_empty() {
+        bail!("empty microphone packet");
+    }
+    Ok(out.as_slice())
+}
+
+/// An encrypted datagram as a legacy double-padded client sends it, padding included, for tests
 /// and probes.
 pub fn seal(key: &[u8; 16], key_id: u32, sequence: u16, timestamp: u32, opus: &[u8]) -> Vec<u8> {
     let mut datagram = vec![0, PACKET_TYPE_OPUS];
@@ -99,6 +126,22 @@ pub fn seal(key: &[u8; 16], key_id: u32, sequence: u16, timestamp: u32, opus: &[
     let pad = (16 - opus.len() % 16) % 16;
     padded.resize(opus.len() + pad, pad as u8);
     datagram.extend_from_slice(&crypto::cbc_seal(key, &iv(key_id, sequence), &padded));
+    datagram
+}
+
+/// An encrypted datagram using single standard PKCS#7 framing (`x-rl-mic.framing:1`).
+pub fn seal_single(
+    key: &[u8; 16],
+    key_id: u32,
+    sequence: u16,
+    timestamp: u32,
+    opus: &[u8],
+) -> Vec<u8> {
+    let mut datagram = vec![0, PACKET_TYPE_OPUS];
+    datagram.extend_from_slice(&sequence.to_le_bytes());
+    datagram.extend_from_slice(&timestamp.to_le_bytes());
+    datagram.extend_from_slice(&MAGIC.to_le_bytes());
+    datagram.extend_from_slice(&crypto::cbc_seal(key, &iv(key_id, sequence), opus));
     datagram
 }
 
@@ -121,6 +164,23 @@ mod tests {
             assert_eq!(got, expected.as_slice());
             assert_eq!(got, opus.as_slice());
             assert_eq!(out.as_ptr(), ptr);
+        }
+    }
+
+    #[test]
+    fn single_pkcs7_preserves_block_aligned_opus_ending_in_padding_bytes() {
+        let key = [0x44u8; 16];
+        let cbc = crypto::CbcKey::new(&key);
+        let mut out = Vec::with_capacity(128);
+        for pad in 1u8..16 {
+            let mut opus = vec![0xaa; 32];
+            let tail = 32 - usize::from(pad);
+            opus[tail..].fill(pad);
+            let dg = seal_single(&key, 0x5678, u16::from(pad), 200, &opus);
+            let pkt = parse(&dg).unwrap();
+            let got = open_single_into(&cbc, 0x5678, &pkt, &mut out).unwrap();
+            assert_eq!(got, opus.as_slice(), "pad {pad}");
+            assert_eq!(open_single(&key, 0x5678, &pkt).unwrap(), opus);
         }
     }
 }

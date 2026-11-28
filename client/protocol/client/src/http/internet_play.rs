@@ -68,6 +68,16 @@ fn port(ports: &Value, name: &str) -> Result<u16, HostApiError> {
         .ok_or_else(invalid)
 }
 
+fn optional_port(ports: &Value, name: &str) -> Result<u16, HostApiError> {
+    match ports.get(name) {
+        None | Some(Value::Null) => Ok(0),
+        Some(value) => value
+            .as_u64()
+            .and_then(|port| u16::try_from(port).ok())
+            .ok_or_else(invalid),
+    }
+}
+
 impl InternetPlay {
     /// A reply body. A version other than 1 is [`HostApiError::UnsupportedVersion`].
     pub fn parse(json: &str) -> Result<Self, HostApiError> {
@@ -93,7 +103,7 @@ impl InternetPlay {
             video: port(ports, "video")?,
             audio: port(ports, "audio")?,
             control: port(ports, "control")?,
-            mic: port(ports, "mic")?,
+            mic: optional_port(ports, "mic")?,
         };
         let strings = |name: &str| -> Vec<String> {
             root.get(name)
@@ -266,5 +276,22 @@ mod tests {
         // A secret of the wrong length is no secret.
         let short = InternetPlay::parse(&REPLY.replace("1e1f\"", "1e\"")).unwrap();
         assert!(short.secret.is_none());
+    }
+
+    #[test]
+    fn disabled_or_missing_microphone_port_is_accepted_as_zero() {
+        let zero = InternetPlay::parse(&REPLY.replace(r#""mic":48002"#, r#""mic":0"#)).unwrap();
+        assert_eq!(zero.ports.mic, 0);
+        assert_eq!(zero.ports.http, 47989);
+
+        let omitted = InternetPlay::parse(&REPLY.replace(r#","mic":48002"#, "")).unwrap();
+        assert_eq!(omitted.ports.mic, 0);
+
+        let null = InternetPlay::parse(&REPLY.replace(r#""mic":48002"#, r#""mic":null"#)).unwrap();
+        assert_eq!(null.ports.mic, 0);
+
+        // Non-numeric or out-of-range mic port is still malformed.
+        assert!(InternetPlay::parse(&REPLY.replace(r#""mic":48002"#, r#""mic":70000"#)).is_err());
+        assert!(InternetPlay::parse(&REPLY.replace(r#""mic":48002"#, r#""mic":"bad""#)).is_err());
     }
 }

@@ -328,6 +328,7 @@ async fn connection(
                     headers.push(("Content-Type", "application/sdp".into()));
                 }
                 "SETUP" => {
+                    let mut mic_setup = false;
                     let port = if req.target.contains("=audio") {
                         ports.audio
                     } else if req.target.contains("=video") {
@@ -338,12 +339,19 @@ async fn connection(
                         && takes_mic(&crate::stream::effective_config(&h, &launch)?, &media)
                     {
                         mics.lock().unwrap().insert(launch.id.clone());
+                        mic_setup = true;
                         ports.mic
                     } else {
                         bail!("unknown stream setup target")
                     };
                     headers.push(("Session", "DEADBEEFCAFE;timeout = 90".into()));
                     headers.push(("Transport", format!("server_port={port}")));
+                    if mic_setup {
+                        headers.push((
+                            rubylight_protocol::mic::FRAMING_HEADER,
+                            rubylight_protocol::mic::FRAMING_SINGLE_PKCS7.to_string(),
+                        ));
+                    }
                     if port == ports.control {
                         headers.push(("X-SS-Connect-Data", launch.connect_data.to_string()));
                     } else {
@@ -430,6 +438,9 @@ async fn connection(
                         // As in Apollo: a microphone is never taken in the clear.
                         negotiated.mic = false;
                         launch.warnings.set("microphone", "Microphone off: the client sent it unencrypted. Update the client to one that encrypts its microphone.");
+                    }
+                    if !negotiated.mic {
+                        negotiated.mic_single_pkcs7 = false;
                     }
                     negotiated.vrr_low_latency |= launch.vrr_requested;
                     let flags = h.codecs.load(std::sync::atomic::Ordering::Acquire);

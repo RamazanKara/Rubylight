@@ -2,7 +2,8 @@
 
 use super::Error;
 use super::transport::{
-    Abort, Cancel, Request, connect, io_tls_error, tls_error, user_agent, write_timeout,
+    Abort, Cancel, Request, connect_with_cancels, io_tls_error, tls_error, tls_server_name,
+    user_agent, write_timeout,
 };
 #[cfg(windows)]
 use super::transport::abort_blocked_io;
@@ -29,16 +30,20 @@ pub(crate) fn upgrade(
         .tls
         .clone()
         .ok_or_else(|| Error::InvalidArgument("an upgrade needs TLS".into()))?;
-    let tcp = connect(request.host, request.port, request.timeouts.connect, None)?;
+    let tcp = connect_with_cancels(
+        request.host,
+        request.port,
+        request.timeouts.connect,
+        None,
+        &[cancel],
+    )?;
+    let peer = tcp.peer_addr()?;
     let id = cancel.register(&Abort::new(&tcp)?)?;
     let result = (|| {
         tcp.set_read_timeout(request.timeouts.read)?;
         tcp.set_write_timeout(Some(write_timeout(request)))?;
         tcp.set_nodelay(true)?;
-        let name =
-            rustls::pki_types::ServerName::try_from(request.host.name.clone()).map_err(|_| {
-                Error::InvalidArgument(format!("invalid host name: {}", request.host.name))
-            })?;
+        let name = tls_server_name(request.host, peer);
         let mut stream = StreamOwned::new(
             ClientConnection::new(config, name).map_err(tls_error)?,
             tcp.try_clone()?,

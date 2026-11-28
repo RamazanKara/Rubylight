@@ -292,6 +292,7 @@ final class GameConnection {
         com.limelight.binding.usb.UsbForwarding detaching = game.usbForwarding;
         if (detaching != null) { detaching.stop(); game.usbForwarding = null; }
         releaseUsbDriverBinder();
+        com.limelight.binding.video.CrashAccounting.clearStreamActive(game.tombstonePrefs);
         if (game.connecting || game.connected) {
             game.connecting = game.connected = false;
             game.videoOutput.updatePipAutoEnter();
@@ -566,6 +567,10 @@ final class GameConnection {
             game.connecting = true;
             LimeLog.info("Stream starting");
             UiHelper.notifyStreamConnecting(game);
+            if (!game.app.isSmallStreamInputOnly()) {
+                com.limelight.binding.video.CrashAccounting.markStreamActive(
+                        game.tombstonePrefs, game.getIntent().getStringExtra(Game.EXTRA_PC_UUID), android.os.Process.myPid());
+            }
             game.decoderRenderer.setRenderTarget(game.videoSurface, game.renderView.getWidth(), game.renderView.getHeight());
             Renderers renderers = renderers(game.app.isSmallStreamInputOnly(), game.prefConfig.muteAudio,
                     game.decoderRenderer, game, game.prefConfig.enableAudioFx,

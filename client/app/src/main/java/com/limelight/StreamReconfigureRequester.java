@@ -45,20 +45,32 @@ final class StreamReconfigureRequester {
         if (baseline == null || matches(baseline, offeredWidth, offeredHeight, offeredFpsMillihz)) {
             return null;
         }
-        if (offeredWidth == width && offeredHeight == height && offeredFpsMillihz == fpsMillihz) {
+        // If only the display refresh rate moved while the screen's offered size stayed put, preserve
+        // any manual/Stream Doctor resolution override instead of silently snapping back to full size.
+        int targetWidth = offeredWidth == baseline[0] && offeredHeight == baseline[1] ? width : offeredWidth;
+        int targetHeight = offeredWidth == baseline[0] && offeredHeight == baseline[1] ? height : offeredHeight;
+        if (targetWidth == width && targetHeight == height && offeredFpsMillihz == fpsMillihz) {
             baseline = new int[] {offeredWidth, offeredHeight, offeredFpsMillihz};
             return null;
         }
-        return new int[] {offeredWidth, offeredHeight, offeredFpsMillihz};
+        return new int[] {targetWidth, targetHeight, offeredFpsMillihz};
     }
 
     // The host was asked for this; a request that could not be sent is not recorded, so the next
     // change tries again.
     void sent(int[] request) {
+        sent(request, request);
+    }
+
+    // As above, recording offeredBaseline as what the screen offered (or null for a manual/Stream
+    // Doctor resize so the screen's baseline stays unchanged and checkStreamReconfigure won't revert it).
+    void sent(int[] request, int[] offeredBaseline) {
         width = request[0];
         height = request[1];
         fpsMillihz = request[2];
-        baseline = request.clone();
+        if (offeredBaseline != null) {
+            baseline = offeredBaseline.clone();
+        }
     }
 
     // A 0x553C rate change switched the stream to this rate; the size stays.

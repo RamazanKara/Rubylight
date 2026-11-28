@@ -368,13 +368,24 @@ public class HostStreamProfileTest {
     @Test
     public void clearVideoCrashFieldsClearsHdrChromaAndScaleWhileKeepingAudioOrBitrate() {
         HostStreamProfile profile = HostStreamProfile.deserialize(
-                "v2;bitrate=40000;hdr=true;yuv444=true;full_range=true;codec=FORCE_AV1;scale=125;vrr=true");
+                "v2;bitrate=40000;hdr=true;yuv444=true;full_range=true;codec=FORCE_AV1;scale=125;"
+                        + "vrr=true;real_vrr=true;upscaling=FSR1;sharpness=70;pacing=balanced;"
+                        + "host_times=true;newest=false;virtual=true");
         assertTrue(profile.clearVideoCrashFields());
         assertNull(profile.hdr);
         assertNull(profile.yuv444);
         assertNull(profile.fullRange);
         assertNull(profile.codec);
+        assertNull(profile.vrr);
+        assertNull(profile.realVrr);
+        assertNull(profile.upscalingMode);
+        assertNull(profile.upscalingSharpness);
+        assertNull(profile.pacing);
+        assertNull(profile.hostFrameTimes);
+        assertNull(profile.dropLateFrames);
         assertEquals(Integer.valueOf(40000), profile.bitrate);
+        assertEquals(Integer.valueOf(125), profile.renderScale);
+        assertEquals(Boolean.TRUE, profile.virtualDisplay);
         assertFalse(profile.clearVideoCrashFields());
     }
 }

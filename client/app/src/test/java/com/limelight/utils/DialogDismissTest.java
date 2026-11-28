@@ -84,4 +84,29 @@ public class DialogDismissTest {
         assertTrue(listed().isEmpty());
         assertEquals("a screen closing its dialogs is not the user dismissing one", 0, dismissed.get());
     }
+
+    @Test
+    public void uiHelperShowDialogChainsLifecycleCleanupAndCallerOnDismissListener() {
+        androidx.fragment.app.FragmentActivity host =
+                Robolectric.buildActivity(androidx.fragment.app.FragmentActivity.class).setup().get();
+        host.setTheme(R.style.AppTheme);
+        androidx.lifecycle.LifecycleRegistry lifecycle = (androidx.lifecycle.LifecycleRegistry) host.getLifecycle();
+        int observersBefore = lifecycle.getObserverCount();
+        AtomicInteger callerDismissed = new AtomicInteger();
+
+        AlertDialog dialog = new com.limelight.ui.NavigationDialogBuilder(host)
+                .setTitle("Test")
+                .setMessage("Body")
+                .create();
+        UiHelper.showDialog(host, dialog, d -> callerDismissed.incrementAndGet());
+        int observersWhileShowing = lifecycle.getObserverCount();
+        assertTrue("observer attached while dialog is showing", observersWhileShowing > observersBefore);
+        assertTrue(dialog.isShowing());
+
+        dialog.dismiss();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertEquals("caller OnDismissListener must run", 1, callerDismissed.get());
+        assertEquals("UiHelper lifecycle observer must be removed on dismiss",
+                observersWhileShowing - 1, lifecycle.getObserverCount());
+    }
 }

@@ -171,6 +171,7 @@ final class GameStreamUiSetup {
         game.nativeTouchEnabled = !game.prefConfig.touchscreenTrackpad
                 && PreferenceManager.getDefaultSharedPreferences(game).getBoolean("checkbox_native_touch", false);
         game.tombstonePrefs = game.getSharedPreferences("DecoderTombstone", 0);
+        CrashAccounting.promoteUncleanStreamExit(game.tombstonePrefs, android.os.Process.myPid());
         game.streamOrientation = game.prefConfig.streamOrientation;
         game.lastWindowOrientation = game.getResources().getConfiguration().orientation;
 

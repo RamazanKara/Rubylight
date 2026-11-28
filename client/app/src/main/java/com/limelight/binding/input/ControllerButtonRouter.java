@@ -446,7 +446,12 @@ final class ControllerButtonRouter {
         int res = NightjarInputJni.releaseQuitComboStep(context.quitComboPending, buttons);
         context.quitComboPending = (res & 1) != 0;
         if ((res & 2) != 0 && handler.activityContext instanceof Game) {
-            ((Game) handler.activityContext).leaveStreamFromController();
+            Game game = (Game) handler.activityContext;
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                game.leaveStreamFromController();
+            } else {
+                handler.mainThreadHandler.post(game::leaveStreamFromController);
+            }
         }
     }
 }

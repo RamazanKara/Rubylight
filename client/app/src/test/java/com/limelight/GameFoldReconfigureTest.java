@@ -86,6 +86,50 @@ public class GameFoldReconfigureTest {
         assertTrue(GameRotateReconfigureTest.ReconfigureBridge.requests.isEmpty());
     }
 
+    @Test
+    public void streamDoctorResizeIsNotRevertedByCheckStreamReconfigureAndFactsUsesVideoWindow() {
+        Game activity = connectedNativeStream("800x720");
+        activity.prefConfig.width = 800;
+        activity.prefConfig.height = 720;
+        ReflectionHelpers.setField(activity, "streamWidth", 800);
+        ReflectionHelpers.setField(activity, "streamHeight", 720);
+        ReflectionHelpers.setField(activity, "app", new com.limelight.nvstream.http.NvApp("Game", 1, false));
+        ReflectionHelpers.setField(activity, "conn", new com.limelight.nvstream.NvConnection(
+                activity, new com.limelight.nvstream.http.ComputerDetails.AddressTuple("127.0.0.1", 47989),
+                0, "id", new com.limelight.nvstream.StreamConfiguration.Builder().setApp(activity.app).build(),
+                null, null));
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "startReconfigureTracking");
+        ShadowLooper.idleMainLooper(2, TimeUnit.SECONDS);
+        assertTrue(GameRotateReconfigureTest.ReconfigureBridge.requests.isEmpty());
+
+        GameStreamDoctor doctor = ReflectionHelpers.getField(activity.menuActions, "doctor");
+        assertTrue(doctor.resize(640, 576));
+        assertEquals(1, GameRotateReconfigureTest.ReconfigureBridge.requests.size());
+        assertArrayEquals(new int[] {640, 576, 60000}, GameRotateReconfigureTest.ReconfigureBridge.requests.get(0));
+
+        // A later reconfigure check must keep the lowered resolution instead of snapping back to 800x720.
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "checkStreamReconfigure");
+        assertEquals("Doctor resize must not be reverted by checkStreamReconfigure",
+                1, GameRotateReconfigureTest.ReconfigureBridge.requests.size());
+
+        // On an external presentation, facts() must report the presentation window's size, not the phone window's.
+        int extId = ShadowDisplayManager.addDisplay("w1920dp-h1080dp");
+        Display external = activity.getSystemService(android.hardware.display.DisplayManager.class).getDisplay(extId);
+        com.limelight.ui.StreamPresentation presentation = new com.limelight.ui.StreamPresentation(activity, external, false);
+        presentation.show();
+        presentation.getWindow().getDecorView().layout(0, 0, 1920, 1080);
+        activity.getWindow().getDecorView().layout(0, 0, 800, 720);
+        ReflectionHelpers.setField(activity, "externalPresentation", presentation);
+        try {
+            com.limelight.binding.video.StreamDoctorController.Facts facts = doctor.facts();
+            assertNotNull(facts);
+            assertEquals(1920, facts.screenWidth);
+            assertEquals(1080, facts.screenHeight);
+        } finally {
+            presentation.dismiss();
+        }
+    }
+
     /**
      * A plain size saved as the cover screen's own, as settings from before the follow-the-screen choice hold it,
      * launched on the inner screen: it follows the screen, as it did before; a custom size keeps its size.

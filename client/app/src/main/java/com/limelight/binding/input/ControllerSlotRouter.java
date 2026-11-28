@@ -225,12 +225,7 @@ final class ControllerSlotRouter {
                     }
                 }
                 if (associatedDevice != null) {
-                    associatedContext = handler.inputDeviceContexts.get(associatedDevice.getId());
-                    if (associatedContext == null) {
-                        ControllerHandler.InputDeviceContext created = handler.createInputDeviceContextForDevice(associatedDevice);
-                        ControllerHandler.InputDeviceContext raced = handler.inputDeviceContexts.putIfAbsent(associatedDevice.getId(), created);
-                        associatedContext = raced != null ? raced : created;
-                    }
+                    associatedContext = getOrCreateInputDeviceContext(associatedDevice.getId(), associatedDevice);
                     if (!associatedContext.assignedControllerNumber) {
                         assignControllerNumberIfNeeded(associatedContext);
                     }
@@ -494,17 +489,24 @@ final class ControllerSlotRouter {
         return NightjarInputJni.formatLaunchController(slot, type, capabilities, buttons);
     }
 
+    ControllerHandler.InputDeviceContext getOrCreateInputDeviceContext(int deviceId, InputDevice device) {
+        ControllerHandler.InputDeviceContext existing = handler.inputDeviceContexts.get(deviceId);
+        if (existing != null) {
+            return existing;
+        }
+        // Build outside the map bin lock so Binder calls do not stall concurrent map readers.
+        ControllerHandler.InputDeviceContext created = handler.createInputDeviceContextForDevice(device);
+        ControllerHandler.InputDeviceContext raced = handler.inputDeviceContexts.putIfAbsent(deviceId, created);
+        return raced != null ? raced : created;
+    }
+
     ControllerHandler.InputDeviceContext prepareInputDevice(int deviceId) {
         InputDevice device = InputDevice.getDevice(deviceId);
         if (device == null || (!ControllerDeviceClassifier.hasJoystickAxes(device) && !ControllerDeviceClassifier.hasGamepadButtons(device))) return null;
         // Built-in or virtual devices that merely advertise gamepad keys (#29, #30) get a
         // number when they first send gamepad input, never ahead of the real pads.
         if (!ControllerDeviceClassifier.hasJoystickAxes(device) && !ControllerDeviceClassifier.isExternal(device)) return null;
-        ControllerHandler.InputDeviceContext context = handler.inputDeviceContexts.get(deviceId);
-        if (context == null) {
-            context = handler.createInputDeviceContextForDevice(device);
-            handler.inputDeviceContexts.put(deviceId, context);
-        }
+        ControllerHandler.InputDeviceContext context = getOrCreateInputDeviceContext(deviceId, device);
         handler.assignControllerNumberIfNeeded(context);
         return context;
     }

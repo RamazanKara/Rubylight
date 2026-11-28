@@ -225,4 +225,67 @@ public class UsbControllerLifecycleTest {
         UsbPads.await(() -> UsbPads.Connection.claims.get() == 2);
         assertEquals(2, UsbPads.Connection.claims.get());
     }
+
+    @Test
+    public void reportsDispatchDirectlyOnCallerThreadWithoutMainLooperAndDropAfterUnclaim() throws Exception {
+        UsbDevice pad = UsbPads.dualSense("/dev/bus/usb/001/015");
+        UsbDriverService.UsbDriverBinder binder = bind(pad);
+        final java.util.concurrent.atomic.AtomicReference<Thread> stateThread = new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.atomic.AtomicReference<Thread> touchThread = new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.atomic.AtomicReference<Thread> motionThread = new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.atomic.AtomicReference<Thread> batteryThread = new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.atomic.AtomicInteger stateCount = new java.util.concurrent.atomic.AtomicInteger();
+        binder.setListener(new UsbDriverListener() {
+            @Override public void reportControllerState(int id, int b, float lx, float ly, float rx, float ry, float lt, float rt) {
+                stateThread.set(Thread.currentThread());
+                stateCount.incrementAndGet();
+            }
+            @Override public void reportControllerTouch(int id, byte eventType, int pointerId, float x, float y, float pressure) {
+                touchThread.set(Thread.currentThread());
+            }
+            @Override public void reportControllerMotion(int id, byte motionType, float x, float y, float z) {
+                motionThread.set(Thread.currentThread());
+            }
+            @Override public void reportControllerBattery(int id, byte state, byte percentage) {
+                batteryThread.set(Thread.currentThread());
+            }
+            @Override public void deviceRemoved(AbstractController controller) {}
+            @Override public void deviceAdded(AbstractController controller) {}
+        });
+        UsbPads.Connection.controlGate = new CountDownLatch(1);
+        UsbPads.Connection.holdControls = true;
+        binder.start();
+        try {
+            UsbDriverService svc = service.get();
+            // Controller 0 is claimed immediately during start(); dispatch from a background reader thread
+            // WITHOUT idling Looper.getMainLooper() to prove zero main-looper bounce on the hot path.
+            java.util.concurrent.atomic.AtomicReference<Thread> callerThread = new java.util.concurrent.atomic.AtomicReference<>();
+            Thread reader = new Thread(() -> {
+                callerThread.set(Thread.currentThread());
+                svc.reportControllerState(0, 1, 0.5f, 0f, 0f, 0f, 0f, 0f);
+                svc.reportControllerTouch(0, (byte) 1, 0, 0.5f, 0.5f, 1f);
+                svc.reportControllerMotion(0, (byte) 2, 1f, 2f, 3f);
+                svc.reportControllerBattery(0, (byte) 1, (byte) 80);
+            }, "usb-reader-test");
+            reader.start();
+            reader.join(2000);
+            assertFalse(reader.isAlive());
+            assertSame("reportControllerState must run on reader thread", callerThread.get(), stateThread.get());
+            assertSame("reportControllerTouch must run on reader thread", callerThread.get(), touchThread.get());
+            assertSame("reportControllerMotion must run on reader thread", callerThread.get(), motionThread.get());
+            assertSame("reportControllerBattery must run on reader thread", callerThread.get(), batteryThread.get());
+            assertEquals(1, stateCount.get());
+
+            // After detach unclaims the pad, direct calls from the reader thread must be dropped immediately.
+            detach(pad);
+            shadowOf(Looper.getMainLooper()).idle();
+            Thread lateReader = new Thread(() -> svc.reportControllerState(0, 1, 0f, 0f, 0f, 0f, 0f, 0f));
+            lateReader.start();
+            lateReader.join(2000);
+            assertEquals("unclaimed pad reports must be dropped immediately", 1, stateCount.get());
+        } finally {
+            UsbPads.Connection.controlGate.countDown();
+            UsbPads.await(() -> UsbPads.Connection.closes.get() == 1);
+        }
+    }
 }

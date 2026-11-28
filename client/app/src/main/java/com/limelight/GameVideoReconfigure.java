@@ -181,15 +181,23 @@ final class GameVideoReconfigure {
         if (request == null) {
             return;
         }
-        if (requestStreamReconfigure(request)) {
+        if (requestStreamReconfigure(request, offered)) {
             // This is the new ceiling even if automatic quality is enabled later.
-            game.qualityMaxWidth = request[0]; game.qualityMaxHeight = request[1]; game.qualityMaxFps = Math.round(request[2] / 1000f);
-            game.qualityMaxFrameRateMilliHz = request[2];
+            game.qualityMaxWidth = offered[0]; game.qualityMaxHeight = offered[1]; game.qualityMaxFps = Math.round(offered[2] / 1000f);
+            game.qualityMaxFrameRateMilliHz = offered[2];
             game.streamPanelHz = game.panelMaxRefreshRate;
         }
     }
 
     boolean requestStreamReconfigure(int[] request) {
+        return requestStreamReconfigure(request, request);
+    }
+
+    boolean requestManualStreamReconfigure(int[] request) {
+        return requestStreamReconfigure(request, null);
+    }
+
+    private boolean requestStreamReconfigure(int[] request, int[] offeredBaseline) {
         LimeLog.info("Reconfigure: asking for " + request[0] + "x" + request[1] + " at " + request[2] / 1000f +
                 " fps (was " + game.reconfigureRequester.width() + "x" + game.reconfigureRequester.height() + " at " +
                 game.reconfigureRequester.fpsMillihz() / 1000f + " fps)");
@@ -213,7 +221,7 @@ final class GameVideoReconfigure {
             return false;
         }
         boolean fpsChanged = request[2] != game.reconfigureRequester.fpsMillihz();
-        game.reconfigureRequester.sent(request);
+        game.reconfigureRequester.sent(request, offeredBaseline);
         game.decoderRenderer.resetDecodeTiming();
         if (fpsChanged) setStreamFrameRate(request[2]);
         return true;

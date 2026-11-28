@@ -33,21 +33,96 @@ public final class CrashAccounting {
         return Verdict.COUNT;
     }
 
+    private static final String KEY_CRASH_COUNT = "CrashCount";
+    private static final String KEY_LAST_NOTIFIED_CRASH_COUNT = "LastNotifiedCrashCount";
+    private static final String KEY_CRASH_HOST_UUID = "CrashHostUuid";
+    private static final String KEY_STREAM_ACTIVE = "StreamActive";
+    private static final String KEY_ACTIVE_PID = "ActivePid";
+    private static final String KEY_ACTIVE_HOST_UUID = "ActiveHostUuid";
+
     /**
-     * Counts a decoder the renderer gave up on, in the "DecoderTombstone" preferences. The stream
-     * ended with its own dialog (-107), so the count is marked as told: the list shows no "Video
-     * decoder crashed" after it and the settings reset of every third one (part of that dialog)
-     * does not run. The count still makes the next stream run without reference frame invalidation.
-     * Returns the new count.
+     * Marks a video stream active in the "DecoderTombstone" preferences so an uncaught/native crash
+     * that kills the process before clean stop can be promoted on the next launch.
+     */
+    public static void markStreamActive(SharedPreferences tombstone, String hostUuid, int pid) {
+        if (tombstone == null) return;
+        synchronized (tombstone) {
+            SharedPreferences.Editor editor = tombstone.edit()
+                    .putBoolean(KEY_STREAM_ACTIVE, true)
+                    .putInt(KEY_ACTIVE_PID, pid);
+            if (hostUuid != null) {
+                editor.putString(KEY_ACTIVE_HOST_UUID, hostUuid);
+            } else {
+                editor.remove(KEY_ACTIVE_HOST_UUID);
+            }
+            editor.commit();
+        }
+    }
+
+    /** Clears the active-stream crash marker on clean stream stop or activity teardown. */
+    public static void clearStreamActive(SharedPreferences tombstone) {
+        if (tombstone == null) return;
+        synchronized (tombstone) {
+            if (!tombstone.getBoolean(KEY_STREAM_ACTIVE, false)) return;
+            tombstone.edit()
+                    .remove(KEY_STREAM_ACTIVE)
+                    .remove(KEY_ACTIVE_PID)
+                    .remove(KEY_ACTIVE_HOST_UUID)
+                    .commit();
+        }
+    }
+
+    /**
+     * If a previous process exited mid-stream without clearing {@code StreamActive}, promotes it
+     * into {@code CrashCount} without advancing {@code LastNotifiedCrashCount} so the user sees the
+     * crash dialog and triggers the 3-strike safety reset on the third consecutive crash.
+     */
+    public static boolean promoteUncleanStreamExit(SharedPreferences tombstone, int currentPid) {
+        if (tombstone == null) return false;
+        synchronized (tombstone) {
+            if (!tombstone.getBoolean(KEY_STREAM_ACTIVE, false)) return false;
+            int activePid = tombstone.getInt(KEY_ACTIVE_PID, 0);
+            if (activePid == 0 || activePid == currentPid) return false;
+            int count = tombstone.getInt(KEY_CRASH_COUNT, 0) + 1;
+            String hostUuid = tombstone.getString(KEY_ACTIVE_HOST_UUID, null);
+            SharedPreferences.Editor editor = tombstone.edit()
+                    .putInt(KEY_CRASH_COUNT, count)
+                    .remove(KEY_STREAM_ACTIVE)
+                    .remove(KEY_ACTIVE_PID)
+                    .remove(KEY_ACTIVE_HOST_UUID);
+            if (hostUuid != null) {
+                editor.putString(KEY_CRASH_HOST_UUID, hostUuid);
+            }
+            editor.commit();
+            return true;
+        }
+    }
+
+    /**
+     * Counts a decoder the renderer gave up on, in the "DecoderTombstone" preferences. Strikes 1 and
+     * 2 mark {@code LastNotifiedCrashCount} equal to {@code CrashCount} so the launcher does not show
+     * a duplicate dialog after -107 while still disabling RFI on the next try. Every third strike
+     * leaves {@code LastNotifiedCrashCount < CrashCount} so {@code UiHelper.showDecoderCrashDialog}
+     * runs the 3-strike streaming settings safety reset and notifies the user.
      */
     public static int recordGiveUp(SharedPreferences tombstone, String hostUuid) {
-        int count = tombstone.getInt("CrashCount", 0) + 1;
-        // commit: the app may be gone right after this
-        tombstone.edit()
-                .putInt("CrashCount", count)
-                .putInt("LastNotifiedCrashCount", count)
-                .putString("CrashHostUuid", hostUuid)
-                .commit();
-        return count;
+        synchronized (tombstone) {
+            int count = tombstone.getInt(KEY_CRASH_COUNT, 0) + 1;
+            int lastNotified = count % 3 == 0 ? count - 1 : count;
+            // commit: the app may be gone right after this
+            SharedPreferences.Editor editor = tombstone.edit()
+                    .putInt(KEY_CRASH_COUNT, count)
+                    .putInt(KEY_LAST_NOTIFIED_CRASH_COUNT, lastNotified)
+                    .remove(KEY_STREAM_ACTIVE)
+                    .remove(KEY_ACTIVE_PID)
+                    .remove(KEY_ACTIVE_HOST_UUID);
+            if (hostUuid != null) {
+                editor.putString(KEY_CRASH_HOST_UUID, hostUuid);
+            } else {
+                editor.remove(KEY_CRASH_HOST_UUID);
+            }
+            editor.commit();
+            return count;
+        }
     }
 }

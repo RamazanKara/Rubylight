@@ -139,7 +139,7 @@ final class MediaCodecRecovery {
                         if (toVulkan && r.upscaler != null) {
                             // Disconnect EGL from renderTarget before Vulkan attaches to it.
                             r.upscalingPolicy.fail(UpscalingPolicy.Reason.DISABLED);
-                            r.vulkanHelper.closeUpscaler();
+                            r.vulkanHelper.closeUpscaler(true);
                         }
                         boolean recovered = withoutKeys ?
                                 CodecRecoverySteps.rebuild("it took no input with its vendor low-latency keys", r.recoveryCodec) :

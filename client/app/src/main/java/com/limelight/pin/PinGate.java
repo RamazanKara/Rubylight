@@ -31,8 +31,31 @@ public final class PinGate {
     /** Until when a PIN screen that was just started is assumed to be on its way. */
     private static long launchingUntil;
     private static int started;
+    private static PinStore cachedStore;
+    private static Context cachedApp;
 
     private PinGate() {
+    }
+
+    static synchronized PinStore store(Context context) {
+        Context app = context.getApplicationContext();
+        Context resolved = app != null ? app : context;
+        if (cachedStore == null || cachedApp != resolved) {
+            if (cachedStore != null) {
+                cachedStore.close();
+            }
+            cachedStore = new PinStore(resolved);
+            cachedApp = resolved;
+        }
+        return cachedStore;
+    }
+
+    static synchronized void clearCachedStoreForTests() {
+        if (cachedStore != null) {
+            cachedStore.close();
+            cachedStore = null;
+        }
+        cachedApp = null;
     }
 
     // ---- The decisions, delegated to nightjar-policy::pin ----
@@ -69,7 +92,7 @@ public final class PinGate {
 
     /** The app is locked and nothing has unlocked it. */
     public static synchronized boolean needsPinForApp(Context context) {
-        PinStore store = new PinStore(context);
+        PinStore store = store(context);
         return NightjarPinJni.gateNeedsPinForApp(store.handle());
     }
 
@@ -81,7 +104,7 @@ public final class PinGate {
         if (secondScreen) {
             return false;
         }
-        PinStore store = new PinStore(context);
+        PinStore store = store(context);
         return NightjarPinJni.gateNeedsPinForStream(store.handle(), uuid, SystemClock.elapsedRealtime());
     }
 
@@ -90,7 +113,7 @@ public final class PinGate {
         if (secondScreen) {
             return false;
         }
-        PinStore store = new PinStore(context);
+        PinStore store = store(context);
         return NightjarPinJni.gateStreamLocked(store.handle(), uuid, SystemClock.elapsedRealtime());
     }
 
@@ -142,23 +165,24 @@ public final class PinGate {
         screen = null;
         launchingUntil = 0;
         started = 0;
+        clearCachedStoreForTests();
         NightjarPinJni.gateResetForTests();
     }
 
     /** Starts watching the app's screens; called once from the Application. */
     public static void install(Application app) {
-        PinStore store = new PinStore(app);
         synchronized (PinGate.class) {
+            PinStore store = store(app);
             NightjarPinJni.gateInstall(store.handle(), store.elapsed(), store.boot());
         }
         app.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
             @Override public void onActivityStarted(Activity activity) {
                 // The Application's store: an activity may wrap its context (the debug demo redirects its prefs).
-                PinGate.onStarted(activity, new PinStore(app));
+                PinGate.onStarted(activity, store(app));
             }
 
             @Override public void onActivityStopped(Activity activity) {
-                PinGate.onStopped(activity, new PinStore(app));
+                PinGate.onStopped(activity, store(app));
             }
 
             @Override public void onActivityCreated(Activity activity, Bundle state) { }

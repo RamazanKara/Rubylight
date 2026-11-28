@@ -157,17 +157,8 @@ final class ControllerGamepadRouter {
             }
         }
 
-        // Return the existing context if it exists
-        ControllerHandler.InputDeviceContext context = handler.inputDeviceContexts.get(event.getDeviceId());
-        if (context != null) {
-            return context;
-        }
-
-        // Otherwise create a new context
-        context = handler.createInputDeviceContextForDevice(event.getDevice());
-        handler.inputDeviceContexts.put(event.getDeviceId(), context);
-
-        return context;
+        // Return or atomically register one context per device ID so launch prep and input never claim two slots.
+        return handler.slots.getOrCreateInputDeviceContext(event.getDeviceId(), event.getDevice());
     }
 
     private int packFusionContext(int count, int buttons, byte lt, byte rt, short lx, short ly, short rx, short ry) {
@@ -278,8 +269,14 @@ final class ControllerGamepadRouter {
                 rightBtn = originalContext.mousePacketOut[4];
             }
             if ((flags & (1 << 1)) != 0) {
-                Toast.makeText(handler.activityContext, handler.activityContext.getString(R.string.stream_mouse_step,
-                        mouseStep), Toast.LENGTH_SHORT).show();
+                int step = mouseStep;
+                Runnable showStep = () -> Toast.makeText(handler.activityContext,
+                        handler.activityContext.getString(R.string.stream_mouse_step, step), Toast.LENGTH_SHORT).show();
+                if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                    showStep.run();
+                } else {
+                    handler.mainThreadHandler.post(showStep);
+                }
             }
             if (leftBtn > 0) handler.conn.sendMouseButtonDown(MouseButtonPacket.BUTTON_LEFT);
             else if (leftBtn < 0) handler.conn.sendMouseButtonUp(MouseButtonPacket.BUTTON_LEFT);

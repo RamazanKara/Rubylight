@@ -108,4 +108,27 @@ public class StreamReconfigureRequesterTest {
     public void nothingIsDecidedBeforeTheStreamStarts() {
         assertNull(new StreamReconfigureRequester().decide(2316, 904, 120_000));
     }
+
+    @Test
+    public void manualDoctorResizePreservesScreenBaselineAndSurvivesDisplayFpsChange() {
+        StreamReconfigureRequester requester = new StreamReconfigureRequester();
+        requester.start(2400, 1080, 120_000, 2400, 1080, 120_000);
+        // Stream Doctor lowers resolution manually without altering the screen's baseline offer.
+        requester.sent(new int[] {1920, 864, 120_000}, null);
+        assertEquals(1920, requester.width());
+        assertEquals(864, requester.height());
+
+        // Subsequent checks with unchanged screen offer must NOT revert back to 2400x1080.
+        assertNull(requester.decide(2400, 1080, 120_000));
+
+        // A display FPS-only change preserves the lowered resolution while adopting the new FPS.
+        int[] fpsOnly = requester.decide(2400, 1080, 60_000);
+        assertArrayEquals(new int[] {1920, 864, 60_000}, fpsOnly);
+        requester.sent(fpsOnly, new int[] {2400, 1080, 60_000});
+        assertNull(requester.decide(2400, 1080, 60_000));
+
+        // A genuine fold/screen-size change still reconfigures to the new offered size.
+        int[] folded = requester.decide(2176, 1812, 60_000);
+        assertArrayEquals(new int[] {2176, 1812, 60_000}, folded);
+    }
 }

@@ -115,6 +115,63 @@ public class GameDisplayLifecycleTest {
         assertEquals(Math.round(localHz * 100), prefs.launchRefreshRateX100);
     }
 
+    @Test public void externalPresentationWithNativeResolutionRecomputesRefreshAndVrrForExternalSize() throws Exception {
+        Game game = Robolectric.buildActivity(Game.class).get();
+        int displayId = ShadowDisplayManager.addDisplay("w3840dp-h2160dp-mdpi", 2 /* Display.TYPE_HDMI */);
+        Display external = game.getSystemService(DisplayManager.class).getDisplay(displayId);
+        Display.Mode mode4k60 = ReflectionHelpers.callConstructor(Display.Mode.class,
+                ReflectionHelpers.ClassParameter.from(int.class, external.getMode().getModeId()),
+                ReflectionHelpers.ClassParameter.from(int.class, 3840),
+                ReflectionHelpers.ClassParameter.from(int.class, 2160),
+                ReflectionHelpers.ClassParameter.from(float.class, 60f));
+        Display.Mode mode1080p120 = ReflectionHelpers.callConstructor(Display.Mode.class,
+                ReflectionHelpers.ClassParameter.from(int.class, external.getMode().getModeId() + 1),
+                ReflectionHelpers.ClassParameter.from(int.class, 1920),
+                ReflectionHelpers.ClassParameter.from(int.class, 1080),
+                ReflectionHelpers.ClassParameter.from(float.class, 120f));
+        ShadowDisplayManager.setSupportedModes(displayId, mode4k60, mode1080p120);
+        org.robolectric.Shadows.shadowOf(external).setFlags(Display.FLAG_PRESENTATION);
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+        assertTrue("external HDMI display must appear in presentation category", game.videoOutput.hasPresentationDisplays());
+
+        game.setIntent(new Intent().putExtra(OUTPUT_DISPLAY, displayId));
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        // Phone resolution was still in prefConfig before initializeVideoOutput, admitting the 1080p@120 mode.
+        prefs.width = 1920;
+        prefs.height = 1080;
+        prefs.vrr = true;
+        prefs.fps = 120;
+        prefs.launchRefreshRateX100 = 12000;
+        StreamView local = new StreamView(game);
+        android.widget.TextView hint = new android.widget.TextView(game);
+        hint.setId(R.id.inputOnlyStatus);
+        game.setContentView(hint);
+        ReflectionHelpers.setField(game, "prefConfig", prefs);
+        ReflectionHelpers.setField(game, "streamView", local);
+        ReflectionHelpers.setField(game, "nativeResolutionStream", true);
+        ReflectionHelpers.setField(game, "panelMaxRefreshRate", 120f);
+        ReflectionHelpers.setField(game, "fpsFollowsDisplay", true);
+
+        try {
+            ReflectionHelpers.callInstanceMethod(game.videoOutput, "initializeVideoOutput");
+
+            assertEquals(3840, prefs.width);
+            assertEquals(2160, prefs.height);
+            assertFalse(ReflectionHelpers.<Boolean>getField(game, "nativeResolutionStream"));
+            assertEquals(60f, (float) ReflectionHelpers.getField(game, "panelMaxRefreshRate"), 0.01f);
+            assertEquals(60, prefs.fps);
+            assertEquals(6000, prefs.launchRefreshRateX100);
+            assertEquals(DisplayFrameRatePolicy.fpsFollowsDisplay(true, 60, 120f),
+                    ReflectionHelpers.<Boolean>getField(game, "fpsFollowsDisplay"));
+        } finally {
+            StreamPresentation presentation = ReflectionHelpers.getField(game, "externalPresentation");
+            if (presentation != null) {
+                presentation.setOnDismissListener(null);
+                presentation.dismiss();
+            }
+        }
+    }
+
     @Test public void capabilitiesFollowActiveSurfaceUntilOutputReconnectCompletes() {
         Game game = Robolectric.buildActivity(Game.class).get();
         int displayId = ShadowDisplayManager.addDisplay("w1920dp-h1080dp");

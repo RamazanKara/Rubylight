@@ -494,6 +494,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         }
         scheduleReload();
         // However Home was opened: after pairing or from a task brought back, no PC list is under it to ask.
+        UiHelper.showDecoderCrashDialog(this);
         checkForUpdates();
         transfersButton = RunningTransfers.showOn(this);
     }
@@ -520,6 +521,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
     @Override
     protected void onDestroy() {
+        com.limelight.utils.Dialog.closeDialogs(this);
         handler.removeCallbacksAndMessages(null);
         if (pairingWatch != null) pairingWatch.close();
         hostActions.destroy();

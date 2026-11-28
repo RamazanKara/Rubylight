@@ -62,12 +62,29 @@ public class MediaCodecVulkanHandoverTest {
     @Implements(value = VulkanRendererBridge.class, isInAndroidSdk = false)
     public static class StuckVulkanBridge {
         static boolean stopResult = false;
+        static VulkanRendererBridge createResult = null;
         static final AtomicInteger stopCalls = new AtomicInteger();
 
         @Implementation public boolean stop() {
             stopCalls.incrementAndGet();
             return stopResult;
         }
+
+        @Implementation public static VulkanRendererBridge create(
+                Surface output, int streamWidth, int streamHeight, int streamFps,
+                int framePacing, int jitterBuffer, int ditherMode, int colorspace,
+                boolean fullRange, boolean tenBit, boolean hlg, float displayRefreshHz,
+                String codec, String decoderName, String traceDirectory,
+                boolean frontBuffer, long frameWarpApi) {
+            return createResult;
+        }
+
+        @Implementation public boolean drawsFrameWarp() { return true; }
+        @Implementation public boolean reportsPresentTimes() { return true; }
+        @Implementation public void setVsyncOffset(long offsetNs) {}
+        @Implementation public void setAdaptiveRefresh(boolean adaptive) {}
+        @Implementation public void setHdrMode(boolean enabled, byte[] metadata) {}
+        @Implementation public Surface getDecoderSurface() { return null; }
     }
 
     private ActivityController<Activity> activity;
@@ -82,6 +99,7 @@ public class MediaCodecVulkanHandoverTest {
         TrackingCodec.startCalls.set(0);
         StuckVulkanBridge.stopCalls.set(0);
         StuckVulkanBridge.stopResult = false;
+        StuckVulkanBridge.createResult = null;
         activity = Robolectric.buildActivity(Activity.class).create();
         texture = new SurfaceTexture(0);
         surface = new Surface(texture);
@@ -142,5 +160,54 @@ public class MediaCodecVulkanHandoverTest {
         assertEquals(0, StuckVulkanBridge.stopCalls.get());
         assertFalse(ReflectionHelpers.<Boolean>getField(renderer.vulkanHelper, "vulkanHandoverPending"));
         assertNull(renderer.vulkanHelper.getVulkanFailure());
+    }
+
+    @Test
+    public void midStreamSwitchToVulkanQuitsChoreographerThreadAndGuardsOnVsync() throws Exception {
+        ReflectionHelpers.setField(renderer.vulkanHelper, "vulkanHandoverPending", false);
+        renderer.vulkanRenderer = null;
+        renderer.wantVulkan = true;
+        ReflectionHelpers.setField(renderer, "outputVsyncAvailable", true);
+        renderer.vsyncPacer.startChoreographerThread();
+        android.os.HandlerThread choreoThread = renderer.vsyncPacer.choreographerHandlerThread;
+        assertNotNull(choreoThread);
+        assertTrue(choreoThread.isAlive());
+
+        VulkanRendererBridge nextVulkan = ReflectionHelpers.callConstructor(
+                VulkanRendererBridge.class, ClassParameter.from(long.class, 2L));
+        StuckVulkanBridge.createResult = nextVulkan;
+
+        assertTrue(renderer.session.configureAndStartDecoder(renderer.configuredFormat));
+        assertSame(nextVulkan, renderer.vulkanRenderer);
+        assertNull("choreographerHandlerThread must be cleared on Vulkan switch",
+                renderer.vsyncPacer.choreographerHandlerThread);
+        renderer.vsyncPacer.joinChoreographerThread();
+        assertFalse("choreographer thread must exit after Vulkan switch", choreoThread.isAlive());
+
+        // A stray vsync callback arriving while vulkanRenderer != null must be ignored cleanly.
+        renderer.vsyncTimeNs = 0;
+        renderer.vsyncPacer.doFrame(123_456_789L);
+        assertEquals("onVsync must return early when vulkanRenderer is active", 0L, renderer.vsyncTimeNs);
+    }
+
+    @Test
+    public void closeUpscalerForVulkanHandoverPreservesFrameWarp() {
+        renderer.upscalingPolicy = new UpscalingPolicy(60);
+        renderer.vulkanHelper.frameWarp = true;
+        GlesUpscaler upscaler = org.robolectric.shadow.api.Shadow.newInstanceOf(GlesUpscaler.class);
+        android.os.HandlerThread fakeThread = new android.os.HandlerThread("StubUpscalerHandover");
+        fakeThread.start();
+        ReflectionHelpers.setField(upscaler, "frameWarp", true);
+        ReflectionHelpers.setField(upscaler, "thread", fakeThread);
+        ReflectionHelpers.setField(upscaler, "handler", new android.os.Handler(fakeThread.getLooper()));
+        ReflectionHelpers.setField(upscaler, "display", android.opengl.EGL14.EGL_NO_DISPLAY);
+        renderer.upscaler = upscaler;
+
+        renderer.vulkanHelper.closeUpscaler(true);
+
+        assertNull(renderer.upscaler);
+        assertTrue("frameWarp must stay enabled for Vulkan handover", renderer.vulkanHelper.frameWarp);
+        assertFalse("frameWarp notice must not fire on Vulkan handover",
+                ReflectionHelpers.<Boolean>getField(renderer.vulkanHelper, "frameWarpNoticeShown"));
     }
 }

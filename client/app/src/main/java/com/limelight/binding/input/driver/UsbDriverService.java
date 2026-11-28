@@ -27,8 +27,10 @@ import java.io.File;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class UsbDriverService extends Service implements UsbDriverListener {
 
@@ -38,13 +40,15 @@ public class UsbDriverService extends Service implements UsbDriverListener {
 
     private UsbManager usbManager;
     private PreferenceConfiguration prefConfig;
-    private boolean started;
+    private volatile boolean started;
 
     private final UsbEventReceiver receiver = new UsbEventReceiver();
     private final UsbDriverBinder binder = new UsbDriverBinder();
 
     private final CopyOnWriteArrayList<AbstractController> controllers = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArraySet<AbstractController> readyControllers = new CopyOnWriteArraySet<>();
+    private final Set<Integer> claimedControllerIds = ConcurrentHashMap.newKeySet();
+    private final ReentrantReadWriteLock reportLock = new ReentrantReadWriteLock();
     private final Set<String> forwardedDevices = Collections.synchronizedSet(new HashSet<>());
 
     private volatile UsbDriverListener listener;
@@ -56,60 +60,92 @@ public class UsbDriverService extends Service implements UsbDriverListener {
     @Override
     public void reportControllerState(int controllerId, int buttonFlags, float leftStickX, float leftStickY,
                                       float rightStickX, float rightStickY, float leftTrigger, float rightTrigger) {
-        handler.post(() -> {
+        reportLock.readLock().lock();
+        try {
             UsbDriverListener current = listener;
-            if (started && current != null && isClaimed(controllerId)) {
+            if (started && current != null && claimedControllerIds.contains(controllerId)) {
                 current.reportControllerState(controllerId, buttonFlags, leftStickX, leftStickY, rightStickX, rightStickY, leftTrigger, rightTrigger);
             }
-        });
+        } finally {
+            reportLock.readLock().unlock();
+        }
     }
 
     @Override
     public void reportControllerTouch(int controllerId, byte eventType, int pointerId, float x, float y, float pressure) {
-        handler.post(() -> {
+        reportLock.readLock().lock();
+        try {
             UsbDriverListener current = listener;
-            if (started && current != null && isClaimed(controllerId)) {
+            if (started && current != null && claimedControllerIds.contains(controllerId)) {
                 current.reportControllerTouch(controllerId, eventType, pointerId, x, y, pressure);
             }
-        });
+        } finally {
+            reportLock.readLock().unlock();
+        }
     }
 
     @Override
     public void reportControllerMotion(int controllerId, byte motionType, float x, float y, float z) {
-        handler.post(() -> {
+        reportLock.readLock().lock();
+        try {
             UsbDriverListener current = listener;
-            if (started && current != null && isClaimed(controllerId)) {
+            if (started && current != null && claimedControllerIds.contains(controllerId)) {
                 current.reportControllerMotion(controllerId, motionType, x, y, z);
             }
-        });
+        } finally {
+            reportLock.readLock().unlock();
+        }
     }
 
     @Override
     public void reportControllerBattery(int controllerId, byte state, byte percentage) {
-        handler.post(() -> {
+        reportLock.readLock().lock();
+        try {
             UsbDriverListener current = listener;
-            if (started && current != null && isClaimed(controllerId)) {
+            if (started && current != null && claimedControllerIds.contains(controllerId)) {
                 current.reportControllerBattery(controllerId, state, percentage);
             }
-        });
+        } finally {
+            reportLock.readLock().unlock();
+        }
     }
 
-    // A controller leaves this list on the main thread as soon as it is told to stop, while its
-    // input thread may still be finishing a read. Reports it posted meanwhile are dropped.
-    private boolean isClaimed(int controllerId) {
-        for (AbstractController controller : controllers) {
-            if (controller.getControllerId() == controllerId) {
-                return true;
-            }
+    private void claimController(AbstractController controller) {
+        reportLock.writeLock().lock();
+        try {
+            controllers.add(controller);
+            claimedControllerIds.add(controller.getControllerId());
+        } finally {
+            reportLock.writeLock().unlock();
         }
-        return false;
+    }
+
+    // A controller leaves the claimed set under reportLock's write lock as soon as it is detached,
+    // released, or stopped, so no reader thread can deliver input after unclaim returns.
+    private void unclaimController(AbstractController controller) {
+        reportLock.writeLock().lock();
+        try {
+            controllers.remove(controller);
+            readyControllers.remove(controller);
+            claimedControllerIds.remove(controller.getControllerId());
+        } finally {
+            reportLock.writeLock().unlock();
+        }
+    }
+
+    private void setListenerLocked(UsbDriverListener next) {
+        reportLock.writeLock().lock();
+        try {
+            listener = next;
+        } finally {
+            reportLock.writeLock().unlock();
+        }
     }
 
     @Override
     public void deviceRemoved(AbstractController controller) {
-        // Remove the the controller from our list (if not removed already)
-        controllers.remove(controller);
-        readyControllers.remove(controller);
+        // Remove the controller from our list (if not removed already)
+        unclaimController(controller);
 
         // Call through to the client's listener
         LimeLog.info("USB controller detached");
@@ -171,8 +207,7 @@ public class UsbDriverService extends Service implements UsbDriverListener {
                 for (AbstractController controller : controllers) {
                     if (isControllerForDevice(controller, device)) {
                         // Input stops now; the pad's USB worker finishes releasing it.
-                        controllers.remove(controller);
-                        readyControllers.remove(controller);
+                        unclaimController(controller);
                         controller.stop();
                     }
                 }
@@ -206,7 +241,7 @@ public class UsbDriverService extends Service implements UsbDriverListener {
 
     public class UsbDriverBinder extends Binder {
         public void setListener(UsbDriverListener listener) {
-            UsbDriverService.this.listener = listener;
+            setListenerLocked(listener);
 
             // Report only controllers that finished starting and called deviceAdded().
             if (listener != null) {
@@ -287,8 +322,7 @@ public class UsbDriverService extends Service implements UsbDriverListener {
         }
         for (AbstractController controller : controllers) {
             if (isControllerForDevice(controller, device)) {
-                controllers.remove(controller);
-                readyControllers.remove(controller);
+                unclaimController(controller);
                 controller.stop();
             }
         }
@@ -417,11 +451,10 @@ public class UsbDriverService extends Service implements UsbDriverListener {
 
             // Claim it at once so a detach or stop during its start finds it. Starting does USB
             // transfers that take seconds on a failing pad; the controller's stop() closes the connection.
-            controllers.add(controller);
+            claimController(controller);
             int usbDeviceId = device.getDeviceId();
             controller.startOnUsbWorker(() -> {
-                controllers.remove(controller);
-                readyControllers.remove(controller);
+                unclaimController(controller);
                 reportStartFailed(usbDeviceId);
             });
         }
@@ -521,11 +554,15 @@ public class UsbDriverService extends Service implements UsbDriverListener {
     }
 
     private void start() {
-        if (started || usbManager == null || (!prefConfig.usbDriver && !prefConfig.usbDualSense && !prefConfig.usbSwitchPro)) {
-            return;
+        reportLock.writeLock().lock();
+        try {
+            if (started || usbManager == null || (!prefConfig.usbDriver && !prefConfig.usbDualSense && !prefConfig.usbSwitchPro)) {
+                return;
+            }
+            started = true;
+        } finally {
+            reportLock.writeLock().unlock();
         }
-
-        started = true;
         activeServices.add(this);
 
         // Register for USB attach broadcasts and permission completions
@@ -547,11 +584,16 @@ public class UsbDriverService extends Service implements UsbDriverListener {
     private void stop() {
         activeServices.remove(this);
         forwardedDevices.clear();
-        if (!started) {
-            return;
+        reportLock.writeLock().lock();
+        try {
+            if (!started) {
+                return;
+            }
+            started = false;
+            claimedControllerIds.clear();
+        } finally {
+            reportLock.writeLock().unlock();
         }
-
-        started = false;
         handler.removeCallbacksAndMessages(null);
 
         // Stop the attachment receiver
@@ -583,7 +625,7 @@ public class UsbDriverService extends Service implements UsbDriverListener {
         stop();
 
         // Remove listeners
-        listener = null;
+        setListenerLocked(null);
         stateListener = null;
         handler.removeCallbacksAndMessages(null);
         super.onDestroy();
@@ -591,7 +633,7 @@ public class UsbDriverService extends Service implements UsbDriverListener {
 
     @Override
     public boolean onUnbind(Intent intent) {
-        listener = null;
+        setListenerLocked(null);
         stateListener = null;
         stop();
         return false;

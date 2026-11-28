@@ -343,10 +343,30 @@ public class PinStoreTest {
         SharedPreferences legacy = app.getSharedPreferences(PinStore.FILE, Context.MODE_PRIVATE);
         legacy.edit().putString(PinStore.HASH, PinHasher.create("9999".getBytes(StandardCharsets.US_ASCII), 1_000))
                 .putInt(PinStore.LENGTH, 4).commit();
+        PinStore.resetLegacyMigrationForTests();
 
         PinStore after = new PinStore(app);
         assertEquals(PinStore.Result.OK, after.tryPin("1234".getBytes(StandardCharsets.US_ASCII)).result);
         assertTrue(legacy.getAll().isEmpty());
+    }
+
+    @Test
+    public void legacyMigrationSkipsSharedPreferencesAfterEmptyCheck() {
+        Application app = RuntimeEnvironment.getApplication();
+        PinStore first = new PinStore(app);
+        first.close();
+
+        java.util.concurrent.atomic.AtomicInteger legacyLookups = new java.util.concurrent.atomic.AtomicInteger();
+        android.content.ContextWrapper counting = new android.content.ContextWrapper(app) {
+            @Override public Context getApplicationContext() { return this; }
+            @Override public SharedPreferences getSharedPreferences(String name, int mode) {
+                if (PinStore.FILE.equals(name)) legacyLookups.incrementAndGet();
+                return super.getSharedPreferences(name, mode);
+            }
+        };
+        PinStore second = new PinStore(counting);
+        second.close();
+        assertEquals("legacy prefs must not be queried after migration is marked done", 0, legacyLookups.get());
     }
 
     @Test

@@ -604,4 +604,57 @@ public class ControllerPreparationTest {
             } finally { context.destroy(); handler.destroy(); }
         }
     }
+
+    @Test public void concurrentPrepareInputDeviceAndGetContextForEventShareOneContextAndSlot() throws Exception {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            final int devId = 42;
+            addInputDevice(activity.get(), devId, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            Connection connection = new Connection(73);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            java.util.concurrent.CyclicBarrier bothCreating = new java.util.concurrent.CyclicBarrier(2);
+            AtomicInteger creations = new AtomicInteger();
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs) {
+                @Override protected InputDeviceContext createInputDeviceContextForDevice(InputDevice dev) {
+                    creations.incrementAndGet();
+                    try {
+                        bothCreating.await(2, TimeUnit.SECONDS);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                    return super.createInputDeviceContextForDevice(dev);
+                }
+            };
+            try {
+                android.view.KeyEvent event = new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN,
+                        android.view.KeyEvent.KEYCODE_BUTTON_A, 0, 0, devId, 0, 0, InputDevice.SOURCE_GAMEPAD);
+                org.robolectric.Shadows.shadowOf((android.view.InputEvent) event).setDevice(InputDevice.getDevice(devId));
+                assertEquals(devId, event.getDeviceId());
+                assertNotNull("KeyEvent must resolve the added InputDevice", event.getDevice());
+                ExecutorService pool = Executors.newFixedThreadPool(2);
+                try {
+                    Future<ControllerHandler.InputDeviceContext> prepared = pool.submit(() ->
+                            ReflectionHelpers.callInstanceMethod(handler.slots, "prepareInputDevice",
+                                    ReflectionHelpers.ClassParameter.from(int.class, devId)));
+                    Future<ControllerHandler.InputDeviceContext> fromEvent = pool.submit(() -> {
+                        ControllerHandler.InputDeviceContext ctx = ReflectionHelpers.callInstanceMethod(
+                                handler.gamepad, "getContextForEvent",
+                                ReflectionHelpers.ClassParameter.from(android.view.InputEvent.class, event));
+                        if (ctx != null) handler.assignControllerNumberIfNeeded(ctx);
+                        return ctx;
+                    });
+                    ControllerHandler.InputDeviceContext ctxA = prepared.get(5, TimeUnit.SECONDS);
+                    ControllerHandler.InputDeviceContext ctxB = fromEvent.get(5, TimeUnit.SECONDS);
+                    assertNotNull(ctxA);
+                    assertSame("concurrent prepareInputDevice and getContextForEvent must share one context", ctxA, ctxB);
+                    assertEquals("both threads raced through creation", 2, creations.get());
+                    assertEquals("one gamepad must occupy only slot 0", 0, ctxA.controllerNumber);
+                    assertEquals("only one host slot must be reserved", 1, handler.getActiveControllerMask());
+                    assertEquals("only one controller arrival must be sent", 1, connection.arrivals);
+                } finally {
+                    pool.shutdownNow();
+                }
+            } finally { handler.destroy(); }
+        }
+    }
 }

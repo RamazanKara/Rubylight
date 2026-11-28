@@ -194,6 +194,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         // The game may have started or ended while the stream was in front.
         loadedSignature = null;
         scheduleReload();
+        UiHelper.showDecoderCrashDialog(this);
         openPlay.onResume();
     }
 
@@ -232,6 +233,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
     @Override
     protected void onDestroy() {
+        com.limelight.utils.Dialog.closeDialogs(this);
         handler.removeCallbacksAndMessages(null);
         if (feed != null) {
             feed.unbind();
@@ -332,10 +334,22 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                clearLoadedSignature(mine);
+                redrawAtNextPoll(mine);
             } catch (RuntimeException e) {
                 com.limelight.LimeLog.warning("Game detail could not load: " + e);
+                clearLoadedSignature(mine);
                 show(mine, computer, online, nativeHost, ConsoleSnapshot.empty(), false, true, false, starVersion, null);
                 redrawAtNextPoll(mine);
+            }
+        });
+    }
+
+    /** Clears the loaded signature if no newer reload took over, so the next poll retries the refresh. */
+    private void clearLoadedSignature(int mine) {
+        runOnUiThread(() -> {
+            if (mine == generation) {
+                loadedSignature = null;
             }
         });
     }

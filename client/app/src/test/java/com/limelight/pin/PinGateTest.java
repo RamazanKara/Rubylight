@@ -3,6 +3,7 @@ package com.limelight.pin;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Activity;
@@ -355,5 +356,20 @@ public class PinGateTest {
         assertFalse(PinGate.needsPinForStream(app, OTHER));
         PinGate.resetForTests();
         assertTrue("only that process", PinGate.needsPinForApp(app));
+    }
+
+    @Test
+    public void reusesSingleCachedPinStoreAcrossChecksAndLifecycle() {
+        lock(PinStore.Mode.APP);
+        PinGate.install(app);
+        PinStore cached = PinGate.store(app);
+        long handle = cached.handle();
+        assertTrue(PinGate.needsPinForApp(app));
+        assertTrue(PinGate.needsPinForStream(app, PC));
+        assertTrue(PinGate.streamLocked(app, PC));
+        ActivityController<HelpTopicsActivity> screen = open().resume();
+        screen.pause().stop().destroy();
+        assertSame("PinGate must reuse one application-scoped PinStore", cached, PinGate.store(app));
+        assertEquals("cached PinStore handle must stay unchanged", handle, PinGate.store(app).handle());
     }
 }

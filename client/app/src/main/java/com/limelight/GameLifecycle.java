@@ -244,6 +244,7 @@ final class GameLifecycle {
         // A message still waiting for its turn would show over the screen after the stream.
         game.messages.dropWaiting();
         game.streamConnection.stopConnection();
+        com.limelight.binding.video.CrashAccounting.clearStreamActive(game.tombstonePrefs);
         // Nothing of TV display compatibility outlives the screen, the stream ended or not.
         if (game.videoOutput.compositorHeartbeat != null) {
             game.videoOutput.compositorHeartbeat.stop();

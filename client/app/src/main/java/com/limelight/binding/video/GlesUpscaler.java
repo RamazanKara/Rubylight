@@ -72,6 +72,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     private static final int[] COLOR_ATTACHMENT0 = {GLES30.GL_COLOR_ATTACHMENT0};
     private int drawnFrames;
     private volatile boolean closed;
+    private volatile boolean paused;
     private volatile String failureDetail;
     // Frame Warp (docs/frame-warp.md): the picture drawn without upscaling, shifted by warp.frag. The fields below
     // are the GL thread's.
@@ -424,7 +425,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
      */
     private void onRefresh(long frameTimeNanos) {
         refreshPosted = false;
-        if (closed || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
+        if (closed || paused || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
         if (refreshFollowsNs != 0) {
             refreshGapsNs[refreshGapIndex] = frameTimeNanos - refreshFollowsNs;
             refreshGapIndex = (refreshGapIndex + 1) % refreshGapsNs.length;
@@ -570,13 +571,13 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
 
     @Override
     public void onFrameAvailable(SurfaceTexture surfaceTexture) {
-        if (closed || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
+        if (closed || paused || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
         frameAvailable = true;
         try {
             handler.removeCallbacks(pollCompletion);
             // Retire the previous frame's pipelined fence before latching the new frame.
             awaitFence();
-            if (fence != 0 || !frameAvailable || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
+            if (paused || fence != 0 || !frameAvailable || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
             drawFrame();
         } catch (RuntimeException e) {
             LimeLog.warning("Upscaling frame failed: " + e);
@@ -585,6 +586,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     }
 
     private void drawFrame() {
+        if (closed || paused) return;
         try {
             frameAvailable = false;
             texture.updateTexImage();
@@ -664,7 +666,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     }
 
     private void pollFenceNonBlocking() {
-        if (closed || fence == 0 || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
+        if (closed || paused || fence == 0 || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
         int status = GLES30.glClientWaitSync(fence, 0, 0);
         if (status == GLES30.GL_ALREADY_SIGNALED || status == GLES30.GL_CONDITION_SATISFIED) {
             handler.removeCallbacks(pollCompletion);
@@ -677,7 +679,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
 
     /** Retires the pending draw's fence in FENCE_WAIT_NS slices so a lost fence cannot hang this thread. */
     private void awaitFence() {
-        if (closed || fence == 0 || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
+        if (closed || paused || fence == 0 || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
         long waitStartNs = System.nanoTime();
         checkFence(GLES30.glClientWaitSync(fence, GLES30.GL_SYNC_FLUSH_COMMANDS_BIT, FENCE_WAIT_NS),
                 System.nanoTime() - waitStartNs);
@@ -699,13 +701,13 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
             // wall time when we actually waited on an overloaded GPU.
             long gpuNs = status == GLES30.GL_ALREADY_SIGNALED ? submitDurationNs : (System.nanoTime() - gpuStartNs);
             policy.recordFrame(gpuNs, pendingDrops);
-            if (frameAvailable && policy.getReason() == UpscalingPolicy.Reason.NONE) drawFrame();
+            if (!closed && !paused && frameAvailable && policy.getReason() == UpscalingPolicy.Reason.NONE) drawFrame();
         } else if (status == GLES30.GL_WAIT_FAILED) {
             if (failureDetail == null) failureDetail = "GPU fence wait failed";
             policy.fail(UpscalingPolicy.Reason.GPU_ERROR);
         } else {
             policy.checkStall(elapsed);
-            if (policy.getReason() == UpscalingPolicy.Reason.NONE) {
+            if (!closed && !paused && policy.getReason() == UpscalingPolicy.Reason.NONE) {
                 handler.postDelayed(pollCompletion, repostDelayMs(waitedNs));
             }
         }
@@ -714,6 +716,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     void setHdrMode(boolean enabled, byte[] metadata) {
         byte[] copy = metadata == null ? null : metadata.clone();
         handler.post(() -> {
+            if (closed || paused) return;
             try {
                 hdr = enabled;
                 hdrMetadata = copy;
@@ -753,8 +756,20 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         }
     }
 
+    /** Stops further GL presentation without blocking on the EGL thread (safe from the UI thread). */
+    void pausePresentation() {
+        paused = true;
+        if (handler == null) return;
+        handler.removeCallbacks(pollCompletion);
+        handler.post(() -> {
+            if (choreographer != null) choreographer.removeFrameCallback(warpRefresh);
+            refreshPosted = false;
+        });
+    }
+
     @Override
     public void close() {
+        paused = true;
         closed = true;
         handler.post(() -> {
             handler.removeCallbacksAndMessages(null);

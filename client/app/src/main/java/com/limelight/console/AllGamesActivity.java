@@ -372,11 +372,21 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                clearRefreshedSignature(mine);
+                redrawAtNextPoll(mine);
             } catch (RuntimeException e) {
                 LimeLog.warning("All games could not load: " + e);
+                clearRefreshedSignature(mine);
                 show(mine, HomeModel.empty(), true);
                 redrawAtNextPoll(mine);
             }
+        });
+    }
+
+    /** Clears the refreshed signature if no newer reload took over, so the next poll retries the refresh. */
+    private void clearRefreshedSignature(int mine) {
+        runOnUiThread(() -> {
+            if (mine == generation) refreshedSignature = null;
         });
     }
 

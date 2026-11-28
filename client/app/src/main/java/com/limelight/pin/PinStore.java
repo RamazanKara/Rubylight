@@ -112,6 +112,8 @@ public final class PinStore implements Closeable {
         boolean matches(String storedHash, byte[] pin);
     }
 
+    private static volatile boolean legacyMigrationDone;
+
     private final long handle;
     private final Clock clock;
     private final Verifier verifier;
@@ -152,50 +154,60 @@ public final class PinStore implements Closeable {
         return dir;
     }
 
-    private static synchronized void migrateLegacyIfNeeded(Context app, File dir) {
-        SharedPreferences legacy = app.getSharedPreferences(FILE, Context.MODE_PRIVATE);
-        if (legacy == null || legacy.getAll().isEmpty()) {
+    private static void migrateLegacyIfNeeded(Context app, File dir) {
+        if (legacyMigrationDone) {
             return;
         }
-        Json.Obj obj = Json.obj();
-        if (legacy.contains(HASH)) {
-            obj.put(HASH, legacy.getString(HASH, null));
-        }
-        if (legacy.contains(LENGTH)) {
-            obj.put(LENGTH, legacy.getInt(LENGTH, MAX_DIGITS));
-        }
-        if (legacy.contains(MODE)) {
-            obj.put(MODE, legacy.getString(MODE, Mode.OFF.value));
-        }
-        Set<String> pcs = legacy.getStringSet(PCS, null);
-        if (pcs != null) {
-            Json.Arr arr = Json.arr();
-            for (String pc : pcs) {
-                arr.add(pc);
+        synchronized (PinStore.class) {
+            if (legacyMigrationDone) {
+                return;
             }
-            obj.put(PCS, arr);
-        }
-        if (legacy.contains(GRACE)) {
-            obj.put(GRACE, legacy.getInt(GRACE, DEFAULT_GRACE_MINUTES));
-        }
-        if (legacy.contains(FAILS)) {
-            obj.put(FAILS, legacy.getInt(FAILS, 0));
-        }
-        if (legacy.contains(LOCK_UNTIL)) {
-            obj.put(LOCK_UNTIL, legacy.getLong(LOCK_UNTIL, 0));
-        }
-        if (legacy.contains(LOCK_BOOT)) {
-            obj.put(LOCK_BOOT, legacy.getLong(LOCK_BOOT, 0));
-        }
-        if (legacy.contains(ACTIVE_AT)) {
-            obj.put(ACTIVE_AT, legacy.getLong(ACTIVE_AT, 0));
-        }
-        if (legacy.contains(ACTIVE_BOOT)) {
-            obj.put(ACTIVE_BOOT, legacy.getLong(ACTIVE_BOOT, -1));
-        }
-        int status = NightjarPinJni.storeImportLegacy(dir.getAbsolutePath(), obj.toString());
-        if (status >= 0) {
-            legacy.edit().clear().commit();
+            SharedPreferences legacy = app.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+            if (legacy == null || legacy.getAll().isEmpty()) {
+                legacyMigrationDone = true;
+                return;
+            }
+            Json.Obj obj = Json.obj();
+            if (legacy.contains(HASH)) {
+                obj.put(HASH, legacy.getString(HASH, null));
+            }
+            if (legacy.contains(LENGTH)) {
+                obj.put(LENGTH, legacy.getInt(LENGTH, MAX_DIGITS));
+            }
+            if (legacy.contains(MODE)) {
+                obj.put(MODE, legacy.getString(MODE, Mode.OFF.value));
+            }
+            Set<String> pcs = legacy.getStringSet(PCS, null);
+            if (pcs != null) {
+                Json.Arr arr = Json.arr();
+                for (String pc : pcs) {
+                    arr.add(pc);
+                }
+                obj.put(PCS, arr);
+            }
+            if (legacy.contains(GRACE)) {
+                obj.put(GRACE, legacy.getInt(GRACE, DEFAULT_GRACE_MINUTES));
+            }
+            if (legacy.contains(FAILS)) {
+                obj.put(FAILS, legacy.getInt(FAILS, 0));
+            }
+            if (legacy.contains(LOCK_UNTIL)) {
+                obj.put(LOCK_UNTIL, legacy.getLong(LOCK_UNTIL, 0));
+            }
+            if (legacy.contains(LOCK_BOOT)) {
+                obj.put(LOCK_BOOT, legacy.getLong(LOCK_BOOT, 0));
+            }
+            if (legacy.contains(ACTIVE_AT)) {
+                obj.put(ACTIVE_AT, legacy.getLong(ACTIVE_AT, 0));
+            }
+            if (legacy.contains(ACTIVE_BOOT)) {
+                obj.put(ACTIVE_BOOT, legacy.getLong(ACTIVE_BOOT, -1));
+            }
+            int status = NightjarPinJni.storeImportLegacy(dir.getAbsolutePath(), obj.toString());
+            if (status >= 0) {
+                legacy.edit().clear().commit();
+                legacyMigrationDone = true;
+            }
         }
     }
 
@@ -329,7 +341,13 @@ public final class PinStore implements Closeable {
         return new PinStore(dir, clock, verifier);
     }
 
+    static void resetLegacyMigrationForTests() {
+        legacyMigrationDone = false;
+    }
+
     public static void clearForTests(Context context) {
+        PinGate.clearCachedStoreForTests();
+        legacyMigrationDone = false;
         Context app = resolveApp(context);
         File dir = storeDir(app);
         NightjarPinJni.storeEvictCacheForTests(dir.getAbsolutePath());

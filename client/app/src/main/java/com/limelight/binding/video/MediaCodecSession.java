@@ -151,7 +151,10 @@ final class MediaCodecSession {
         }
         if (r.wantVulkan && r.vulkanRenderer == null) {
             r.vulkanRenderer = r.vulkanHelper.createVulkanRenderer();
-            if (r.vulkanRenderer == null) {
+            if (r.vulkanRenderer != null) {
+                // Vulkan paces its own frames; stop any Choreographer thread started before a mid-stream switch.
+                r.vsyncPacer.quitChoreographerThread();
+            } else {
                 r.wantVulkan = false;
                 String detail = VulkanRendererBridge.getLastError();
                 if (r.vulkanHelper.frameWarp) r.vulkanHelper.declineFrameWarp(R.string.frame_warp_reason_renderer);
@@ -594,11 +597,6 @@ final class MediaCodecSession {
         r.stopping = true;
         SubmitHandoff<MediaCodecDecodeLoop.HandedUnit> handoff = r.submitHandoff;
         if (handoff != null) handoff.close(0);
-        if (r.vulkanRenderer == null && r.prefs.upscalingMode != UpscalingPolicy.Mode.OFF &&
-                Looper.myLooper() == Looper.getMainLooper()) {
-            // stop() repeats this on the shutdown worker, away from EGL startup/recovery on the UI.
-            return;
-        }
         if ((r.videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
             // Vulkan teardown and HDR transitions may wait on the GPU; keep the UI off that lock.
             // The vsync tracker still has to end, or stop() would wait for it forever.
@@ -634,6 +632,11 @@ final class MediaCodecSession {
             if (diagnostics != null) r.vulkanHelper.vulkanDiagnostics = diagnostics;
             vulkan.stop();
         }
+        GlesUpscaler upscaler = r.upscaler;
+        if (upscaler != null) {
+            // Non-blocking: prevents further EGL swaps onto a dying Surface without waiting on EGL.
+            upscaler.pausePresentation();
+        }
 
         r.vsyncPacer.quitChoreographerThread();
     }
@@ -643,14 +646,7 @@ final class MediaCodecSession {
         r.prepareForStop();
 
         // Wait for the Choreographer looper to shut down (if we have one)
-        if (r.vsyncPacer.choreographerHandlerThread != null) {
-            try {
-                r.vsyncPacer.choreographerHandlerThread.join();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-                Thread.currentThread().interrupt();
-            }
-        }
+        r.vsyncPacer.joinChoreographerThread();
 
         // Wait for the renderer thread to shut down
         if (r.rendererThread == null) return;
@@ -690,7 +686,9 @@ final class MediaCodecSession {
             r.vulkanHelper.handedBackVulkan = null;
             handedBack.destroy();
         }
-        r.vulkanHelper.closeUpscaler();
+        if (workerEnded) {
+            r.vulkanHelper.closeUpscaler();
+        }
         r.telemetry.stopLatencyThread();
         r.refreshSlots.close(); r.vsyncPacer.holdStamp.close(); r.residency.close(); r.debt.close();
         r.inFlight.close(); r.framePresenter.displayQueue.close(); r.presentScheduler.close(); r.compositorWatch.close();

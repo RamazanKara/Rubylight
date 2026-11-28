@@ -31,12 +31,20 @@ import java.util.Locale;
 public class UiHelper {
 
     public static void showDialog(Context context, android.app.Dialog dialog) {
+        showDialog(context, dialog, null);
+    }
+
+    public static void showDialog(Context context, android.app.Dialog dialog,
+                                  DialogInterface.OnDismissListener onDismiss) {
         // Native preferences no longer own the lifecycle of their Material dialogs.
         androidx.lifecycle.Lifecycle lifecycle = ((androidx.lifecycle.LifecycleOwner) context).getLifecycle();
         androidx.lifecycle.LifecycleEventObserver observer = (owner, event) -> {
             if (event == androidx.lifecycle.Lifecycle.Event.ON_DESTROY) dialog.dismiss();
         };
-        dialog.setOnDismissListener(ignored -> lifecycle.removeObserver(observer));
+        dialog.setOnDismissListener(d -> {
+            lifecycle.removeObserver(observer);
+            if (onDismiss != null) onDismiss.onDismiss(d);
+        });
         lifecycle.addObserver(observer);
         // Pad the content before the window first lays out. Padding it after show() resized the
         // dialog mid-animation (the 24dp TV margin), so it looked like it opened twice.
@@ -166,6 +174,7 @@ public class UiHelper {
 
     public static void showDecoderCrashDialog(Activity activity) {
         final SharedPreferences prefs = activity.getSharedPreferences("DecoderTombstone", 0);
+        com.limelight.binding.video.CrashAccounting.promoteUncleanStreamExit(prefs, android.os.Process.myPid());
         final int crashCount = prefs.getInt("CrashCount", 0);
         int lastNotifiedCrashCount = prefs.getInt("LastNotifiedCrashCount", 0);
 

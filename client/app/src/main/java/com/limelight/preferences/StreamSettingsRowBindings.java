@@ -721,11 +721,10 @@ final class StreamSettingsRowBindings {
                 .setNegativeButton(android.R.string.cancel, (d, which) -> fragment.dualSenseConsentShowing = false)
                 .setOnCancelListener(d -> fragment.dualSenseConsentShowing = false)
                 .create();
-        dialog.setOnDismissListener(d -> {
+        UiHelper.showDialog(activity, dialog, d -> {
             if (!activity.isChangingConfigurations()) {
                 fragment.dualSenseConsentShowing = false;
             }
         });
-        UiHelper.showDialog(activity, dialog);
     }
 }

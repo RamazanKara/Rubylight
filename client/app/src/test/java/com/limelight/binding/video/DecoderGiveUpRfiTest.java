@@ -34,6 +34,7 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -96,19 +97,39 @@ public class DecoderGiveUpRfiTest {
     }
 
     @Test
-    public void giveUpsShowNoSecondDialogAndResetNothing() {
+    public void firstTwoGiveUpsStayQuietAndThirdTriggersSafetyReset() {
         SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(activity.get());
-        settings.edit().putInt("seekbar_bitrate_kbps", 80_000).commit();
-        // Three in a row: a crash count of 3 used to reset the streaming settings from the dialog.
-        for (int i = 1; i <= 3; i++) {
+        settings.edit()
+                .putInt("seekbar_bitrate_kbps", 80_000)
+                .putBoolean("checkbox_vulkan_render", true)
+                .putString("upscaling_mode", "fsr1")
+                .putBoolean("checkbox_frame_warp", true)
+                .putBoolean("checkbox_vrr", true)
+                .commit();
+
+        // Strikes 1 and 2 already showed their -107 dialog: no second dialog and no settings reset.
+        for (int i = 1; i <= 2; i++) {
             assertEquals(i, CrashAccounting.recordGiveUp(tombstone, "rfi-pc"));
             assertEquals(i, tombstone.getInt("LastNotifiedCrashCount", 0));
+            ShadowDialog.reset();
+            UiHelper.showDecoderCrashDialog(activity.get());
+            ShadowLooper.idleMainLooper();
+            assertNull("strike " + i + " must not show a duplicate dialog", ShadowDialog.getLatestDialog());
+            assertEquals(80_000, settings.getInt("seekbar_bitrate_kbps", 0));
         }
+
+        // Strike 3 leaves LastNotifiedCrashCount < CrashCount so the safety reset and reset dialog run.
+        assertEquals(3, CrashAccounting.recordGiveUp(tombstone, "rfi-pc"));
+        assertEquals(2, tombstone.getInt("LastNotifiedCrashCount", 0));
         ShadowDialog.reset();
         UiHelper.showDecoderCrashDialog(activity.get());
         ShadowLooper.idleMainLooper();
-        assertNull(ShadowDialog.getLatestDialog());
-        assertEquals(80_000, settings.getInt("seekbar_bitrate_kbps", 0));
+        assertNotNull("strike 3 must show the reset dialog", ShadowDialog.getLatestDialog());
+        assertFalse("bitrate must be reset on strike 3", settings.contains("seekbar_bitrate_kbps"));
+        assertFalse("vulkan must be reset on strike 3", settings.contains("checkbox_vulkan_render"));
+        assertFalse("upscaling must be reset on strike 3", settings.contains("upscaling_mode"));
+        assertFalse("frame warp must be reset on strike 3", settings.contains("checkbox_frame_warp"));
+        assertFalse("vrr must be reset on strike 3", settings.contains("checkbox_vrr"));
     }
 
     private static MediaCodecInfo lowLatencyHevc() {

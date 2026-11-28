@@ -41,8 +41,10 @@ final class MediaCodecVsyncPacer {
     private final RefreshSlots.Slot vsyncRefreshSlot = new RefreshSlots.Slot();
     private volatile boolean slotPlateauLogged;
     private volatile boolean slotSharedLogged;
-    HandlerThread choreographerHandlerThread;
+    volatile HandlerThread choreographerHandlerThread;
+    private volatile HandlerThread quittingChoreographerThread;
     private Handler choreographerHandler;
+    private DisplayManager.DisplayListener activeDisplayListener;
     /** The display's fixed presentation deadline, kept for the frame timeline log line. */
     private long reportedPresentationDeadlineNs;
     /** The Android 13 frame timeline callback ({@link FrameTimelineCallback}), created on first use. */
@@ -180,7 +182,7 @@ final class MediaCodecVsyncPacer {
 
     /** One vsync: anchorNs (0 = frameTime - appVsyncOffset), expectedPresentNs (0 = none), deadlineLeadNs (< 0 = keep fixed). */
     private void onVsync(long frameTimeNanos, long anchorNs, long expectedPresentNs, long deadlineLeadNs) {
-        if (r.stopping || !r.outputVsyncAvailable) return;
+        if (r.stopping || !r.outputVsyncAvailable || r.vulkanRenderer != null) return;
 
         long callbackVsyncNs, reportedNs;
         synchronized (r.vsyncMonitor) {
@@ -268,6 +270,7 @@ final class MediaCodecVsyncPacer {
 
     /** Asks for the next vsync, with its frame timeline on Android 13 and newer. Choreographer thread only. */
     private void postVsyncCallback() {
+        if (r.stopping || r.vulkanRenderer != null || choreographerHandlerThread == null) return;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (frameTimelineCallback == null) frameTimelineCallback = FrameTimelineCallback.create(r);
             FrameTimelineCallback.post(frameTimelineCallback);
@@ -313,47 +316,84 @@ final class MediaCodecVsyncPacer {
         }
     }
 
-    void startChoreographerThread() {
+    synchronized void startChoreographerThread() {
+        if (choreographerHandlerThread != null) return;
         // Local output tracks vsync for phase-lock reports; only balanced renders here.
         // External output still observes mode changes for upscaling, but cannot use
         // the internal display's callback as an external pacing or phase signal.
         // We use a separate thread to avoid any main thread delays from delaying rendering
-        choreographerHandlerThread = new HandlerThread("Video - Choreographer", Process.THREAD_PRIORITY_DISPLAY);
-        choreographerHandlerThread.start();
+        HandlerThread thread = new HandlerThread("Video - Choreographer", Process.THREAD_PRIORITY_DISPLAY);
+        thread.start();
 
         r.streamDisplay = r.outputDisplay;
-        displayManager = (DisplayManager) r.context.getSystemService(Context.DISPLAY_SERVICE);
+        DisplayManager dm = (DisplayManager) r.context.getSystemService(Context.DISPLAY_SERVICE);
+        displayManager = dm;
+
+        // Per-thread delegating listener so an old quitting thread cannot unregister a restarted thread's listener.
+        DisplayManager.DisplayListener listener = new DisplayManager.DisplayListener() {
+            @Override public void onDisplayAdded(int displayId) { r.displayListener.onDisplayAdded(displayId); }
+            @Override public void onDisplayRemoved(int displayId) { r.displayListener.onDisplayRemoved(displayId); }
+            @Override public void onDisplayChanged(int displayId) { r.displayListener.onDisplayChanged(displayId); }
+        };
 
         // Start the frame callbacks
-        choreographerHandler = new Handler(choreographerHandlerThread.getLooper());
-        choreographerHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                displayManager.registerDisplayListener(r.displayListener, choreographerHandler);
-                updateDisplayTiming();
-                if (r.outputVsyncAvailable) {
-                    postVsyncCallback();
-                }
+        Handler handler = new Handler(thread.getLooper());
+        choreographerHandlerThread = thread;
+        choreographerHandler = handler;
+        activeDisplayListener = listener;
+        handler.post(() -> {
+            if (choreographerHandlerThread != thread) return;
+            dm.registerDisplayListener(listener, handler);
+            updateDisplayTiming();
+            if (r.outputVsyncAvailable) {
+                postVsyncCallback();
             }
         });
     }
 
-    void quitChoreographerThread() {
+    synchronized void quitChoreographerThread() {
         // Post a quit message to the Choreographer looper (if we have one)
-        if (choreographerHandler != null) {
-            choreographerHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    displayManager.unregisterDisplayListener(r.displayListener);
-                    // Don't allow any further messages to be queued
-                    choreographerHandlerThread.quit();
+        Handler handler = choreographerHandler;
+        HandlerThread thread = choreographerHandlerThread;
+        DisplayManager dm = displayManager;
+        DisplayManager.DisplayListener listener = activeDisplayListener;
+        if (handler == null || thread == null) return;
+        choreographerHandler = null;
+        choreographerHandlerThread = null;
+        activeDisplayListener = null;
+        quittingChoreographerThread = thread;
+        handler.post(() -> {
+            if (dm != null && listener != null) {
+                dm.unregisterDisplayListener(listener);
+            }
+            // Deregister the frame callback (if registered)
+            if (r.outputVsyncAvailable) {
+                removeVsyncCallback();
+            }
+            // Don't allow any further messages to be queued
+            thread.quit();
+        });
+    }
 
-                    // Deregister the frame callback (if registered)
-                    if (r.outputVsyncAvailable) {
-                        removeVsyncCallback();
-                    }
-                }
-            });
+    void joinChoreographerThread() {
+        HandlerThread active = choreographerHandlerThread;
+        HandlerThread quitting = quittingChoreographerThread;
+        joinThread(active);
+        if (quitting != active) {
+            joinThread(quitting);
+        }
+        if (quitting != null && quittingChoreographerThread == quitting) {
+            quittingChoreographerThread = null;
+        }
+    }
+
+    private static void joinThread(HandlerThread thread) {
+        if (thread == null || thread == Thread.currentThread()) return;
+        try {
+            thread.join();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+            Thread.currentThread().interrupt();
         }
     }
 

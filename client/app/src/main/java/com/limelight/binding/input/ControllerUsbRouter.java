@@ -307,9 +307,18 @@ final class ControllerUsbRouter {
         }
         handler.sendControllerInputPacket(context);
         if (openMenuNow && handler.activityContext instanceof Game) {
-            ((Game) handler.activityContext).showStreamMenuFromController();
+            Game game = (Game) handler.activityContext;
+            runOnMainThread(game::showStreamMenuFromController);
         }
         handler.buttons.releaseQuitCombo(context, buttonFlags);
+    }
+
+    private void runOnMainThread(Runnable action) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            action.run();
+        } else {
+            handler.mainThreadHandler.post(action);
+        }
     }
 
     private void capturePad(int controllerId, ControllerHandler.UsbDeviceContext context, ControllerHandler.PadCapture capture, int buttons, float stickX, float stickY) {
@@ -367,9 +376,11 @@ final class ControllerUsbRouter {
             return;
         }
         Game game = (Game) handler.activityContext;
-        for (int key : keys) {
-            game.steerStreamMenu(key);
-        }
+        runOnMainThread(() -> {
+            for (int key : keys) {
+                game.steerStreamMenu(key);
+            }
+        });
     }
 
     void reportControllerTouch(int controllerId, byte eventType, int pointerId, float x, float y, float pressure) {

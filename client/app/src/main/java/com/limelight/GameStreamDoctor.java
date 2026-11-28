@@ -121,7 +121,8 @@ final class GameStreamDoctor implements StreamDoctorController.Host {
         f.width = game.streamWidth;
         f.height = game.streamHeight;
         f.fps = game.streamFps;
-        View window = game.getWindow().getDecorView();
+        android.view.Window videoWindow = game.videoOutput != null ? game.videoOutput.getVideoWindow() : null;
+        View window = (videoWindow != null ? videoWindow : game.getWindow()).getDecorView();
         f.screenWidth = window.getWidth();
         f.screenHeight = window.getHeight();
         int format = game.decoderRenderer.getActiveVideoFormat();
@@ -169,7 +170,7 @@ final class GameStreamDoctor implements StreamDoctorController.Host {
         if (!canResize((game.decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0)) return false;
         int fpsMillihz = game.reconfigureRequester.fpsMillihz() > 0 ? game.reconfigureRequester.fpsMillihz()
                 : game.streamFps * 1000;
-        return game.videoOutput.requestStreamReconfigure(new int[] {width, height, fpsMillihz});
+        return game.videoOutput.requestManualStreamReconfigure(new int[] {width, height, fpsMillihz});
     }
 
     @Override public void hostBitrateApplied(int kbps) {

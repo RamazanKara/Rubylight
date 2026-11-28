@@ -453,11 +453,14 @@ public final class HostStreamProfile {
                 fields.length == 13 ? Integer.parseInt(fields[12]) : null, nativeResolution);
     }
 
-    /** Clears decoder/stream-format overrides so a crash reset removes any forced failing codec. */
+    /** Clears decoder/stream-format/renderer/pacing overrides so a crash reset removes any failing video setting. */
     boolean clearVideoCrashFields() {
         boolean changed = nativeResolution != null || width != null || height != null
                 || refreshRateX100 != null || codec != null
                 || hdr != null || fullRange != null || yuv444 != null
+                || vrr != null || realVrr != null
+                || upscalingMode != null || upscalingSharpness != null
+                || pacing != null || hostFrameTimes != null || dropLateFrames != null
                 || rtxHdr != null || rtxVideo != null || hdrFormat != null;
         nativeResolution = null;
         width = null;
@@ -467,6 +470,13 @@ public final class HostStreamProfile {
         hdr = null;
         fullRange = null;
         yuv444 = null;
+        vrr = null;
+        realVrr = null;
+        upscalingMode = null;
+        upscalingSharpness = null;
+        pacing = null;
+        hostFrameTimes = null;
+        dropLateFrames = null;
         rtxHdr = null;
         rtxVideo = null;
         hdrFormat = null;

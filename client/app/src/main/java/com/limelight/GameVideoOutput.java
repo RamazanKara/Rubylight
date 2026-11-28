@@ -205,6 +205,7 @@ final class GameVideoOutput {
                     if (size.x > 0 && size.y > 0) { game.prefConfig.width = size.x; game.prefConfig.height = size.y; }
                 }
                 game.nativeResolutionStream = false;
+                updateDisplayRefreshConfig(display);
                 return;
             } catch (WindowManager.InvalidDisplayException | SecurityException | IllegalArgumentException e) {
                 if (presentation != null) {
@@ -219,15 +220,19 @@ final class GameVideoOutput {
         game.getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
         // A hot-unplug can happen between reading preferences and creating the
         // presentation. Do not retain the missing monitor's VRR/FPS launch values.
-        game.panelMaxRefreshRate = DisplayFrameRatePolicy.maxRefreshRate(getVideoDisplay(),
+        updateDisplayRefreshConfig(getVideoDisplay());
+        game.streamView.initializeSurface(game.prefConfig.useTextureView);
+    }
+
+    private void updateDisplayRefreshConfig(Display display) {
+        game.panelMaxRefreshRate = DisplayFrameRatePolicy.maxRefreshRate(display,
                 game.prefConfig.width, game.prefConfig.height);
         if (game.prefConfig.vrr) {
             game.prefConfig.fps = DisplayFrameRatePolicy.streamFrameRate(game.panelMaxRefreshRate);
             game.prefConfig.launchRefreshRateX100 = Math.max(100, Math.min(100000, Math.round(game.panelMaxRefreshRate * 100)));
         }
         game.fpsFollowsDisplay = DisplayFrameRatePolicy.fpsFollowsDisplay(game.prefConfig.vrr,
-                game.prefConfig.fps, DisplayFrameRatePolicy.maxRefreshRate(getVideoDisplay()));
-        game.streamView.initializeSurface(game.prefConfig.useTextureView);
+                game.prefConfig.fps, DisplayFrameRatePolicy.maxRefreshRate(display));
     }
 
     void returnVideoToDevice() {
@@ -711,6 +716,7 @@ final class GameVideoOutput {
     void clearDecoderActions() { reconfigure.clearDecoderActions(); }
     void checkStreamReconfigure() { reconfigure.checkStreamReconfigure(); }
     boolean requestStreamReconfigure(int[] request) { return reconfigure.requestStreamReconfigure(request); }
+    boolean requestManualStreamReconfigure(int[] request) { return reconfigure.requestManualStreamReconfigure(request); }
     void setStreamFrameRate(int fpsMillihz) { reconfigure.setStreamFrameRate(fpsMillihz); }
     private String displaySignature() { return reconfigure.displaySignature(); }
     void onDisplayModesChanged() { reconfigure.onDisplayModesChanged(); }

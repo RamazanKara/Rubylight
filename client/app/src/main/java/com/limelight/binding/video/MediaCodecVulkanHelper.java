@@ -359,10 +359,17 @@ final class MediaCodecVulkanHelper {
     }
 
     void closeUpscaler() {
+        closeUpscaler(false);
+    }
+
+    void closeUpscaler(boolean handoverToVulkan) {
         if (r.upscaler != null) {
             boolean warp = r.upscaler.drawsFrameWarp();
             r.upscaler.close();
             r.upscaler = null;
+            if (handoverToVulkan || r.stopping) {
+                return;
+            }
             if (warp) {
                 declineFrameWarp(r.upscalingPolicy.getReason() == UpscalingPolicy.Reason.HDR ?
                         R.string.frame_warp_reason_hdr : R.string.frame_warp_reason_renderer);

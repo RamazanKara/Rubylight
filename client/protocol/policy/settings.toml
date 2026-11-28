@@ -2446,7 +2446,7 @@ advice = "Off by default. Three- and four-finger taps that the system cancels, a
 
 [[android_setting]]
 key = "checkbox_pinch_to_zoom"
-category = "category_input_settings"
+category = "category_input_main"
 tier = "main"
 kind = "bool"
 xml_default = "false"

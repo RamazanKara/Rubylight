@@ -186,6 +186,10 @@ public class HomePollNewsTest {
         rig.transport.reply("tower", "session", com.limelight.nativeapi.NativeApiFixtures.ok(
                 com.limelight.nativeapi.NativeApiFixtures.IDLE));
 
+        controller.pause();
+        controller.resume();
+        assertTrue("plain resume without stream end does not invalidate hosts", invalidated.isEmpty());
+
         HostFeed.noteStreamEnded("tower");
         controller.pause();
         controller.resume();

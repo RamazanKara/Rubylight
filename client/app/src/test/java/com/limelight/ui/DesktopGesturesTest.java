@@ -129,7 +129,7 @@ public class DesktopGesturesTest {
         assertEquals(1.0f, gestures.viewport().scale(), 0.001f);
         assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 2130,
                 new float[] {150, 110}, new float[] {550, 110}));
-        assertTrue(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 2140, new float[] {150, 110}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 2140, new float[] {150, 110}));
         assertFalse(gestures.viewport().isTransformed());
 
         assertFalse(send(gestures, true, true, MotionEvent.ACTION_DOWN, 0, one, 3000, new float[] {200, 150}));
@@ -199,7 +199,7 @@ public class DesktopGesturesTest {
         assertTrue(gestures.viewport().scale() >= 0.97f && gestures.viewport().scale() <= 1.03f);
         assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 2050,
                 new float[] {260 - targetHalfSpan, 180}, new float[] {260 + targetHalfSpan, 180}));
-        assertTrue(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 2060, new float[] {260 - targetHalfSpan, 180}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 2060, new float[] {260 - targetHalfSpan, 180}));
         assertFalse(gestures.viewport().isTransformed());
         assertEquals(1.0f, gestures.viewport().scale(), 0.001f);
 
@@ -282,7 +282,7 @@ public class DesktopGesturesTest {
                 new float[] {180, 220}, new float[] {540, 220}));
         assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 1040,
                 new float[] {180, 220}, new float[] {540, 220}));
-        assertTrue(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 1050, new float[] {180, 220}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 1050, new float[] {180, 220}));
         assertFalse(gestures.viewport().isTransformed());
 
         assertFalse(send(gestures, true, true, MotionEvent.ACTION_DOWN, 0, one, 2000, new float[] {-600, 200}));
@@ -301,7 +301,7 @@ public class DesktopGesturesTest {
                 new float[] {-620, 200}, new float[] {1420, 200}));
         assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 2050,
                 new float[] {-620, 200}, new float[] {1420, 200}));
-        assertTrue(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 2060, new float[] {-620, 200}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_UP, 0, one, 2060, new float[] {-620, 200}));
         assertFalse(gestures.viewport().isTransformed());
     }
 
@@ -397,5 +397,37 @@ public class DesktopGesturesTest {
                 android.view.View.MeasureSpec.makeMeasureSpec(1200, android.view.View.MeasureSpec.EXACTLY));
         parent.layout(0, 0, 2400, 1200);
         assertTrue(syncs.get() > 0);
+    }
+
+    @Test
+    public void passivePointerUpSoftResetClearsConsumingForSingleFingerDragAndReEntryRequiresThreshold() {
+        AtomicInteger cancels = new AtomicInteger();
+        DesktopGestures gestures = newGestures(cancels, new AtomicInteger());
+        int[] one = {0}, two = {0, 1};
+
+        // Zoom slightly in passively, then pinch right back within [0.97, 1.03] and lift 2nd finger (2 -> 1).
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_DOWN, 0, one, 1000, new float[] {250, 200}));
+        assertFalse(send(gestures, true, true, MotionEvent.ACTION_POINTER_DOWN, 1, two, 1010,
+                new float[] {250, 200}, new float[] {550, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 1020,
+                new float[] {220, 200}, new float[] {580, 200}));
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 1030,
+                new float[] {218, 200}, new float[] {582, 200}));
+        assertTrue(gestures.viewport().scale() > 1.0f && gestures.viewport().scale() <= 1.03f);
+        assertTrue(send(gestures, true, true, MotionEvent.ACTION_POINTER_UP, 1, two, 1040,
+                new float[] {218, 200}, new float[] {582, 200}));
+        assertFalse("2 -> 1 soft reset returned viewport to un-transformed 1.0x", gestures.viewport().isTransformed());
+
+        // Subsequent single-finger drags must not be swallowed, and re-landing 2nd finger (1 -> 2) requires 28dp latch.
+        assertFalse("single-finger drag after 2 -> 1 soft reset is not swallowed",
+                send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, one, 1050, new float[] {260, 220}));
+        assertFalse("1 -> 2 re-entry back in passive 1.0x wait does not consume or cancel",
+                send(gestures, true, true, MotionEvent.ACTION_POINTER_DOWN, 1, two, 1060,
+                        new float[] {260, 220}, new float[] {460, 220}));
+        assertFalse("two-finger vertical scroll after 1 -> 2 re-entry passes through without bypassing threshold",
+                send(gestures, true, true, MotionEvent.ACTION_MOVE, 0, two, 1070,
+                        new float[] {260, 320}, new float[] {460, 320}));
+        assertEquals(1, cancels.get());
+        assertEquals(1.0f, gestures.viewport().scale(), 0f);
     }
 }

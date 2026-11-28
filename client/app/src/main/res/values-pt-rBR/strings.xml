@@ -624,4 +624,5 @@
     <string name="controller_studio_touchpad">Touchpad</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Gatilho %2$d%%</string>
     <string name="controller_studio_a11y_summary">Estúdio do controle: botões %1$s, zona morta do analógico %2$d%%, zona morta do gatilho %3$d%%</string>
+    <string name="hevc_low_latency_auto_disabled_notice">Opções de baixa latência HEVC desativadas automaticamente para este decodificador para evitar travamentos. Altere em Configurações → Avançado.</string>
 </resources>

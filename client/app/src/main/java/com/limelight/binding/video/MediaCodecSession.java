@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import android.app.Activity;
+import android.content.Context;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
@@ -45,6 +47,7 @@ final class MediaCodecSession {
     volatile boolean frameRenderedListenerSet;
     // Follow the content rate for Game's frame rate vote (host frame times, scheduled or not).
     volatile boolean trackContentRate;
+    private boolean hevcLowLatencyAutoNoticeShown;
 
     MediaCodecSession(MediaCodecDecoderRenderer renderer) {
         this.r = renderer;
@@ -494,6 +497,25 @@ final class MediaCodecSession {
         if (r.restartRecreates) {
             LimeLog.info("Decoder " + selectedDecoderInfo.getName() + " restarts as a new codec:" +
                     " stop() and configure() are not safe on it as it is set up");
+        }
+        if (!hevcLowLatencyAutoNoticeShown && "video/hevc".equals(mimeType) &&
+                selectedDecoderInfo != null && r.prefs != null &&
+                r.prefs.hevcLowLatency() == PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO &&
+                MediaCodecHelper.autoOmitsHevcLowLatencyFlags(selectedDecoderInfo.getName()) &&
+                (r.prefs.codecLowLatency || r.prefs.vendorLowLatency)) {
+            hevcLowLatencyAutoNoticeShown = true;
+            LimeLog.info("HEVC low-latency flags and RFI skipped automatically for " +
+                    selectedDecoderInfo.getName() + " (HEVC low-latency = Auto)");
+            Activity activity = r.activity;
+            Context toastContext = r.context != null ? r.context : activity;
+            if (activity != null && toastContext != null && !r.stopping) {
+                activity.runOnUiThread(() -> {
+                    if (!r.stopping) {
+                        Toast.makeText(toastContext, R.string.hevc_low_latency_auto_disabled_notice,
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
         }
     }
 

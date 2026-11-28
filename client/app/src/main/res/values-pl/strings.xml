@@ -624,4 +624,5 @@
     <string name="controller_studio_touchpad">Touchpad</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Spust %2$d%%</string>
     <string name="controller_studio_a11y_summary">Studio kontrolera: układ przycisków %1$s, martwa strefa drążka %2$d%%, martwa strefa spustów %3$d%%</string>
+    <string name="hevc_low_latency_auto_disabled_notice">Flagi niskich opóźnień HEVC zostały automatycznie wyłączone dla tego dekodera, aby zapobiec zawieszaniu. Zmień w Ustawienia → Zaawansowane.</string>
 </resources>

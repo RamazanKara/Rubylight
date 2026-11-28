@@ -173,11 +173,14 @@ public final class DesktopGestures {
         }
         boolean tapped = twoFingerTap.onTouch(event, density);
 
+        boolean wasConsuming = consuming;
         if (action == MotionEvent.ACTION_POINTER_DOWN) {
             if (!hasBaseline && event.getPointerCount() >= 2) {
                 capturePair(event, -1);
                 boolean passiveWaitAtOneX = allowScrollThrough && !enabled && !viewport.isTransformed();
-                if (!consuming && !passiveWaitAtOneX) {
+                if (passiveWaitAtOneX) {
+                    consuming = false;
+                } else if (!consuming) {
                     cancelInput.run();
                     consuming = true;
                 }
@@ -192,6 +195,9 @@ public final class DesktopGestures {
             } else {
                 clearPair();
                 softResetIfNearUnity();
+                if (!enabled && !viewport.isTransformed()) {
+                    consuming = false;
+                }
             }
         } else if (action == MotionEvent.ACTION_MOVE && event.getPointerCount() >= 2) {
             int idxA = hasBaseline ? event.findPointerIndex(pointerIdA) : -1;
@@ -237,7 +243,7 @@ public final class DesktopGestures {
             }
         }
 
-        boolean handled = consuming;
+        boolean handled = consuming || (action == MotionEvent.ACTION_POINTER_UP && wasConsuming);
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
             softResetIfNearUnity();
             consuming = false;

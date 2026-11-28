@@ -553,6 +553,8 @@ final class GameMenuActions {
                     LimeLog.warning("Quit on leave failed: " + error.getMessage());
                     Toast.makeText(context, context.getString(R.string.stream_quit_on_leave_failed, name,
                             error.getMessage()), Toast.LENGTH_LONG).show();
+                } else if (game.conn != null && game.conn.getHostDetails() != null) {
+                    com.limelight.console.HostFeed.noteStreamEnded(game.conn.getHostDetails().uuid);
                 }
                 game.finish();
             });
@@ -569,6 +571,9 @@ final class GameMenuActions {
         new Thread(() -> {
             try {
                 game.conn.disconnectRemoteSession();
+                if (game.conn != null && game.conn.getHostDetails() != null) {
+                    com.limelight.console.HostFeed.noteStreamEnded(game.conn.getHostDetails().uuid);
+                }
                 game.runOnUiThread(game::finish);
             } catch (IOException | XmlPullParserException | RuntimeException e) {
                 game.runOnUiThread(this::confirmHostExitFailedLater);

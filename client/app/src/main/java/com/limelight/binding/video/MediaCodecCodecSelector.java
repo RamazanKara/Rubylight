@@ -135,13 +135,18 @@ final class MediaCodecCodecSelector {
             LimeLog.info("Decoder " + r.avcDecoder.getName() + " wants " + avcOptimalSlicesPerFrame + " slices per frame");
         }
 
+        int hevcLowLatencyMode = prefs.hevcLowLatency();
         if (r.hevcDecoder != null) {
             r.refFrameInvalidationHevc = MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(r.hevcDecoder,
-                    prefs.codecLowLatency, prefs.vendorLowLatency, prefs.disableHevcLowLatency);
+                    prefs.codecLowLatency, prefs.vendorLowLatency, hevcLowLatencyMode);
             hevcOptimalSlicesPerFrame = MediaCodecHelper.getDecoderOptimalSlicesPerFrame(r.hevcDecoder.getName());
 
             if (r.refFrameInvalidationHevc) {
                 LimeLog.info("Decoder " + r.hevcDecoder.getName() + " will use reference frame invalidation for HEVC");
+            } else if (hevcLowLatencyMode == PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO &&
+                    MediaCodecHelper.autoOmitsHevcLowLatencyFlags(r.hevcDecoder.getName())) {
+                LimeLog.warning("Disabling HEVC RFI for " + r.hevcDecoder.getName() +
+                        " because HEVC low-latency flags are omitted automatically");
             }
 
             LimeLog.info("Decoder " + r.hevcDecoder.getName() + " wants " + hevcOptimalSlicesPerFrame + " slices per frame");
@@ -165,9 +170,15 @@ final class MediaCodecCodecSelector {
         optimalSlicesPerFrame10 = optimalSlicesPerFrame;
         if (r.hevcDecoder10 != null && r.hevcDecoder10 != r.hevcDecoder) {
             r.refFrameInvalidationHevc10 = MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(r.hevcDecoder10,
-                    prefs.codecLowLatency, prefs.vendorLowLatency, prefs.disableHevcLowLatency);
+                    prefs.codecLowLatency, prefs.vendorLowLatency, hevcLowLatencyMode);
             optimalSlicesPerFrame10 = (byte) Math.max(avcOptimalSlicesPerFrame,
                     MediaCodecHelper.getDecoderOptimalSlicesPerFrame(r.hevcDecoder10.getName()));
+            if (!r.refFrameInvalidationHevc10 &&
+                    hevcLowLatencyMode == PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO &&
+                    MediaCodecHelper.autoOmitsHevcLowLatencyFlags(r.hevcDecoder10.getName())) {
+                LimeLog.warning("Disabling 10-bit HEVC RFI for " + r.hevcDecoder10.getName() +
+                        " because HEVC low-latency flags are omitted automatically");
+            }
             LimeLog.info("Decoder " + r.hevcDecoder10.getName() + " for 10-bit SDR: RFI " + r.refFrameInvalidationHevc10 +
                     ", " + optimalSlicesPerFrame10 + " slices per frame");
         }

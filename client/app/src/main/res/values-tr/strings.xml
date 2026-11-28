@@ -624,4 +624,5 @@
     <string name="controller_studio_touchpad">Dokunmatik yüzey</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Tetik %2$d%%</string>
     <string name="controller_studio_a11y_summary">Kumanda Stüdyosu: %1$s tuş düzeni, çubuk ölü bölgesi %2$d%%, tetik ölü bölgesi %3$d%%</string>
+    <string name="hevc_low_latency_auto_disabled_notice">Donmaları önlemek için bu kod çözücüde HEVC düşük gecikme bayrakları otomatik kapatıldı. Ayarlar → Gelişmiş bölümünden değiştirebilirsiniz.</string>
 </resources>

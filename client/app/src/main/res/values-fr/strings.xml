@@ -624,4 +624,5 @@
     <string name="controller_studio_touchpad">Pavé tactile</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Gâchette %2$d%%</string>
     <string name="controller_studio_a11y_summary">Studio manette : boutons %1$s, zone morte du stick %2$d%%, zone morte des gâchettes %3$d%%</string>
+    <string name="hevc_low_latency_auto_disabled_notice">Options HEVC à faible latence désactivées automatiquement pour ce décodeur afin d\'éviter les blocages. Modifier dans Paramètres → Avancé.</string>
 </resources>

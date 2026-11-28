@@ -624,4 +624,5 @@
     <string name="controller_studio_touchpad">タッチパッド</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · トリガー %2$d%%</string>
     <string name="controller_studio_a11y_summary">コントローラースタジオ: ボタン配置 %1$s、スティックのデッドゾーン %2$d%%、トリガーのデッドゾーン %3$d%%</string>
+    <string name="hevc_low_latency_auto_disabled_notice">フリーズを防ぐため、このデコーダーの HEVC の低遅延フラグを自動的にオフにしました。設定 → 詳細設定 で変更できます。</string>
 </resources>

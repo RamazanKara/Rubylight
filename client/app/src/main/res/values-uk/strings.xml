@@ -624,4 +624,5 @@
     <string name="controller_studio_touchpad">Тачпад</string>
     <string name="controller_studio_deadzone_readout">%1$d%% · Курок %2$d%%</string>
     <string name="controller_studio_a11y_summary">Студія геймпада: розкладка %1$s, мертва зона стіка %2$d%%, мертва зона курків %3$d%%</string>
+    <string name="hevc_low_latency_auto_disabled_notice">Прапорці низької затримки HEVC автоматично вимкнено для цього декодера, щоб запобігти зависанням. Змініть у Налаштування → Додатково.</string>
 </resources>

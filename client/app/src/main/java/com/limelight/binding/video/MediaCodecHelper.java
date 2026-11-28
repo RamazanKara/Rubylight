@@ -296,8 +296,16 @@ public class MediaCodecHelper {
     public static boolean decoderSupportsRefFrameInvalidationHevc(MediaCodecInfo decoderInfo,
                                                                  boolean lowLatency, boolean vendorLowLatency,
                                                                  boolean disableHevcLowLatency) {
+        return decoderSupportsRefFrameInvalidationHevc(decoderInfo, lowLatency, vendorLowLatency,
+                disableHevcLowLatency ? PreferenceConfiguration.HEVC_LOW_LATENCY_OFF :
+                        PreferenceConfiguration.HEVC_LOW_LATENCY_AUTO);
+    }
+
+    public static boolean decoderSupportsRefFrameInvalidationHevc(MediaCodecInfo decoderInfo,
+                                                                 boolean lowLatency, boolean vendorLowLatency,
+                                                                 int hevcLowLatencyMode) {
         return MediaCodecCapabilities.decoderSupportsRefFrameInvalidationHevc(decoderInfo,
-                lowLatency, vendorLowLatency, disableHevcLowLatency, refFrameInvalidationHevcPrefixes);
+                lowLatency, vendorLowLatency, hevcLowLatencyMode, refFrameInvalidationHevcPrefixes);
     }
 
     public static boolean decoderSupportsRefFrameInvalidationAv1(MediaCodecInfo decoderInfo) {

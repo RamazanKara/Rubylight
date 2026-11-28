@@ -80,7 +80,7 @@ A stream and the shared JSON models run on the Rust engine, `nightjar-core`, thr
 | PCs, library, UI | `computers/`, `console/`, `ui/`, `grid/` |
 | Artwork and game facts | `console/GameInfo.java` (keys, `NightjarHttpJni` `WebPkiTransport`, cache), `console/GameInfoModel.java` (`nightjar_policy::game_info` through `protocol/android/src/game_info.rs`), `console/GameInfoFilter.java` |
 | PIN lock, updates | `pin/` (over `nightjar_core::pin_lock`), `update/` (over `nightjar_policy::update` and `nightjar_core::update`) |
-| Native API, files | `nativeapi/` (`HostErrorText` adds a host error's title, next step and technical detail to a dialog, `nativeapi/HubSyncController.java` + `ui/HubProfileSheet.java` + `protocol/android/src/hub_sync.rs` implement Host Hub Sync), `files/`; Quick Suspend in the stream menu is `ui/StreamMenuSuspendSection.java` over `nativeapi/NativeQuickSuspend.java` and `protocol/android/src/native_api/quick_suspend.rs`; Stream Doctor 2.0 is `nativeapi/NativeStreamDoctor.java` over `protocol/android/src/native_api/stream_doctor.rs` |
+| Native API, files | `nativeapi/` (`HostErrorText` adds a host error's title, next step and technical detail to a dialog, `nativeapi/HubSyncController.java` + `nativeapi/HubSyncStore.java` + `ui/HubProfileSheet.java` + `protocol/android/src/hub_sync.rs` implement Host Hub Sync), `files/`; Quick Suspend in the stream menu is `ui/StreamMenuSuspendSection.java` over `nativeapi/NativeQuickSuspend.java` and `protocol/android/src/native_api/quick_suspend.rs`; Stream Doctor 2.0 is `nativeapi/NativeStreamDoctor.java` over `protocol/android/src/native_api/stream_doctor.rs` |
 
 Native code beside the engines, in `app/src/main/jni/`: `pyrowave-renderer/`, `vulkan/`, `evdev_reader/`, `window-dataspace/`.
 

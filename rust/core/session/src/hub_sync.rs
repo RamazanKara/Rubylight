@@ -282,11 +282,22 @@ impl HubState {
                     "Only this device's profiles can be changed without Host control.".into(),
                 ));
             }
-            let target_owner = resolve_target_owner(caller_uuid, &write, host_control)?;
             if write.scope != existing.scope && !host_control {
                 return Err(HubError::HostControlRequired(
                     "Changing a profile's sharing scope requires Host control.".into(),
                 ));
+            }
+            let target_owner = resolve_target_owner(
+                caller_uuid,
+                &write,
+                Some((existing.scope, existing.owner_device_uuid.as_str())),
+                host_control,
+            )?;
+            if write.scope == ProfileScope::Device
+                && (existing.scope != ProfileScope::Device
+                    || target_owner != existing.owner_device_uuid)
+            {
+                self.check_device_quota(&target_owner, Some(id))?;
             }
             if expected_rev != existing.revision {
                 return Err(HubError::RevisionConflict {
@@ -307,7 +318,7 @@ impl HubState {
             });
         }
 
-        let target_owner = resolve_target_owner(caller_uuid, &write, host_control)?;
+        let target_owner = resolve_target_owner(caller_uuid, &write, None, host_control)?;
         if expected_rev != 0 {
             return Err(HubError::RevisionConflict {
                 profile_id: id.to_string(),
@@ -323,19 +334,7 @@ impl HubState {
             });
         }
         if write.scope == ProfileScope::Device {
-            let device_count = self
-                .profiles
-                .values()
-                .filter(|p| p.scope == ProfileScope::Device && p.owner_device_uuid == target_owner)
-                .count();
-            if device_count >= MAX_PROFILES_PER_DEVICE {
-                return Err(HubError::InvalidValue {
-                    setting: None,
-                    message: format!(
-                        "This device already holds the maximum of {MAX_PROFILES_PER_DEVICE} synced profiles."
-                    ),
-                });
-            }
+            self.check_device_quota(&target_owner, None)?;
         }
         let mut created = build_profile(id, 1, &write, target_owner, caller_uuid, now_unix_ms);
         created.name = write.name.trim().to_string();
@@ -392,11 +391,33 @@ impl HubState {
         self.snapshot_revision = self.snapshot_revision.saturating_add(1);
         true
     }
+
+    fn check_device_quota(&self, owner: &str, excluding_id: Option<&str>) -> Result<(), HubError> {
+        let device_count = self
+            .profiles
+            .iter()
+            .filter(|(pid, p)| {
+                excluding_id != Some(pid.as_str())
+                    && p.scope == ProfileScope::Device
+                    && p.owner_device_uuid == owner
+            })
+            .count();
+        if device_count >= MAX_PROFILES_PER_DEVICE {
+            return Err(HubError::InvalidValue {
+                setting: None,
+                message: format!(
+                    "This device already holds the maximum of {MAX_PROFILES_PER_DEVICE} synced profiles."
+                ),
+            });
+        }
+        Ok(())
+    }
 }
 
 fn resolve_target_owner(
     caller_uuid: &str,
     write: &ProfileWrite,
+    existing: Option<(ProfileScope, &str)>,
     host_control: bool,
 ) -> Result<String, HubError> {
     if write.scope == ProfileScope::Shared {
@@ -413,12 +434,16 @@ fn resolve_target_owner(
             .unwrap_or("shared");
         return Ok(explicit.to_string());
     }
+    let default_owner = match existing {
+        Some((ProfileScope::Device, owner)) if !owner.is_empty() => owner,
+        _ => caller_uuid,
+    };
     let requested = write
         .owner_device_uuid
         .as_deref()
         .map(state::device_uuid)
         .filter(|s| !s.is_empty())
-        .unwrap_or(caller_uuid);
+        .unwrap_or(default_owner);
     if requested != caller_uuid && !host_control {
         return Err(HubError::HostControlRequired(
             "Managing another device's profiles requires Host control.".into(),
@@ -475,8 +500,11 @@ fn collect_override_keys(block: &serde_json::Map<String, Value>, out: &mut BTree
     }
     if block
         .get(crate::game_files::SETTING)
-        .and_then(Value::as_object)
-        .is_some_and(|m| !m.is_empty())
+        .is_some_and(|v| match v {
+            Value::Array(items) => !items.is_empty(),
+            Value::Object(map) => !map.is_empty(),
+            _ => false,
+        })
     {
         out.insert("game_files".into());
     }
@@ -500,18 +528,20 @@ pub fn host_overrides_summary(apps: &[App], client: &Client) -> Vec<HostOverride
             out.push(HostOverrideSummary {
                 app_id: app.id(),
                 source: "app_device".into(),
-                locked_keys: dev_keys.into_iter().collect(),
+                locked_keys: dev_keys.iter().cloned().collect(),
             });
-            continue;
         }
         let mut app_keys = BTreeSet::new();
-        collect_override_keys(
-            &app.extra
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-            &mut app_keys,
-        );
+        let app_map: serde_json::Map<String, Value> = app
+            .extra
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        collect_override_keys(&app_map, &mut app_keys);
+        if dev_keys.contains("radeon_profile") {
+            app_keys.remove("radeon_settings");
+        }
+        app_keys.retain(|k| !dev_keys.contains(k));
         if !app_keys.is_empty() {
             out.push(HostOverrideSummary {
                 app_id: app.id(),
@@ -689,9 +719,14 @@ mod tests {
             json!({
                 "dev-a": {
                     "config-overrides": { "max_bitrate": 30000, "hdr": false },
-                    "radeon-profile": "competitive"
+                    "radeon-profile": "competitive",
+                    "game-files": [{"path": "cfg.ini", "section": "Video", "key": "Width", "value": "1280"}]
                 }
             }),
+        );
+        app_extra.insert(
+            "config-overrides".into(),
+            json!({ "codec": "av1", "max_bitrate": 60000 }),
         );
         let app = App {
             name: "Game".into(),
@@ -713,15 +748,39 @@ mod tests {
             extra: client_extra,
         };
         let summary = host_overrides_summary(&[app], &client);
-        assert_eq!(summary.len(), 2);
+        assert_eq!(summary.len(), 3);
         assert_eq!(summary[0].app_id, 1042);
         assert_eq!(summary[0].source, "app_device");
         assert_eq!(
             summary[0].locked_keys,
-            vec!["hdr", "max_bitrate", "radeon_profile"]
+            vec!["game_files", "hdr", "max_bitrate", "radeon_profile"]
         );
-        assert_eq!(summary[1].app_id, 0);
-        assert_eq!(summary[1].source, "device");
-        assert_eq!(summary[1].locked_keys, vec!["gamepad"]);
+        assert_eq!(summary[1].source, "app");
+        assert_eq!(summary[1].locked_keys, vec!["codec"]);
+        assert_eq!(summary[2].app_id, 0);
+        assert_eq!(summary[2].source, "device");
+        assert_eq!(summary[2].locked_keys, vec!["gamepad"]);
+
+        // Admin update without owner_device_uuid keeps existing device owner; Shared->Device checks quota.
+        let mut hub = HubState::default();
+        for i in 0..MAX_PROFILES_PER_DEVICE {
+            hub.put_profile(&format!("d-{i}"), "dev-a", false, 0, sample_write("D"), 1)
+                .unwrap();
+        }
+        let updated = hub
+            .put_profile("d-0", "admin", true, 1, sample_write("Admin"), 2)
+            .unwrap();
+        assert_eq!(updated.profile.owner_device_uuid, "dev-a");
+        let mut shared = sample_write("S");
+        shared.scope = ProfileScope::Shared;
+        hub.put_profile("s-0", "admin", true, 0, shared, 3).unwrap();
+        let mut to_dev = sample_write("ToDev");
+        to_dev.owner_device_uuid = Some("dev-a".into());
+        assert_eq!(
+            hub.put_profile("s-0", "admin", true, 1, to_dev, 4)
+                .unwrap_err()
+                .code(),
+            ErrorCode::InvalidValue
+        );
     }
 }

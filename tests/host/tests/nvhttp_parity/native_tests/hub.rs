@@ -144,21 +144,34 @@ async fn hub_capabilities_scoping_and_all_devices_isolation() {
     .await
     .assert_error(403, "host_control_required");
 
-    // Host control can request ?all_devices=1 and create shared profiles.
-    let snap_admin: HubSnapshot = serde_json::from_slice(
-        &send_with_headers(
-            &s.f,
-            &dev_admin,
-            "GET",
-            "/hub/snapshot?all_devices=1",
-            &[],
-            vec![],
-        )
-        .await
-        .body,
+    // Host control can request ?all_devices=1 and receives a distinct ETag vs ?all_devices=0.
+    let admin_all = send_with_headers(
+        &s.f,
+        &dev_admin,
+        "GET",
+        "/hub/snapshot?all_devices=1",
+        &[],
+        vec![],
     )
-    .unwrap();
+    .await;
+    let admin_all_etag = admin_all.headers[header::ETAG].to_str().unwrap().to_owned();
+    let snap_admin: HubSnapshot = serde_json::from_slice(&admin_all.body).unwrap();
     assert_eq!(snap_admin.profiles.len(), 1);
+
+    let admin_own = send_with_headers(
+        &s.f,
+        &dev_admin,
+        "GET",
+        "/hub/snapshot?all_devices=0",
+        &[("If-None-Match", &admin_all_etag)],
+        vec![],
+    )
+    .await;
+    assert_eq!(admin_own.status, StatusCode::OK);
+    assert_ne!(
+        admin_own.headers[header::ETAG].to_str().unwrap(),
+        admin_all_etag
+    );
 
     let shared_body = serde_json::to_vec(&json!({
         "scope": "shared",

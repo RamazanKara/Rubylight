@@ -25,6 +25,7 @@ use rubylight_native_api::{
     },
 };
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::sync::{PoisonError, atomic::Ordering};
 
 #[derive(Debug, Default, Deserialize)]
@@ -86,27 +87,11 @@ pub(super) async fn snapshot(
     .map_err(|error| Failure::internal("build hub snapshot", error))?
     .map_err(|error| Failure::internal("persist hub cover digests", error))?;
 
-    let etag = format!("\"rev:{}\"", projection.snapshot_revision);
-    if let Some(ref inm) = if_none_match {
-        let bare = projection.snapshot_revision.to_string();
-        if etag_matches(inm, &etag) || etag_matches(inm, &bare) {
-            return Ok((
-                StatusCode::NOT_MODIFIED,
-                [
-                    (header::ETAG, etag),
-                    (header::CACHE_CONTROL, "no-store".to_string()),
-                ],
-                Body::empty(),
-            )
-                .into_response());
-        }
-    }
-
-    let snapshot = HubSnapshot {
+    let mut snapshot = HubSnapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         snapshot_revision: projection.snapshot_revision,
         host_unique_id: caps.host.unique_id,
-        generated_unix_ms: projection.generated_unix_ms,
+        generated_unix_ms: 0,
         caller_device_uuid: projection.caller_device_uuid,
         capabilities_snapshot: HubCapabilitiesSnapshot {
             api_version: caps.api_version,
@@ -121,6 +106,21 @@ pub(super) async fn snapshot(
         input_decks: projection.input_decks,
         host_overrides_summary: projection.host_overrides_summary,
     };
+    let etag = snapshot_etag(&snapshot, all_devices);
+    if let Some(ref inm) = if_none_match
+        && etag_matches(inm, &etag)
+    {
+        return Ok((
+            StatusCode::NOT_MODIFIED,
+            [
+                (header::ETAG, etag),
+                (header::CACHE_CONTROL, "no-store".to_string()),
+            ],
+            Body::empty(),
+        )
+            .into_response());
+    }
+    snapshot.generated_unix_ms = projection.generated_unix_ms;
     let mut response = json(StatusCode::OK, &snapshot);
     if let Ok(val) = HeaderValue::from_str(&etag) {
         response.headers_mut().insert(header::ETAG, val);
@@ -280,6 +280,14 @@ pub(super) async fn cover(
         )
             .into_response()),
     }
+}
+
+fn snapshot_etag(snapshot: &HubSnapshot, all_devices: bool) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update([u8::from(all_devices)]);
+    hasher.update(serde_json::to_vec(snapshot).unwrap_or_default());
+    let digest = hex::encode(hasher.finalize());
+    format!("\"rev:{}:{}\"", snapshot.snapshot_revision, &digest[..16])
 }
 
 fn codec_labels(mask: u32) -> Vec<String> {

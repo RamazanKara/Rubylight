@@ -102,6 +102,13 @@ pub struct Host {
 }
 
 impl Host {
+    pub(super) fn reset_hub_state(&mut self) {
+        self.hub_engine = nightjar_policy::hub_sync::SyncEngine::default();
+        self.hub_cover_etags.clear();
+        self.hub_inflight = false;
+        self.native.hub = Default::default();
+    }
+
     /// The address requests and streams go to: the remote address while only it answers,
     /// else the PC's own.
     pub fn connect_address(&self) -> &str {

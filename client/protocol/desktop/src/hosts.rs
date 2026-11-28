@@ -568,6 +568,11 @@ impl Hosts {
     }
 
     pub fn remove(&mut self, id: u64) {
+        if let Some(dir) = self.store_dir.as_deref() {
+            for host in self.list.iter().filter(|h| h.id == id && !h.record.unique_id.is_empty()) {
+                hub_cache::clear_host_cache(dir, &host.record.unique_id);
+            }
+        }
         self.list.retain(|h| h.id != id);
         self.link_claims.remove(&id);
         self.merged_into.retain(|&k, &mut v| k != id && v != id);

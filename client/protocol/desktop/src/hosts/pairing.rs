@@ -266,7 +266,9 @@ impl Hosts {
 
     /// The PC no longer lists this device: drop the certificate and what needed it.
     pub(super) fn forget_pairing(&mut self, id: u64) {
+        let store_dir = self.store_dir.clone();
         let Some(host) = self.get_mut(id) else { return };
+        let uid = host.record.unique_id.clone();
         host.record.server_certificate = None;
         host.apps = Apps::NotLoaded;
         Arc::make_mut(&mut host.art).clear();
@@ -276,8 +278,12 @@ impl Hosts {
         Arc::make_mut(&mut host.art_sized).clear();
         Arc::make_mut(&mut host.art_retry).clear();
         host.native = Native::default();
+        host.reset_hub_state();
         host.set_classic_apps(None);
         host.native_epoch += 1;
+        if let Some(dir) = store_dir.filter(|_| !uid.is_empty()) {
+            crate::hosts::hub_cache::clear_host_cache(&dir, &uid);
+        }
     }
 }
 

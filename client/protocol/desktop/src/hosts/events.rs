@@ -589,6 +589,7 @@ impl Hosts {
     }
 
     fn store_info(&mut self, index: usize, address: String, path: InfoPath, result: Result<Box<ServerInfo>, String>) -> bool {
+        let mut clear_hub_id: Option<String> = None;
         let host = &mut self.list[index];
         let mut changed = false;
         match result {
@@ -619,12 +620,13 @@ impl Hosts {
                 if host.record.unique_id != info.unique_id {
                     // Another PC answers at this address: what the old one said and allowed is not its.
                     if !host.record.unique_id.is_empty() {
+                        clear_hub_id = Some(host.record.unique_id.clone());
                         host.record.notices.clear();
                         host.record.other_http_ports.clear();
                         host.record.full_chroma = Default::default();
                     }
                     host.native = Native::default();
-                    host.hub_inflight = false;
+                    host.reset_hub_state();
                     host.set_classic_apps(None);
                     host.native_epoch += 1;
                     host.foundation_probe = None;
@@ -657,11 +659,14 @@ impl Hosts {
                         path != InfoPath::CertificateMismatch,
                     )
                 {
+                    if !host.record.unique_id.is_empty() {
+                        clear_hub_id = Some(host.record.unique_id.clone());
+                    }
                     host.record.server_certificate = None;
                     host.apps = Apps::NotLoaded;
                     // Its grants (folders, files, USB, co-op) went with the pairing; a read in flight is dropped.
                     host.native = Native::default();
-                    host.hub_inflight = false;
+                    host.reset_hub_state();
                     host.set_classic_apps(None);
                     host.native_epoch += 1;
                     changed = true;
@@ -679,6 +684,9 @@ impl Hosts {
             }
         }
         host.sync_classic();
+        if let (Some(dir), Some(uid)) = (&self.store_dir, clear_hub_id) {
+            super::hub_cache::clear_host_cache(dir, &uid);
+        }
         changed
     }
 

@@ -13,14 +13,28 @@ import java.util.concurrent.ConcurrentHashMap;
  * knows them and a permission changed in the console arrives within half a minute. It lacks the file permissions the {@code files.capabilities} op adds: gate files on that op, not on this.
  */
 public final class KnownCapabilities {
+    /** Observer invoked after native capabilities JSON is cached for a host. */
+    public interface Listener {
+        void onCapabilitiesRecorded(String hostUuid);
+    }
+
     private static final Map<String, String> byHost = new ConcurrentHashMap<>();
+    private static volatile Listener listener;
 
     private KnownCapabilities() {
+    }
+
+    public static void setListener(Listener newListener) {
+        listener = newListener;
     }
 
     static void record(String hostUuid, String json) {
         if (hostUuid != null) {
             byHost.put(hostUuid, json);
+            Listener active = listener;
+            if (active != null) {
+                active.onCapabilitiesRecorded(hostUuid);
+            }
         }
     }
 

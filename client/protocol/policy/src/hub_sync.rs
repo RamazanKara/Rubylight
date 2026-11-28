@@ -215,6 +215,16 @@ pub fn profile_to_write(p: &SyncProfile) -> ProfileWrite {
     }
 }
 
+/// Strips optional weak indicator (`W/`) and surrounding quotes from an HTTP `ETag`.
+pub fn normalize_etag(tag: &str) -> &str {
+    let trimmed = tag.trim();
+    let strong = trimmed.strip_prefix("W/").unwrap_or(trimmed).trim();
+    strong
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(strong)
+}
+
 /// Returns remote covers whose content ETag differs from the caller's local SHA-256 index.
 pub fn covers_to_fetch<'a>(
     remote: &'a [CoverEntry],
@@ -222,7 +232,11 @@ pub fn covers_to_fetch<'a>(
 ) -> Vec<&'a CoverEntry> {
     let mut missing: Vec<&CoverEntry> = remote
         .iter()
-        .filter(|c| !c.etag.is_empty() && local_etags.get(&c.app_id) != Some(&c.etag))
+        .filter(|c| {
+            !c.etag.is_empty()
+                && local_etags.get(&c.app_id).map(|t| normalize_etag(t))
+                    != Some(normalize_etag(&c.etag))
+        })
         .collect();
     missing.sort_by_key(|c| c.app_id);
     missing
@@ -504,7 +518,7 @@ impl SyncEngine {
             }
             ConflictChoice::SaveAsCopy { new_id, new_name } => {
                 let mut copy_write = conflict.local;
-                copy_write.name = new_name;
+                copy_write.name = new_name.chars().take(120).collect();
                 self.outbox.push(OutboxOp::Put {
                     id: new_id,
                     base_revision: 0,

@@ -187,7 +187,7 @@ impl Hosts {
                 let prefix_len = base_id.len().min(63 - suffix.len() - 1);
                 let new_id = format!("{}-{suffix}", &base_id[..prefix_len]);
                 let base_name = conflict.map_or("Profile", |c| c.local.name.as_str());
-                let new_name = format!("{base_name} (copy)");
+                let new_name = capped_copy_name(base_name);
                 ConflictChoice::SaveAsCopy { new_id, new_name }
             }
         };
@@ -284,7 +284,10 @@ pub(crate) fn sync_hub_cycle(
                     };
                     if written {
                         if let Some(new_etag) = etag {
-                            cover_etags.insert(app_id, new_etag);
+                            let clean = nightjar_policy::hub_sync::normalize_etag(&new_etag);
+                            if !clean.is_empty() {
+                                cover_etags.insert(app_id, clean.to_owned());
+                            }
                         }
                         updated_covers.push(app_id);
                     }
@@ -334,7 +337,22 @@ fn replay_put(
                         return true;
                     }
                     Ok(HubPutResult::Conflict { .. }) => {
-                        let _ = engine.reconcile_conflict(id, remote.as_ref());
+                        if let Ok(HubSnapshotResult::Modified { snapshot, etag }) =
+                            client.hub_snapshot(None, false)
+                        {
+                            engine.apply_snapshot_200(snapshot, etag);
+                        }
+                        let fresh_remote = engine
+                            .snapshot
+                            .as_ref()
+                            .and_then(|s| s.profiles.iter().find(|p| p.id == id))
+                            .cloned();
+                        if engine
+                            .reconcile_conflict(id, fresh_remote.as_ref())
+                            .is_some()
+                        {
+                            engine.on_offline(Some("Profile changed again during sync.".into()));
+                        }
                         return false;
                     }
                     Err(err) => {
@@ -379,13 +397,20 @@ fn replay_delete(
                 ..
             }) = engine.reconcile_conflict(id, remote.as_ref())
             {
-                if let Ok(HubDeleteResult::Deleted(res)) =
-                    client.delete_hub_profile(id, &new_rev.to_string())
-                {
-                    engine.on_delete_succeeded(id, res.snapshot_revision);
-                    return true;
+                match client.delete_hub_profile(id, &new_rev.to_string()) {
+                    Ok(HubDeleteResult::Deleted(res)) => {
+                        engine.on_delete_succeeded(id, res.snapshot_revision);
+                        return true;
+                    }
+                    Ok(HubDeleteResult::Conflict { .. }) => {
+                        engine.on_offline(Some("Profile changed again during delete.".into()));
+                        return false;
+                    }
+                    Err(err) => {
+                        classify_replay_error(engine, &err);
+                        return false;
+                    }
                 }
-                return false;
             }
             engine.conflict.is_none()
         }
@@ -394,6 +419,13 @@ fn replay_delete(
             false
         }
     }
+}
+
+fn capped_copy_name(base_name: &str) -> String {
+    const SUFFIX: &str = " (copy)";
+    let max_base = 120 - SUFFIX.chars().count();
+    let prefix: String = base_name.chars().take(max_base).collect();
+    format!("{prefix}{SUFFIX}")
 }
 
 fn is_permission_error(err: &HttpError) -> bool {
@@ -490,6 +522,74 @@ mod tests {
 
         hosts.queue_hub_delete(host_id, "couch-4k");
         assert_eq!(hosts.list[0].native.hub.pending_outbox_count, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_as_copy_caps_name_at_120_chars() {
+        let long = "x".repeat(120);
+        let copy = capped_copy_name(&long);
+        assert_eq!(copy.chars().count(), 120);
+        assert!(copy.ends_with(" (copy)"));
+    }
+
+    #[test]
+    fn forget_pairing_and_remove_clear_hub_state_and_cache() {
+        let dir =
+            std::env::temp_dir().join(format!("nightjar-hosts-unpair-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = Store::at(dir.clone()).unwrap();
+        let mut record = crate::config::HostRecord {
+            unique_id: "host-unpair-hub".into(),
+            name: "PC".into(),
+            address: "127.0.0.1".into(),
+            ..Default::default()
+        };
+        record.server_certificate =
+            Some("-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n".into());
+        let mut hosts = Hosts::without_discovery(vec![record], std::sync::Arc::new(|| {}));
+        hosts.load_cached_hubs(&store);
+        let host_id = hosts.list[0].id;
+        hosts.queue_hub_put(
+            host_id,
+            "couch-4k".into(),
+            ProfileWrite {
+                scope: ProfileScope::Device,
+                name: "Couch".into(),
+                ..Default::default()
+            },
+        );
+        hosts.list[0].hub_cover_etags.insert(1, "sha256:abc".into());
+        assert!(
+            !hub_cache::load_host_cache(store.dir(), "host-unpair-hub")
+                .outbox
+                .is_empty()
+        );
+
+        hosts.forget_pairing(host_id);
+        assert_eq!(hosts.list[0].native.hub.pending_outbox_count, 0);
+        assert!(hosts.list[0].hub_cover_etags.is_empty());
+        assert!(
+            hub_cache::load_host_cache(store.dir(), "host-unpair-hub")
+                .outbox
+                .is_empty()
+        );
+
+        hosts.queue_hub_put(
+            host_id,
+            "couch-2".into(),
+            ProfileWrite {
+                scope: ProfileScope::Device,
+                name: "Couch 2".into(),
+                ..Default::default()
+            },
+        );
+        hosts.remove(host_id);
+        assert!(
+            hub_cache::load_host_cache(store.dir(), "host-unpair-hub")
+                .outbox
+                .is_empty()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

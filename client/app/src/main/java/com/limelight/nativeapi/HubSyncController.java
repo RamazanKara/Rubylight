@@ -4,28 +4,30 @@ import android.content.Context;
 
 import com.limelight.LimeLog;
 import com.limelight.binding.PlatformBinding;
+import com.limelight.computers.HostCapabilityCache;
 import com.limelight.computers.IdentityManager;
-import com.limelight.utils.CacheHelper;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
+import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.jni.Json;
 import com.limelight.nvstream.jni.NightjarJni;
+import com.limelight.utils.CacheHelper;
 
-import java.io.ByteArrayOutputStream;
+import org.json.JSONException;
+
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Offline-first Host Hub Sync controller for Android: manages disk-cached snapshots, outbox
@@ -67,11 +69,54 @@ public final class HubSyncController {
         public String lastError;
     }
 
-    private static final String DIR_NAME = "hub_sync";
+    private static final class PendingTrigger {
+        final Context appContext;
+        final ComputerDetails details;
+        final ClientFactory clients;
+
+        PendingTrigger(Context appContext, ComputerDetails details, ClientFactory clients) {
+            this.appContext = appContext;
+            this.details = details;
+            this.clients = clients;
+        }
+    }
+
+    private enum StepKind { OK, DROP_PERMANENT, CONFLICT, PERMISSION_DENIED, OFFLINE }
+
+    private static final class ReplayStep {
+        final StepKind kind;
+        final Json.Obj freshSnapshot;
+        final String freshSnapshotEtag;
+        final Json.Obj savedProfile;
+        final String deletedId;
+        final Json.Obj conflict;
+        final String error;
+
+        ReplayStep(StepKind kind, Json.Obj freshSnapshot, String freshSnapshotEtag,
+                   Json.Obj savedProfile, String deletedId, Json.Obj conflict, String error) {
+            this.kind = kind;
+            this.freshSnapshot = freshSnapshot;
+            this.freshSnapshotEtag = freshSnapshotEtag;
+            this.savedProfile = savedProfile;
+            this.deletedId = deletedId;
+            this.conflict = conflict;
+            this.error = error;
+        }
+    }
+
+    private static final long SYNC_COOLDOWN_MS = 30_000L;
     private static final ConcurrentHashMap<String, HostState> STATES = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Object> HOST_LOCKS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, AtomicLong> FORGET_EPOCHS = new ConcurrentHashMap<>();
+    private static final Set<String> SYNC_INFLIGHT = ConcurrentHashMap.newKeySet();
+    private static final ConcurrentHashMap<String, Long> LAST_SYNC_MS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, PendingTrigger> AWAITING_CAPS = new ConcurrentHashMap<>();
     private static final ExecutorService EXECUTOR =
             Executors.newSingleThreadExecutor(r -> new Thread(r, "HubSync"));
+
+    static {
+        KnownCapabilities.setListener(HubSyncController::onCapabilitiesRecorded);
+    }
 
     private HubSyncController() {}
 
@@ -118,12 +163,50 @@ public final class HubSyncController {
         };
     }
 
+    /** True when {@code details}' combined `/serverinfo` + cached native capabilities advertise {@code hub.sync}. */
+    public static boolean hasHubSync(ComputerDetails details) {
+        if (details == null || details.caps == null) return false;
+        if (details.caps.has(HostCapabilities.Feature.HUB_SYNC)) return true;
+        String known = KnownCapabilities.of(details.uuid);
+        if (known == null) return false;
+        try {
+            return details.caps.withNativeCapabilities(known).has(HostCapabilities.Feature.HUB_SYNC);
+        } catch (JSONException e) {
+            LimeLog.warning("Unreadable native capabilities of " + details.uuid + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    static String normalizeEtag(String etag) {
+        return HubSyncStore.normalizeEtag(etag);
+    }
+
     /** Builds a live {@link HubBackend} for {@code details}, or returns {@code null} if unpaired/offline. */
     public static HubBackend backendFor(Context context, ComputerDetails details) {
         if (context == null || details == null) return null;
         HostEndpoint endpoint = HostEndpoint.of(details, new IdentityManager(context).getUniqueId(),
                 PlatformBinding.getCryptoProvider(context));
         return endpoint == null ? null : nativeBackend(new NativeApiClient(new JniNativeApiTransport(), endpoint));
+    }
+
+    /** Resolves cached {@link NvApp} entries keyed by app ID so covers match {@link NvApp#getAssetCacheKey}. */
+    public static Map<Integer, NvApp> loadKnownApps(Context context, ComputerDetails details) {
+        if (context == null || details == null || details.uuid == null) return Collections.emptyMap();
+        List<NvApp> apps = new CachedAppListSource(context.getCacheDir()).apps(details);
+        if (apps == null || apps.isEmpty()) return Collections.emptyMap();
+        Map<Integer, NvApp> byId = new HashMap<>(apps.size());
+        for (NvApp app : apps) {
+            if (app != null && app.isInitialized()) byId.put(app.getAppId(), app);
+        }
+        return byId;
+    }
+
+    private static Map<Integer, NvApp> loadKnownApps(Context context, String hostUuid) {
+        if (context == null || hostUuid == null || hostUuid.isEmpty()) return Collections.emptyMap();
+        ComputerDetails stub = new ComputerDetails();
+        stub.uuid = hostUuid;
+        stub.caps = HostCapabilityCache.load(context, hostUuid);
+        return loadKnownApps(context, stub);
     }
 
     /** Resolves a conflict off the UI thread so network writes never block Android's main looper. */
@@ -135,35 +218,64 @@ public final class HubSyncController {
 
     /** Called by {@link com.limelight.computers.ComputerManagerService} whenever a PC polls online. */
     public static void onHostOnline(Context context, ComputerDetails details, ClientFactory clients) {
-        if (context == null || details == null || details.uuid == null || details.caps == null) return;
-        if (!details.caps.has(HostCapabilities.Feature.HUB_SYNC)) return;
+        if (context == null || details == null || details.uuid == null || details.caps == null || clients == null) {
+            return;
+        }
+        if (details.pairState == PairingManager.PairState.NOT_PAIRED) return;
         final Context appCtx = context.getApplicationContext();
+        final String uuid = details.uuid;
+        if (!hasHubSync(details)) {
+            if (KnownCapabilities.of(uuid) == null && details.caps.has(HostCapabilities.Feature.NATIVE_API)) {
+                AWAITING_CAPS.put(uuid, new PendingTrigger(appCtx, new ComputerDetails(details), clients));
+            }
+            return;
+        }
+        AWAITING_CAPS.remove(uuid);
+        HostState cached = STATES.get(uuid);
+        boolean pendingWork = cached != null && !cached.outbox.isEmpty();
+        long now = System.currentTimeMillis();
+        Long last = LAST_SYNC_MS.get(uuid);
+        if (!pendingWork && last != null && (now - last) < SYNC_COOLDOWN_MS) return;
+        if (!SYNC_INFLIGHT.add(uuid)) return;
+        LAST_SYNC_MS.put(uuid, now);
+        final ComputerDetails snapshot = new ComputerDetails(details);
         EXECUTOR.execute(() -> {
-            NativeApiClient client = clients.create(details);
-            if (client != null) {
-                syncOnce(appCtx, details.uuid, nativeBackend(client), Collections.emptyMap());
+            try {
+                NativeApiClient client = clients.create(snapshot);
+                if (client != null) {
+                    syncOnce(appCtx, uuid, nativeBackend(client), loadKnownApps(appCtx, snapshot));
+                }
+            } finally {
+                SYNC_INFLIGHT.remove(uuid);
             }
         });
+    }
+
+    private static void onCapabilitiesRecorded(String hostUuid) {
+        PendingTrigger pending = hostUuid == null ? null : AWAITING_CAPS.remove(hostUuid);
+        if (pending != null) {
+            onHostOnline(pending.appContext, pending.details, pending.clients);
+        }
     }
 
     /** Removes persisted Hub Sync state when a PC is deleted/forgotten. */
     public static void forget(Context context, String hostUuid) {
         if (hostUuid == null) return;
-        STATES.remove(hostUuid);
-        if (context == null) return;
-        File dir = hostDir(context.getFilesDir(), hostUuid);
-        File[] files = dir.listFiles();
-        if (files != null) {
-            for (File f : files) f.delete();
+        synchronized (lockFor(hostUuid)) {
+            epochCounter(hostUuid).incrementAndGet();
+            STATES.remove(hostUuid);
+            AWAITING_CAPS.remove(hostUuid);
+            SYNC_INFLIGHT.remove(hostUuid);
+            LAST_SYNC_MS.remove(hostUuid);
+            if (context != null) HubSyncStore.deleteHostDir(context.getFilesDir(), hostUuid);
         }
-        dir.delete();
     }
 
     /** Reads cached state (from memory or disk) without hitting the network. */
     public static HostState stateFor(Context context, String hostUuid) {
         if (hostUuid == null || hostUuid.isEmpty()) return new HostState();
         synchronized (lockFor(hostUuid)) {
-            HostState loaded = loadFromDisk(context.getFilesDir(), hostUuid);
+            HostState loaded = HubSyncStore.loadFromDisk(context.getFilesDir(), hostUuid);
             STATES.put(hostUuid, loaded);
             return loaded;
         }
@@ -173,14 +285,14 @@ public final class HubSyncController {
     public static HostState queueProfilePut(Context context, String hostUuid, String id, long baseRevision,
                                             Json.Obj baseProfile, Json.Obj write, HubBackend backend) {
         synchronized (lockFor(hostUuid)) {
-            HostState state = loadFromDisk(context.getFilesDir(), hostUuid);
-            upsertOutboxPut(state.outbox, id, baseRevision, baseProfile, write);
+            HostState state = HubSyncStore.loadFromDisk(context.getFilesDir(), hostUuid);
+            HubSyncStore.upsertOutboxPut(state.outbox, id, baseRevision, baseProfile, write);
             if (state.status == SyncStatus.UNSUPPORTED) state.status = SyncStatus.OFFLINE_DEGRADED;
-            saveToDisk(context.getFilesDir(), hostUuid, state);
+            HubSyncStore.saveToDisk(context.getFilesDir(), hostUuid, state);
             STATES.put(hostUuid, state);
         }
         if (backend != null) {
-            return syncOnce(context, hostUuid, backend, Collections.emptyMap());
+            return syncOnce(context, hostUuid, backend, loadKnownApps(context, hostUuid));
         }
         return stateFor(context, hostUuid);
     }
@@ -188,7 +300,7 @@ public final class HubSyncController {
     /** Resolves a pending 3-way conflict ({@code keep_mine}, {@code use_host}, or {@code save_copy}). */
     public static HostState resolveConflict(Context context, String hostUuid, String choice, HubBackend backend) {
         synchronized (lockFor(hostUuid)) {
-            HostState state = loadFromDisk(context.getFilesDir(), hostUuid);
+            HostState state = HubSyncStore.loadFromDisk(context.getFilesDir(), hostUuid);
             Json.Obj conflict = state.pendingConflict;
             if (conflict == null) return state;
             String id = conflict.getString("id");
@@ -203,7 +315,7 @@ public final class HubSyncController {
                         .put("write", conflict.getObject("local")));
             } else if ("save_copy".equals(choice)) {
                 Json.Obj copyWrite = Json.parseObject(conflict.getObject("local").toString());
-                copyWrite.put("name", copyWrite.optString("name", "Profile") + " (copy)");
+                copyWrite.put("name", HubSyncStore.cappedCopyName(copyWrite.optString("name", "Profile")));
                 String suffix = Long.toString(System.currentTimeMillis() % 100000L);
                 String prefix = id.length() > 50 ? id.substring(0, 50) : id;
                 state.outbox.add(Json.obj()
@@ -212,158 +324,260 @@ public final class HubSyncController {
                         .put("base_revision", 0L)
                         .put("write", copyWrite));
             } else if ("use_host".equals(choice)) {
-                applyProfileIntoSnapshot(state, conflict.optObject("remote"));
+                HubSyncStore.applyProfileIntoSnapshot(state, conflict.optObject("remote"));
             }
             state.status = state.outbox.isEmpty() ? SyncStatus.SYNCED : SyncStatus.OFFLINE_DEGRADED;
-            saveToDisk(context.getFilesDir(), hostUuid, state);
+            HubSyncStore.saveToDisk(context.getFilesDir(), hostUuid, state);
             STATES.put(hostUuid, state);
         }
         if (backend != null) {
-            return syncOnce(context, hostUuid, backend, Collections.emptyMap());
+            return syncOnce(context, hostUuid, backend, loadKnownApps(context, hostUuid));
         }
         return stateFor(context, hostUuid);
     }
 
-    /** Executes one synchronous Hub Sync pass (snapshot -> outbox replay -> changed covers). */
+    /** Executes one Hub Sync pass (snapshot -> outbox replay -> changed covers) without holding locks over I/O. */
     public static HostState syncOnce(Context context, String hostUuid, HubBackend backend, Map<Integer, NvApp> knownApps) {
-        synchronized (lockFor(hostUuid)) {
-            File filesDir = context.getFilesDir();
-            File cacheDir = context.getCacheDir();
-            HostState state = loadFromDisk(filesDir, hostUuid);
-            try {
-                Json.Obj snapReply = backend.fetchSnapshot(state.snapshotEtag, false);
-                if ("ok".equals(snapReply.optString("status"))) {
-                    state.snapshot = snapReply.getObject("snapshot");
-                    state.snapshotEtag = snapReply.optString("etag", "\"rev:" + state.snapshot.optLong("snapshot_revision", 0L) + "\"");
-                }
-                state.lastError = null;
-                state.status = state.pendingConflict != null ? SyncStatus.CONFLICT_PENDING : SyncStatus.SYNCED;
-            } catch (NativeApiException e) {
-                if (isPermissionError(e)) {
-                    state.status = SyncStatus.PERMISSION_DENIED;
-                    state.lastError = e.getMessage();
-                    saveToDisk(filesDir, hostUuid, state);
-                    STATES.put(hostUuid, state);
-                    return state;
-                }
-                state.status = SyncStatus.OFFLINE_DEGRADED;
-                state.lastError = e.getMessage();
-                saveToDisk(filesDir, hostUuid, state);
-                STATES.put(hostUuid, state);
-                return state;
+        final File filesDir = context.getFilesDir();
+        final File cacheDir = context.getCacheDir();
+        final Object lock = lockFor(hostUuid);
+        final long startEpoch = epochCounter(hostUuid).get();
+
+        String initialEtag;
+        synchronized (lock) {
+            initialEtag = HubSyncStore.loadFromDisk(filesDir, hostUuid).snapshotEtag;
+        }
+
+        Json.Obj snapReply;
+        try {
+            snapReply = backend.fetchSnapshot(initialEtag, false);
+        } catch (NativeApiException e) {
+            synchronized (lock) {
+                if (epochCounter(hostUuid).get() != startEpoch) return new HostState();
+                HostState st = HubSyncStore.loadFromDisk(filesDir, hostUuid);
+                st.status = isPermissionError(e) ? SyncStatus.PERMISSION_DENIED : SyncStatus.OFFLINE_DEGRADED;
+                st.lastError = e.getMessage();
+                HubSyncStore.saveToDisk(filesDir, hostUuid, st);
+                STATES.put(hostUuid, st);
+                return st;
+            }
+        }
+
+        synchronized (lock) {
+            if (epochCounter(hostUuid).get() != startEpoch) return new HostState();
+            HostState st = HubSyncStore.loadFromDisk(filesDir, hostUuid);
+            if ("ok".equals(snapReply.optString("status"))) {
+                st.snapshot = snapReply.getObject("snapshot");
+                st.snapshotEtag = snapReply.optString(
+                        "etag", "\"rev:" + st.snapshot.optLong("snapshot_revision", 0L) + "\"");
+            }
+            st.lastError = null;
+            st.status = st.pendingConflict != null ? SyncStatus.CONFLICT_PENDING
+                    : (!st.outbox.isEmpty() ? SyncStatus.OFFLINE_DEGRADED : SyncStatus.SYNCED);
+            HubSyncStore.saveToDisk(filesDir, hostUuid, st);
+            STATES.put(hostUuid, st);
+        }
+
+        while (true) {
+            Json.Obj sentOp;
+            synchronized (lock) {
+                if (epochCounter(hostUuid).get() != startEpoch) return new HostState();
+                HostState st = HubSyncStore.loadFromDisk(filesDir, hostUuid);
+                if (st.pendingConflict != null || st.outbox.isEmpty()) break;
+                sentOp = Json.parseObject(st.outbox.get(0).toString());
             }
 
-            if (!replayOutbox(state, backend)) {
-                saveToDisk(filesDir, hostUuid, state);
-                STATES.put(hostUuid, state);
-                return state;
+            ReplayStep step = executeOutboxStep(sentOp, backend);
+            synchronized (lock) {
+                if (epochCounter(hostUuid).get() != startEpoch) return new HostState();
+                HostState st = HubSyncStore.loadFromDisk(filesDir, hostUuid);
+                if (step.freshSnapshot != null) {
+                    st.snapshot = step.freshSnapshot;
+                    if (step.freshSnapshotEtag != null) st.snapshotEtag = step.freshSnapshotEtag;
+                }
+                boolean sameHead = !st.outbox.isEmpty()
+                        && sentOp.toString().equals(st.outbox.get(0).toString());
+                if (step.kind == StepKind.OK) {
+                    if (step.savedProfile != null) HubSyncStore.applyProfileIntoSnapshot(st, step.savedProfile);
+                    if (step.deletedId != null) HubSyncStore.removeProfileFromSnapshot(st, step.deletedId);
+                    if (sameHead) {
+                        st.outbox.remove(0);
+                    } else if (step.savedProfile != null && !st.outbox.isEmpty()
+                            && sentOp.optString("id").equals(st.outbox.get(0).optString("id"))) {
+                        st.outbox.get(0).put("base_revision", step.savedProfile.optLong("revision", 0L));
+                        st.outbox.get(0).put("base", step.savedProfile);
+                    }
+                    HubSyncStore.saveToDisk(filesDir, hostUuid, st);
+                    STATES.put(hostUuid, st);
+                    continue;
+                }
+                if (step.kind == StepKind.DROP_PERMANENT) {
+                    st.lastError = step.error;
+                    if (sameHead) st.outbox.remove(0);
+                    HubSyncStore.saveToDisk(filesDir, hostUuid, st);
+                    STATES.put(hostUuid, st);
+                    continue;
+                }
+                if (step.kind == StepKind.CONFLICT) {
+                    st.pendingConflict = step.conflict;
+                    st.status = SyncStatus.CONFLICT_PENDING;
+                } else {
+                    st.status = step.kind == StepKind.PERMISSION_DENIED
+                            ? SyncStatus.PERMISSION_DENIED : SyncStatus.OFFLINE_DEGRADED;
+                    st.lastError = step.error;
+                }
+                HubSyncStore.saveToDisk(filesDir, hostUuid, st);
+                STATES.put(hostUuid, st);
+                return st;
             }
+        }
 
-            syncCovers(cacheDir, hostUuid, state, backend, knownApps);
-            if (state.pendingConflict != null) state.status = SyncStatus.CONFLICT_PENDING;
-            else if (state.status != SyncStatus.PERMISSION_DENIED) state.status = SyncStatus.SYNCED;
-            saveToDisk(filesDir, hostUuid, state);
-            STATES.put(hostUuid, state);
-            return state;
+        Map<Integer, String> downloadedEtags = syncCoversUnlocked(
+                cacheDir, hostUuid, filesDir, lock, startEpoch, backend, knownApps);
+
+        synchronized (lock) {
+            if (epochCounter(hostUuid).get() != startEpoch) return new HostState();
+            HostState st = HubSyncStore.loadFromDisk(filesDir, hostUuid);
+            st.coverEtags.putAll(downloadedEtags);
+            st.status = st.pendingConflict != null ? SyncStatus.CONFLICT_PENDING
+                    : (!st.outbox.isEmpty() ? SyncStatus.OFFLINE_DEGRADED : SyncStatus.SYNCED);
+            HubSyncStore.saveToDisk(filesDir, hostUuid, st);
+            STATES.put(hostUuid, st);
+            return st;
         }
     }
 
-    private static boolean replayOutbox(HostState state, HubBackend backend) {
-        while (!state.outbox.isEmpty()) {
-            Json.Obj op = state.outbox.get(0);
-            String kind = op.optString("op", "put");
-            String id = op.getString("id");
-            String ifMatch = Long.toString(op.optLong("base_revision", 0L));
-            try {
-                if ("delete".equals(kind)) {
-                    Json.Obj reply = backend.deleteProfile(id, ifMatch);
-                    if ("ok".equals(reply.optString("status"))) {
-                        removeProfileFromSnapshot(state, id);
-                        state.outbox.remove(0);
-                        continue;
-                    }
-                    state.outbox.remove(0);
-                    continue;
+    private static ReplayStep executeOutboxStep(Json.Obj op, HubBackend backend) {
+        String kind = op.optString("op", "put");
+        String id = op.getString("id");
+        String ifMatch = Long.toString(op.optLong("base_revision", 0L));
+        try {
+            if ("delete".equals(kind)) {
+                Json.Obj reply = backend.deleteProfile(id, ifMatch);
+                if ("ok".equals(reply.optString("status"))) {
+                    return new ReplayStep(StepKind.OK, null, null, null, id, null, null);
                 }
-                Json.Obj write = op.getObject("write");
-                Json.Obj reply = backend.putProfile(id, ifMatch, write);
-                String status = reply.optString("status");
-                if ("ok".equals(status)) {
-                    applyProfileIntoSnapshot(state, reply.optObject("profile"));
-                    state.outbox.remove(0);
-                    continue;
-                }
-                if ("conflict".equals(status)) {
-                    Json.Obj fresh = backend.fetchSnapshot(null, false);
-                    if ("ok".equals(fresh.optString("status"))) {
-                        state.snapshot = fresh.getObject("snapshot");
-                        state.snapshotEtag = fresh.optString("etag", state.snapshotEtag);
-                    }
-                    Json.Obj remote = findProfileInSnapshot(state.snapshot, id);
-                    if (remote == null) {
-                        state.pendingConflict = Json.obj().put("id", id).put("server_revision", 0L)
-                                .put("base", op.optObject("base")).put("local", write)
-                                .put("conflicting_fields", Json.arr().add("deleted_on_host"));
-                        state.status = SyncStatus.CONFLICT_PENDING;
-                        return false;
-                    }
-                    Json.Obj merge = backend.mergeThreeWay(op.optObject("base"), write, remote);
-                    if ("merged".equals(merge.optString("status"))) {
-                        Json.Obj mergedWrite = merge.getObject("write");
-                        Json.Obj retry = backend.putProfile(id, Long.toString(remote.optLong("revision", 0L)), mergedWrite);
-                        if ("ok".equals(retry.optString("status"))) {
-                            applyProfileIntoSnapshot(state, retry.optObject("profile"));
-                            state.outbox.remove(0);
-                            continue;
-                        }
-                    } else if ("conflict".equals(merge.optString("status"))) {
-                        state.pendingConflict = merge.getObject("conflict");
-                        state.status = SyncStatus.CONFLICT_PENDING;
-                        return false;
-                    }
-                    return false;
-                }
-            } catch (NativeApiException e) {
-                if (isPermissionError(e)) {
-                    state.status = SyncStatus.PERMISSION_DENIED;
-                    state.lastError = e.getMessage();
-                    return false;
-                }
-                state.status = SyncStatus.OFFLINE_DEGRADED;
-                state.lastError = e.getMessage();
-                return false;
+                return new ReplayStep(StepKind.OFFLINE, null, null, null, null, null,
+                        "Unexpected delete response: " + reply.optString("status"));
             }
+            Json.Obj write = op.getObject("write");
+            Json.Obj reply = backend.putProfile(id, ifMatch, write);
+            String status = reply.optString("status");
+            if ("ok".equals(status)) {
+                return new ReplayStep(StepKind.OK, null, null, reply.optObject("profile"), null, null, null);
+            }
+            if (!"conflict".equals(status)) {
+                return new ReplayStep(StepKind.OFFLINE, null, null, null, null, null,
+                        "Unexpected profile write response: " + status);
+            }
+            return resolvePutConflictUnlocked(id, op.optObject("base"), write, backend);
+        } catch (NativeApiException e) {
+            return classifyReplayException(e);
         }
-        return true;
     }
 
-    private static void syncCovers(File cacheDir, String hostUuid, HostState state,
-                                   HubBackend backend, Map<Integer, NvApp> knownApps) {
-        if (state.snapshot == null) return;
-        Json.Arr remoteCovers = state.snapshot.optArray("covers");
-        if (remoteCovers == null || remoteCovers.length() == 0) return;
+    private static ReplayStep resolvePutConflictUnlocked(String id, Json.Obj base, Json.Obj write,
+                                                         HubBackend backend) throws NativeApiException {
+        Json.Obj fresh = backend.fetchSnapshot(null, false);
+        Json.Obj freshSnap = "ok".equals(fresh.optString("status")) ? fresh.getObject("snapshot") : null;
+        String freshEtag = "ok".equals(fresh.optString("status")) ? fresh.optString("etag", null) : null;
+        Json.Obj remote = HubSyncStore.findProfileInSnapshot(freshSnap, id);
+        if (remote == null) {
+            Json.Obj deleted = Json.obj().put("id", id).put("server_revision", 0L)
+                    .put("base", base).put("local", write)
+                    .put("conflicting_fields", Json.arr().add("deleted_on_host"));
+            return new ReplayStep(StepKind.CONFLICT, freshSnap, freshEtag, null, null, deleted, null);
+        }
+        Json.Obj merge = backend.mergeThreeWay(base, write, remote);
+        String mergeStatus = merge.optString("status");
+        if ("conflict".equals(mergeStatus)) {
+            return new ReplayStep(StepKind.CONFLICT, freshSnap, freshEtag, null, null,
+                    merge.getObject("conflict"), null);
+        }
+        if (!"merged".equals(mergeStatus)) {
+            return new ReplayStep(StepKind.OFFLINE, freshSnap, freshEtag, null, null, null,
+                    "Unexpected merge status: " + mergeStatus);
+        }
+        Json.Obj mergedWrite = merge.getObject("write");
+        Json.Obj retry = backend.putProfile(id, Long.toString(remote.optLong("revision", 0L)), mergedWrite);
+        String retryStatus = retry.optString("status");
+        if ("ok".equals(retryStatus)) {
+            return new ReplayStep(StepKind.OK, freshSnap, freshEtag, retry.optObject("profile"), null, null, null);
+        }
+        if ("conflict".equals(retryStatus)) {
+            Json.Obj fresh2 = backend.fetchSnapshot(null, false);
+            Json.Obj snap2 = "ok".equals(fresh2.optString("status")) ? fresh2.getObject("snapshot") : freshSnap;
+            String etag2 = "ok".equals(fresh2.optString("status")) ? fresh2.optString("etag", freshEtag) : freshEtag;
+            Json.Obj remote2 = HubSyncStore.findProfileInSnapshot(snap2, id);
+            if (remote2 != null) {
+                Json.Obj merge2 = backend.mergeThreeWay(remote, mergedWrite, remote2);
+                if ("conflict".equals(merge2.optString("status"))) {
+                    return new ReplayStep(StepKind.CONFLICT, snap2, etag2, null, null,
+                            merge2.getObject("conflict"), null);
+                }
+            }
+            return new ReplayStep(StepKind.OFFLINE, snap2, etag2, null, null, null,
+                    "Profile changed again during sync.");
+        }
+        return new ReplayStep(StepKind.OFFLINE, freshSnap, freshEtag, null, null, null,
+                "Unexpected retry status: " + retryStatus);
+    }
+
+    private static ReplayStep classifyReplayException(NativeApiException e) {
+        if (isPermissionError(e)) {
+            return new ReplayStep(StepKind.PERMISSION_DENIED, null, null, null, null, null, e.getMessage());
+        }
+        if (isPermanentWriteError(e)) {
+            return new ReplayStep(StepKind.DROP_PERMANENT, null, null, null, null, null, e.getMessage());
+        }
+        return new ReplayStep(StepKind.OFFLINE, null, null, null, null, null, e.getMessage());
+    }
+
+    private static Map<Integer, String> syncCoversUnlocked(File cacheDir, String hostUuid, File filesDir,
+                                                           Object lock, long startEpoch,
+                                                           HubBackend backend, Map<Integer, NvApp> knownApps) {
+        Json.Arr remoteCovers;
+        Map<Integer, String> localEtags;
+        synchronized (lock) {
+            if (epochCounter(hostUuid).get() != startEpoch) return Collections.emptyMap();
+            HostState st = HubSyncStore.loadFromDisk(filesDir, hostUuid);
+            if (st.snapshot == null || st.pendingConflict != null || st.status == SyncStatus.PERMISSION_DENIED) {
+                return Collections.emptyMap();
+            }
+            remoteCovers = st.snapshot.optArray("covers");
+            localEtags = new LinkedHashMap<>(st.coverEtags);
+        }
+        if (remoteCovers == null || remoteCovers.length() == 0) return Collections.emptyMap();
+        Map<Integer, String> downloaded = new LinkedHashMap<>();
         try {
             Json.Obj localEtagsJson = Json.obj();
-            for (Map.Entry<Integer, String> entry : state.coverEtags.entrySet()) {
-                localEtagsJson.put(Integer.toString(entry.getKey()), entry.getValue());
+            for (Map.Entry<Integer, String> entry : localEtags.entrySet()) {
+                localEtagsJson.put(Integer.toString(entry.getKey()), HubSyncStore.normalizeEtag(entry.getValue()));
             }
             Json.Arr toFetch = backend.coversToFetch(remoteCovers, localEtagsJson);
             for (int i = 0; i < toFetch.length(); i++) {
+                if (epochCounter(hostUuid).get() != startEpoch) return downloaded;
                 int appId = toFetch.getInt(i);
                 NvApp app = knownApps == null ? null : knownApps.get(appId);
-                String key = app != null ? app.getAssetCacheKey() : Integer.toString(appId);
-                File dest = CacheHelper.openPath(true, cacheDir, "boxart", hostUuid, key + ".png");
-                Json.Obj reply = backend.fetchCoverToFile(appId, state.coverEtags.get(appId), dest);
+                if (app == null) continue;
+                File dest = CacheHelper.openPath(true, cacheDir, "boxart", hostUuid, app.getAssetCacheKey() + ".png");
+                File tmp = new File(dest.getParentFile(), dest.getName() + ".hubtmp");
+                Json.Obj reply = backend.fetchCoverToFile(appId, localEtags.get(appId), tmp);
                 if ("ok".equals(reply.optString("status"))) {
-                    String newEtag = reply.optString("etag", null);
-                    if (newEtag != null && !newEtag.isEmpty()) {
-                        state.coverEtags.put(appId, newEtag);
+                    if (tmp.isFile() && !tmp.renameTo(dest)) {
+                        dest.delete();
+                        if (!tmp.renameTo(dest)) tmp.delete();
                     }
+                    String cleanEtag = HubSyncStore.normalizeEtag(reply.optString("etag", null));
+                    if (!cleanEtag.isEmpty()) downloaded.put(appId, cleanEtag);
+                } else if (tmp.exists()) {
+                    tmp.delete();
                 }
             }
         } catch (NativeApiException e) {
             LimeLog.warning("HubSync cover fetch deferred: " + e.getMessage());
         }
+        return downloaded;
     }
 
     private static boolean isPermissionError(NativeApiException e) {
@@ -374,167 +588,20 @@ public final class HubSyncController {
                 || "host_control_required".equals(code);
     }
 
-    private static void upsertOutboxPut(List<Json.Obj> outbox, String id, long baseRev, Json.Obj base, Json.Obj write) {
-        for (int i = 0; i < outbox.size(); i++) {
-            Json.Obj existing = outbox.get(i);
-            if (id.equals(existing.optString("id"))) {
-                Json.Obj updated = Json.obj()
-                        .put("op", "put")
-                        .put("id", id)
-                        .put("base_revision", existing.optLong("base_revision", baseRev))
-                        .put("base", existing.optObject("base") != null ? existing.optObject("base") : base)
-                        .put("write", write);
-                outbox.set(i, updated);
-                return;
-            }
-        }
-        outbox.add(Json.obj().put("op", "put").put("id", id).put("base_revision", baseRev)
-                .put("base", base).put("write", write));
-    }
-
-    private static Json.Obj findProfileInSnapshot(Json.Obj snapshot, String id) {
-        if (snapshot == null) return null;
-        Json.Arr profiles = snapshot.optArray("profiles");
-        if (profiles == null) return null;
-        for (int i = 0; i < profiles.length(); i++) {
-            Json.Obj p = profiles.optObject(i);
-            if (p != null && id.equals(p.optString("id"))) return p;
-        }
-        return null;
-    }
-
-    private static void applyProfileIntoSnapshot(HostState state, Json.Obj profile) {
-        if (state.snapshot == null || profile == null) return;
-        Json.Arr profiles = state.snapshot.optArray("profiles");
-        if (profiles == null) {
-            profiles = Json.arr();
-            state.snapshot.put("profiles", profiles);
-        }
-        String id = profile.optString("id");
-        Json.Arr rebuilt = Json.arr();
-        boolean replaced = false;
-        for (int i = 0; i < profiles.length(); i++) {
-            Json.Obj p = profiles.optObject(i);
-            if (p != null && id.equals(p.optString("id"))) {
-                rebuilt.add(profile);
-                replaced = true;
-            } else if (p != null) {
-                rebuilt.add(p);
-            }
-        }
-        if (!replaced) rebuilt.add(profile);
-        state.snapshot.put("profiles", rebuilt);
-    }
-
-    private static void removeProfileFromSnapshot(HostState state, String id) {
-        if (state.snapshot == null) return;
-        Json.Arr profiles = state.snapshot.optArray("profiles");
-        if (profiles == null) return;
-        Json.Arr rebuilt = Json.arr();
-        for (int i = 0; i < profiles.length(); i++) {
-            Json.Obj p = profiles.optObject(i);
-            if (p != null && !id.equals(p.optString("id"))) rebuilt.add(p);
-        }
-        state.snapshot.put("profiles", rebuilt);
+    private static boolean isPermanentWriteError(NativeApiException e) {
+        int status = e.getHttpStatus();
+        String code = e.getCode();
+        return status == 400 || status == 413 || status == 422
+                || "malformed_request".equals(code)
+                || "too_large".equals(code)
+                || "invalid_value".equals(code);
     }
 
     private static Object lockFor(String hostUuid) {
         return HOST_LOCKS.computeIfAbsent(hostUuid, k -> new Object());
     }
 
-    private static File hostDir(File filesDir, String hostUuid) {
-        String safe = hostUuid.replaceAll("[^A-Za-z0-9_-]", "_");
-        return new File(new File(filesDir, DIR_NAME), safe.isEmpty() ? "unknown" : safe);
-    }
-
-    private static HostState loadFromDisk(File filesDir, String hostUuid) {
-        HostState state = new HostState();
-        File dir = hostDir(filesDir, hostUuid);
-        String snapRaw = readText(new File(dir, "snapshot.json"));
-        if (snapRaw != null) {
-            try {
-                state.snapshot = Json.parseObject(snapRaw);
-                state.snapshotEtag = "\"rev:" + state.snapshot.optLong("snapshot_revision", 0L) + "\"";
-                state.status = SyncStatus.OFFLINE_DEGRADED;
-            } catch (Json.SyntaxException ignored) {}
-        }
-        String outboxRaw = readText(new File(dir, "outbox.json"));
-        if (outboxRaw != null) {
-            try {
-                Json.Arr arr = Json.parseArray(outboxRaw);
-                for (int i = 0; i < arr.length(); i++) {
-                    Json.Obj o = arr.optObject(i);
-                    if (o != null) state.outbox.add(o);
-                }
-                if (!state.outbox.isEmpty() && state.status == SyncStatus.UNSUPPORTED) {
-                    state.status = SyncStatus.OFFLINE_DEGRADED;
-                }
-            } catch (Json.SyntaxException ignored) {}
-        }
-        String etagsRaw = readText(new File(dir, "cover_etags.json"));
-        if (etagsRaw != null) {
-            try {
-                Json.Obj obj = Json.parseObject(etagsRaw);
-                java.util.Iterator<String> keys = obj.keys();
-                while (keys.hasNext()) {
-                    String k = keys.next();
-                    try {
-                        state.coverEtags.put(Integer.parseInt(k), obj.optString(k));
-                    } catch (NumberFormatException ignored) {}
-                }
-            } catch (Json.SyntaxException ignored) {}
-        }
-        String conflictRaw = readText(new File(dir, "conflict.json"));
-        if (conflictRaw != null) {
-            try {
-                state.pendingConflict = Json.parseObject(conflictRaw);
-                state.status = SyncStatus.CONFLICT_PENDING;
-            } catch (Json.SyntaxException ignored) {}
-        }
-        return state;
-    }
-
-    private static void saveToDisk(File filesDir, String hostUuid, HostState state) {
-        File dir = hostDir(filesDir, hostUuid);
-        if (state.snapshot != null) writeAtomicText(new File(dir, "snapshot.json"), state.snapshot.toString());
-        Json.Arr outboxArr = Json.arr();
-        for (Json.Obj op : state.outbox) outboxArr.add(op);
-        writeAtomicText(new File(dir, "outbox.json"), outboxArr.toString());
-        Json.Obj etagsObj = Json.obj();
-        for (Map.Entry<Integer, String> entry : state.coverEtags.entrySet()) {
-            etagsObj.put(Integer.toString(entry.getKey()), entry.getValue());
-        }
-        writeAtomicText(new File(dir, "cover_etags.json"), etagsObj.toString());
-        File conflictFile = new File(dir, "conflict.json");
-        if (state.pendingConflict != null) writeAtomicText(conflictFile, state.pendingConflict.toString());
-        else if (conflictFile.exists()) conflictFile.delete();
-    }
-
-    private static String readText(File file) {
-        if (!file.isFile()) return null;
-        try (FileInputStream in = new FileInputStream(file)) {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = in.read(buf)) >= 0) out.write(buf, 0, n);
-            return out.toString(StandardCharsets.UTF_8.name());
-        } catch (IOException e) {
-            return null;
-        }
-    }
-
-    private static void writeAtomicText(File target, String text) {
-        File parent = target.getParentFile();
-        if (parent != null && !parent.exists()) parent.mkdirs();
-        File tmp = new File(parent, target.getName() + ".tmp");
-        try (FileOutputStream out = new FileOutputStream(tmp)) {
-            out.write(text.getBytes(StandardCharsets.UTF_8));
-        } catch (IOException e) {
-            return;
-        }
-        if (!tmp.renameTo(target)) {
-            target.delete();
-            if (!tmp.renameTo(target)) tmp.delete();
-        }
+    private static AtomicLong epochCounter(String hostUuid) {
+        return FORGET_EPOCHS.computeIfAbsent(hostUuid, k -> new AtomicLong());
     }
 }

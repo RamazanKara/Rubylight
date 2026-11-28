@@ -127,7 +127,7 @@ fn plans_cover_fetches_only_when_etag_differs() {
         },
     ];
     let local = BTreeMap::from([
-        (1, "sha256:aaa".into()),
+        (1, "\"sha256:aaa\"".into()),
         (2, "sha256:old".into()),
         (99, "sha256:gone".into()),
     ]);
@@ -137,4 +137,11 @@ fn plans_cover_fetches_only_when_etag_differs() {
         .collect();
     assert_eq!(fetch, vec![2, 3]);
     assert_eq!(stale_local_cover_ids(&remote, &local), vec![99]);
+
+    let weak = BTreeMap::from([
+        (1, "W/\"sha256:aaa\"".into()),
+        (2, "\"sha256:bbb\"".into()),
+        (3, "sha256:ccc".into()),
+    ]);
+    assert!(covers_to_fetch(&remote, &weak).is_empty());
 }

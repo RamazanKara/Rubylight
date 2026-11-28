@@ -645,4 +645,42 @@ public class ControlCenterTest {
             dock.dismiss();
         }
     }
+
+    @Test
+    @Config(qualifiers = "w673dp-h841dp-port-xhdpi")
+    public void resizingDockOnShortcutsPagePreservesCompactShortcutTiles() throws Exception {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
+            Activity activity = controller.get();
+            StreamMenu menu = open(activity, everything(NvApp.Role.STREAM), new ArrayList<>(), null);
+            MaterialButton shortcutsRow = null;
+            for (String module : menu.modules()) {
+                menu.select(module);
+                shortcutsRow = menu.row(SHORTCUTS);
+                if (shortcutsRow != null) break;
+            }
+            assertNotNull("Shortcuts action is offered", shortcutsRow);
+            shortcutsRow.performClick();
+            settle();
+
+            ControlCenterDock dock = menu.sheet();
+            ControlCenterPage page = ReflectionHelpers.getField(dock, "page");
+            TileGrid.Tile shortcutTile = null;
+            for (int i = 0; i < page.content().getChildCount() && shortcutTile == null; i++) {
+                View child = page.content().getChildAt(i);
+                if (child instanceof TileGrid && ((TileGrid) child).getChildCount() > 0) {
+                    shortcutTile = (TileGrid.Tile) ((TileGrid) child).getChildAt(0);
+                }
+            }
+            assertNotNull("Shortcuts page rendered compact shortcut tiles", shortcutTile);
+            assertFalse("compact shortcut tile does not use top-start card header", shortcutTile.hasTopStartHeader());
+            int minHeightBefore = shortcutTile.getMinimumHeight();
+            int padTopBefore = shortcutTile.getPaddingTop();
+
+            float density = activity.getResources().getDisplayMetrics().density;
+            dock.onResized(Math.round(841 * density), Math.round(400 * density));
+            assertEquals("resizing dock does not overwrite shortcut tile minHeight", minHeightBefore, shortcutTile.getMinimumHeight());
+            assertEquals("resizing dock does not overwrite shortcut tile top padding", padTopBefore, shortcutTile.getPaddingTop());
+            dock.dismiss();
+        }
+    }
 }

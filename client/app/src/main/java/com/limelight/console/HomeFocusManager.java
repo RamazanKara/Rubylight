@@ -336,8 +336,12 @@ final class HomeFocusManager {
         restoreFocus(first, 0);
     }
 
-    /** Moves D-pad Down focus from the TV/handheld top bar directly into the first app card (or setup/empty action). */
-    boolean focusDownFromTopRow(View setupCard, View empty) {
+    /** Moves D-pad Down focus from the TV/handheld top bar directly into the pairing banner, setup/empty action, hero Play, or first app card. */
+    boolean focusDownFromTopRow(View pairingBanner, View setupCard, View empty) {
+        if (pairingBanner != null && pairingBanner.getVisibility() == View.VISIBLE
+                && pairingBanner.isFocusable() && pairingBanner.requestFocus()) {
+            return true;
+        }
         if (setupCard != null && setupCard.getVisibility() == View.VISIBLE) {
             View close = setupCard.findViewById(R.id.home_setup_dismiss);
             if (close != null && close.isFocusable() && close.requestFocus()) return true;
@@ -347,15 +351,31 @@ final class HomeFocusManager {
             if (hosts != null && hosts.requestFocus()) return true;
         }
         RecyclerView list = host.list();
+        if (list == null || list.getVisibility() != View.VISIBLE) return false;
         ConsoleHomeAdapter shelves = host.shelves();
         if (shelves != null) {
+            if (shelves.heroItem() != null) {
+                View play = shelves.heroPlay(list);
+                if (play != null && play.requestFocus()) return true;
+                list.scrollToPosition(0);
+                list.post(() -> {
+                    ConsoleHomeAdapter current = host.shelves();
+                    if (current == null || current.heroItem() == null) return;
+                    View p = current.heroPlay(list);
+                    if (p != null) p.requestFocus();
+                });
+                return true;
+            }
             ConsoleHomeAdapter.Cursor first = shelves.initialFocus();
             if (first != null) {
                 View card = shelves.cardView(list, first);
                 if (card != null && card.requestFocus()) return true;
-                shelves.reveal(list, first);
-                restoreFocus(shelves.rowKey(first.row), shelves.keyAt(first), 0);
-                return true;
+                String cardKey = shelves.keyAt(first);
+                if (cardKey != null) {
+                    shelves.reveal(list, first);
+                    restoreFocus(shelves.rowKey(first.row), cardKey, 0);
+                    return true;
+                }
             }
         } else {
             ConsoleHomeListAdapter adapter = host.adapter();

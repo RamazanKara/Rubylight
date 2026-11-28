@@ -73,7 +73,7 @@ final class ControlCenterPage {
             TileGrid grid = (TileGrid) child;
             for (int j = 0; j < grid.getChildCount(); j++) {
                 android.view.View item = grid.getChildAt(j);
-                if (item instanceof TileGrid.Tile && ((TileGrid.Tile) item).getIcon() != null) {
+                if (item instanceof TileGrid.Tile && ((TileGrid.Tile) item).hasTopStartHeader()) {
                     ControlCenterCards.fitCard((TileGrid.Tile) item, heightDp);
                 }
             }

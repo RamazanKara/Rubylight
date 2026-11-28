@@ -433,8 +433,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_DOWN
                 && chrome != null && chrome.form() != GlassForm.PHONE) {
             View topRow = findViewById(R.id.home_top_row);
-            if (topRow != null && topRow.hasFocus()) {
-                return focus.focusDownFromTopRow(setupCard, empty);
+            if (topRow != null && topRow.hasFocus()
+                    && focus.focusDownFromTopRow(pairingBanner, setupCard, empty)) {
+                return true;
             }
         }
         return super.dispatchKeyEvent(event);

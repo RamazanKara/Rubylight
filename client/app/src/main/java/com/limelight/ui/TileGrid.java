@@ -192,6 +192,10 @@ public final class TileGrid extends ViewGroup {
             invalidate();
         }
 
+        boolean hasTopStartHeader() {
+            return topStartIcon != null;
+        }
+
         @Override
         public android.graphics.drawable.Drawable getIcon() {
             return topStartIcon != null ? topStartIcon : super.getIcon();

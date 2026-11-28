@@ -190,6 +190,12 @@ final class HomeChrome {
         }
         styleTabs(activity, form);
         if (form != GlassForm.PHONE) {
+            ViewGroup items = activity.findViewById(R.id.shell_bar_items);
+            if (items != null) {
+                for (int i = 0; i < items.getChildCount(); i++) {
+                    items.getChildAt(i).setNextFocusDownId(R.id.console_list);
+                }
+            }
             for (int id : new int[] {R.id.home_pc, R.id.console_view, R.id.home_search, R.id.home_search_top}) {
                 View v = activity.findViewById(id);
                 if (v != null) v.setNextFocusDownId(R.id.console_list);
@@ -238,7 +244,6 @@ final class HomeChrome {
             tab.setBackgroundTintList(ColorStateList.valueOf(0));
             tab.setIconTint(tab.getTextColors());
             tab.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, phone ? 11f : 13f);
-            if (!phone) tab.setNextFocusDownId(R.id.console_list);
             if (phone) {
                 tab.setIconGravity(MaterialButton.ICON_GRAVITY_TEXT_TOP);
                 tab.setIconPadding(Math.round(2 * density));

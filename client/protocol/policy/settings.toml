@@ -3244,7 +3244,7 @@ tier = "more"
 kind = "list"
 xml_default = "auto"
 scope = "global"
-advice = "Auto by default: every HEVC decoder gets the Android and vendor low-latency flags except Amlogic's, which stall the display with them. On gives them to Amlogic decoders too, with a warning in the log. Off omits them on any device and disables HEVC reference-frame invalidation; choose Off if HEVC video stutters or freezes. H.264, AV1 and decoder performance hints keep their own settings. Off is stored in the older switch's key `checkbox_disable_hevc_low_latency` as true, so older saved values and profiles keep their meaning; this key only tells Auto from On. Applies to the next stream and decoder benchmark; changing it invalidates previous benchmark results."
+advice = "Auto by default: every HEVC decoder gets the Android and vendor low-latency flags except non-Fire-TV Codec2 Amlogic decoders (`c2.amlogic`), where Auto omits those flags and disables HEVC reference-frame invalidation (notifying once on stream start) to avoid ~1 FPS display stalls; Fire TV and older `omx.amlogic` decoders keep the flags. On forces the flags on `c2.amlogic` decoders too (and restores HEVC RFI outside Fire TV), with a warning in the log. Off omits them on any device and disables HEVC reference-frame invalidation; choose Off if HEVC video stutters or freezes. H.264, AV1 and decoder performance hints keep their own settings. Off is stored in the older switch's key `checkbox_disable_hevc_low_latency` as true, so older saved values and profiles keep their meaning; this key only tells Auto from On. Applies to the next stream and decoder benchmark; changing it invalidates previous benchmark results."
 
 [[android_setting]]
 key = "gpu_driver"

@@ -589,4 +589,51 @@ public class HomeShellNavigationTest extends HomeShellCase {
             controller.pause().stop().destroy();
         }
     }
+
+    @Test
+    @Config(qualifiers = "w891dp-h411dp-land-night-xxhdpi")
+    public void onAHandheldDpadDownFromTopRowFocusesHeroPlayEvenWithoutSidePanel() throws Exception {
+        ActivityController<HomeShellTest.Home> controller = home();
+        try {
+            HomeShellTest.Home home = controller.get();
+            assertEquals(GlassForm.HANDHELD, GlassForm.of(home));
+            showHosts(home, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            layOut(home);
+            TvScreensPreviewTest.leaveTouchMode(home);
+            ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
+            assertNotNull("handheld rows layout has a hero", shelves.heroItem());
+            View play = shelves.heroPlay(list(home));
+            assertNotNull("hero Play button is laid out", play);
+            assertNull("library-only hero has no side panel cards", shelves.cardView(list(home), new ConsoleHomeAdapter.Cursor(0, 0)));
+
+            View homeTab = home.findViewById(R.id.shell_home);
+            assertTrue(homeTab.requestFocus());
+            assertTrue(home.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN)));
+            assertSame("D-pad Down from handheld top row lands on hero Play", play, home.getWindow().getDecorView().findFocus());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionDpadDownFromTopRowFocusesVisiblePairingBanner() throws Exception {
+        ActivityController<HomeShellTest.Home> controller = home();
+        try {
+            HomeShellTest.Home home = controller.get();
+            showHosts(home, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            View pcTab = home.findViewById(R.id.home_pc);
+            View banner = home.findViewById(R.id.home_pairing_banner);
+            pcTab.setVisibility(View.VISIBLE);
+            banner.setVisibility(View.VISIBLE);
+            layOut(home);
+            TvScreensPreviewTest.leaveTouchMode(home);
+            assertTrue(pcTab.requestFocus());
+
+            assertTrue(home.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN)));
+            assertSame("D-pad Down from TV top row stops on visible pairing banner", banner, home.getWindow().getDecorView().findFocus());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

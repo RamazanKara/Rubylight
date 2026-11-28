@@ -9,6 +9,7 @@
 //! next request.
 mod audio;
 pub mod coop;
+mod core_routes;
 mod curtain;
 mod doctor;
 pub mod dvr;
@@ -25,7 +26,7 @@ mod wake_relay;
 
 use axum::{
     Extension, Router,
-    body::to_bytes,
+    body::{Bytes, HttpBody, to_bytes},
     extract::{DefaultBodyLimit, Request, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
@@ -33,15 +34,14 @@ use axum::{
 };
 use butterpollo_session::{
     native::{self, FILE_DOWNLOAD, FILE_UPLOAD, LAUNCH, LIST, VIEW},
-    state::{App, Client},
+    state::Client,
 };
 pub use butterpollo_stream::session_actions::{
     Action, Failure, permission_required, require, require_host_control, require_view_or_launch,
     session_action,
 };
 use butterpollo_stream::{
-    couch_menu as stream_couch_menu, extensions, library, mic, network, neural as stream_neural,
-    nucleus, nvhttp, state::Shared, stream, tls::Connection, updater, usb_forward,
+    extensions, network, neural as stream_neural, state::Shared, stream, tls::Connection, updater,
 };
 use rubylight_native_api as native_api;
 use rubylight_native_api::{
@@ -50,7 +50,7 @@ use rubylight_native_api::{
     feature,
 };
 use serde::Serialize;
-use std::{path::Path, sync::PoisonError, time::UNIX_EPOCH};
+use std::{pin::Pin, sync::PoisonError};
 
 /// POST bodies are JSON of at most this many bytes.
 const MAX_BODY: usize = 16 * 1024;
@@ -80,7 +80,7 @@ impl IntoResponse for ApiFailure {
 type Reply = Result<Response, ApiFailure>;
 
 /// A JSON answer. Every answer says `no-store`: the state is live.
-fn json<T: Serialize>(status: StatusCode, body: &T) -> Response {
+pub(super) fn json<T: Serialize>(status: StatusCode, body: &T) -> Response {
     match serde_json::to_vec(body) {
         Ok(bytes) => (
             status,
@@ -111,24 +111,33 @@ pub fn router() -> Router<Shared> {
     let path = |rest: &str| format!("{}{rest}", native_api::PREFIX);
     Router::new()
         .route(&path("/capabilities"), get(capabilities).fallback(unknown))
-        .route(&path("/library"), get(library).fallback(unknown))
-        .route(&path("/session"), get(session).fallback(unknown))
+        .route(
+            &path("/library"),
+            get(core_routes::library).fallback(unknown),
+        )
+        .route(
+            &path("/session"),
+            get(core_routes::session).fallback(unknown),
+        )
         .route(
             &path("/session/disconnect"),
-            post(disconnect).fallback(unknown),
+            post(core_routes::disconnect).fallback(unknown),
         )
-        .route(&path("/session/end"), post(end).fallback(unknown))
+        .route(
+            &path("/session/end"),
+            post(core_routes::end).fallback(unknown),
+        )
         .route(
             &path("/session/continue-here"),
-            post(continue_here).fallback(unknown),
+            post(core_routes::continue_here).fallback(unknown),
         )
         .route(
             &path("/session/close-game"),
-            post(close_game).fallback(unknown),
+            post(core_routes::close_game).fallback(unknown),
         )
         .route(
             &path("/session/couch-menu"),
-            post(couch_menu).fallback(unknown),
+            post(core_routes::couch_menu).fallback(unknown),
         )
         .route(
             &path("/session/suspend"),
@@ -278,7 +287,7 @@ pub fn router() -> Router<Shared> {
         .route(&path("/coop/join"), post(coop::join).fallback(unknown))
         .route(
             &path(native_api::usb::TUNNEL_PATH),
-            get(usb_tunnel).fallback(unknown),
+            get(core_routes::usb_tunnel).fallback(unknown),
         )
         .route(native_api::PREFIX, any(unknown))
         .route(&path("/"), any(unknown))
@@ -294,7 +303,7 @@ async fn unknown() -> ApiFailure {
 
 /// The paired device behind this connection, as the console has it now; its second screen for a
 /// request of that screen ([`nvhttp::as_requested`]).
-fn caller(h: &Shared, connection: &Connection) -> Result<Client, Failure> {
+pub(super) fn caller(h: &Shared, connection: &Connection) -> Result<Client, Failure> {
     let not_paired = || {
         Failure::new(
             ErrorCode::NotPaired,
@@ -311,14 +320,11 @@ fn caller(h: &Shared, connection: &Connection) -> Result<Client, Failure> {
         .unwrap_or_else(PoisonError::into_inner)
         .client_by_certificate(der)
         .cloned()
-        .map(|client| nvhttp::as_requested(client, connection))
+        .map(|client| butterpollo_stream::nvhttp::as_requested(client, connection))
         .ok_or_else(not_paired)
 }
 
-/// The body of a POST: JSON as `application/json`, `text/plain` or without a content type, of at
-/// most 16 KiB.
-async fn read_body(request: Request) -> Result<axum::body::Bytes, Failure> {
-    let invalid = |message: &str| Failure::new(ErrorCode::InvalidRequest, message);
+fn validate_json_content_type(request: &Request) -> Result<(), Failure> {
     let content_type = request
         .headers()
         .get(header::CONTENT_TYPE)
@@ -335,14 +341,76 @@ async fn read_body(request: Request) -> Result<axum::body::Bytes, Failure> {
         content_type.as_deref(),
         None | Some("" | "application/json" | "text/plain")
     ) {
-        return Err(invalid("Send the body as application/json."));
+        return Err(Failure::new(
+            ErrorCode::InvalidRequest,
+            "Send the body as application/json.",
+        ));
     }
-    to_bytes(request.into_body(), MAX_BODY)
-        .await
-        .map_err(|_| invalid("The body is larger than 16 KiB or could not be read."))
+    Ok(())
 }
+
+/// The body of a POST: JSON as `application/json`, `text/plain` or without a content type, of at
+/// most 16 KiB.
+pub(super) async fn read_body(request: Request) -> Result<axum::body::Bytes, Failure> {
+    validate_json_content_type(&request)?;
+    to_bytes(request.into_body(), MAX_BODY).await.map_err(|_| {
+        Failure::new(
+            ErrorCode::InvalidRequest,
+            "The body is larger than 16 KiB or could not be read.",
+        )
+    })
+}
+
+/// Reads a JSON body up to `max` bytes, returning [`ErrorCode::TooLarge`] (HTTP 413) when
+/// `Content-Length` or streamed frame bytes exceed `max`.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "shared 64 KiB JSON body reader for Wave 1+ native routes"
+    )
+)]
+pub(super) async fn read_body_limit(
+    request: Request,
+    max: usize,
+) -> Result<axum::body::Bytes, Failure> {
+    validate_json_content_type(&request)?;
+    if let Some(len) = request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        && len > max as u64
+    {
+        return Err(Failure::new(
+            ErrorCode::TooLarge,
+            format!("The body exceeds the {max}-byte limit."),
+        ));
+    }
+    let mut body = request.into_body();
+    let mut out = Vec::new();
+    while let Some(frame) = std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await {
+        let frame = frame.map_err(|_| {
+            Failure::new(
+                ErrorCode::InvalidRequest,
+                "The request body could not be read.",
+            )
+        })?;
+        if let Ok(chunk) = frame.into_data() {
+            if out.len().saturating_add(chunk.len()) > max {
+                return Err(Failure::new(
+                    ErrorCode::TooLarge,
+                    format!("The body exceeds the {max}-byte limit."),
+                ));
+            }
+            out.extend_from_slice(&chunk);
+        }
+    }
+    Ok(Bytes::from(out))
+}
+
 /// An action POST carries no data. Its body is empty or a JSON object.
-async fn expect_empty_body(request: Request) -> Result<(), Failure> {
+pub(super) async fn expect_empty_body(request: Request) -> Result<(), Failure> {
     let invalid = |message: &str| Failure::new(ErrorCode::InvalidRequest, message);
     let bytes = read_body(request).await?;
     if bytes.iter().all(u8::is_ascii_whitespace) {
@@ -482,271 +550,53 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
     ))
 }
 
-async fn library(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
-    require(&caller(&h, &c)?, LIST, "List applications")?;
-    let library = tokio::task::spawn_blocking(move || library_of(&h))
-        .await
-        .map_err(|error| Failure::internal("read the library", error))?;
-    Ok(json(StatusCode::OK, &library))
-}
-fn library_of(h: &Shared) -> native_api::library::Library {
-    h.reload_apps();
-    let mut apps = h
-        .apps
-        .read()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    // The co-op entries follow the user's apps, as in `/applist`.
-    let configured = nucleus::configured(&h.config.read().unwrap_or_else(PoisonError::into_inner));
-    let coop = h.nucleus.entries(&apps, &configured);
-    apps.extend(coop.into_iter().map(|coop| coop.entry));
-    let current = h
-        .current_app
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .as_ref()
-        .map(|app| app.id);
-    let scan = library::installed(h);
-    if let Some(scan) = &scan {
-        library::tell_collections_cut(&apps, scan);
-    }
-    // The same directory `/appasset` serves covers from.
-    let assets = h.assets.parent().unwrap_or(&h.assets);
-    native::library_with(&apps, scan.as_ref(), current, |app| {
-        cover_fingerprint(app, assets)
-    })
-}
-/// What identifies a cover image file: its path, size and modification time.
-/// `None` when the app has none of its own and `/appasset` would send the
-/// placeholder.
-fn cover_fingerprint(app: &App, assets: &Path) -> Option<String> {
-    let path = butterpollo_session::catalog::artwork(app, assets);
-    if path == assets.join("box.png") {
-        return None;
-    }
-    let (size, modified) = std::fs::metadata(&path).map_or((0, 0), |meta| {
-        let modified = meta
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-            .map_or(0, |elapsed| elapsed.as_nanos());
-        (meta.len(), modified)
-    });
-    Some(format!("{}|{size}|{modified}", path.display()))
-}
-
-async fn session(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
-    let client = caller(&h, &c)?;
-    let snapshot = h.session_snapshot();
-    let mut view = native::session_view(&snapshot, &client);
-    view.microphone_busy = mic::busy_for(&h, &client.uuid);
-    view.moved_to = native::moved_view(h.moved_note(&client.uuid), &client);
-    view.owns_game = h.owns_game(&client.uuid);
-    view.press_failed = h.press_failed(&client.uuid);
-    Ok(json(StatusCode::OK, &view))
-}
-
-/// Continue here: the other devices' plain streams of the running game end, the game stays and
-/// the caller starts its own stream of it with the normal resume.
-async fn continue_here(
-    State(h): State<Shared>,
-    Extension(c): Extension<Connection>,
-    request: Request,
-) -> Reply {
-    caller(&h, &c)?;
-    expect_empty_body(request).await?;
-    tokio::task::spawn_blocking(move || {
-        // The permission checks use the device as the console has it now.
-        let client = caller(&h, &c)?;
-        require(&client, VIEW, "View apps")?;
-        require(&client, LAUNCH, "Launch applications")?;
-        h.continue_here(&client)?;
-        Ok(json(
-            StatusCode::OK,
-            &native::session_view(&h.session_snapshot(), &client),
-        ))
-    })
-    .await
-    .map_err(|error| Failure::internal("continue the game here", error))?
-}
-
-async fn disconnect(
-    State(h): State<Shared>,
-    Extension(c): Extension<Connection>,
-    request: Request,
-) -> Reply {
-    act(h, c, request, Action::Disconnect).await
-}
-async fn end(
-    State(h): State<Shared>,
-    Extension(c): Extension<Connection>,
-    request: Request,
-) -> Reply {
-    act(h, c, request, Action::End).await
-}
-async fn close_game(
-    State(h): State<Shared>,
-    Extension(c): Extension<Connection>,
-    request: Request,
-) -> Reply {
-    act(h, c, request, Action::CloseGame).await
-}
-async fn act(h: Shared, c: Connection, request: Request, action: Action) -> Reply {
-    caller(&h, &c)?;
-    expect_empty_body(request).await?;
-    // End session and Close game wait up to five seconds for the streams.
-    tokio::task::spawn_blocking(move || run(&h, &c, action))
-        .await
-        .map_err(|error| Failure::internal("run the action", error))?
-}
-/// Check the device, then run the action and answer with the new session.
-/// The permission checks use the device as the console has it now, right
-/// before the action runs.
-fn run(h: &Shared, connection: &Connection, action: Action) -> Reply {
-    let client = caller(h, connection)?;
-    session_action(h, &client, action)?;
-    let client = caller(h, connection).unwrap_or(client);
-    Ok(json(
-        StatusCode::OK,
-        &native::session_view(&h.session_snapshot(), &client),
-    ))
-}
-
-/// Opens or closes the couch menu in the caller's stream
-/// (`docs/couch-menu-design.md` section 7.1). Idempotent.
-async fn couch_menu(
-    State(h): State<Shared>,
-    Extension(c): Extension<Connection>,
-    request: Request,
-) -> Reply {
-    let client = caller(&h, &c)?;
-    let body = read_body(request).await?;
-    let request: native_api::session::CouchMenuRequest =
-        serde_json::from_slice(&body).map_err(|error| {
-            Failure::new(
-                ErrorCode::InvalidRequest,
-                format!("The body is not a valid couch menu request: {error}."),
-            )
-        })?;
-    require_view_or_launch(&client)?;
-    let open =
-        tokio::task::spawn_blocking(move || stream_couch_menu::request(&h, &client, request.open))
-            .await
-            .map_err(|error| Failure::internal("open the couch menu", error))??;
-    Ok(json(
-        StatusCode::OK,
-        &native_api::session::CouchMenu { open },
-    ))
-}
-
-/// Upgrades to the USB/IP pipe of the device a `TunnelReady` token names, and relays it to the
-/// driver until it detaches.
-async fn usb_tunnel(
-    State(h): State<Shared>,
-    Extension(c): Extension<Connection>,
-    mut request: Request,
-) -> Reply {
-    use native_api::usb::{TOKEN_HEADER, UPGRADE};
-    let client = caller(&h, &c)?;
-    let enabled = h
-        .config
-        .read()
-        .unwrap_or_else(PoisonError::into_inner)
-        .usb_forwarding();
-    if !enabled {
-        return Err(Failure::new(
-            ErrorCode::UsbDisabled,
-            "USB forwarding is off on this host.",
-        )
-        .for_setting("usb_forwarding")
-        .into());
-    }
-    if !client.allows_usb() {
-        return Err(Failure::new(
-            ErrorCode::UsbDisabled,
-            "Turn on USB forwarding for this device in the Rubylight console.",
-        )
-        .into());
-    }
-    let headers = request.headers();
-    let upgrades = headers
-        .get(header::UPGRADE)
-        .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(UPGRADE.as_bytes()));
-    let token = headers
-        .get(TOKEN_HEADER)
-        .and_then(|value| usb_token(value.to_str().ok()?));
-    let (true, Some(token)) = (upgrades, token) else {
-        return Err(Failure::new(
-            ErrorCode::InvalidRequest,
-            format!("Open the tunnel with Upgrade: {UPGRADE} and the token in {TOKEN_HEADER}."),
-        )
-        .into());
-    };
-    let opened = h
-        .usb
-        .claim(&token, &client.cert, std::time::Instant::now())
-        .map_err(|refused| match refused {
-            usb_forward::Refused::Unknown => Failure::new(
-                ErrorCode::NotFound,
-                "This USB tunnel token is unknown or expired. Ask for the device again.",
-            ),
-            // Not usb_limit: the limit was checked when the device asked.
-            usb_forward::Refused::Used => Failure::new(
-                ErrorCode::NotFound,
-                "This USB tunnel token was already used.",
-            ),
-        })?;
-    let upgrade = hyper::upgrade::on(&mut request);
-    tokio::spawn(async move {
-        match upgrade.await {
-            Ok(tunnel) => {
-                h.usb
-                    .serve(opened, hyper_util::rt::TokioIo::new(tunnel))
-                    .await
-            }
-            Err(error) => h.usb.abandon(opened, error),
-        }
-    });
-    Ok((
-        StatusCode::SWITCHING_PROTOCOLS,
-        [(header::CONNECTION, "upgrade"), (header::UPGRADE, UPGRADE)],
-    )
-        .into_response())
-}
-
-/// A tunnel token: 32 hex digits.
-fn usb_token(hex: &str) -> Option<[u8; native_api::usb::TOKEN_BYTES]> {
-    let mut token = [0; native_api::usb::TOKEN_BYTES];
-    if hex.len() != token.len() * 2 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
-    for (byte, pair) in token.iter_mut().zip(hex.as_bytes().chunks(2)) {
-        *byte = u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()?;
-    }
-    Some(token)
-}
-
 #[cfg(test)]
-mod cover_tests {
+mod tests {
     use super::*;
+    use axum::body::Body;
+    use std::io::Cursor;
+    use tokio_util::io::ReaderStream;
 
-    #[test]
-    fn an_app_without_a_cover_of_its_own_has_no_fingerprint() {
-        let assets = std::env::temp_dir().join(format!("rubylight-cover-{}", std::process::id()));
-        std::fs::create_dir_all(&assets).unwrap();
-        let png = b"\x89PNG\r\n\x1a\n0000";
-        std::fs::write(assets.join("box.png"), png).unwrap();
-        std::fs::write(assets.join("dota.png"), png).unwrap();
-        let app = |image: &str| -> App {
-            serde_json::from_value(serde_json::json!({"name": "Dota 2", "image-path": image}))
-                .unwrap()
-        };
-        let own = cover_fingerprint(&app("dota.png"), &assets);
-        // None, a missing file and a file that isn't an image all end at the placeholder.
-        let none = [app(""), app("gone.png"), app("notes.txt")]
-            .map(|app| cover_fingerprint(&app, &assets));
-        let _ = std::fs::remove_dir_all(&assets);
-        assert!(own.unwrap().contains("dota.png"));
-        assert_eq!(none, [None, None, None]);
+    const LIMIT: usize = 64 * 1024;
+
+    #[tokio::test]
+    async fn read_body_limit_accepts_payload_under_limit() {
+        let payload = vec![b'a'; LIMIT - 1];
+        let request = Request::builder()
+            .method("POST")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::CONTENT_LENGTH, payload.len().to_string())
+            .body(Body::from(payload.clone()))
+            .unwrap();
+
+        let bytes = read_body_limit(request, LIMIT).await.unwrap();
+        assert_eq!(bytes.as_ref(), payload.as_slice());
+    }
+
+    #[tokio::test]
+    async fn read_body_limit_rejects_excessive_content_length() {
+        let request = Request::builder()
+            .method("POST")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::CONTENT_LENGTH, (LIMIT + 1).to_string())
+            .body(Body::from("{}"))
+            .unwrap();
+
+        let error = read_body_limit(request, LIMIT).await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::TooLarge);
+    }
+
+    #[tokio::test]
+    async fn read_body_limit_rejects_streamed_chunks_over_limit() {
+        let payload = vec![b'a'; LIMIT + 1];
+        let stream = ReaderStream::with_capacity(Cursor::new(payload), 16 * 1024);
+        let request = Request::builder()
+            .method("POST")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from_stream(stream))
+            .unwrap();
+
+        let error = read_body_limit(request, LIMIT).await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::TooLarge);
     }
 }

@@ -10,8 +10,8 @@
 
 use crate::pads_view::{PadEntry, PadsView};
 use crate::strings::{en, trf};
-use nightjar_core::input::packets::{motion_type, touch_event};
 use nightjar_core::input::InputQueue;
+use nightjar_core::input::packets::{motion_type, touch_event};
 use nightjar_policy::controllers::Controllers;
 use sdl3_sys::everything::*;
 
@@ -19,15 +19,19 @@ pub use crate::gamepad_types::*;
 
 mod arbitration;
 mod audio;
+mod controls;
 mod pad;
 mod protocol;
 
 pub use pad::Pad;
 
-use pad::{Guide, GUIDE_TAP};
-use protocol::{send_battery, send_state};
+use controls::cancel_touchpad_contacts;
+#[cfg(test)]
+use pad::GUIDE_TAP;
+use pad::Guide;
 #[cfg(test)]
 use protocol::{describe, trigger_effect};
+use protocol::{send_battery, send_state};
 
 /// Why [`Gamepads::added`] left a controller out.
 #[derive(Debug, PartialEq)]
@@ -104,15 +108,19 @@ pub struct Gamepads {
 pub fn quit_mask(combo: crate::config::GamepadQuitCombo) -> u32 {
     use crate::config::GamepadQuitCombo as Combo;
     let bits = |buttons: &[SDL_GamepadButton]| buttons.iter().fold(0u32, |mask, b| mask | 1 << b.0);
-    let shoulders = [SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER];
-    bits(&shoulders) | match combo {
-        Combo::StartSelectLbRb => bits(&[SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_BACK]),
-        Combo::SelectLbRbY => bits(&[SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_NORTH]),
-        Combo::StartLbRbA => bits(&[SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_SOUTH]),
-        Combo::StartLbRbB => bits(&[SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_EAST]),
-        Combo::LbRbXY => bits(&[SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH]),
-        Combo::LbRbAB => bits(&[SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST]),
-    }
+    let shoulders = [
+        SDL_GAMEPAD_BUTTON_LEFT_SHOULDER,
+        SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,
+    ];
+    bits(&shoulders)
+        | match combo {
+            Combo::StartSelectLbRb => bits(&[SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_BACK]),
+            Combo::SelectLbRbY => bits(&[SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_NORTH]),
+            Combo::StartLbRbA => bits(&[SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_SOUTH]),
+            Combo::StartLbRbB => bits(&[SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_EAST]),
+            Combo::LbRbXY => bits(&[SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH]),
+            Combo::LbRbAB => bits(&[SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST]),
+        }
 }
 
 impl Gamepads {
@@ -152,14 +160,18 @@ impl Gamepads {
         self.disable_rumble = settings.disable_rumble;
         self.rumble_feel = settings.rumble_feel;
         let pad_settings = PadSettings::from(settings);
-        (self.back_as_guide, self.dead_zones) = (pad_settings.back_as_guide, pad_settings.dead_zones);
+        (self.back_as_guide, self.dead_zones) =
+            (pad_settings.back_as_guide, pad_settings.dead_zones);
         self.one_player = one_player(settings);
         self.assign_slots();
-        self.guide_hold = (settings.guide_hold_ms > 0).then(|| std::time::Duration::from_millis(u64::from(settings.guide_hold_ms)));
+        self.guide_hold = (settings.guide_hold_ms > 0)
+            .then(|| std::time::Duration::from_millis(u64::from(settings.guide_hold_ms)));
         if self.guide_hold.is_none() {
             // Turned off mid-press: the held Guide is forgotten (the PC never had it), a tap still goes up on the tick.
             for pad in &mut self.pads {
-                if matches!(pad.guide, Guide::Held(_) | Guide::Opened) { pad.guide = Guide::Up; }
+                if matches!(pad.guide, Guide::Held(_) | Guide::Opened) {
+                    pad.guide = Guide::Up;
+                }
             }
         }
     }
@@ -175,21 +187,32 @@ impl Gamepads {
             return Ok(());
         }
         let Some(index) = (0..MAX_PADS as u8).find(|i| !used.contains(i)) else {
-            eprintln!("nightjar: controller {}: left out, {MAX_PADS} are already connected", id.0);
+            eprintln!(
+                "nightjar: controller {}: left out, {MAX_PADS} are already connected",
+                id.0
+            );
             return Err(NotOpened::Limit);
         };
         // SAFETY: opening a gamepad SDL reported.
         let handle = unsafe { SDL_OpenGamepad(id) };
         if handle.is_null() {
             let error = crate::sdl::error();
-            eprintln!("nightjar: controller {}: could not be opened: {error}", id.0);
+            eprintln!(
+                "nightjar: controller {}: could not be opened: {error}",
+                id.0
+            );
             return Err(NotOpened::Failed(error));
         }
         let sdl_name = unsafe {
             let name = SDL_GetGamepadName(handle);
-            (!name.is_null()).then(|| std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned())
+            (!name.is_null()).then(|| {
+                std::ffi::CStr::from_ptr(name)
+                    .to_string_lossy()
+                    .into_owned()
+            })
         };
-        let (vendor, product) = unsafe { (SDL_GetGamepadVendor(handle), SDL_GetGamepadProduct(handle)) };
+        let (vendor, product) =
+            unsafe { (SDL_GetGamepadVendor(handle), SDL_GetGamepadProduct(handle)) };
         // A nameless pad's mapping is keyed in English, so it does not follow the language.
         const UNNAMED: &str = en("Controller");
         let key = if vendor != 0 || product != 0 {
@@ -201,8 +224,10 @@ impl Gamepads {
         let mapping = self.mappings.get(&key).cloned().unwrap_or_default();
         // SAFETY: the gamepad opened above; read-only queries.
         let has_touchpad_click = unsafe {
-            matches!(SDL_GetGamepadType(handle), SDL_GAMEPAD_TYPE_PS3 | SDL_GAMEPAD_TYPE_PS4 | SDL_GAMEPAD_TYPE_PS5)
-                || SDL_GamepadHasButton(handle, SDL_GAMEPAD_BUTTON_TOUCHPAD)
+            matches!(
+                SDL_GetGamepadType(handle),
+                SDL_GAMEPAD_TYPE_PS3 | SDL_GAMEPAD_TYPE_PS4 | SDL_GAMEPAD_TYPE_PS5
+            ) || SDL_GamepadHasButton(handle, SDL_GAMEPAD_BUTTON_TOUCHPAD)
         };
         self.pads.push(Pad {
             audio: None,
@@ -250,7 +275,11 @@ impl Gamepads {
     /// Closes a removed gamepad during a stream, releasing any simulated mouse buttons and
     /// cancelling active DualSense/DualShock touchpad contacts on `queue` before dropping `Pad`
     /// (including in `OnePlayer` mode where `active_mask` keeps slot 0 active).
-    pub fn removed_with(&mut self, id: SDL_JoystickID, queue: Option<&mut InputQueue>) -> Option<u8> {
+    pub fn removed_with(
+        &mut self,
+        id: SDL_JoystickID,
+        queue: Option<&mut InputQueue>,
+    ) -> Option<u8> {
         self.paused.retain(|(paused, _)| *paused != id);
         self.opened_at.retain(|(opened, _)| *opened != id);
         self.bt_audio_failed.retain(|failed| *failed != id);
@@ -262,7 +291,9 @@ impl Gamepads {
             cancel_touchpad_contacts(&mut pad, queue);
         }
         let slot = pad.slot();
-        if let Some(audio) = &pad.audio { audio.reset(pad.handle); }
+        if let Some(audio) = &pad.audio {
+            audio.reset(pad.handle);
+        }
         drop(pad.audio);
         // SAFETY: a gamepad we opened.
         unsafe { SDL_CloseGamepad(pad.handle) };
@@ -349,14 +380,24 @@ impl Gamepads {
             return None;
         }
         self.refused_notice_shown = true;
-        Some(trf("This PC takes {} controllers", &[&self.controller_limit()]))
+        Some(trf(
+            "This PC takes {} controllers",
+            &[&self.controller_limit()],
+        ))
     }
 
     /// The gamepads the PC has during the stream: player 1 alone with "Controllers" One player
     /// (also without a controller, as Android keeps it for games that miss one added later), else
     /// one for each controller.
     pub fn active_mask(&self) -> u16 {
-        if self.one_player { 1 } else { self.pads.iter().filter(|p| !p.refused).fold(0, |m, p| m | (1 << p.sent_as)) }
+        if self.one_player {
+            1
+        } else {
+            self.pads
+                .iter()
+                .filter(|p| !p.refused)
+                .fold(0, |m, p| m | (1 << p.sent_as))
+        }
     }
 
     /// The gamepad mask a launch with `settings` tells the PC: none with "Controllers" Off, player 1
@@ -371,7 +412,9 @@ impl Gamepads {
 
     /// The controllers the PC knows as gamepad `index`: one, or every one with One player.
     fn sent_as(&self, index: u16) -> impl Iterator<Item = &Pad> {
-        self.pads.iter().filter(move |pad| u16::from(pad.sent_as) == index)
+        self.pads
+            .iter()
+            .filter(move |pad| u16::from(pad.sent_as) == index)
     }
 
     /// What each controller's state goes through on its way to the PC.
@@ -389,107 +432,14 @@ impl Gamepads {
         let pad = self.pads.iter().find(|p| p.id == id)?;
         // SAFETY: the handle lives as long as its Pad.
         unsafe {
-            let stick = SDL_GamepadHasAxis(pad.handle, SDL_GAMEPAD_AXIS_LEFTX) && SDL_GamepadHasAxis(pad.handle, SDL_GAMEPAD_AXIS_LEFTY);
+            let stick = SDL_GamepadHasAxis(pad.handle, SDL_GAMEPAD_AXIS_LEFTX)
+                && SDL_GamepadHasAxis(pad.handle, SDL_GAMEPAD_AXIS_LEFTY);
             stick.then(|| SDL_GetGamepadType(pad.handle))
         }
     }
 
     pub fn find(&mut self, id: SDL_JoystickID) -> Option<&mut Pad> {
         self.pads.iter_mut().find(|p| p.id == id)
-    }
-
-    pub fn release(&mut self, queue: &mut InputQueue) {
-        let mask = self.active_mask();
-        for pad in &mut self.pads {
-            pad.mouse.release(queue);
-            pad.touchpad.release(queue);
-            cancel_touchpad_contacts(pad, queue);
-            pad.raw_buttons = 0;
-            pad.c_down = false;
-            pad.raw_axes = [0; 6];
-            pad.clickpad_swallowed = 0;
-            pad.back_waiting = false;
-            pad.guide = Guide::Up;
-            pad.buttons = 0;
-            pad.lt = 0;
-            pad.rt = 0;
-            pad.ls = (0, 0);
-            pad.rs = (0, 0);
-            if pad.announced {
-                send_state(pad, mask, queue);
-            }
-        }
-    }
-
-    /// Tracks local escape chords (Menu, Quit, Hold-Guide) while the Launch Curtain hides the PC
-    /// screen, without sending controller state or short Guide taps to the host.
-    pub fn handle_curtain(&mut self, event: &SDL_Event) -> Option<Action> {
-        let back_as_guide = self.back_as_guide && !self.back_opens_menu;
-        let back_opens_menu = self.back_opens_menu;
-        let guide_hold = self.guide_hold;
-        let quit = quit_mask(self.quit_combo);
-        let menu = crate::shortcuts::stream_controls_mask();
-        // SAFETY: union members read by event type.
-        unsafe {
-            let kind = SDL_EventType(event.r#type);
-            if !matches!(kind, SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_BUTTON_UP) {
-                return None;
-            }
-            let b = event.gbutton;
-            let pad = self.find(b.which)?;
-            if usize::from(b.button) >= BUTTON_MAP.len() {
-                return None;
-            }
-            let flag = 1 << b.button;
-            let guide = i32::from(b.button) == SDL_GAMEPAD_BUTTON_GUIDE.0
-                || (back_as_guide && i32::from(b.button) == SDL_GAMEPAD_BUTTON_BACK.0);
-            if guide_hold.is_some() && guide {
-                match (b.down, pad.guide) {
-                    (true, _) if pad.raw_buttons != 0 => pad.guide = Guide::Passed,
-                    (true, _) => {
-                        pad.guide = Guide::Held(std::time::Instant::now());
-                        pad.guide_bit = flag;
-                        return None;
-                    }
-                    (false, Guide::Held(_) | Guide::Opened | Guide::Tapped(_)) => {
-                        pad.guide = Guide::Up;
-                        return None;
-                    }
-                    (false, Guide::Up | Guide::Passed) => pad.guide = Guide::Up,
-                }
-            } else if b.down && matches!(pad.guide, Guide::Held(_)) {
-                pad.raw_buttons |= pad.guide_bit;
-                pad.guide = Guide::Passed;
-            }
-            if back_opens_menu && i32::from(b.button) == SDL_GAMEPAD_BUTTON_BACK.0 {
-                if !b.down {
-                    return std::mem::take(&mut pad.back_waiting).then_some(Action::Menu);
-                }
-                let held = pad.raw_buttons | flag;
-                if held != quit && held != menu {
-                    pad.back_waiting = pad.raw_buttons != 0 && held & !quit == 0;
-                    return (!pad.back_waiting).then_some(Action::Menu);
-                }
-                pad.back_waiting = true;
-            } else if b.down {
-                pad.raw_buttons |= flag;
-            } else {
-                pad.raw_buttons &= !flag;
-            }
-            let held = pad.raw_buttons
-                | if pad.back_waiting {
-                    1 << SDL_GAMEPAD_BUTTON_BACK.0
-                } else {
-                    0
-                };
-            if b.down && (held == quit || held == menu) {
-                pad.raw_buttons = 0;
-                pad.back_waiting = false;
-                pad.guide = Guide::Up;
-                return Some(if held == quit { Action::Quit } else { Action::Menu });
-            }
-            None
-        }
     }
 
     /// Applies an SDL gamepad event to the host's controller state. Returns an action for
@@ -520,7 +470,9 @@ impl Gamepads {
                         }
                         return None;
                     }
-                    if usize::from(b.button) >= BUTTON_MAP.len() { return None; }
+                    if usize::from(b.button) >= BUTTON_MAP.len() {
+                        return None;
+                    }
                     if touchpad_as_mouse && i32::from(b.button) == SDL_GAMEPAD_BUTTON_TOUCHPAD.0 {
                         pad.touchpad.button(b.down, queue);
                         return None;
@@ -529,7 +481,8 @@ impl Gamepads {
                     // With "Back button as Guide" Back is the PC's Guide, held for the menu like
                     // Guide (as on Android); its bit stays Back's for the local chords below.
                     let guide = i32::from(b.button) == SDL_GAMEPAD_BUTTON_GUIDE.0
-                        || (pad_settings.back_as_guide && i32::from(b.button) == SDL_GAMEPAD_BUTTON_BACK.0);
+                        || (pad_settings.back_as_guide
+                            && i32::from(b.button) == SDL_GAMEPAD_BUTTON_BACK.0);
                     if guide_hold.is_some() && guide {
                         let now = std::time::Instant::now();
                         match (b.down, pad.guide) {
@@ -559,7 +512,9 @@ impl Gamepads {
                                 return None;
                             }
                             (false, Guide::Opened | Guide::Tapped(_)) => {
-                                if pad.guide == Guide::Opened { pad.guide = Guide::Up; }
+                                if pad.guide == Guide::Opened {
+                                    pad.guide = Guide::Up;
+                                }
                                 return None;
                             }
                             // Passed with a chord: released below like any button.
@@ -590,9 +545,18 @@ impl Gamepads {
                     } else {
                         pad.raw_buttons &= !flag;
                     }
-                    let held = pad.raw_buttons | if pad.back_waiting { 1 << SDL_GAMEPAD_BUTTON_BACK.0 } else { 0 };
+                    let held = pad.raw_buttons
+                        | if pad.back_waiting {
+                            1 << SDL_GAMEPAD_BUTTON_BACK.0
+                        } else {
+                            0
+                        };
                     if b.down && (held == quit || held == menu) {
-                        let action = if held == quit { Action::Quit } else { Action::Menu };
+                        let action = if held == quit {
+                            Action::Quit
+                        } else {
+                            Action::Menu
+                        };
                         pad.raw_buttons = 0;
                         pad.c_down = false;
                         pad.back_waiting = false;
@@ -605,7 +569,13 @@ impl Gamepads {
                         return Some(action);
                     }
                     pad.update(pad_settings);
-                    let action = pad.mouse.update(pad.report(), mouse_emulation, precision, std::time::Instant::now(), queue);
+                    let action = pad.mouse.update(
+                        pad.report(),
+                        mouse_emulation,
+                        precision,
+                        std::time::Instant::now(),
+                        queue,
+                    );
                     send_state(pad, mask, queue);
                     return action.map(Action::Mouse);
                 }
@@ -621,13 +591,20 @@ impl Gamepads {
                 | SDL_EVENT_GAMEPAD_TOUCHPAD_UP => {
                     let t = event.gtouchpad;
                     let pad = self.find(t.which)?;
-                    if touchpad_as_mouse { pad.touchpad.touch(&t, queue); return None; }
+                    if touchpad_as_mouse {
+                        pad.touchpad.touch(&t, queue);
+                        return None;
+                    }
                     // A pad pinned as Xbox told the host it has no touchpad.
-                    if pad.refused || pad.mapping.drops_motion_and_touchpad() { return None; }
+                    if pad.refused || pad.mapping.drops_motion_and_touchpad() {
+                        return None;
+                    }
                     let contact = (t.touchpad as u8, t.finger as u32);
                     let phase = match kind {
                         SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN => {
-                            if !pad.touchpad_contacts.contains(&contact) && pad.touchpad_contacts.len() < 8 {
+                            if !pad.touchpad_contacts.contains(&contact)
+                                && pad.touchpad_contacts.len() < 8
+                            {
                                 pad.touchpad_contacts.push(contact);
                             }
                             touch_event::DOWN
@@ -637,7 +614,9 @@ impl Gamepads {
                             touch_event::UP
                         }
                         _ => {
-                            if !pad.touchpad_contacts.contains(&contact) && pad.touchpad_contacts.len() < 8 {
+                            if !pad.touchpad_contacts.contains(&contact)
+                                && pad.touchpad_contacts.len() < 8
+                            {
                                 pad.touchpad_contacts.push(contact);
                             }
                             touch_event::MOVE
@@ -656,16 +635,30 @@ impl Gamepads {
                 SDL_EVENT_GAMEPAD_SENSOR_UPDATE if motion => {
                     let s = event.gsensor;
                     let pad = self.find(s.which)?;
-                    if pad.refused || pad.mapping.drops_motion_and_touchpad() { return None; }
+                    if pad.refused || pad.mapping.drops_motion_and_touchpad() {
+                        return None;
+                    }
                     let [x, y, z] = s.data;
                     match SDL_SensorType(s.sensor) {
                         SDL_SENSOR_ACCEL => {
-                            let _ = queue.send_controller_motion(pad.sent_as, motion_type::ACCEL, x, y, z);
+                            let _ = queue.send_controller_motion(
+                                pad.sent_as,
+                                motion_type::ACCEL,
+                                x,
+                                y,
+                                z,
+                            );
                         }
                         SDL_SENSOR_GYRO => {
                             let deg = 57.295_78;
                             let [x, y, z] = pad.mapping.map_gyro([x * deg, y * deg, z * deg]);
-                            let _ = queue.send_controller_motion(pad.sent_as, motion_type::GYRO, x, y, z);
+                            let _ = queue.send_controller_motion(
+                                pad.sent_as,
+                                motion_type::GYRO,
+                                x,
+                                y,
+                                z,
+                            );
                         }
                         _ => {}
                     }
@@ -680,106 +673,14 @@ impl Gamepads {
         }
         None
     }
-
-    /// Holding Guide, on the stream loop's tick: true when a Guide held for the setting's time opens
-    /// the stream menu. A short press's release goes out here once the PC has seen it down (unless
-    /// `suppress_host` is set while the Launch Curtain hides the screen).
-    pub fn guide_tick(&mut self, now: std::time::Instant, queue: &mut InputQueue) -> bool {
-        self.guide_tick_mode(now, false, queue)
-    }
-
-    pub fn guide_tick_mode(
-        &mut self,
-        now: std::time::Instant,
-        suppress_host: bool,
-        queue: &mut InputQueue,
-    ) -> bool {
-        let (pad_settings, mask) = (self.pad_settings(), self.active_mask());
-        let mut open = false;
-        for pad in &mut self.pads {
-            match pad.guide {
-                Guide::Held(at) if self.guide_hold.is_some_and(|hold| now.duration_since(at) >= hold) => {
-                    pad.guide = Guide::Opened;
-                    open = true;
-                }
-                Guide::Tapped(at) if suppress_host || now.duration_since(at) >= GUIDE_TAP => {
-                    pad.raw_buttons &= !pad.guide_bit;
-                    pad.guide = Guide::Up;
-                    if !suppress_host {
-                        pad.update(pad_settings);
-                        send_state(pad, mask, queue);
-                    }
-                }
-                _ => {}
-            }
-        }
-        open
-    }
-
-    /// A Guide press waits on [`Self::guide_tick`]: the stream loop wakes often until it is settled.
-    pub fn guide_waiting(&self) -> bool {
-        self.pads.iter().any(|pad| matches!(pad.guide, Guide::Held(_) | Guide::Tapped(_)))
-    }
-
-    pub fn update_mouse(&mut self, queue: &mut InputQueue) -> bool {
-        let now = std::time::Instant::now();
-        let mut active = false;
-        for pad in &mut self.pads {
-            active |= pad.mouse.active;
-            pad.mouse.tick(pad.report(), self.analog_scrolling, self.mouse_fixed_step, now, queue);
-        }
-        active
-    }
-
-    /// The buttons that disconnect, as the settings chose them.
-    /// What the user chose for the controller's buttons in the stream menu.
-    pub fn menu_buttons(&self) -> &nightjar_policy::stream_menu::Buttons {
-        &self.menu_buttons
-    }
-
-    pub fn quit_combo(&self) -> crate::config::GamepadQuitCombo {
-        self.quit_combo
-    }
-
-    /// Whether Back opens the stream controls, as the settings chose.
-    pub fn back_opens_menu(&self) -> bool {
-        self.back_opens_menu
-    }
-
-    /// Any controller drives the mouse.
-    pub fn mouse_active(&self) -> bool {
-        self.pads.iter().any(|pad| pad.mouse.active)
-    }
-
-    /// The stream menu's controller mouse switch, as in V+ PC: the first controller's mouse turns
-    /// on, or every active one turns off. None without a controller.
-    pub fn toggle_mouse(&mut self, queue: &mut InputQueue) -> Option<bool> {
-        if self.mouse_active() {
-            for pad in self.pads.iter_mut().filter(|pad| pad.mouse.active) { pad.mouse.toggle(queue); }
-            return Some(false);
-        }
-        Some(self.pads.first_mut()?.mouse.toggle(queue))
-    }
-
-    pub fn release_mouse(&mut self, id: SDL_JoystickID, queue: &mut InputQueue) {
-        if let Some(pad) = self.find(id) {
-            pad.mouse.release(queue);
-            pad.touchpad.release(queue);
-            cancel_touchpad_contacts(pad, queue);
-        }
-    }
 }
 
-fn cancel_touchpad_contacts(pad: &mut Pad, queue: &mut InputQueue) {
-    pad.cancel_touchpad_contacts(queue);
-}
-
-#[cfg(test)]
-mod tests;
 #[cfg(test)]
 mod chords_tests;
 #[cfg(test)]
 mod slots_tests;
+#[cfg(test)]
+mod tests;
 
 #[cfg(test)]
 #[test]
@@ -792,6 +693,12 @@ fn sdl_button_indices_match_sdl3() {
     assert_eq!(idx::BACK as i32, SDL_GAMEPAD_BUTTON_BACK.0);
     assert_eq!(idx::GUIDE as i32, SDL_GAMEPAD_BUTTON_GUIDE.0);
     assert_eq!(idx::START as i32, SDL_GAMEPAD_BUTTON_START.0);
-    assert_eq!(idx::LEFT_SHOULDER as i32, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0);
-    assert_eq!(idx::RIGHT_SHOULDER as i32, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER.0);
+    assert_eq!(
+        idx::LEFT_SHOULDER as i32,
+        SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0
+    );
+    assert_eq!(
+        idx::RIGHT_SHOULDER as i32,
+        SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER.0
+    );
 }
